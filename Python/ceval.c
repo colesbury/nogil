@@ -352,6 +352,11 @@ _PyEval_ReInitThreads(_PyRuntimeState *runtime)
         Py_FatalError("Can't initialize threads for pending calls");
     }
 
+    PyInterpreterState *interp = current_tstate->interp;
+    if (pthread_rwlock_init(&interp->object_queues_lk, NULL) != 0) {
+        Py_FatalError("Can't initialize object queues mutex");
+    }
+
     /* Destroy all threads except the current one */
     _PyThreadState_DeleteExcept(runtime, current_tstate);
 }
