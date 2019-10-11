@@ -595,14 +595,15 @@ _PyImport_Cleanup(PyThreadState *tstate)
         for (i = PyList_GET_SIZE(weaklist) - 1; i >= 0; i--) {
             PyObject *tup = PyList_GET_ITEM(weaklist, i);
             PyObject *name = PyTuple_GET_ITEM(tup, 0);
-            PyObject *mod = PyWeakref_GET_OBJECT(PyTuple_GET_ITEM(tup, 1));
+            PyObject *mod = PyWeakref_LockObject(PyTuple_GET_ITEM(tup, 1));
             if (mod == Py_None)
                 continue;
             assert(PyModule_Check(mod));
             dict = PyModule_GetDict(mod);
-            if (dict == interp->builtins || dict == interp->sysdict)
+            if (dict == interp->builtins || dict == interp->sysdict) {
+                Py_DECREF(mod);
                 continue;
-            Py_INCREF(mod);
+            }
             if (verbose && PyUnicode_Check(name)) {
                 PySys_FormatStderr("# cleanup[3] wiping %U\n", name);
             }

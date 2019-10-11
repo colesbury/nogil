@@ -291,9 +291,10 @@ PyType_Modified(PyTypeObject *type)
         i = 0;
         while (PyDict_Next(raw, &i, NULL, &ref)) {
             assert(PyWeakref_CheckRef(ref));
-            ref = PyWeakref_GET_OBJECT(ref);
+            ref = PyWeakref_LockObject(ref);
             if (ref != Py_None) {
                 PyType_Modified((PyTypeObject *)ref);
+                Py_DECREF(ref);
             }
         }
     }
@@ -1304,10 +1305,7 @@ subtype_dealloc(PyObject *self)
            being finalized that has already been destroyed. */
         if (type->tp_weaklistoffset && !base->tp_weaklistoffset) {
             /* Modeled after GET_WEAKREFS_LISTPTR() */
-            PyWeakReference **list = (PyWeakReference **) \
-                _PyObject_GET_WEAKREFS_LISTPTR(self);
-            while (*list)
-                _PyWeakref_ClearRef(*list);
+            _PyObject_ClearWeakRefsFromGC(self);
         }
     }
 
@@ -3531,9 +3529,11 @@ type___subclasses___impl(PyTypeObject *self)
     i = 0;
     while (PyDict_Next(raw, &i, NULL, &ref)) {
         assert(PyWeakref_CheckRef(ref));
-        ref = PyWeakref_GET_OBJECT(ref);
+        ref = PyWeakref_LockObject(ref);
         if (ref != Py_None) {
-            if (PyList_Append(list, ref) < 0) {
+            int err = PyList_Append(list, ref);
+            Py_DECREF(ref);
+            if (err < 0) {
                 Py_DECREF(list);
                 return NULL;
             }
@@ -7774,7 +7774,7 @@ recurse_down_subclasses(PyTypeObject *type, PyObject *name,
     i = 0;
     while (PyDict_Next(subclasses, &i, NULL, &ref)) {
         assert(PyWeakref_CheckRef(ref));
-        subclass = (PyTypeObject *)PyWeakref_GET_OBJECT(ref);
+        subclass = (PyTypeObject *)PyWeakref_LockObject(ref);
         assert(subclass != NULL);
         if ((PyObject *)subclass == Py_None)
             continue;
@@ -7783,14 +7783,19 @@ recurse_down_subclasses(PyTypeObject *type, PyObject *name,
         dict = subclass->tp_dict;
         if (dict != NULL && PyDict_Check(dict)) {
             if (PyDict_GetItemWithError(dict, name) != NULL) {
+                Py_DECREF(subclass);
                 continue;
             }
             if (PyErr_Occurred()) {
+                Py_DECREF(subclass);
                 return -1;
             }
         }
-        if (update_subclasses(subclass, name, callback, data) < 0)
+        if (update_subclasses(subclass, name, callback, data) < 0) {
+            Py_DECREF(subclass);
             return -1;
+        }
+        Py_DECREF(subclass);
     }
     return 0;
 }
