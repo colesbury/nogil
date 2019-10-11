@@ -12,6 +12,7 @@ extern "C" {
 
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
+PyAPI_FUNC(void) _PyObject_Dealloc(PyObject *self);
 
 /* Tell the GC to track this object.
  *

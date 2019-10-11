@@ -2078,7 +2078,6 @@ solid_base(PyTypeObject *type)
         return base;
 }
 
-static void object_dealloc(PyObject *);
 static int object_init(PyObject *, PyObject *, PyObject *);
 static int update_slot(PyTypeObject *, PyObject *);
 static void fixup_slot_dispatchers(PyTypeObject *);
@@ -3824,8 +3823,8 @@ object_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return type->tp_alloc(type, 0);
 }
 
-static void
-object_dealloc(PyObject *self)
+void
+_PyObject_Dealloc(PyObject *self)
 {
     Py_TYPE(self)->tp_free(self);
 }
@@ -4832,7 +4831,7 @@ PyTypeObject PyBaseObject_Type = {
     "object",                                   /* tp_name */
     sizeof(PyObject),                           /* tp_basicsize */
     0,                                          /* tp_itemsize */
-    object_dealloc,                             /* tp_dealloc */
+    _PyObject_Dealloc,                          /* tp_dealloc */
     0,                                          /* tp_vectorcall_offset */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */

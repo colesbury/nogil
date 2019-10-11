@@ -74,9 +74,10 @@ PyAPI_FUNC(void) _PyWeakref_ClearRef(PyWeakReference *self);
    be able to "see" the target object even though it is supposed to be
    unreachable.  See issue #16602. */
 
-#define PyWeakref_GET_OBJECT(ref)                           \
-    (Py_REFCNT(((PyWeakReference *)(ref))->wr_object) > 0   \
-     ? ((PyWeakReference *)(ref))->wr_object                \
+// TODO(sgross): this is worrying
+#define PyWeakref_GET_OBJECT(ref)                             \
+    (Py_IS_REFERENCED(((PyWeakReference *)(ref))->wr_object)  \
+     ? ((PyWeakReference *)(ref))->wr_object                  \
      : Py_None)
 
 

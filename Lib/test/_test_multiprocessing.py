@@ -605,6 +605,7 @@ class _TestProcess(BaseTestCase):
         del c
         p.start()
         p.join()
+        import gc; gc.collect()
         self.assertIs(wr(), None)
         self.assertEqual(q.get(), 5)
         close_queue(q)
@@ -2643,6 +2644,7 @@ class _TestPool(BaseTestCase):
 
         del objs
         time.sleep(DELTA)  # let threaded cleanup code run
+        import gc; gc.collect()
         self.assertEqual(set(wr() for wr in refs), {None})
         # With a process pool, copies of the objects are returned, check
         # they were released too.

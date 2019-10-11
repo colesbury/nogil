@@ -1952,7 +1952,7 @@ static int
 unicode_modifiable(PyObject *unicode)
 {
     assert(_PyUnicode_CHECK(unicode));
-    if (Py_REFCNT(unicode) != 1)
+    if (!_PyObject_HasLocalRefcnt(unicode, 1))
         return 0;
     if (_PyUnicode_HASH(unicode) != -1)
         return 0;

@@ -129,8 +129,11 @@ class ThreadRunningTests(BasicThreadTest):
             done = []
             wr = weakref.ref(task, lambda _: done.append(None))
             del task
+            # FIXME (sgross): gc bleh
+            import gc
             while not done:
                 time.sleep(POLL_SLEEP)
+                gc.collect()
             self.assertEqual(thread._count(), orig)
 
     def test_unraisable_exception(self):

@@ -551,6 +551,14 @@ extern "C" {
 #  define _Py_NO_INLINE
 #endif
 
+#if defined(_MSC_VER)
+#  define _Py_ALWAYS_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#  define _Py_ALWAYS_INLINE __attribute__ ((always_inline))
+#else
+#  define _Py_ALWAYS_INLINE
+#endif
+
 /**************************************************************************
 Prototypes that are missing from the standard include files on some systems
 (and possibly only some versions of such systems.)

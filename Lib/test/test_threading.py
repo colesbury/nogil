@@ -17,6 +17,7 @@ import os
 import subprocess
 import signal
 import textwrap
+import gc
 
 from test import lock_tests
 from test import support
@@ -401,6 +402,7 @@ class ThreadTests(BaseTestCase):
         weak_cyclic_object = weakref.ref(cyclic_object)
         cyclic_object.thread.join()
         del cyclic_object
+        gc.collect()
         self.assertIsNone(weak_cyclic_object(),
                          msg=('%d references still around' %
                               sys.getrefcount(weak_cyclic_object())))
@@ -409,6 +411,7 @@ class ThreadTests(BaseTestCase):
         weak_raising_cyclic_object = weakref.ref(raising_cyclic_object)
         raising_cyclic_object.thread.join()
         del raising_cyclic_object
+        gc.collect()
         self.assertIsNone(weak_raising_cyclic_object(),
                          msg=('%d references still around' %
                               sys.getrefcount(weak_raising_cyclic_object())))

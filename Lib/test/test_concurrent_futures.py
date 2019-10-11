@@ -779,8 +779,10 @@ class ExecutorTest:
         my_object_callback = weakref.ref(
             my_object, lambda obj: my_object_collected.set())
         # Deliberately discarding the future.
-        self.executor.submit(my_object.my_method)
+        f = self.executor.submit(my_object.my_method)
         del my_object
+        f.result()
+        import gc; gc.collect()
 
         collected = my_object_collected.wait(timeout=support.SHORT_TIMEOUT)
         self.assertTrue(collected,
@@ -799,6 +801,8 @@ class ExecutorTest:
         for obj in self.executor.map(make_dummy_object, range(10)):
             wr = weakref.ref(obj)
             del obj
+            # TODO (sgross): clean-up??
+            import gc; gc.collect()
             self.assertIsNone(wr())
 
 

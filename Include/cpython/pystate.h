@@ -95,6 +95,9 @@ struct _ts {
     PyObject *async_exc; /* Asynchronous exception to raise */
     unsigned long thread_id; /* Thread id where this tstate was created */
 
+    uint64_t fast_thread_id; /* Thread id used for object ownership */
+    PyObject *object_queue;
+
     int trash_delete_nesting;
     PyObject *trash_delete_later;
 
@@ -174,6 +177,9 @@ PyAPI_FUNC(PyInterpreterState *) _PyGILState_GetInterpreterStateUnsafe(void);
    thread id to that thread's current frame.
 */
 PyAPI_FUNC(PyObject *) _PyThread_CurrentFrames(void);
+
+
+PyAPI_FUNC(void) _Py_explicit_merge_all(void);
 
 /* Routines for advanced debuggers, requested by David Beazley.
    Don't use unless you know what you are doing! */

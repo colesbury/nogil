@@ -30,6 +30,7 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
+#include "pycore_refcnt.h"
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
 #include "pytime.h"             /* for _PyTime_GetMonotonicClock() */
@@ -403,6 +404,19 @@ validate_list(PyGC_Head *head, enum flagstates flags)
 
 /*** end of list stuff ***/
 
+static Py_ssize_t
+_Py_GC_REFCNT(PyObject *op)
+{
+    Py_ssize_t local, shared;
+    int immortal, queued, merged;
+
+    _PyRef_UnpackLocal(op->ob_ref_local, &local, &immortal);
+    _PyRef_UnpackShared(op->ob_ref_shared, &shared, &queued, &merged);
+
+    assert(!immortal);
+
+    return local + shared;
+}
 
 /* Set all gc_refs = ob_refcnt.  After this, gc_refs is > 0 and
  * PREV_MASK_COLLECTING bit is set for all objects in containers.
@@ -412,7 +426,7 @@ update_refs(PyGC_Head *containers)
 {
     PyGC_Head *gc = GC_NEXT(containers);
     for (; gc != containers; gc = GC_NEXT(gc)) {
-        gc_reset_refs(gc, Py_REFCNT(FROM_GC(gc)));
+        gc_reset_refs(gc, _Py_GC_REFCNT(FROM_GC(gc)));
         /* Python's cyclic gc should never see an incoming refcount
          * of 0:  if something decref'ed to 0, it should have been
          * deallocated immediately at that time.
@@ -989,7 +1003,7 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
         PyGC_Head *gc = GC_NEXT(collectable);
         PyObject *op = FROM_GC(gc);
 
-        _PyObject_ASSERT_WITH_MSG(op, Py_REFCNT(op) > 0,
+        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) > 0,
                                   "refcount is too small");
 
         if (gcstate->debug & DEBUG_SAVEALL) {
@@ -1198,6 +1212,9 @@ collect(PyThreadState *tstate, int generation,
     for (i = 0; i <= generation; i++)
         gcstate->generations[i].count = 0;
 
+    /* explicitly merge refcnts all queued objects */
+    _Py_explicit_merge_all();
+
     /* merge younger generations with one we are currently collecting */
     for (i = 0; i < generation; i++) {
         gc_list_merge(GEN_HEAD(gcstate, i), GEN_HEAD(gcstate, generation));
@@ -1396,6 +1413,9 @@ static Py_ssize_t
 collect_generations(PyThreadState *tstate)
 {
     GCState *gcstate = &tstate->interp->gc;
+
+    _Py_explicit_merge_all();  // TODO: duplicate. remove?
+
     /* Find the oldest generation (highest numbered) where the count
      * exceeds the threshold.  Objects in the that generation and
      * generations younger than it will be collected. */

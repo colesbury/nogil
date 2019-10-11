@@ -1,5 +1,6 @@
 #include "Python.h"
 #include "structmember.h"
+#include "internal/pycore_refcnt.h"
 
 
 #define GET_WEAKREFS_LISTPTR(o) \

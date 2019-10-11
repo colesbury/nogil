@@ -12,6 +12,8 @@ extern "C" {
 #include "pycore_pymem.h"     /* struct _gc_runtime_state */
 #include "pycore_warnings.h"  /* struct _warnings_runtime_state */
 
+/* Forward declaration */
+struct _Py_hashtable_t;
 
 /* ceval state */
 
@@ -113,6 +115,9 @@ struct _is {
 #endif
 
     PyObject *dict;  /* Stores per-interpreter state */
+
+    struct _Py_hashtable_t *object_queues;
+    pthread_rwlock_t object_queues_lk;
 
     PyObject *builtins_copy;
     PyObject *import_func;
@@ -231,7 +236,7 @@ typedef struct pyruntimestate {
         PyInterpreterState *head;
         PyInterpreterState *main;
         /* _next_interp_id is an auto-numbered sequence of small
-           integers.  It gets initialized in _PyInterpreterState_Init(),
+           integers.  It gets initialized in _PyInterpreterState_Enable(),
            which is called in Py_Initialize(), and used in
            PyInterpreterState_New().  A negative interpreter ID
            indicates an error occurred.  The main interpreter will

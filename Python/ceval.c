@@ -5320,7 +5320,7 @@ unicode_concatenate(PyThreadState *tstate, PyObject *v, PyObject *w,
                     PyFrameObject *f, const _Py_CODEUNIT *next_instr)
 {
     PyObject *res;
-    if (Py_REFCNT(v) == 2) {
+    if (_PyObject_HasLocalRefcnt(v, 2)) {
         /* In the common case, there are 2 references to the value
          * stored in 'variable' when the += is performed: one on the
          * value stack (in 'v') and one still stored in the

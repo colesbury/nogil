@@ -96,6 +96,7 @@ class _ThreadWakeup:
 
 def _python_exit():
     global _global_shutdown
+    import gc; gc.collect()
     _global_shutdown = True
     items = list(_threads_wakeups.items())
     for _, thread_wakeup in items:
@@ -594,6 +595,7 @@ class ProcessPoolExecutor(_base.Executor):
             # When the executor gets garbarge collected, the weakref callback
             # will wake up the queue management thread so that it can terminate
             # if there is no pending work item.
+
             def weakref_cb(_,
                            thread_wakeup=self._queue_management_thread_wakeup):
                 mp.util.debug('Executor collected: triggering callback for'
@@ -603,7 +605,7 @@ class ProcessPoolExecutor(_base.Executor):
             self._adjust_process_count()
             self._queue_management_thread = threading.Thread(
                 target=_queue_management_worker,
-                args=(weakref.ref(self, weakref_cb),
+                args=(sys.mergerefcount(weakref.ref(self, weakref_cb)),
                       self._processes,
                       self._pending_work_items,
                       self._work_ids,
@@ -703,6 +705,14 @@ class ProcessPoolExecutor(_base.Executor):
         if self._queue_management_thread_wakeup:
             self._queue_management_thread_wakeup.close()
             self._queue_management_thread_wakeup = None
+
+        # TODO(sgross): This is necessary so that something that refers to the
+        # weakref with weakref_cb gets collected before the executor gets destroyed
+        # In the future, with regular processing of the object queue it might not
+        # be necessary. Alternatively, we may want to manually process the object
+        # queue (but hopefully not!)
+        import gc
+        gc.collect()
 
     shutdown.__doc__ = _base.Executor.shutdown.__doc__
 

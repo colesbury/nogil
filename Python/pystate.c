@@ -7,6 +7,8 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "pycore_pylifecycle.h"
+#include "pycore_refcnt.h"
+#include "../Modules/hashtable.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -213,6 +215,22 @@ PyInterpreterState_New(void)
     _PyRuntimeState *runtime = &_PyRuntime;
     interp->runtime = runtime;
 
+
+    interp->object_queues =
+        _Py_hashtable_new(sizeof(uint64_t), sizeof(void*),
+                          _Py_hashtable_hash_ptr,
+                          _Py_hashtable_compare_direct);
+    if (!interp->object_queues) {
+        PyMem_RawFree(interp);
+        return NULL;
+    }
+
+    if (pthread_rwlock_init(&interp->object_queues_lk, NULL) != 0) {
+        _Py_hashtable_destroy(interp->object_queues);
+        PyMem_RawFree(interp);
+        return NULL;
+    }
+
     _PyGC_InitState(&interp->gc);
     PyConfig_InitPythonConfig(&interp->config);
 
@@ -292,6 +310,12 @@ PyInterpreterState_Clear(PyInterpreterState *interp)
     Py_CLEAR(interp->after_forkers_parent);
     Py_CLEAR(interp->after_forkers_child);
 #endif
+
+    _Py_hashtable_destroy(interp->object_queues);
+    interp->object_queues = NULL;
+
+    pthread_rwlock_destroy(&interp->object_queues_lk);
+
     if (runtime->finalizing == NULL) {
         _PyWarnings_Fini(interp);
     }
@@ -593,6 +617,7 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->c_profileobj = NULL;
     tstate->c_traceobj = NULL;
 
+    tstate->object_queue = NULL;
     tstate->trash_delete_nesting = 0;
     tstate->trash_delete_later = NULL;
     tstate->on_delete = NULL;
@@ -638,6 +663,9 @@ _PyThreadState_Prealloc(PyInterpreterState *interp)
 void
 _PyThreadState_Init(PyThreadState *tstate)
 {
+    tstate->fast_thread_id = _Py_ThreadId();
+    // printf("_PyThreadState_Init: %p (tid %ld) runtime=%p interp=%p\n", tstate, tstate->fast_thread_id, runtime, tstate->interp);
+    _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
 
@@ -777,6 +805,12 @@ PyThreadState_Clear(PyThreadState *tstate)
     if (verbose && tstate->frame != NULL)
         fprintf(stderr,
           "PyThreadState_Clear: warning: thread still has a frame\n");
+
+    if (!tstate->fast_thread_id) {
+        Py_FatalError("no tstate->fast_thread_id");
+    }
+    _Py_queue_destroy(tstate);
+    tstate->fast_thread_id = 0;
 
     Py_CLEAR(tstate->frame);
 
@@ -1119,6 +1153,33 @@ _PyThread_CurrentFrames(void)
     HEAD_UNLOCK(runtime);
     Py_DECREF(result);
     return NULL;
+}
+
+void
+_Py_explicit_merge_all(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    /* Although the GIL is held, a few C API functions can be called
+     * without the GIL held, and in particular some that create and
+     * destroy thread and interpreter states.  Those can mutate the
+     * list of thread states we're traversing, so to prevent that we lock
+     * head_mutex for the duration.
+     */
+    HEAD_LOCK(runtime);
+    PyInterpreterState *i;
+    for (i = runtime->interpreters.head; i != NULL; i = i->next) {
+        PyThreadState *p;
+        for (p = i->tstate_head; p != NULL; p = p->next) {
+            HEAD_UNLOCK(runtime);
+            // FIXME (sgross): without the unlock we can deadlock. I think
+            // what happens is that a destructor releases the GIL and another thread
+            // acquires the GIL and then tries to HEAD_LOCK.
+            _Py_queue_process(p);
+            HEAD_LOCK(runtime);
+        }
+    }
+    HEAD_UNLOCK(runtime);
 }
 
 /* Python "auto thread state" API. */

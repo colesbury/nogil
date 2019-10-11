@@ -1659,6 +1659,77 @@ sys_getrefcount_impl(PyObject *module, PyObject *object)
     return Py_REFCNT(object);
 }
 
+/*[clinic input]
+sys.getfullrefcount ->
+
+    object:  object
+    /
+
+Return the reference count of object.
+
+The count returned is generally one higher than you might expect,
+because it includes the (temporary) reference as an argument to
+getrefcount().
+[clinic start generated code]*/
+
+static PyObject *
+sys_getfullrefcount_impl(PyObject *module, PyObject *object)
+/*[clinic end generated code: output=5fd477f2264b85b2 input=bf474efd50a21535]*/
+{
+    PyObject *res = PyDict_New();
+    if (!res) {
+        return NULL;
+    }
+
+    // TODO (sgross): clean this up
+    uintptr_t tid = _PyObject_ThreadId(object);
+
+    Py_ssize_t local, shared;
+    int immortal, queued, merged;
+
+    _PyRef_UnpackLocal(object->ob_ref_local, &local, &immortal);
+    _PyRef_UnpackShared(object->ob_ref_shared, &shared, &queued, &merged);
+
+    PyDict_SetItemString(res, "local", PyLong_FromSsize_t(local));
+    PyDict_SetItemString(res, "shared", PyLong_FromSsize_t(shared));
+    PyDict_SetItemString(res, "merged", PyBool_FromLong(merged));
+    PyDict_SetItemString(res, "queued", PyBool_FromLong(queued));
+    PyDict_SetItemString(res, "immortal", PyBool_FromLong(immortal));
+    if (queued) {
+        Py_INCREF(Py_None);
+        PyDict_SetItemString(res, "tid", Py_None);
+    }
+    else {
+        PyDict_SetItemString(res, "tid", PyLong_FromVoidPtr((void*)tid));
+    }
+
+    return res;
+}
+
+/*[clinic input]
+sys.mergerefcount -> Py_ssize_t
+
+    object:  object
+    /
+
+Return the reference count of object.
+
+The count returned is generally one higher than you might expect,
+because it includes the (temporary) reference as an argument to
+getrefcount().
+[clinic start generated code]*/
+
+static PyObject *
+sys_mergerefcount_impl(PyObject *module, PyObject *object)
+/*[clinic end generated code: output=5fd477f2264b85b2 input=bf474efd50a21535]*/
+{
+    if (_PyObject_ThreadId(object) == _Py_ThreadId()) {
+        _Py_ExplicitMergeRefcount(object);
+    }
+    Py_INCREF(object);
+    return object;
+}
+
 #ifdef Py_REF_DEBUG
 /*[clinic input]
 sys.gettotalrefcount -> Py_ssize_t
@@ -1875,6 +1946,8 @@ static PyMethodDef sys_methods[] = {
 #endif
     SYS_GETTOTALREFCOUNT_METHODDEF
     SYS_GETREFCOUNT_METHODDEF
+    SYS_GETFULLREFCOUNT_METHODDEF
+    SYS_MERGEREFCOUNT_METHODDEF
     SYS_GETRECURSIONLIMIT_METHODDEF
     {"getsizeof",   (PyCFunction)(void(*)(void))sys_getsizeof,
      METH_VARARGS | METH_KEYWORDS, getsizeof_doc},
