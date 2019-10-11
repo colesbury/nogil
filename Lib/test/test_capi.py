@@ -474,7 +474,7 @@ class CAPITest(unittest.TestCase):
         inst = _testcapi.HeapCTypeWithWeakref()
         ref = weakref.ref(inst)
         self.assertEqual(ref(), inst)
-        self.assertEqual(inst.weakreflist, ref)
+        self.assertIsNotNone(inst.weakreflist)
 
     def test_heaptype_with_buffer(self):
         inst = _testcapi.HeapCTypeWithBuffer()

@@ -12,6 +12,23 @@ extern "C" {
 #include "pycore_interp.h"     // PyInterpreterState.gc
 #include "pycore_pystate.h"    // _PyThreadState_GET()
 
+struct _PyWeakrefBase;
+
+struct _PyWeakrefControl {
+    struct _PyWeakrefBase base;
+
+    _PyMutex mutex;
+
+    /* The object to which this is a weak reference, or Py_None if none.
+     * Note that this is a stealth reference:  wr_object's refcount is
+     * not incremented to reflect this pointer.
+     */
+    PyObject *wr_object;
+};
+
+typedef struct _PyWeakrefControl PyWeakrefControl;
+typedef struct _PyWeakrefBase PyWeakrefBase;
+
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
 PyAPI_FUNC(void) _PyObject_Dealloc(PyObject *self);
@@ -118,6 +135,19 @@ _PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
 {
     Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
     return (PyObject **)((char *)op + offset);
+}
+
+static inline PyWeakrefControl **
+_PyObject_GET_WEAKREFS_CONTROLPTR(PyObject *op)
+{
+    Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
+    return (PyWeakrefControl **)((char *)op + offset);
+}
+
+static inline PyWeakrefControl *
+_PyObject_GET_WEAKREF_CONTROL(PyObject *op)
+{
+    return _Py_atomic_load_ptr(_PyObject_GET_WEAKREFS_CONTROLPTR(op));
 }
 
 // Fast inlined version of PyType_HasFeature()
