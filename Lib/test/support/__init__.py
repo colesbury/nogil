@@ -1478,7 +1478,7 @@ def python_is_optimized():
     return final_opt not in ('', '-O0', '-Og')
 
 
-_header = 'nPP'
+_header = 'QQP'  # TODO: using Q instead of two int32_t?
 _align = '0n'
 if hasattr(sys, "getobjects"):
     _header = '2P' + _header
@@ -2029,6 +2029,10 @@ def threading_cleanup(*original_values):
     global environment_altered
 
     _MAX_COUNT = 100
+
+    # TODO(sgross): figure out if we can remove this. Currently, without
+    # this we get a lot of dangling threads.
+    import gc; gc.collect()
 
     for count in range(_MAX_COUNT):
         values = _thread._count(), threading._dangling
