@@ -16,6 +16,8 @@ typedef struct _PyWeakReference PyWeakReference;
 struct _PyWeakReference {
     PyObject_HEAD
 
+    PyThread_type_lock mutex;
+
     /* The object to which this is a weak reference, or Py_None if none.
      * Note that this is a stealth reference:  wr_object's refcount is
      * not incremented to reflect this pointer.
@@ -24,6 +26,8 @@ struct _PyWeakReference {
 
     /* A callable to invoke when wr_object dies, or NULL if none. */
     PyObject *wr_callback;
+
+    PyWeakReference *wr_parent;
 
     /* A cache for wr_object's hash code.  As usual for hashes, this is -1
      * if the hash code isn't known yet.
@@ -54,14 +58,15 @@ PyAPI_DATA(PyTypeObject) _PyWeakref_CallableProxyType;
 #define PyWeakref_Check(op) \
         (PyWeakref_CheckRef(op) || PyWeakref_CheckProxy(op))
 
-
+#ifndef Py_LIMITED_API
 PyAPI_FUNC(PyObject *) PyWeakref_NewRef(PyObject *ob,
                                               PyObject *callback);
 PyAPI_FUNC(PyObject *) PyWeakref_NewProxy(PyObject *ob,
                                                 PyObject *callback);
 PyAPI_FUNC(PyObject *) PyWeakref_GetObject(PyObject *ref);
 
-#ifndef Py_LIMITED_API
+PyAPI_FUNC(PyObject *) PyWeakref_LockObject(PyObject *ref);
+
 PyAPI_FUNC(Py_ssize_t) _PyWeakref_GetWeakrefCount(PyWeakReference *head);
 
 PyAPI_FUNC(void) _PyWeakref_ClearRef(PyWeakReference *self);
@@ -74,11 +79,8 @@ PyAPI_FUNC(void) _PyWeakref_ClearRef(PyWeakReference *self);
    be able to "see" the target object even though it is supposed to be
    unreachable.  See issue #16602. */
 
-// TODO(sgross): this is worrying
-#define PyWeakref_GET_OBJECT(ref)                             \
-    (Py_IS_REFERENCED(((PyWeakReference *)(ref))->wr_object)  \
-     ? ((PyWeakReference *)(ref))->wr_object                  \
-     : Py_None)
+// TODO(sgross): deprecate this
+#define PyWeakref_GET_OBJECT(ref) PyWeakref_GetObject(_PyObject_CAST(ref))
 
 
 #ifdef __cplusplus

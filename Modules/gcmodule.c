@@ -1093,8 +1093,6 @@ handle_weakrefs(PyGC_Head *unreachable, int old_generation)
      * pass completes.
      */
     for (gc = GC_NEXT(unreachable); gc != unreachable; gc = next) {
-        PyWeakReference **wrlist;
-
         op = FROM_GC(gc);
         next = GC_NEXT(gc);
 
@@ -1117,20 +1115,15 @@ handle_weakrefs(PyGC_Head *unreachable, int old_generation)
             continue;
 
         /* It supports weakrefs.  Does it have any? */
-        wrlist = (PyWeakReference **)
-                                PyObject_GET_WEAKREFS_LISTPTR(op);
+        PyWeakReference *root = (PyWeakReference *) _Py_atomic_load_ptr(
+                (volatile void **)PyObject_GET_WEAKREFS_LISTPTR(op));
+
+        if (!root)
+            continue;
 
         PyWeakReference *wr;
-        for (wr = *wrlist; wr != NULL; wr = *wrlist) {
+        for (wr = root->wr_next; wr != NULL; wr = wr->wr_next) {
             PyGC_Head *wrasgc;                  /* AS_GC(wr) */
-
-            /* _PyWeakref_ClearRef clears the weakref but leaves
-             * the callback pointer intact.  Obscure:  it also
-             * changes *wrlist.
-             */
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == op);
-            _PyWeakref_ClearRef(wr);
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == Py_None);
 
             if (wr->wr_callback == NULL) {
                 /* no callback */
@@ -1166,8 +1159,6 @@ handle_weakrefs(PyGC_Head *unreachable, int old_generation)
              * is moved to wrcb_to_call in this case.
              */
             if (GC_BITS_IS_UNREACHABLE(AS_GC(wr))) {
-                /* it should already have been cleared above */
-                assert(wr->wr_object == Py_None);
                 continue;
             }
 
@@ -1187,6 +1178,11 @@ handle_weakrefs(PyGC_Head *unreachable, int old_generation)
             gc_list_append(wrasgc, &wrcb_to_call);
             // FIXME: need to set collecting????
         }
+
+        /* Clear the root weakref but does not invoke any callbacks.
+         * Other weak references reference this object
+         */
+        _PyObject_ClearWeakRefsFromGC(op);
     }
 
     /* Invoke the callbacks we decided to honor.  It's safe to invoke them
@@ -2135,6 +2131,7 @@ gc_get_objects_visitor(PyGC_Head *gc, void *void_arg)
     if (op == py_list) {
         return 0;
     }
+    // generation == -1 ????
     if (generation == 0 || GC_BITS_GENERATION(gc) == generation) {
         if (PyList_Append(py_list, op)) {
             return -1;

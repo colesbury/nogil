@@ -1253,10 +1253,7 @@ subtype_dealloc(PyObject *self)
            being finalized that has already been destroyed. */
         if (type->tp_weaklistoffset && !base->tp_weaklistoffset) {
             /* Modeled after GET_WEAKREFS_LISTPTR() */
-            PyWeakReference **list = (PyWeakReference **) \
-                PyObject_GET_WEAKREFS_LISTPTR(self);
-            while (*list)
-                _PyWeakref_ClearRef(*list);
+            _PyObject_ClearWeakRefsFromGC(self);
         }
     }
 
