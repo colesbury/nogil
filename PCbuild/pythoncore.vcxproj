@@ -199,6 +199,7 @@
     <ClInclude Include="..\Include\internal\pycore_pylifecycle.h" />
     <ClInclude Include="..\Include\internal\pycore_pymem.h" />
     <ClInclude Include="..\Include\internal\pycore_pystate.h" />
+    <ClInclude Include="..\Include\internal\pycore_refcnt.h" />
     <ClInclude Include="..\Include\internal\pycore_runtime.h" />
     <ClInclude Include="..\Include\internal\pycore_sysmodule.h" />
     <ClInclude Include="..\Include\internal\pycore_traceback.h" />
@@ -490,6 +491,7 @@
     <ClCompile Include="..\Python\pyfpe.c" />
     <ClCompile Include="..\Python\pylifecycle.c" />
     <ClCompile Include="..\Python\pymath.c" />
+    <ClCompile Include="..\Python\pyrefcnt.c" />
     <ClCompile Include="..\Python\pytime.c" />
     <ClCompile Include="..\Python\pystate.c" />
     <ClCompile Include="..\Python\pystrcmp.c" />

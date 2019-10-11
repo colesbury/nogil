@@ -24,6 +24,7 @@
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
 #include "pycore_import.h"        // _PyImport_ReInitLock()
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
+#include "pycore_refcnt.h"        // _Py_queue_after_fork()
 #include "parking_lot.h"
 #include "structmember.h"         // PyMemberDef
 #ifndef MS_WINDOWS
@@ -589,6 +590,7 @@ PyOS_AfterFork_Child(void)
     _PyEval_ReInitThreads(runtime);
     _PyImport_ReInitLock();
     _PySignal_AfterFork();
+    _Py_queue_after_fork();
     _PyRuntimeState_ReInitThreads(runtime);
     _PyInterpreterState_DeleteExceptMain(runtime);
 

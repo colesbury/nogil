@@ -20,6 +20,7 @@
 #include "pycore_pylifecycle.h"
 #include "pycore_pymem.h"         // _PyMem_IsPtrFreed()
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
+#include "pycore_refcnt.h"
 #include "pycore_sysmodule.h"
 #include "pycore_tupleobject.h"
 
@@ -752,6 +753,11 @@ eval_handle_breaker(PyThreadState *tstate)
 
     /* load eval breaker */
     uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
+
+    if ((b & EVAL_EXPLICIT_MERGE) != 0) {
+        _PyThreadState_Unsignal(tstate, EVAL_EXPLICIT_MERGE);
+        _Py_queue_process(tstate);
+    }
 
     /* Pending signals */
     if ((b & EVAL_PENDING_SIGNALS) != 0) {
@@ -5394,7 +5400,7 @@ unicode_concatenate(PyThreadState *tstate, PyObject *v, PyObject *w,
                     PyFrameObject *f, const _Py_CODEUNIT *next_instr)
 {
     PyObject *res;
-    if (Py_REFCNT(v) == 2) {
+    if (_PyObject_HasLocalRefcnt(v, 2)) {
         /* In the common case, there are 2 references to the value
          * stored in 'variable' when the += is performed: one on the
          * value stack (in 'v') and one still stored in the

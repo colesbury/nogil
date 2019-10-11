@@ -8,6 +8,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#include "pycore_llist.h"     /* llist_data */
 #include "pycore_runtime.h"   /* PyRuntimeState */
 
 typedef enum {
@@ -21,7 +22,8 @@ enum {
     EVAL_PENDING_SIGNALS = 1U << 1,
     EVAL_PENDING_CALLS = 1U << 2,
     EVAL_DROP_GIL = 1U << 3,
-    EVAL_ASYNC_EXC = 1U << 4
+    EVAL_ASYNC_EXC = 1U << 4,
+    EVAL_EXPLICIT_MERGE = 1U << 5
 };
 
 /* Check if the current thread is the main thread.
@@ -135,13 +137,27 @@ static inline PyInterpreterState* _PyInterpreterState_GET(void) {
 
 /* Other */
 
-struct PyThreadStateOS {
-    PyThreadState *tstate;
-    PyThreadState *next_waiter;
-    PyMUTEX_T waiter_mutex;
-    PyCOND_T waiter_cond;
-    int waiter_counter;
+/* Defined in pycore_refcnt.h */
+typedef struct _PyObjectQueue _PyObjectQueue;
+
+/* Biased reference counting per-thread state */
+struct brc_state {
+    /* linked-list of thread states per hash bucket */
+    struct llist_node bucket_node;
+
+    /* queue of objects to be merged (protected by bucket mutex) */
+    _PyObjectQueue *queue;
+
+    /* local queue of objects to be merged */
+    _PyObjectQueue *local_queue;
 };
+
+typedef struct PyThreadStateImpl {
+    // semi-public fields are in PyThreadState
+    PyThreadState tstate;
+
+    struct brc_state brc;
+} PyThreadStateImpl;
 
 PyAPI_FUNC(void) _PyThreadState_Init(
     PyThreadState *tstate);

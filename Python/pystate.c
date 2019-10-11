@@ -10,7 +10,7 @@
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
-#include "pyatomic.h"
+#include "pycore_refcnt.h"
 
 #include "parking_lot.h"
 
@@ -648,11 +648,15 @@ static PyThreadState *
 new_threadstate(PyInterpreterState *interp, int init)
 {
     _PyRuntimeState *runtime = interp->runtime;
-    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
-    if (tstate == NULL) {
+
+    PyThreadStateImpl *tstate_impl = PyMem_RawMalloc(sizeof(PyThreadStateImpl));
+    if (tstate_impl == NULL) {
         return NULL;
     }
 
+    memset(tstate_impl, 0, sizeof(PyThreadStateImpl));
+
+    PyThreadState *tstate = &tstate_impl->tstate;
     tstate->interp = interp;
 
     tstate->status = _Py_THREAD_DETACHED;
@@ -735,6 +739,7 @@ _PyThreadState_Init(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
     _PyParkingLot_InitThread();
+    _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
 
@@ -884,6 +889,8 @@ PyThreadState_Clear(PyThreadState *tstate)
         fprintf(stderr,
           "PyThreadState_Clear: warning: thread still has a frame\n");
     }
+
+    _Py_queue_destroy(tstate);
 
     /* Don't clear tstate->frame: it is a borrowed reference */
 

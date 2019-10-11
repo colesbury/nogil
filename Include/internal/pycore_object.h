@@ -14,6 +14,7 @@ extern "C" {
 
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
+PyAPI_FUNC(void) _PyObject_Dealloc(PyObject *self);
 
 /* Only private in Python 3.10 and 3.9.8+; public in 3.11 */
 extern PyObject *_PyType_GetQualName(PyTypeObject *type);
@@ -81,6 +82,30 @@ static inline void _PyObject_GC_UNTRACK_impl(const char *filename, int lineno,
 
 #define _PyObject_GC_UNTRACK(op) \
     _PyObject_GC_UNTRACK_impl(__FILE__, __LINE__, _PyObject_CAST(op))
+
+static _Py_ALWAYS_INLINE int
+_Py_TryIncRefShared_impl(PyObject *op)
+{
+    for (;;) {
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+
+        // Check the refcount and merged flag (ignoring queued flag)
+        if ((shared & ~_Py_REF_QUEUED_MASK) == _Py_REF_MERGED_MASK) {
+            // Can't incref merged objects with zero refcount
+            return 0;
+        }
+
+        if (_Py_atomic_compare_exchange_uint32(
+                &op->ob_ref_shared,
+                shared,
+                shared + (1 << _Py_REF_SHARED_SHIFT))) {
+#ifdef Py_REF_DEBUG
+            _Py_IncRefTotal();
+#endif
+            return 1;
+        }
+    }
+}
 
 #ifdef Py_REF_DEBUG
 extern void _PyDebug_PrintTotalRefs(void);

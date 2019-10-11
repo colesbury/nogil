@@ -6,6 +6,7 @@
 #include "pycore_context.h"
 #include "pycore_initconfig.h"
 #include "pycore_object.h"
+#include "pycore_refcnt.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_pymem.h"         // _PyMem_IsPtrFreed()
@@ -153,6 +154,34 @@ Py_DecRef(PyObject *o)
     Py_XDECREF(o);
 }
 
+void
+_PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount)
+{
+    // "best-effort" -- works for the common use-case of resurrecting a
+    // zero refcount object. Not safe with concurrent reference count
+    // modifications.
+
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_Py_REF_IS_IMMORTAL(local)) {
+        return;
+    }
+    if (_Py_ThreadLocal(op)) {
+        // set local refcount to desired refcount and shared refcount to zero
+        // (but keeping "queued" mask).
+        int deferred = (local & _Py_REF_DEFERRED_MASK);
+        op->ob_ref_local = (refcount << _Py_REF_LOCAL_SHIFT) | deferred;
+        op->ob_ref_shared = (op->ob_ref_shared & _Py_REF_QUEUED_MASK);
+    }
+    else {
+        // set local refcount to zero and shared refcount to desired refcount
+        int queued = (op->ob_ref_shared & _Py_REF_QUEUED_MASK);
+        op->ob_tid = 0;
+        op->ob_ref_local = (local & _Py_REF_DEFERRED_MASK);
+        op->ob_ref_shared = (refcount << _Py_REF_SHARED_SHIFT) |
+                           _Py_REF_MERGED_MASK | queued;
+    }
+}
+
 PyObject *
 PyObject_Init(PyObject *op, PyTypeObject *tp)
 {
@@ -217,6 +246,8 @@ PyObject_CallFinalizer(PyObject *self)
 int
 PyObject_CallFinalizerFromDealloc(PyObject *self)
 {
+    assert(_Py_REF_IS_MERGED(self->ob_ref_shared));
+
     if (Py_REFCNT(self) != 0) {
         _PyObject_ASSERT_FAILED_MSG(self,
                                     "PyObject_CallFinalizerFromDealloc called "
@@ -224,7 +255,7 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
     }
 
     /* Temporarily resurrect the object. */
-    self->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);
+    self->ob_ref_shared = (1 << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED_MASK;
 
     PyObject_CallFinalizer(self);
 
@@ -234,8 +265,8 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
 
     /* Undo the temporary resurrection; can't use DECREF here, it would
      * cause a recursive call. */
-    self->ob_ref_local -= (1 << _Py_REF_LOCAL_SHIFT);
-    if (Py_REFCNT(self) == 0) {
+    self->ob_ref_shared -= (1 << _Py_REF_SHARED_SHIFT);
+    if ((self->ob_ref_shared >> _Py_REF_SHARED_SHIFT) == 0) {
         return 0;         /* this is the normal path out */
     }
 
@@ -1848,6 +1879,7 @@ _Py_NewReference(PyObject *op)
 #endif
     op->ob_tid = _Py_ThreadId();
     op->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);
+    op->ob_ref_shared = 0;
 #ifdef Py_TRACE_REFS
     _Py_AddToAllObjects(op, 1);
 #endif
@@ -2086,6 +2118,7 @@ _PyTrash_destroy_chain(void)
 
         gcstate->trash_delete_later =
             (PyObject*) _PyGCHead_PREV(_Py_AS_GC(op));
+        _PyGCHead_SET_PREV(_Py_AS_GC(op), NULL);
 
         /* Call the deallocator directly.  This used to try to
          * fool Py_DECREF into calling it indirectly, but
@@ -2124,6 +2157,7 @@ _PyTrash_thread_destroy_chain(void)
 
         tstate->trash_delete_later =
             (PyObject*) _PyGCHead_PREV(_Py_AS_GC(op));
+        _PyGCHead_SET_PREV(_Py_AS_GC(op), NULL);
 
         /* Call the deallocator directly.  This used to try to
          * fool Py_DECREF into calling it indirectly, but
@@ -2236,26 +2270,132 @@ PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
 }
 
 void
+_Py_MergeZeroRefcount(PyObject *op)
+{
+    assert(op->ob_ref_local == 0);
+    uint32_t shared;
+    for (;;) {
+        shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        if (_Py_atomic_compare_exchange_uint32(&op->ob_ref_shared,
+            shared,
+            shared | _Py_REF_MERGED_MASK)) {
+            break;
+        }
+    }
+
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
+    if (_PY_LIKELY((shared & ~_Py_REF_QUEUED_MASK) == 0)) {
+        _Py_Dealloc(op);
+    }
+}
+
+Py_ssize_t
+_Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
+{
+    uint32_t old_shared;
+    uint32_t new_shared;
+    int ok;
+
+    Py_ssize_t refcount;
+
+    do {
+        old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+
+        int queued, merged;
+        _PyRef_UnpackShared(old_shared, &refcount, &queued, &merged);
+
+        if (merged) {
+            assert(refcount > 0 || PyType_Check(op));
+            return refcount;
+        }
+
+        refcount += (op->ob_ref_local >> _Py_REF_LOCAL_SHIFT);
+        refcount += extra;
+
+        assert(refcount >= 0 /*|| _PyObject_IS_DEFERRED_RC(op)*/);
+
+        new_shared = (((uint32_t)refcount) << _Py_REF_SHARED_SHIFT) |
+                     _Py_REF_MERGED_MASK;
+
+        ok = _Py_atomic_compare_exchange_uint32(
+            &op->ob_ref_shared,
+            old_shared,
+            new_shared);
+    } while (!ok);
+
+    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
+    return refcount;
+}
+
+void
 _Py_IncRefShared(PyObject *op)
 {
-    Py_ssize_t refcnt = op->ob_ref_local;
-    refcnt += (1 << _Py_REF_LOCAL_SHIFT);
-    op->ob_ref_local = refcnt;
+    _Py_atomic_add_uint32(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+}
+
+int
+_Py_TryIncRefShared(PyObject *op)
+{
+    return _Py_TryIncRefShared_impl(op);
 }
 
 void
 _Py_DecRefShared(PyObject *op)
 {
-    Py_ssize_t refcnt = op->ob_ref_local;
-    refcnt -= (1 << _Py_REF_LOCAL_SHIFT);
-    op->ob_ref_local = refcnt;
+    uint32_t new_shared;
 
-#ifdef Py_REF_DEBUG
-    if (refcnt < 0) {
-        _Py_NegativeRefcount(__FILE__, __LINE__, op);
-    }
+    // We need to grab the thread-id before modifying the refcount
+    // because the owning thread may set it to zero if we mark the
+    // object as queued.
+    uintptr_t tid = _PyObject_ThreadId(op);
+    int queue;
+
+    for (;;) {
+        uint32_t old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+
+        queue = (old_shared == 0);
+        if (queue) {
+            // If the object had refcount zero, not queued, and not merged,
+            // then we enqueue the object to be merged by the owning thread.
+            // In this case, we don't subtract one from the reference count
+            // because _Py_queue_object steals a reference.
+            new_shared = old_shared | _Py_REF_QUEUED_MASK;
+        }
+        else {
+            // Otherwise, subtract one from the reference count. This might
+            // be negative!
+            new_shared = old_shared - (1 << _Py_REF_SHARED_SHIFT);
+        }
+
+#ifdef Py_DEBUG
+        if (_Py_REF_IS_MERGED(new_shared)) {
+            assert(((int32_t)new_shared) >= 0 && "negative refcount");
+        }
 #endif
-    if (refcnt == 0) {
+
+        if (_Py_atomic_compare_exchange_uint32(
+            &op->ob_ref_shared,
+            old_shared,
+            new_shared)) {
+            break;
+        }
+    }
+
+    if (queue) {
+        PyThreadState *tstate = _PyThreadState_GET();
+        if (tstate->interp->gc.collecting/* || _PyRuntime.ceval.gil.enabled */) {
+            Py_ssize_t refcount = _Py_ExplicitMergeRefcount(op, -1);
+            if (refcount == 0) {
+                _Py_Dealloc(op);
+            }
+        }
+        else {
+            _Py_queue_object(op, tid);
+        }
+    }
+    else if (_Py_REF_IS_MERGED(new_shared) &&
+             (new_shared >> _Py_REF_SHARED_SHIFT) == 0) {
         _Py_Dealloc(op);
     }
 }

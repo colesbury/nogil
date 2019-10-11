@@ -802,8 +802,11 @@ EXPORTS
   _Py_CheckRecursionLimit=python39._Py_CheckRecursionLimit DATA
   _Py_CheckRecursiveCall=python39._Py_CheckRecursiveCall
   _Py_Dealloc=python39._Py_Dealloc
+  _Py_DecRefShared=python39._Py_DecRefShared
   _Py_EllipsisObject=python39._Py_EllipsisObject DATA
   _Py_FalseStruct=python39._Py_FalseStruct DATA
+  _Py_IncRefShared=python39._Py_IncRefShared
+  _Py_MergeZeroRefcount=python39._Py_MergeZeroRefcount
   _Py_NoneStruct=python39._Py_NoneStruct DATA
   _Py_NotImplementedStruct=python39._Py_NotImplementedStruct DATA
   _Py_SwappedOp=python39._Py_SwappedOp DATA
