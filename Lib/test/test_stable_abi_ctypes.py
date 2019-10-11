@@ -786,6 +786,7 @@ SYMBOL_NAMES = (
     "PyUnicode_WriteChar",
     "PyVectorcall_Call",
     "PyVectorcall_NARGS",
+    "PyWeakref_FetchObject",
     "PyWeakref_GetObject",
     "PyWeakref_NewProxy",
     "PyWeakref_NewRef",

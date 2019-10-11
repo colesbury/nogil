@@ -1009,8 +1009,6 @@ handle_weakrefs(PyGC_Head *unreachable)
      * pass completes.
      */
     for (gc = GC_NEXT(unreachable); gc != unreachable; gc = next) {
-        PyWeakReference **wrlist;
-
         op = FROM_GC(gc);
         next = GC_NEXT(gc);
 
@@ -1026,7 +1024,7 @@ handle_weakrefs(PyGC_Head *unreachable)
              * will run and potentially cause a crash.  See bpo-38006 for
              * one example.
              */
-            _PyWeakref_ClearRef((PyWeakReference *)op);
+            _PyWeakref_DetachRef((PyWeakReference *)op);
         }
 
         if (! _PyType_SUPPORTS_WEAKREFS(Py_TYPE(op)))
@@ -1037,19 +1035,15 @@ handle_weakrefs(PyGC_Head *unreachable)
          * This is never triggered for static types so we can avoid the
          * (slightly) more costly _PyObject_GET_WEAKREFS_LISTPTR().
          */
-        wrlist = _PyObject_GET_WEAKREFS_LISTPTR_FROM_OFFSET(op);
+        PyWeakrefBase *ctrl = (PyWeakrefBase *)_PyObject_GET_WEAKREF_CONTROL(op);
 
-        PyWeakReference *wr;
-        for (wr = *wrlist; wr != NULL; wr = *wrlist) {
+        if (!ctrl)
+            continue;
+
+        PyWeakrefBase *ref;
+        for (ref = ctrl->wr_next; ref != ctrl; ref = ref->wr_next) {
             PyGC_Head *wrasgc;                  /* AS_GC(wr) */
-
-            /* _PyWeakref_ClearRef clears the weakref but leaves
-             * the callback pointer intact.  Obscure:  it also
-             * changes *wrlist.
-             */
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == op);
-            _PyWeakref_ClearRef(wr);
-            _PyObject_ASSERT((PyObject *)wr, wr->wr_object == Py_None);
+            PyWeakReference *wr = (PyWeakReference *)ref;
 
             if (wr->wr_callback == NULL) {
                 /* no callback */
@@ -1086,7 +1080,7 @@ handle_weakrefs(PyGC_Head *unreachable)
              */
             if (gc_is_unreachable(AS_GC(wr))) {
                 /* it should already have been cleared above */
-                assert(wr->wr_object == Py_None);
+                // assert(wr->wr_object == Py_None);
                 continue;
             }
 
@@ -1106,6 +1100,11 @@ handle_weakrefs(PyGC_Head *unreachable)
             gc_list_append(wrasgc, &wrcb_to_call);
             // FIXME: need to set collecting????
         }
+
+        /* Clear the root weakref but does not invoke any callbacks.
+         * Other weak references reference this object
+         */
+        _PyObject_ClearWeakRefsFromDealloc(op);
     }
 
     /* Invoke the callbacks we decided to honor.  It's safe to invoke them
@@ -1259,11 +1258,13 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
 {
     assert(!_PyErr_Occurred(tstate));
 
+#ifdef Py_DEBUG
     for (PyGC_Head *gc = GC_NEXT(collectable); gc != collectable; gc = GC_NEXT(gc)) {
         PyObject *op = FROM_GC(gc);
         _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) > 0,
                         "refcount is too small");
     }
+#endif
 
     while (!gc_list_is_empty(collectable)) {
         PyGC_Head *gc = GC_NEXT(collectable);

@@ -1091,14 +1091,14 @@ static PyObject *
 _localdummy_destroyed(PyObject *localweakref, PyObject *dummyweakref)
 {
     assert(PyWeakref_CheckRef(localweakref));
-    PyObject *obj = PyWeakref_GET_OBJECT(localweakref);
+    PyObject *obj = PyWeakref_FetchObject(localweakref);
     if (obj == Py_None) {
         Py_RETURN_NONE;
     }
 
     /* If the thread-local object is still alive and not being cleared,
        remove the corresponding local dict */
-    localobject *self = (localobject *)Py_NewRef(obj);
+    localobject *self = (localobject *)obj;
     if (self->dummies != NULL) {
         PyObject *ldict;
         ldict = PyDict_GetItemWithError(self->dummies, dummyweakref);
@@ -1387,7 +1387,8 @@ release_sentinel(void *wr_raw)
     /* Tricky: this function is called when the current thread state
        is being deleted.  Therefore, only simple C code can safely
        execute here. */
-    PyObject *obj = PyWeakref_GET_OBJECT(wr);
+    // FIXME(sgross): this isn't simple C code
+    PyObject *obj = PyWeakref_FetchObject(wr);
     lockobject *lock;
     if (obj != Py_None) {
         lock = (lockobject *) obj;
@@ -1395,6 +1396,7 @@ release_sentinel(void *wr_raw)
             PyThread_release_lock(lock->lock_lock);
             lock->locked = 0;
         }
+        Py_DECREF(obj);
     }
     /* Deallocating a weakref with a NULL callback only calls
        PyObject_GC_Del(), which can't call any Python code. */

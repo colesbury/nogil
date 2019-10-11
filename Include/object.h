@@ -347,6 +347,9 @@ PyAPI_FUNC(int) PyObject_IsTrue(PyObject *);
 PyAPI_FUNC(int) PyObject_Not(PyObject *);
 PyAPI_FUNC(int) PyCallable_Check(PyObject *);
 PyAPI_FUNC(void) PyObject_ClearWeakRefs(PyObject *);
+#ifndef Py_LIMITED_API
+PyAPI_FUNC(void) _PyObject_ClearWeakRefsFromDealloc(PyObject *);
+#endif
 
 /* PyObject_Dir(obj) acts like Python builtins.dir(obj), returning a
    list of strings.  PyObject_Dir(NULL) is like builtins.dir(),

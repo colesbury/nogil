@@ -17,6 +17,7 @@
 #include "pycore_symtable.h"      // PySTEntry_Type
 #include "pycore_unionobject.h"   // _PyUnion_Type
 #include "pycore_interpreteridobject.h"  // _PyInterpreterID_Type
+#include "mimalloc.h"
 
 #ifdef Py_LIMITED_API
    // Prevent recursive call _Py_IncRef() <=> Py_INCREF()
@@ -104,6 +105,7 @@ _PyDebug_PrintTotalRefs(void) {
     fprintf(stderr,
             "[%zd refs, %zd blocks]\n",
             _Py_GetRefTotal(), _Py_GetAllocatedBlocks());
+    mi_stats_print(NULL);
 }
 #endif /* Py_REF_DEBUG */
 
@@ -2473,7 +2475,8 @@ _Py_Dealloc(PyObject *op)
 PyObject **
 PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
 {
-    return _PyObject_GET_WEAKREFS_LISTPTR(op);
+    // FIXME(sgross): should this function be present?
+    return (PyObject **)_PyObject_GET_WEAKREFS_CONTROLPTR(op);
 }
 
 void

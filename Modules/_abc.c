@@ -150,11 +150,10 @@ static PyObject *
 _destroy(PyObject *setweakref, PyObject *objweakref)
 {
     PyObject *set;
-    set = PyWeakref_GET_OBJECT(setweakref);
+    set = PyWeakref_FetchObject(setweakref);
     if (set == Py_None) {
         Py_RETURN_NONE;
     }
-    Py_INCREF(set);
     if (PySet_Discard(set, objweakref) < 0) {
         Py_DECREF(set);
         return NULL;

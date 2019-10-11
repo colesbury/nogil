@@ -244,7 +244,7 @@ PyDict_SetItemProxy(PyObject *dict, PyObject *key, PyObject *item)
     return result;
 }
 
-PyObject *
+static PyObject *
 PyDict_GetItemProxy(PyObject *dict, PyObject *key)
 {
     PyObject *result;
@@ -252,9 +252,11 @@ PyDict_GetItemProxy(PyObject *dict, PyObject *key)
 
     if (item == NULL)
         return NULL;
-    if (!PyWeakref_CheckProxy(item))
+    if (!PyWeakref_CheckProxy(item)) {
+        Py_INCREF(item);
         return item;
-    result = PyWeakref_GET_OBJECT(item);
+    }
+    result = PyWeakref_FetchObject(item);
     if (result == Py_None)
         return NULL;
     return result;
@@ -4818,7 +4820,6 @@ PyCArrayType_from_ctype(PyObject *itemtype, Py_ssize_t length)
         return NULL;
     result = PyDict_GetItemProxy(cache, key);
     if (result) {
-        Py_INCREF(result);
         Py_DECREF(key);
         return result;
     }

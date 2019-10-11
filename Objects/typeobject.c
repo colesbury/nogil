@@ -465,11 +465,12 @@ PyType_Modified(PyTypeObject *type)
         Py_ssize_t i = 0;
         PyObject *ref;
         while (PyDict_Next(subclasses, &i, NULL, &ref)) {
-            PyTypeObject *subclass = subclass_from_ref(ref);  // borrowed
+            PyTypeObject *subclass = subclass_from_ref(ref);
             if (subclass == NULL) {
                 continue;
             }
             PyType_Modified(subclass);
+            Py_DECREF(subclass);
         }
     }
 
@@ -1587,15 +1588,7 @@ subtype_dealloc(PyObject *self)
            finalizers since they might rely on part of the object
            being finalized that has already been destroyed. */
         if (type->tp_weaklistoffset && !base->tp_weaklistoffset) {
-            /* Modeled after GET_WEAKREFS_LISTPTR().
-
-               This is never triggered for static types so we can avoid the
-               (slightly) more costly _PyObject_GET_WEAKREFS_LISTPTR(). */
-            PyWeakReference **list = \
-                _PyObject_GET_WEAKREFS_LISTPTR_FROM_OFFSET(self);
-            while (*list) {
-                _PyWeakref_ClearRef(*list);
-            }
+            _PyObject_ClearWeakRefsFromDealloc(self);
         }
     }
 
@@ -4439,12 +4432,13 @@ clear_static_tp_subclasses(PyTypeObject *type)
     Py_ssize_t i = 0;
     PyObject *key, *ref;  // borrowed ref
     while (PyDict_Next(subclasses, &i, &key, &ref)) {
-        PyTypeObject *subclass = subclass_from_ref(ref);  // borrowed
+        PyTypeObject *subclass = subclass_from_ref(ref);
         if (subclass == NULL) {
             continue;
         }
         // All static builtin subtypes should have been finalized already.
         assert(!(subclass->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN));
+        Py_DECREF(subclass);
     }
 
     clear_subclasses(type);
@@ -4463,15 +4457,12 @@ _PyStaticType_Dealloc(PyTypeObject *type)
     Py_CLEAR(type->tp_cache);
     clear_static_tp_subclasses(type);
 
-    // PyObject_ClearWeakRefs() raises an exception if Py_REFCNT() != 0
-    if (Py_REFCNT(type) == 0) {
-        PyObject_ClearWeakRefs((PyObject *)type);
-    }
+    /* Remove weakrefs but do not call callbacks */
+    _PyStaticType_ClearWeakRefs(type);
 
     type->tp_flags &= ~Py_TPFLAGS_READY;
 
     if (type->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
-        _PyStaticType_ClearWeakRefs(type);
         static_builtin_state_clear(type);
         /* We leave _Py_TPFLAGS_STATIC_BUILTIN set on tp_flags. */
     }
@@ -4560,15 +4551,17 @@ _PyType_GetSubclasses(PyTypeObject *self)
     Py_ssize_t i = 0;
     PyObject *ref;  // borrowed ref
     while (PyDict_Next(subclasses, &i, NULL, &ref)) {
-        PyTypeObject *subclass = subclass_from_ref(ref);  // borrowed
+        PyTypeObject *subclass = subclass_from_ref(ref);
         if (subclass == NULL) {
             continue;
         }
 
         if (PyList_Append(list, _PyObject_CAST(subclass)) < 0) {
+            Py_DECREF(subclass);
             Py_DECREF(list);
             return NULL;
         }
+        Py_DECREF(subclass);
     }
     return list;
 }
@@ -7083,7 +7076,7 @@ static inline PyTypeObject *
 subclass_from_ref(PyObject *ref)
 {
     assert(PyWeakref_CheckRef(ref));
-    PyObject *obj = PyWeakref_GET_OBJECT(ref);  // borrowed ref
+    PyObject *obj = PyWeakref_FetchObject(ref);
     assert(obj != NULL);
     if (obj == Py_None) {
         return NULL;
@@ -7108,10 +7101,12 @@ get_subclasses_key(PyTypeObject *type, PyTypeObject *base)
     PyObject *subclasses = lookup_subclasses(base);
     if (subclasses != NULL) {
         while (PyDict_Next(subclasses, &i, &key, &ref)) {
-            PyTypeObject *subclass = subclass_from_ref(ref);  // borrowed
+            PyTypeObject *subclass = subclass_from_ref(ref);
             if (subclass == type) {
+                Py_DECREF(subclass);
                 return Py_NewRef(key);
             }
+            Py_DECREF(subclass);
         }
     }
     /* It wasn't found. */
@@ -9190,7 +9185,7 @@ recurse_down_subclasses(PyTypeObject *type, PyObject *attr_name,
     Py_ssize_t i = 0;
     PyObject *ref;
     while (PyDict_Next(subclasses, &i, NULL, &ref)) {
-        PyTypeObject *subclass = subclass_from_ref(ref);  // borrowed
+        PyTypeObject *subclass = subclass_from_ref(ref);
         if (subclass == NULL) {
             continue;
         }
@@ -9200,6 +9195,7 @@ recurse_down_subclasses(PyTypeObject *type, PyObject *attr_name,
         if (dict != NULL && PyDict_Check(dict)) {
             int r = PyDict_Contains(dict, attr_name);
             if (r < 0) {
+                Py_DECREF(subclass);
                 return -1;
             }
             if (r > 0) {
@@ -9208,8 +9204,10 @@ recurse_down_subclasses(PyTypeObject *type, PyObject *attr_name,
         }
 
         if (update_subclasses(subclass, attr_name, callback, data) < 0) {
+            Py_DECREF(subclass);
             return -1;
         }
+        Py_DECREF(subclass);
     }
     return 0;
 }

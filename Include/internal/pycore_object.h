@@ -380,8 +380,8 @@ extern void _Py_PrintReferenceAddresses(FILE *);
  * nor should it be used to add, remove, or swap any refs in the list.
  * That is the sole responsibility of the code in weakrefobject.c.
  */
-static inline PyObject **
-_PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
+static inline PyWeakrefControl **
+_PyObject_GET_WEAKREFS_CONTROLPTR(PyObject *op)
 {
     if (PyType_Check(op) &&
             ((PyTypeObject *)op)->tp_flags & _Py_TPFLAGS_STATIC_BUILTIN) {
@@ -389,12 +389,12 @@ _PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
                                                         (PyTypeObject *)op);
         return _PyStaticType_GET_WEAKREFS_LISTPTR(state);
     }
-    // Essentially _PyObject_GET_WEAKREFS_LISTPTR_FROM_OFFSET():
+    // Essentially _PyObject_GET_WEAKREFS_CONTROLPTR_FROM_OFFSET():
     Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
-    return (PyObject **)((char *)op + offset);
+    return (PyWeakrefControl **)((char *)op + offset);
 }
 
-/* This is a special case of _PyObject_GET_WEAKREFS_LISTPTR().
+/* This is a special case of _PyObject_GET_WEAKREFS_CONTROLPTR().
  * Only the most fundamental lookup path is used.
  * Consequently, static types should not be used.
  *
@@ -404,15 +404,21 @@ _PyObject_GET_WEAKREFS_LISTPTR(PyObject *op)
  * are only finalized at the end of runtime finalization.
  *
  * If the weaklist for static types is actually needed then use
- * _PyObject_GET_WEAKREFS_LISTPTR().
+ * _PyObject_GET_WEAKREFS_CONTROLPTR().
  */
-static inline PyWeakReference **
-_PyObject_GET_WEAKREFS_LISTPTR_FROM_OFFSET(PyObject *op)
+static inline PyWeakrefControl **
+_PyObject_GET_WEAKREFS_CONTROLPTR_FROM_OFFSET(PyObject *op)
 {
     assert(!PyType_Check(op) ||
             ((PyTypeObject *)op)->tp_flags & Py_TPFLAGS_HEAPTYPE);
     Py_ssize_t offset = Py_TYPE(op)->tp_weaklistoffset;
-    return (PyWeakReference **)((char *)op + offset);
+    return (PyWeakrefControl **)((char *)op + offset);
+}
+
+static inline PyWeakrefControl *
+_PyObject_GET_WEAKREF_CONTROL(PyObject *op)
+{
+    return _Py_atomic_load_ptr(_PyObject_GET_WEAKREFS_CONTROLPTR(op));
 }
 
 

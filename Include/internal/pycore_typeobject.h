@@ -52,10 +52,10 @@ typedef struct {
        they will effectively never get triggered.  However, there
        are also some diagnostic uses for the list of weakrefs,
        so we still keep it. */
-    PyObject *tp_weaklist;
+    PyWeakrefControl *tp_weaklist;
 } static_builtin_state;
 
-static inline PyObject **
+static inline PyWeakrefControl **
 _PyStaticType_GET_WEAKREFS_LISTPTR(static_builtin_state *state)
 {
     assert(state != NULL);

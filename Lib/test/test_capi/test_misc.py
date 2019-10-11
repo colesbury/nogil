@@ -634,7 +634,7 @@ class CAPITest(unittest.TestCase):
         inst = _testcapi.HeapCTypeWithWeakref()
         ref = weakref.ref(inst)
         self.assertEqual(ref(), inst)
-        self.assertEqual(inst.weakreflist, ref)
+        self.assertEqual(type(inst.weakreflist).__name__, "weakref_control")
 
     def test_heaptype_with_managed_weakref(self):
         inst = _testcapi.HeapCTypeWithManagedWeakref()
