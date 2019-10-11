@@ -14,6 +14,7 @@ extern "C" {
 
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
+PyAPI_FUNC(void) _PyObject_Dealloc(PyObject *self);
 
 /* Only private in Python 3.10 and 3.9.8+; public in 3.11 */
 extern PyObject *_PyType_GetQualName(PyTypeObject *type);

@@ -699,6 +699,28 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(sys_mergerefcount__doc__,
+"mergerefcount($module, object, /)\n"
+"--\n"
+"\n"
+"Merges the local and shared reference counts of an object.");
+
+#define SYS_MERGEREFCOUNT_METHODDEF    \
+    {"mergerefcount", (PyCFunction)sys_mergerefcount, METH_O, sys_mergerefcount__doc__},
+
+PyDoc_STRVAR(sys_getfullrefcount__doc__,
+"getfullrefcount($module, object, /)\n"
+"--\n"
+"\n"
+"Return the reference count of object.\n"
+"\n"
+"The count returned is generally one higher than you might expect,\n"
+"because it includes the (temporary) reference as an argument to\n"
+"getfullrefcount().");
+
+#define SYS_GETFULLREFCOUNT_METHODDEF    \
+    {"getfullrefcount", (PyCFunction)sys_getfullrefcount, METH_O, sys_getfullrefcount__doc__},
+
 #if defined(Py_REF_DEBUG)
 
 PyDoc_STRVAR(sys_gettotalrefcount__doc__,
@@ -970,4 +992,4 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=39eb34a01fb9a919 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=b8bde223d514b667 input=a9049054013a1b77]*/
