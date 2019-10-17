@@ -411,6 +411,8 @@ PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
 
 
 PyAPI_FUNC(void) _Py_Dealloc(PyObject *);
+PyAPI_FUNC(void) _Py_IncRefShared(PyObject *);
+PyAPI_FUNC(void) _Py_DecRefShared(PyObject *);
 
 static inline uintptr_t
 _Py_ThreadId(void)
@@ -469,8 +471,13 @@ _Py_INCREF(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    refcnt += (1 << _Py_REF_LOCAL_SHIFT);
-    op->ob_ref_local = refcnt;
+    if (op->ob_tid == _Py_ThreadId()) {
+        refcnt += (1 << _Py_REF_LOCAL_SHIFT);
+        op->ob_ref_local = refcnt;
+    }
+    else {
+        _Py_IncRefShared(op);
+    }
 }
 
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
@@ -491,16 +498,21 @@ static inline void _Py_DECREF(
 #ifdef Py_REF_DEBUG
     _Py_RefTotal--;
 #endif
-    refcnt -= (1 << _Py_REF_LOCAL_SHIFT);
-    op->ob_ref_local = refcnt;
+    if (op->ob_tid == _Py_ThreadId()) {
+        refcnt -= (1 << _Py_REF_LOCAL_SHIFT);
+        op->ob_ref_local = refcnt;
 
-#ifdef Py_REF_DEBUG
-    if (refcnt < 0) {
-        _Py_NegativeRefcount(filename, lineno, op);
+    #ifdef Py_REF_DEBUG
+        if (refcnt < 0) {
+            _Py_NegativeRefcount(filename, lineno, op);
+        }
+    #endif
+        if (refcnt == 0) {
+            _Py_Dealloc(op);
+        }
     }
-#endif
-    if (refcnt == 0) {
-        _Py_Dealloc(op);
+    else {
+        _Py_DecRefShared(op);
     }
 }
 
