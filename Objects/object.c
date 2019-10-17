@@ -2181,6 +2181,31 @@ _Py_Dealloc(PyObject *op)
     (*dealloc)(op);
 }
 
+void
+_Py_IncRefShared(PyObject *op)
+{
+    Py_ssize_t refcnt = op->ob_ref_local;
+    refcnt += (1 << _Py_REF_LOCAL_SHIFT);
+    op->ob_ref_local = refcnt;
+}
+
+void
+_Py_DecRefShared(PyObject *op)
+{
+    Py_ssize_t refcnt = op->ob_ref_local;
+    refcnt -= (1 << _Py_REF_LOCAL_SHIFT);
+    op->ob_ref_local = refcnt;
+
+#ifdef Py_REF_DEBUG
+    if (refcnt < 0) {
+        _Py_NegativeRefcount(__FILE__, __LINE__, op);
+    }
+#endif
+    if (refcnt == 0) {
+        _Py_Dealloc(op);
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif
