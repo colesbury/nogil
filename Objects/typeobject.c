@@ -5458,6 +5458,11 @@ PyType_Ready(PyTypeObject *type)
         Py_SET_TYPE(type, Py_TYPE(base));
     }
 
+    /* Initialize ob_base for statically allocated types. */
+    if (!(type->tp_flags & Py_TPFLAGS_HEAPTYPE)) {
+        ((PyObject *)type)->ob_ref_local = _Py_REF_IMMORTAL_MASK;
+    }
+
     /* Initialize tp_bases */
     bases = type->tp_bases;
     if (bases == NULL) {
