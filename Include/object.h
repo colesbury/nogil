@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-
 /* Object and type object interface */
 
 /*
@@ -81,9 +80,14 @@ whose size is determined when the object is allocated.
 /* PyObject_HEAD defines the initial segment of every PyObject. */
 #define PyObject_HEAD                   PyObject ob_base;
 
-#define PyObject_HEAD_INIT(type)        \
+#define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
-    1, (type) },
+      _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL), \
+      _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL), \
+      0, type }
+
+#define PyObject_HEAD_INIT(type)        \
+    _PyObject_STRUCT_INIT(type),
 
 #define PyVarObject_HEAD_INIT(type, size)       \
     { PyObject_HEAD_INIT(type) (size) },
@@ -97,6 +101,9 @@ whose size is determined when the object is allocated.
 #define PyObject_VAR_HEAD      PyVarObject ob_base;
 #define Py_INVALID_SIZE (Py_ssize_t)-1
 
+#define _PyObject_ThreadId(ob) (_Py_atomic_load_uintptr_relaxed(&_PyObject_CAST(ob)->ob_tid))
+
+
 /* Nothing is actually declared to be a PyObject, but every pointer to
  * a Python object can be cast to a PyObject*.  This is inheritance built
  * by hand.  Similarly every pointer to a variable-size Python object can,
@@ -104,7 +111,9 @@ whose size is determined when the object is allocated.
  */
 struct _object {
     _PyObject_HEAD_EXTRA
-    Py_ssize_t ob_refcnt;
+    uintptr_t ob_tid;
+    uint32_t ob_ref_local;
+    uint32_t ob_ref_shared;
     PyTypeObject *ob_type;
 };
 
@@ -119,19 +128,40 @@ typedef struct {
 /* Cast argument to PyVarObject* type. */
 #define _PyVarObject_CAST(op) _Py_CAST(PyVarObject*, (op))
 
+#define Py_IS_REFERENCED(ob)    (_PyObject_IsReferened(_PyObject_CAST(ob)))
 
 // Test if the 'x' object is the 'y' object, the same as "x is y" in Python.
 PyAPI_FUNC(int) Py_Is(PyObject *x, PyObject *y);
 #define Py_Is(x, y) ((x) == (y))
 
+static inline void
+_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal);
+
+static inline void
+_PyRef_UnpackShared(uint32_t bits, Py_ssize_t *refcount, int *queued, int *merged);
+
+PyAPI_FUNC(void)
+_PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount);
 
 static inline Py_ssize_t Py_REFCNT(PyObject *ob) {
-    return ob->ob_refcnt;
+    Py_ssize_t local_refcount, shared_refcount;
+    int immortal;
+
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&ob->ob_ref_local);
+    _PyRef_UnpackLocal(local, &local_refcount, &immortal);
+
+    if (immortal) {
+        return 999;
+    }
+
+    uint32_t shared = _Py_atomic_load_uint32_relaxed(&ob->ob_ref_shared);
+    _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
+
+    return local_refcount + shared_refcount;
 }
 #if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 < 0x030b0000
 #  define Py_REFCNT(ob) Py_REFCNT(_PyObject_CAST(ob))
 #endif
-
 
 // bpo-39573: The Py_SET_TYPE() function must be used to set an object type.
 static inline PyTypeObject* Py_TYPE(PyObject *ob) {
@@ -160,7 +190,7 @@ static inline int Py_IS_TYPE(PyObject *ob, PyTypeObject *type) {
 
 
 static inline void Py_SET_REFCNT(PyObject *ob, Py_ssize_t refcnt) {
-    ob->ob_refcnt = refcnt;
+    _PyObject_SetRefcount(ob, refcnt);
 }
 #if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 < 0x030b0000
 #  define Py_SET_REFCNT(ob, refcnt) Py_SET_REFCNT(_PyObject_CAST(ob), (refcnt))
@@ -176,7 +206,7 @@ static inline void Py_SET_TYPE(PyObject *ob, PyTypeObject *type) {
 
 
 static inline void Py_SET_SIZE(PyVarObject *ob, Py_ssize_t size) {
-    ob->ob_size = size;
+    _Py_atomic_store_ssize_relaxed(&ob->ob_size, size);
 }
 #if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 < 0x030b0000
 #  define Py_SET_SIZE(ob, size) Py_SET_SIZE(_PyVarObject_CAST(ob), (size))
@@ -338,6 +368,7 @@ PyAPI_FUNC(void) Py_ReprLeave(PyObject *);
 /* Flag bits for printing: */
 #define Py_PRINT_RAW    1       /* No string quotes etc. */
 
+
 /*
 Type flags (tp_flags)
 
@@ -493,12 +524,22 @@ you can count such references to the type object.)
 */
 
 #ifdef Py_REF_DEBUG
-PyAPI_DATA(Py_ssize_t) _Py_RefTotal;
+PyAPI_FUNC(void) _Py_IncRefTotal(void);
+PyAPI_FUNC(void) _Py_DecRefTotal(void);
+PyAPI_FUNC(void) _Py_IncRefTotalN(Py_ssize_t);
+PyAPI_FUNC(void) _Py_DecRefTotalN(Py_ssize_t);
+PyAPI_FUNC(void) _Py_DecRefTotalObj(PyObject *op);
 PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
                                       PyObject *op);
 #endif /* Py_REF_DEBUG */
 
+
 PyAPI_FUNC(void) _Py_Dealloc(PyObject *);
+PyAPI_FUNC(void) _Py_IncRefShared(PyObject *);
+PyAPI_FUNC(void) _Py_DecRefShared(PyObject *);
+PyAPI_FUNC(void) _Py_MergeZeroRefcount(PyObject *);
+void _Py_MergeZeroRefcountSlow(PyObject *);
+Py_ssize_t _Py_ExplicitMergeRefcount(PyObject *, Py_ssize_t extra);
 
 static inline uintptr_t
 _Py_ThreadId(void)
@@ -516,7 +557,7 @@ _Py_ThreadId(void)
 #elif defined(__MACH__) && defined(__x86_64__)
     __asm__("movq %%gs:0, %0" : "=r" (tid));  // x86_64 macOSX uses GS
 #elif defined(__x86_64__)
-    __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS
+   __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS
 #elif defined(__arm__)
     __asm__ ("mrc p15, 0, %0, c13, c0, 3\nbic %0, %0, #3" : "=r" (tid));
 #elif defined(__aarch64__) && defined(__APPLE__)
@@ -541,7 +582,97 @@ PyAPI_FUNC(void) Py_DecRef(PyObject *);
 PyAPI_FUNC(void) _Py_IncRef(PyObject *);
 PyAPI_FUNC(void) _Py_DecRef(PyObject *);
 
-static inline void Py_INCREF(PyObject *op)
+static _Py_ALWAYS_INLINE int
+_Py_ThreadMatches(PyObject *op, uintptr_t tid)
+{
+    return _Py_atomic_compare_uintptr_relaxed(&op->ob_tid, tid);
+}
+
+static _Py_ALWAYS_INLINE int
+_Py_ThreadIdMatches(uintptr_t ob_tid)
+{
+#if defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__) && defined(__x86_64__)
+    int out;
+    __asm__ (
+        "cmp    %[tid], %%fs:0"
+        : "=@ccz" (out)
+        : [tid] "r"(ob_tid)
+        : );
+    return out;
+#else
+    return ob_tid == _Py_ThreadId();
+#endif
+}
+
+static _Py_ALWAYS_INLINE int
+_Py_ThreadLocal(PyObject *op)
+{
+    return _Py_ThreadMatches(op, _Py_ThreadId());
+}
+
+#define _Py_REF_LOCAL_SHIFT     0
+#define _Py_REF_LOCAL_INIT      1
+#define Py_REF_IMMORTAL         -1
+#define _Py_REF_DEFERRED_MASK   0x40000000
+
+// 30         2
+// [refcount] [bits]
+// 0          00        not shared
+// xxxxxxxxxx 01        may have weak references
+// xxxxxxxxxx 10        queued
+// xxxxxxxxxx 11        merged
+
+#define _Py_REF_SHARED_SHIFT        2
+#define _Py_REF_SHARED_FLAG_MASK    0x3
+#define _Py_REF_SHARED_INIT         0x0
+#define _Py_REF_MERGED              0x3
+#define _Py_REF_QUEUED              0x2
+#define _Py_REF_MAYBE_WEAKREF       0x1
+
+static inline void
+_PyObject_SetImmortal(PyObject *op)
+{
+#ifdef Py_REF_DEBUG
+    _Py_DecRefTotalObj(op);
+#endif
+
+    op->ob_tid = _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL);
+    op->ob_ref_local = _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL);
+    op->ob_ref_shared = 0;
+}
+
+static inline int
+_Py_REF_IS_IMMORTAL(uint32_t local)
+{
+    return local == _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL);
+}
+
+static inline int
+_PyObject_IS_IMMORTAL(PyObject *op)
+{
+    return _Py_REF_IS_IMMORTAL(_Py_atomic_load_uint32_relaxed(&op->ob_ref_local));
+}
+
+static inline Py_ssize_t
+_Py_REF_SHARED_COUNT(uint32_t shared)
+{
+    return (shared >> _Py_REF_SHARED_SHIFT);
+}
+
+static inline int
+_Py_REF_IS_MERGED(uint32_t shared)
+{
+    return (shared & _Py_REF_SHARED_FLAG_MASK) == _Py_REF_MERGED;
+}
+
+static inline int
+_Py_REF_IS_QUEUED(uint32_t shared)
+{
+    return (shared & _Py_REF_SHARED_FLAG_MASK) == _Py_REF_QUEUED;
+}
+
+static inline void
+_Py_INCREF(PyObject *op)
 {
 #if defined(Py_REF_DEBUG) && defined(Py_LIMITED_API) && Py_LIMITED_API+0 >= 0x030A0000
     // Stable ABI for Python 3.10 built in debug mode.
@@ -550,15 +681,25 @@ static inline void Py_INCREF(PyObject *op)
     _Py_INCREF_STAT_INC();
     // Non-limited C API and limited C API for Python 3.9 and older access
     // directly PyObject.ob_refcnt.
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    local += (1 << _Py_REF_LOCAL_SHIFT);
+    if (local == 0) {
+        return;
+    }
+
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
-    op->ob_refcnt++;
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+    }
+    else {
+        _Py_atomic_add_uint32(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+    }
 #endif
 }
-#if !defined(Py_LIMITED_API) || Py_LIMITED_API+0 < 0x030b0000
-#  define Py_INCREF(op) Py_INCREF(_PyObject_CAST(op))
-#endif
+
+#define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
 
 #if defined(Py_REF_DEBUG) && defined(Py_LIMITED_API) && Py_LIMITED_API+0 >= 0x030A0000
 // Stable ABI for limited C API version 3.10 of Python debug build
@@ -566,34 +707,46 @@ static inline void Py_DECREF(PyObject *op) {
     _Py_DecRef(op);
 }
 #define Py_DECREF(op) Py_DECREF(_PyObject_CAST(op))
-
-#elif defined(Py_REF_DEBUG)
-static inline void Py_DECREF(const char *filename, int lineno, PyObject *op)
-{
-    _Py_DECREF_STAT_INC();
-    _Py_RefTotal--;
-    if (--op->ob_refcnt != 0) {
-        if (op->ob_refcnt < 0) {
-            _Py_NegativeRefcount(filename, lineno, op);
-        }
-    }
-    else {
-        _Py_Dealloc(op);
-    }
-}
-#define Py_DECREF(op) Py_DECREF(__FILE__, __LINE__, _PyObject_CAST(op))
-
 #else
-static inline void Py_DECREF(PyObject *op)
+#if defined(Py_REF_DEBUG)
+static inline void
+Py_DECREF(const char *filename, int lineno, PyObject *op)
+#else
+static inline void
+Py_DECREF(PyObject *op)
+#endif
 {
     _Py_DECREF_STAT_INC();
     // Non-limited C API and limited C API for Python 3.9 and older access
     // directly PyObject.ob_refcnt.
-    if (--op->ob_refcnt == 0) {
-        _Py_Dealloc(op);
+    uintptr_t tid = op->ob_tid;
+    if (tid == _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL)) {
+        return;
+    }
+#ifdef Py_REF_DEBUG
+    _Py_DecRefTotal();
+#endif
+    if (_PY_LIKELY(tid == _Py_ThreadId())) {
+#ifdef Py_REF_DEBUG
+        if (op->ob_ref_local == 0) {
+            _Py_NegativeRefcount(filename, lineno, op);
+        }
+#endif
+        op->ob_ref_local -= (1 << _Py_REF_LOCAL_SHIFT);
+        if (_PY_UNLIKELY(op->ob_ref_local == 0)) {
+            _Py_MergeZeroRefcount(op);
+        }
+    }
+    else {
+        _Py_DecRefShared(op);
     }
 }
+
+#if defined(Py_REF_DEBUG)
+#define Py_DECREF(op) Py_DECREF(__FILE__, __LINE__, _PyObject_CAST(op))
+#else
 #define Py_DECREF(op) Py_DECREF(_PyObject_CAST(op))
+#endif
 #endif
 
 
@@ -628,7 +781,7 @@ static inline void Py_DECREF(PyObject *op)
  * There are cases where it's safe to use the naive code, but they're brittle.
  * For example, if `op` points to a Python integer, you know that destroying
  * one of those can't cause problems -- but in part that relies on that
- * Python integers aren't currently weakly referencable.  Best practice is
+ * Python integers aren't currently weakly referenceable.  Best practice is
  * to use Py_CLEAR() even if you can't think of a reason for why you need to.
  *
  * gh-98724: Use a temporary variable to only evaluate the macro argument once,
@@ -720,6 +873,83 @@ static inline PyObject* _Py_XNewRef(PyObject *obj)
 #  define Py_XNewRef(obj) _Py_XNewRef(obj)
 #endif
 
+static inline void
+_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal)
+{
+    *refcount = bits >> _Py_REF_LOCAL_SHIFT;
+    *immortal = _Py_REF_IS_IMMORTAL(bits);
+}
+
+static inline void
+_PyRef_UnpackShared(uint32_t bits, Py_ssize_t *refcount, int *queued, int *merged)
+{
+    *refcount = Py_ARITHMETIC_RIGHT_SHIFT(int32_t,
+                                          (int32_t)bits,
+                                          _Py_REF_SHARED_SHIFT);
+    if (queued) {
+        *queued = _Py_REF_IS_QUEUED(bits);
+    }
+    if (merged) {
+        *merged = _Py_REF_IS_MERGED(bits);
+    }
+}
+
+static inline int
+_PyObject_HasLocalRefcnt(PyObject *op, Py_ssize_t v)
+{
+    if (_PyObject_ThreadId(op) != _Py_ThreadId()) {
+        return 0;
+    }
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (local != v) {
+        return 0;
+    }
+    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+    return shared == 0;
+}
+
+static inline int
+_PyObject_IsReferened(PyObject *op)
+{
+    Py_ssize_t local_refcount, shared_refcount;
+    int immortal;
+
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    _PyRef_UnpackLocal(local, &local_refcount, &immortal);
+
+    if (immortal) {
+        return 1;
+    }
+    else if (_PyObject_ThreadId(op) == _Py_ThreadId()) {
+        return 1;
+    }
+
+    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+    _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
+
+    return (local_refcount + shared_refcount) > 0;
+}
+
+static inline void
+_Py_RESURRECT(PyObject *op, Py_ssize_t refcnt)
+{
+    assert(!_PyObject_IS_IMMORTAL(op));
+    op->ob_tid = 0;
+    op->ob_ref_local = 0;
+    op->ob_ref_shared = _Py_STATIC_CAST(uint32_t, (refcnt << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED);
+}
+
+static inline int
+_Py_FINISH_RESURRECT(PyObject *op)
+{
+    assert(!_PyObject_IS_IMMORTAL(op));
+    uint32_t old_shared = _Py_atomic_add_uint32(
+        &op->ob_ref_shared,
+        -(1 << _Py_REF_SHARED_SHIFT));
+
+    assert(_Py_REF_IS_MERGED(old_shared));  // can't ever become unmerged
+    return _Py_REF_SHARED_COUNT(old_shared) == 1;
+}
 
 /*
 _Py_NoneStruct is an object of undefined type which can be used in contexts
@@ -735,7 +965,7 @@ PyAPI_FUNC(int) Py_IsNone(PyObject *x);
 #define Py_IsNone(x) Py_Is((x), Py_None)
 
 /* Macro for returning Py_None from a function */
-#define Py_RETURN_NONE return Py_NewRef(Py_None)
+#define Py_RETURN_NONE return Py_None
 
 /*
 Py_NotImplemented is a singleton used to signal that an operation is
@@ -745,7 +975,7 @@ PyAPI_DATA(PyObject) _Py_NotImplementedStruct; /* Don't use this directly */
 #define Py_NotImplemented (&_Py_NotImplementedStruct)
 
 /* Macro for returning Py_NotImplemented from a function */
-#define Py_RETURN_NOTIMPLEMENTED return Py_NewRef(Py_NotImplemented)
+#define Py_RETURN_NOTIMPLEMENTED return Py_NotImplemented
 
 /* Rich comparison opcodes */
 #define Py_LT 0

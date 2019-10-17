@@ -223,6 +223,7 @@
     <ClCompile Include="..\Python\pyhash.c" />
     <ClCompile Include="..\Python\pylifecycle.c" />
     <ClCompile Include="..\Python\pymath.c" />
+    <ClCompile Include="..\Python\pyrefcnt.c" />
     <ClCompile Include="..\Python\pystate.c" />
     <ClCompile Include="..\Python\pystrcmp.c" />
     <ClCompile Include="..\Python\pystrhex.c" />

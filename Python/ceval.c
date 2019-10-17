@@ -54,16 +54,34 @@
 // Define them as macros to make sure that they are always inlined by the
 // preprocessor.
 
-#undef Py_DECREF
-#define Py_DECREF(arg) \
+#undef _Py_DECREF_SPECIALIZED
+#define _Py_DECREF_SPECIALIZED(arg, dealloc) \
     do { \
         _Py_DECREF_STAT_INC(); \
         PyObject *op = _PyObject_CAST(arg); \
-        if (--op->ob_refcnt == 0) { \
-            destructor dealloc = Py_TYPE(op)->tp_dealloc; \
-            (*dealloc)(op); \
+        if (op->ob_tid == _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL)) { \
+            break; \
+        } \
+        if (_PY_LIKELY(_Py_ThreadIdMatches(op->ob_tid))) { \
+            op->ob_ref_local -= (1 << _Py_REF_LOCAL_SHIFT); \
+            if (op->ob_ref_local == 0) { \
+                if (_PY_LIKELY(op->ob_ref_shared == 0)) { \
+                    op->ob_tid = 0; \
+                    destructor d = (destructor)(dealloc); \
+                    d(op); \
+                } \
+                else { \
+                    _Py_MergeZeroRefcountSlow(op); \
+                } \
+            } \
+        } \
+        else { \
+            _Py_DecRefShared(op); \
         } \
     } while (0)
+
+#undef Py_DECREF
+#define Py_DECREF(arg) _Py_DECREF_SPECIALIZED(arg, Py_TYPE(op)->tp_dealloc)
 
 #undef Py_XDECREF
 #define Py_XDECREF(arg) \
@@ -78,16 +96,6 @@
 #define Py_IS_TYPE(ob, type) \
     (_PyObject_CAST(ob)->ob_type == (type))
 
-#undef _Py_DECREF_SPECIALIZED
-#define _Py_DECREF_SPECIALIZED(arg, dealloc) \
-    do { \
-        _Py_DECREF_STAT_INC(); \
-        PyObject *op = _PyObject_CAST(arg); \
-        if (--op->ob_refcnt == 0) { \
-            destructor d = (destructor)(dealloc); \
-            d(op); \
-        } \
-    } while (0)
 #endif
 
 // GH-89279: Similar to above, force inlining by using a macro.
@@ -389,7 +397,7 @@ match_keys(PyThreadState *tstate, PyObject *map, PyObject *keys)
             Py_DECREF(value);
             Py_DECREF(values);
             // Return None:
-            values = Py_NewRef(Py_None);
+            values = Py_None;
             goto done;
         }
         PyTuple_SET_ITEM(values, i, value);
@@ -2245,8 +2253,8 @@ exception_group_match(PyObject* exc_value, PyObject *match_type,
                       PyObject **match, PyObject **rest)
 {
     if (Py_IsNone(exc_value)) {
-        *match = Py_NewRef(Py_None);
-        *rest = Py_NewRef(Py_None);
+        *match = Py_None;
+        *rest = Py_None;
         return 0;
     }
     assert(PyExceptionInstance_Check(exc_value));
@@ -2270,7 +2278,7 @@ exception_group_match(PyObject* exc_value, PyObject *match_type,
             }
             *match = wrapped;
         }
-        *rest = Py_NewRef(Py_None);
+        *rest = Py_None;
         return 0;
     }
 
@@ -2291,8 +2299,8 @@ exception_group_match(PyObject* exc_value, PyObject *match_type,
         return 0;
     }
     /* no match */
-    *match = Py_NewRef(Py_None);
-    *rest = Py_NewRef(Py_None);
+    *match = Py_None;
+    *rest = Py_None;
     return 0;
 }
 
@@ -2405,7 +2413,7 @@ call_exc_trace(Py_tracefunc func, PyObject *self,
     int err;
     _PyErr_Fetch(tstate, &type, &value, &orig_traceback);
     if (value == NULL) {
-        value = Py_NewRef(Py_None);
+        value = Py_None;
     }
     _PyErr_NormalizeException(tstate, &type, &value, &orig_traceback);
     traceback = (orig_traceback != NULL) ? orig_traceback : Py_None;

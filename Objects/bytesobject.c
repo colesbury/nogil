@@ -3060,7 +3060,7 @@ _PyBytes_Resize(PyObject **pv, Py_ssize_t newsize)
     }
     /* XXX UNREF/NEWREF interface should be more symmetrical */
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
 #ifdef Py_TRACE_REFS
     _Py_ForgetReference(v);

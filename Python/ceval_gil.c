@@ -7,6 +7,7 @@
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_interp.h"        // _Py_RunGC()
 #include "pycore_pymem.h"         // _PyMem_IsPtrFreed()
+#include "pycore_refcnt.h"
 
 /*
    Notes about the implementation:
@@ -830,6 +831,11 @@ _Py_HandlePending(PyThreadState *tstate)
 
     /* load eval breaker */
     uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
+
+    if ((b & EVAL_EXPLICIT_MERGE) != 0) {
+        _PyThreadState_Unsignal(tstate, EVAL_EXPLICIT_MERGE);
+        _Py_queue_process(tstate);
+    }
 
     /* Pending signals */
     if ((b & EVAL_PENDING_SIGNALS) != 0) {

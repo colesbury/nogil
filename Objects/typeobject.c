@@ -317,7 +317,7 @@ _PyType_InitCache(PyInterpreterState *interp)
         entry->version = 0;
         // Set to None so _PyType_Lookup() can use Py_SETREF(),
         // rather than using slower Py_XSETREF().
-        entry->name = Py_NewRef(Py_None);
+        entry->name = Py_None;
         entry->value = NULL;
     }
 }
@@ -2421,7 +2421,6 @@ solid_base(PyTypeObject *type)
     }
 }
 
-static void object_dealloc(PyObject *);
 static PyObject *object_new(PyTypeObject *, PyObject *, PyObject *);
 static int object_init(PyObject *, PyObject *, PyObject *);
 static int update_slot(PyTypeObject *, PyObject *);
@@ -4994,8 +4993,8 @@ object_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return obj;
 }
 
-static void
-object_dealloc(PyObject *self)
+void
+_PyObject_Dealloc(PyObject *self)
 {
     Py_TYPE(self)->tp_free(self);
 }
@@ -6019,7 +6018,7 @@ PyTypeObject PyBaseObject_Type = {
     "object",                                   /* tp_name */
     sizeof(PyObject),                           /* tp_basicsize */
     0,                                          /* tp_itemsize */
-    object_dealloc,                             /* tp_dealloc */
+    _PyObject_Dealloc,                          /* tp_dealloc */
     0,                                          /* tp_vectorcall_offset */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
@@ -6521,6 +6520,11 @@ type_ready_set_bases(PyTypeObject *type)
        know that. */
     if (Py_IS_TYPE(type, NULL) && base != NULL) {
         Py_SET_TYPE(type, Py_TYPE(base));
+    }
+
+    /* Initialize ob_base for statically allocated types. */
+    if (!(type->tp_flags & Py_TPFLAGS_HEAPTYPE)) {
+        _PyObject_SetImmortal((PyObject *)type);
     }
 
     /* Initialize tp_bases */

@@ -857,8 +857,10 @@ class ExecutorTest:
         my_object_callback = weakref.ref(
             my_object, lambda obj: my_object_collected.set())
         # Deliberately discarding the future.
-        self.executor.submit(my_object.my_method)
+        f = self.executor.submit(my_object.my_method)
         del my_object
+        f.result()
+        import gc; gc.collect()
 
         collected = my_object_collected.wait(timeout=support.SHORT_TIMEOUT)
         self.assertTrue(collected,

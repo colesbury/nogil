@@ -2500,7 +2500,7 @@
             }
             else {
                 // Failure!
-                SET_TOP(Py_NewRef(Py_None));
+                SET_TOP(Py_None);
             }
             Py_DECREF(subject);
             DISPATCH();
@@ -2693,7 +2693,7 @@
             STAT_INC(FOR_ITER, hit);
             _PyInterpreterFrame *gen_frame = (_PyInterpreterFrame *)gen->gi_iframe;
             frame->yield_offset = oparg;
-            _PyFrame_StackPush(gen_frame, Py_NewRef(Py_None));
+            _PyFrame_StackPush(gen_frame, Py_None);
             gen->gi_frame_state = FRAME_EXECUTING;
             gen->gi_exc_state.previous_item = tstate->exc_info;
             tstate->exc_info = &gen->gi_exc_state;
@@ -2812,7 +2812,7 @@
                 SET_TOP(exc_info->exc_value);
             }
             else {
-                SET_TOP(Py_NewRef(Py_None));
+                SET_TOP(Py_None);
             }
 
             PUSH(Py_NewRef(value));

@@ -307,7 +307,7 @@ _PyIOBase_finalize(PyObject *self)
 
     /* If _PyIOBase_finalize() is called from a destructor, we need to
        resurrect the object as calling close() can invoke arbitrary code. */
-    is_zombie = (Py_REFCNT(self) == 0);
+    is_zombie = (!Py_IS_REFERENCED(self));
     if (is_zombie)
         return PyObject_CallFinalizerFromDealloc(self);
     else {

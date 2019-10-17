@@ -75,7 +75,7 @@ static inline PyObject* _PyLong_GetOne(void)
 
 static inline PyObject* _PyLong_FromUnsignedChar(unsigned char i)
 {
-    return Py_NewRef((PyObject *)&_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS+i]);
+    return (PyObject *)&_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS+i];
 }
 
 PyObject *_PyLong_Add(PyLongObject *left, PyLongObject *right);

@@ -22,6 +22,7 @@ extern "C" {
 #include "pycore_genobject.h"     // struct _Py_async_gen_state
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_list.h"          // struct _Py_list_state
+#include "pycore_llist.h"         // struct llist_node
 #include "pycore_global_objects.h"  // struct _Py_interp_static_objects
 #include "pycore_tuple.h"         // struct _Py_tuple_state
 #include "pycore_typeobject.h"    // struct type_cache
@@ -46,6 +47,28 @@ struct atexit_state {
 struct _Py_long_state {
     int max_str_digits;
 };
+
+/* Defined in pycore_refcnt.h */
+typedef struct _PyObjectQueue _PyObjectQueue;
+
+/* Biased reference counting per-thread state */
+struct brc_state {
+    /* linked-list of thread states per hash bucket */
+    struct llist_node bucket_node;
+
+    /* queue of objects to be merged (protected by bucket mutex) */
+    _PyObjectQueue *queue;
+
+    /* local queue of objects to be merged */
+    _PyObjectQueue *local_queue;
+};
+
+typedef struct PyThreadStateImpl {
+    // semi-public fields are in PyThreadState
+    PyThreadState tstate;
+
+    struct brc_state brc;
+} PyThreadStateImpl;
 
 
 /* interpreter state */
@@ -199,7 +222,7 @@ struct _is {
        */
 
     /* the initial PyInterpreterState.threads.head */
-    PyThreadState _initial_thread;
+    PyThreadStateImpl _initial_thread;
 };
 
 

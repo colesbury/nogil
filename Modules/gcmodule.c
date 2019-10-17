@@ -29,7 +29,10 @@
 #include "pycore_interp.h"      // PyInterpreterState.gc
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
-#include "pycore_pystate.h"     // _PyThreadState_GET()
+#include "pycore_pymem.h"
+#include "pycore_pystate.h"
+#include "pycore_refcnt.h"
+#include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
 
 typedef struct _gc_runtime_state GCState;
@@ -411,6 +414,19 @@ validate_list(PyGC_Head *head, enum flagstates flags)
 
 /*** end of list stuff ***/
 
+static Py_ssize_t
+_Py_GC_REFCNT(PyObject *op)
+{
+    Py_ssize_t local, shared;
+    int immortal;
+
+    _PyRef_UnpackLocal(op->ob_ref_local, &local, &immortal);
+    _PyRef_UnpackShared(op->ob_ref_shared, &shared, NULL, NULL);
+
+    assert(!immortal);
+
+    return local + shared;
+}
 
 /* Set all gc_refs = ob_refcnt.  After this, gc_refs is > 0 and
  * PREV_MASK_COLLECTING bit is set for all objects in containers.
@@ -420,7 +436,7 @@ update_refs(PyGC_Head *containers)
 {
     PyGC_Head *gc = GC_NEXT(containers);
     for (; gc != containers; gc = GC_NEXT(gc)) {
-        gc_reset_refs(gc, Py_REFCNT(FROM_GC(gc)));
+        gc_reset_refs(gc, _Py_GC_REFCNT(FROM_GC(gc)));
         /* Python's cyclic gc should never see an incoming refcount
          * of 0:  if something decref'ed to 0, it should have been
          * deallocated immediately at that time.
@@ -950,6 +966,29 @@ handle_legacy_finalizers(PyThreadState *tstate,
     gc_list_merge(finalizers, old);
 }
 
+static void
+merge_queued_objects(void)
+{
+    _PyObjectQueue *to_dealloc = NULL;
+
+    HEAD_LOCK(&_PyRuntime);
+    PyThreadState *t;
+    for (PyInterpreterState *i = _PyRuntime.interpreters.head; i; i = i->next) {
+        for (t = i->threads.head; t; t = t->next) {
+            _Py_queue_process_gc(t, &to_dealloc);
+        }
+    }
+    HEAD_UNLOCK(&_PyRuntime);
+
+    for (;;) {
+        PyObject *op = _PyObjectQueue_Pop(&to_dealloc);
+        if (op == NULL) {
+            break;
+        }
+        _Py_Dealloc(op);
+    }
+}
+
 /* Run first-time finalizers (if any) on all the objects in collectable.
  * Note that this may remove some (or even all) of the objects from the
  * list, due to refcounts falling to 0.
@@ -1000,7 +1039,7 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
         PyGC_Head *gc = GC_NEXT(collectable);
         PyObject *op = FROM_GC(gc);
 
-        _PyObject_ASSERT_WITH_MSG(op, Py_REFCNT(op) > 0,
+        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) > 0,
                                   "refcount is too small");
 
         if (gcstate->debug & DEBUG_SAVEALL) {
@@ -1213,6 +1252,9 @@ gc_collect_main(PyThreadState *tstate, int generation,
     for (i = 0; i <= generation; i++)
         gcstate->generations[i].count = 0;
 
+    /* explicitly merge refcnts all queued objects */
+    merge_queued_objects();
+
     /* merge younger generations with one we are currently collecting */
     for (i = 0; i < generation; i++) {
         gc_list_merge(GEN_HEAD(gcstate, i), GEN_HEAD(gcstate, generation));
@@ -1410,6 +1452,7 @@ static Py_ssize_t
 gc_collect_generations(PyThreadState *tstate)
 {
     GCState *gcstate = &tstate->interp->gc;
+
     /* Find the oldest generation (highest numbered) where the count
      * exceeds the threshold.  Objects in the that generation and
      * generations younger than it will be collected. */

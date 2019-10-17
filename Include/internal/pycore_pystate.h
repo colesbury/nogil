@@ -8,6 +8,7 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#include "pycore_llist.h"     /* llist_data */
 #include "pycore_runtime.h"   /* PyRuntimeState */
 
 enum _threadstatus {
@@ -151,6 +152,8 @@ static inline PyInterpreterState* _PyInterpreterState_GET(void) {
 
 PyAPI_FUNC(void) _PyThreadState_SetCurrent(PyThreadState *tstate);
 // We keep this around exclusively for stable ABI compatibility.
+/* Other */
+
 PyAPI_FUNC(void) _PyThreadState_Init(
     PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_DeleteExcept(

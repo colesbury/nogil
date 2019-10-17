@@ -78,16 +78,7 @@ _Py_queue_object(PyObject *ob, uintptr_t tid)
 {
     PyThreadStateImpl *tstate_impl;
     Bucket *bucket = &buckets[tid % NUM_BUCKETS];
-
-    if (tid == 0) {
-        if (_PyObject_IS_IMMORTAL(ob)/* || _PyObject_IS_DEFERRED_RC(ob)*/) {
-            // kind of awkward, but strings can be immortalized after they have
-            // a bunch of references and the new interpreter still tries decrefing
-            // the immortalized object.
-            return;
-        }
-        Py_FatalError("_Py_queue_object called with unowned object");
-    }
+    assert(tid != 0);
 
     _PyMutex_lock(&bucket->mutex);
     tstate_impl = find_thread_state(bucket, tid);
@@ -172,9 +163,7 @@ _Py_queue_process_gc(PyThreadState *tstate, _PyObjectQueue **queue_ptr)
         // owned a reference.
         Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob, -1);
         if (refcount == 0) {
-            if (!PyObject_GC_IsTracked(ob)) {
-                _PyObjectQueue_Push(queue_ptr, ob);
-            }
+            _PyObjectQueue_Push(queue_ptr, ob);
         }
     }
 }

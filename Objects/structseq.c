@@ -472,6 +472,7 @@ static void
 initialize_static_fields(PyTypeObject *type, PyStructSequence_Desc *desc,
                          PyMemberDef *tp_members, unsigned long tp_flags)
 {
+    _PyObject_SetImmortal((PyObject *)type);
     type->tp_name = desc->name;
     type->tp_basicsize = sizeof(PyStructSequence) - sizeof(PyObject *);
     type->tp_itemsize = sizeof(PyObject *);
@@ -546,7 +547,8 @@ PyStructSequence_InitType2(PyTypeObject *type, PyStructSequence_Desc *desc)
 #endif
 
     /* PyTypeObject has already been initialized */
-    if (Py_REFCNT(type) != 0) {
+    PyObject *op = (PyObject *)type;
+    if (op->ob_ref_local != 0 || op->ob_ref_shared != 0) {
         PyErr_BadInternalCall();
         return -1;
     }
@@ -587,17 +589,8 @@ _PyStructSequence_FiniType(PyTypeObject *type)
     PyMem_Free(type->tp_members);
 
     _PyStaticType_Dealloc(type);
-    assert(Py_REFCNT(type) == 1);
-    // Undo Py_INCREF(type) of _PyStructSequence_InitType().
-    // Don't use Py_DECREF(): static type must not be deallocated
-    Py_SET_REFCNT(type, 0);
-#ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
-#endif
-
-    // Make sure that _PyStructSequence_InitType() will initialize
-    // the type again
-    assert(Py_REFCNT(type) == 0);
+    assert(_PyObject_IS_IMMORTAL((PyObject *)type));
+    ((PyObject *)type)->ob_ref_local = 0;
     assert(type->tp_name == NULL);
 }
 

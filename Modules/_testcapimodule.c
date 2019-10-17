@@ -1646,8 +1646,8 @@ slot_tp_del(PyObject *self)
     PyObject *error_type, *error_value, *error_traceback;
 
     /* Temporarily resurrect the object. */
-    assert(Py_REFCNT(self) == 0);
-    Py_SET_REFCNT(self, 1);
+    assert(Py_IS_REFERENCED(self) == 0);
+    _Py_RESURRECT(self, 1);
 
     /* Save the current exception, if any. */
     PyErr_Fetch(&error_type, &error_value, &error_traceback);
@@ -1676,8 +1676,7 @@ slot_tp_del(PyObject *self)
      * cause a recursive call.
      */
     assert(Py_REFCNT(self) > 0);
-    Py_SET_REFCNT(self, Py_REFCNT(self) - 1);
-    if (Py_REFCNT(self) == 0) {
+    if (_Py_FINISH_RESURRECT(self)) {
         /* this is the normal path out */
         return;
     }
@@ -1685,16 +1684,12 @@ slot_tp_del(PyObject *self)
     /* __del__ resurrected it!  Make it look like the original Py_DECREF
      * never happened.
      */
-    {
-        Py_ssize_t refcnt = Py_REFCNT(self);
-        _Py_NewReference(self);
-        Py_SET_REFCNT(self, refcnt);
-    }
+    _Py_ReattachReference(self);
     assert(!PyType_IS_GC(Py_TYPE(self)) || PyObject_GC_IsTracked(self));
     /* If Py_REF_DEBUG macro is defined, _Py_NewReference() increased
        _Py_RefTotal, so we need to undo that. */
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
 }
 
@@ -2350,6 +2345,7 @@ negative_refcount(PyObject *self, PyObject *Py_UNUSED(args))
     assert(Py_REFCNT(obj) == 1);
 
     Py_SET_REFCNT(obj,  0);
+
     /* Py_DECREF() must call _Py_NegativeRefcount() and abort Python */
     Py_DECREF(obj);
 

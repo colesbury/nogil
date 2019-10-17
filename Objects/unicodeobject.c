@@ -948,7 +948,7 @@ resize_compact(PyObject *unicode, Py_ssize_t length)
         _PyUnicode_UTF8_LENGTH(unicode) = 0;
     }
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
 #ifdef Py_TRACE_REFS
     _Py_ForgetReference(unicode);

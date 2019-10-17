@@ -13,9 +13,10 @@ extern "C" {
 #ifdef Py_DEBUG
 static inline void
 _PyStaticObject_CheckRefcnt(PyObject *obj) {
-    if (Py_REFCNT(obj) < _PyObject_IMMORTAL_REFCNT) {
+    if (obj->ob_ref_local != (uint32_t)Py_REF_IMMORTAL ||
+        obj->ob_tid != (uintptr_t)Py_REF_IMMORTAL) {
         _PyObject_ASSERT_FAILED_MSG(obj,
-            "immortal object has less refcnt than expected "
+            "immortal object has incorrect refcnt "
             "_PyObject_IMMORTAL_REFCNT");
     }
 }

@@ -1026,11 +1026,11 @@ r_object(RFILE *p)
         break;
 
     case TYPE_FALSE:
-        retval = Py_NewRef(Py_False);
+        retval = Py_False;
         break;
 
     case TYPE_TRUE:
-        retval = Py_NewRef(Py_True);
+        retval = Py_True;
         break;
 
     case TYPE_INT:

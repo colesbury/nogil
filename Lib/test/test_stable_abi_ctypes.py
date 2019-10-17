@@ -860,6 +860,7 @@ SYMBOL_NAMES = (
     "_PyObject_GC_Resize",
     "_PyObject_New",
     "_PyObject_NewVar",
+    "_PyObject_SetRefcount",
     "_PyState_AddModule",
     "_PyThreadState_Init",
     "_PyThreadState_Prealloc",
@@ -870,9 +871,12 @@ SYMBOL_NAMES = (
     "_Py_CheckRecursiveCall",
     "_Py_Dealloc",
     "_Py_DecRef",
+    "_Py_DecRefShared",
     "_Py_EllipsisObject",
     "_Py_FalseStruct",
     "_Py_IncRef",
+    "_Py_IncRefShared",
+    "_Py_MergeZeroRefcount",
     "_Py_NoneStruct",
     "_Py_NotImplementedStruct",
     "_Py_SwappedOp",
@@ -911,8 +915,12 @@ if feature_macros['PY_HAVE_THREAD_NATIVE_ID']:
     )
 if feature_macros['Py_REF_DEBUG']:
     SYMBOL_NAMES += (
+        '_Py_DecRefTotal',
+        '_Py_DecRefTotalN',
+        '_Py_DecRefTotalObj',
+        '_Py_IncRefTotal',
+        '_Py_IncRefTotalN',
         '_Py_NegativeRefcount',
-        '_Py_RefTotal',
     )
 
 EXPECTED_FEATURE_MACROS = set(['HAVE_FORK',

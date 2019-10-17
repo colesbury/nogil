@@ -666,6 +666,9 @@
     <ClInclude Include="..\Include\internal\pycore_range.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_refcnt.h">
+      <Filter>Include</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_runtime.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
@@ -1221,6 +1224,9 @@
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\pymath.c">
+      <Filter>Python</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Python\pyrefcnt.c">
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\pytime.c">

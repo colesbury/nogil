@@ -2207,16 +2207,48 @@
 [data.PyExc_EncodingWarning]
     added = '3.10'
 
+
+# Biased reference counting
+
+[function._PyObject_SetRefcount]
+    added = '3.12'
+    abi_only = true
+[function._Py_DecRefShared]
+    added = '3.12'
+    abi_only = true
+[function._Py_IncRefShared]
+    added = '3.12'
+    abi_only = true
+[function._Py_MergeZeroRefcount]
+    added = '3.12'
+    abi_only = true
+
 # Support for Stable ABI in debug builds
 
-[data._Py_RefTotal]
-    added = '3.10'
-    ifdef = 'Py_REF_DEBUG'
-    abi_only = true
 [function._Py_NegativeRefcount]
     added = '3.10'
     ifdef = 'Py_REF_DEBUG'
     abi_only = true
+[function._Py_DecRefTotal]
+    added = '3.12'
+    abi_only = true
+    ifdef = 'Py_REF_DEBUG'
+[function._Py_DecRefTotalN]
+    added = '3.12'
+    abi_only = true
+    ifdef = 'Py_REF_DEBUG'
+[function._Py_DecRefTotalObj]
+    added = '3.12'
+    abi_only = true
+    ifdef = 'Py_REF_DEBUG'
+[function._Py_IncRefTotal]
+    added = '3.12'
+    abi_only = true
+    ifdef = 'Py_REF_DEBUG'
+[function._Py_IncRefTotalN]
+    added = '3.12'
+    abi_only = true
+    ifdef = 'Py_REF_DEBUG'
 
 # New slots in 3.10:
 

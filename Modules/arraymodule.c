@@ -776,15 +776,15 @@ array_richcompare(PyObject *v, PyObject *w, int op)
             res = Py_True;
         else
             res = Py_False;
-        return Py_NewRef(res);
+        return res;
     }
 
     /* We have an item that differs.  First, shortcuts for EQ/NE */
     if (op == Py_EQ) {
-        res = Py_NewRef(Py_False);
+        res = Py_False;
     }
     else if (op == Py_NE) {
-        res = Py_NewRef(Py_True);
+        res = Py_True;
     }
     else {
         /* Compare the final item again using the proper operator */

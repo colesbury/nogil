@@ -34,6 +34,7 @@
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_signal.h"        // Py_NSIG
 
+#include "pycore_refcnt.h"        // _Py_queue_after_fork()
 #include "parking_lot.h"
 #include "structmember.h"         // PyMemberDef
 #ifndef MS_WINDOWS
@@ -616,6 +617,7 @@ PyOS_AfterFork_Child(void)
     }
 
     _PySignal_AfterFork();
+    _Py_queue_after_fork();
 
     status = _PyRuntimeState_ReInitThreads(runtime);
     if (_PyStatus_EXCEPTION(status)) {

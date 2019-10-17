@@ -48,7 +48,7 @@ static inline PyObject* PyWeakref_GET_OBJECT(PyObject *ref_obj) {
     // has dropped to zero.  In the meantime, code accessing the weakref will
     // be able to "see" the target object even though it is supposed to be
     // unreachable.  See issue gh-60806.
-    if (Py_REFCNT(obj) > 0) {
+    if (Py_IS_REFERENCED(obj)) {
         return obj;
     }
     return Py_None;

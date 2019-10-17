@@ -116,13 +116,13 @@ static PyTypeObject PyDecContextManager_Type;
 Py_LOCAL_INLINE(PyObject *)
 incr_true(void)
 {
-    return Py_NewRef(Py_True);
+    return Py_True;
 }
 
 Py_LOCAL_INLINE(PyObject *)
 incr_false(void)
 {
-    return Py_NewRef(Py_False);
+    return Py_False;
 }
 
 
@@ -4104,7 +4104,7 @@ dec_##MPDFUNC(PyObject *self, PyObject *args, PyObject *kwds)            \
 {                                                                        \
     static char *kwlist[] = {"other", "third", "context", NULL};         \
     PyObject *other, *third;                                             \
-    PyObject *a, *b, *c;                                                 \
+    PyObject *a = NULL, *b = NULL, *c = NULL;                            \
     PyObject *result;                                                    \
     PyObject *context = Py_None;                                         \
     uint32_t status = 0;                                                 \
@@ -4210,7 +4210,7 @@ nm_mpd_qdivmod(PyObject *v, PyObject *w)
 static PyObject *
 nm_mpd_qpow(PyObject *base, PyObject *exp, PyObject *mod)
 {
-    PyObject *a, *b, *c = NULL;
+    PyObject *a = NULL, *b = NULL, *c = NULL;
     PyObject *result;
     PyObject *context;
     uint32_t status = 0;
@@ -5150,7 +5150,7 @@ static PyObject *                                                        \
 ctx_##MPDFUNC(PyObject *context, PyObject *args)                         \
 {                                                                        \
     PyObject *v, *w, *x;                                                 \
-    PyObject *a, *b, *c;                                                 \
+    PyObject *a = NULL, *b = NULL, *c = NULL;                            \
     PyObject *result;                                                    \
     uint32_t status = 0;                                                 \
                                                                          \
@@ -5215,7 +5215,7 @@ static PyObject *
 ctx_mpd_qdivmod(PyObject *context, PyObject *args)
 {
     PyObject *v, *w;
-    PyObject *a, *b;
+    PyObject *a = NULL, *b = NULL;
     PyObject *q, *r;
     uint32_t status = 0;
     PyObject *ret;
@@ -5261,7 +5261,7 @@ ctx_mpd_qpow(PyObject *context, PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"a", "b", "modulo", NULL};
     PyObject *base, *exp, *mod = Py_None;
-    PyObject *a, *b, *c = NULL;
+    PyObject *a = NULL, *b = NULL, *c = NULL;
     PyObject *result;
     uint32_t status = 0;
 
@@ -5984,12 +5984,12 @@ PyInit__decimal(void)
 
 #ifndef WITH_DECIMAL_CONTEXTVAR
     ASSIGN_PTR(tls_context_key, PyUnicode_FromString("___DECIMAL_CTX__"));
-    CHECK_INT(PyModule_AddObject(m, "HAVE_CONTEXTVAR", Py_NewRef(Py_False)));
+    CHECK_INT(PyModule_AddObject(m, "HAVE_CONTEXTVAR", Py_False));
 #else
     ASSIGN_PTR(current_context_var, PyContextVar_New("decimal_context", NULL));
-    CHECK_INT(PyModule_AddObject(m, "HAVE_CONTEXTVAR", Py_NewRef(Py_True)));
+    CHECK_INT(PyModule_AddObject(m, "HAVE_CONTEXTVAR", Py_True));
 #endif
-    CHECK_INT(PyModule_AddObject(m, "HAVE_THREADS", Py_NewRef(Py_True)));
+    CHECK_INT(PyModule_AddObject(m, "HAVE_THREADS", Py_True));
 
     /* Init basic context template */
     ASSIGN_PTR(basic_context_template,

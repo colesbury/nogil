@@ -15,7 +15,7 @@
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_runtime_init.h"  // _PyRuntimeState_INIT
 #include "pycore_sysmodule.h"
-#include "pyatomic.h"
+#include "pycore_refcnt.h"
 
 #include "parking_lot.h"
 
@@ -183,6 +183,23 @@ _PyThreadState_Detach(PyThreadState *tstate)
     }
 
     _Py_atomic_store_int(&tstate->status, _Py_THREAD_DETACHED);
+}
+
+intptr_t
+_PyRuntimeState_GetRefTotal(_PyRuntimeState *runtime)
+{
+    Py_ssize_t total = runtime->ref_total;
+
+    HEAD_LOCK(runtime);
+    PyInterpreterState *interp = runtime->interpreters.head;
+    if (interp) {
+        for (PyThreadState *p = interp->threads.head; p != NULL; p = p->next) {
+            total += p->ref_total;
+        }
+    }
+    HEAD_UNLOCK(runtime);
+
+    return total;
 }
 
 PyStatus
@@ -696,7 +713,7 @@ allocate_chunk(int size_in_bytes, _PyStackChunk* previous)
 static PyThreadState *
 alloc_threadstate(void)
 {
-    return PyMem_RawCalloc(1, sizeof(PyThreadState));
+    return PyMem_RawCalloc(1, sizeof(PyThreadStateImpl));
 }
 
 static void
@@ -704,7 +721,7 @@ free_threadstate(PyThreadState *tstate)
 {
     // The initial thread state of the interpreter is allocated
     // as part of the interpreter state so should not be freed.
-    if (tstate != &tstate->interp->_initial_thread) {
+    if (tstate != &tstate->interp->_initial_thread.tstate) {
         PyMem_RawFree(tstate);
     }
 }
@@ -786,7 +803,7 @@ new_threadstate(PyInterpreterState *interp)
         // It's the interpreter's initial thread state.
         assert(id == 1);
         used_newtstate = 0;
-        tstate = &interp->_initial_thread;
+        tstate = &interp->_initial_thread.tstate;
     }
     else {
         // Every valid interpreter must have at least one thread.
@@ -795,9 +812,9 @@ new_threadstate(PyInterpreterState *interp)
         used_newtstate = 1;
         tstate = new_tstate;
         // Set to _PyThreadState_INIT.
-        memcpy(tstate,
+        memcpy((PyThreadStateImpl *)tstate,
                &initial._main_interpreter._initial_thread,
-               sizeof(*tstate));
+               sizeof(PyThreadStateImpl));
     }
     interp->threads.head = tstate;
 
@@ -840,6 +857,7 @@ _PyThreadState_SetCurrent(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
     _PyParkingLot_InitThread();
+    _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
 
@@ -988,6 +1006,8 @@ PyThreadState_Clear(PyThreadState *tstate)
           "PyThreadState_Clear: warning: thread still has a frame\n");
     }
 
+    _Py_queue_destroy(tstate);
+
     /* Don't clear tstate->pyframe: it is a borrowed reference */
 
     Py_CLEAR(tstate->dict);
@@ -1053,6 +1073,10 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate->next) {
         tstate->next->prev = tstate->prev;
     }
+#ifdef Py_REF_DEBUG
+    runtime->ref_total += tstate->ref_total;
+    tstate->ref_total = 0;
+#endif
     HEAD_UNLOCK(runtime);
 
     if (is_current) {

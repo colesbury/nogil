@@ -86,6 +86,7 @@ class _ThreadWakeup:
 
 def _python_exit():
     global _global_shutdown
+    import gc; gc.collect()
     _global_shutdown = True
     items = list(_threads_wakeups.items())
     for _, thread_wakeup in items:
@@ -305,7 +306,7 @@ class _ExecutorManagerThread(threading.Thread):
             with shutdown_lock:
                 thread_wakeup.wakeup()
 
-        self.executor_reference = weakref.ref(executor, weakref_cb)
+        self.executor_reference = sys.mergerefcount(weakref.ref(executor, weakref_cb))
 
         # A list of the ctx.Process instances used as workers.
         self.processes = executor._processes
@@ -832,5 +833,13 @@ class ProcessPoolExecutor(_base.Executor):
         self._result_queue = None
         self._processes = None
         self._executor_manager_thread_wakeup = None
+
+        # TODO(sgross): This is necessary so that something that refers to the
+        # weakref with weakref_cb gets collected before the executor gets destroyed
+        # In the future, with regular processing of the object queue it might not
+        # be necessary. Alternatively, we may want to manually process the object
+        # queue (but hopefully not!)
+        import gc
+        gc.collect()
 
     shutdown.__doc__ = _base.Executor.shutdown.__doc__

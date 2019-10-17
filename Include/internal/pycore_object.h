@@ -21,8 +21,9 @@ extern "C" {
 
 #define _PyObject_IMMORTAL_INIT(type) \
     { \
-        .ob_refcnt = _PyObject_IMMORTAL_REFCNT, \
-        .ob_type = (type), \
+        .ob_tid = (uintptr_t)Py_REF_IMMORTAL, \
+        .ob_ref_local = (uint32_t)Py_REF_IMMORTAL, \
+        .ob_type = type, \
     }
 #define _PyVarObject_IMMORTAL_INIT(type, size) \
     { \
@@ -40,48 +41,39 @@ PyAPI_FUNC(void) _Py_NO_RETURN _Py_FatalRefcountErrorFunc(
 // Increment reference count by n
 static inline void _Py_RefcntAdd(PyObject* op, Py_ssize_t n)
 {
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_Py_REF_IS_IMMORTAL(local)) {
+        return;
+    }
+
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal += n;
+    _Py_IncRefTotalN(n);
 #endif
-    op->ob_refcnt += n;
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        local += _Py_STATIC_CAST(uint32_t, (n << _Py_REF_LOCAL_SHIFT));
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+    }
+    else {
+        _Py_atomic_add_uint32(&op->ob_ref_shared, _Py_STATIC_CAST(uint32_t, n << _Py_REF_SHARED_SHIFT));
+    }
 }
 #define _Py_RefcntAdd(op, n) _Py_RefcntAdd(_PyObject_CAST(op), n)
 
-static inline void
+static _Py_ALWAYS_INLINE void
 _Py_DECREF_SPECIALIZED(PyObject *op, const destructor destruct)
 {
-    _Py_DECREF_STAT_INC();
-#ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
-#endif
-    if (--op->ob_refcnt != 0) {
-        assert(op->ob_refcnt > 0);
-    }
-    else {
-#ifdef Py_TRACE_REFS
-        _Py_ForgetReference(op);
-#endif
-        destruct(op);
-    }
+    Py_DECREF(op);
 }
 
-static inline void
+static _Py_ALWAYS_INLINE void
 _Py_DECREF_NO_DEALLOC(PyObject *op)
 {
-    _Py_DECREF_STAT_INC();
-#ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
-#endif
-    op->ob_refcnt--;
-#ifdef Py_DEBUG
-    if (op->ob_refcnt <= 0) {
-        _Py_FatalRefcountError("Expected a positive remaining refcount");
-    }
-#endif
+    Py_DECREF(op);
 }
 
 PyAPI_FUNC(int) _PyType_CheckConsistency(PyTypeObject *type);
 PyAPI_FUNC(int) _PyDict_CheckConsistency(PyObject *mp, int check_content);
+PyAPI_FUNC(void) _PyObject_Dealloc(PyObject *self);
 
 /* Update the Python traceback of an object. This function must be called
    when a memory block is reused from a free list.
@@ -206,6 +198,173 @@ static inline void _PyObject_GC_UNTRACK(
 #  define _PyObject_GC_UNTRACK(op) \
         _PyObject_GC_UNTRACK(__FILE__, __LINE__, _PyObject_CAST(op))
 #endif
+
+/* Tries to increment an object's reference count
+ *
+ * This is a specialized version of _Py_TryIncref that only succeeds if the
+ * object is immortal or local to this thread. It does not handle the case
+ * where the  reference count modification requires an atomic operation. This
+ * allows call sites to specialize for the immortal/local case.
+ */
+Py_ALWAYS_INLINE static inline int
+_Py_TryIncrefFast(PyObject *op) {
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    local += (1 << _Py_REF_LOCAL_SHIFT);
+    if (local == 0) {
+        // immortal
+        return 1;
+    }
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#ifdef Py_REF_DEBUG
+        _Py_IncRefTotal();
+#endif
+        return 1;
+    }
+    return 0;
+}
+
+static _Py_ALWAYS_INLINE int
+_Py_TryIncRefShared(PyObject *op)
+{
+    for (;;) {
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+
+        // If the shared refcount is zero and the object is either merged
+        // or may not have weak references, then we cannot incref it.
+        if (shared == 0 || shared == _Py_REF_MERGED) {
+            return 0;
+        }
+
+        if (_Py_atomic_compare_exchange_uint32(
+                &op->ob_ref_shared,
+                shared,
+                shared + (1 << _Py_REF_SHARED_SHIFT))) {
+#ifdef Py_REF_DEBUG
+            _Py_IncRefTotal();
+#endif
+            return 1;
+        }
+    }
+}
+
+/* Tries to incref the object op and ensures that *src still points to it. */
+static inline int
+_Py_TryAcquireObject(PyObject **src, PyObject *op)
+{
+    if (_Py_TryIncrefFast(op)) {
+        return 1;
+    }
+    if (!_Py_TryIncRefShared(op)) {
+        return 0;
+    }
+    if (op != _Py_atomic_load_ptr(src)) {
+        Py_DECREF(op);
+        return 0;
+    }
+    return 1;
+}
+
+/* Loads and increfs an object from ptr, which may contain a NULL value.
+   Safe with concurrent (atomic) updates to ptr.
+   NOTE: The writer must set maybe-weakref on the stored object! */
+static _Py_ALWAYS_INLINE PyObject *
+_Py_XFetchRef(PyObject **ptr)
+{
+#ifdef Py_NOGIL
+    for (;;) {
+        PyObject *value = _Py_atomic_load_ptr(ptr);
+        if (value == NULL) {
+            return value;
+        }
+        if (_Py_TryAcquireObject(ptr, value)) {
+            return value;
+        }
+    }
+#else
+    return Py_XNewRef(*ptr);
+#endif
+}
+
+/* Attempts to loads and increfs an object from ptr. Returns NULL
+   on failure, which may be due to a NULL value or a concurrent update. */
+static _Py_ALWAYS_INLINE PyObject *
+_Py_TryXFetchRef(PyObject **ptr)
+{
+    PyObject *value = _Py_atomic_load_ptr(ptr);
+    if (value == NULL) {
+        return value;
+    }
+    if (_Py_TryAcquireObject(ptr, value)) {
+        return value;
+    }
+    return NULL;
+}
+
+/* Like Py_NewRef but also optimistically sets _Py_REF_MAYBE_WEAKREF
+   on objects owned by a different thread. */
+static inline PyObject *
+_Py_NewRefWithLock(PyObject *op)
+{
+    _Py_INCREF_STAT_INC();
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    local += (1 << _Py_REF_LOCAL_SHIFT);
+    if (local == 0) {
+        return op;
+    }
+
+#ifdef Py_REF_DEBUG
+    _Py_IncRefTotal();
+#endif
+    if (_Py_ThreadLocal(op)) {
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+    }
+    else {
+        for (;;) {
+            uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+            uint32_t new_shared = shared + (1 << _Py_REF_SHARED_SHIFT);
+            if ((shared & _Py_REF_SHARED_FLAG_MASK) == 0) {
+                new_shared |= _Py_REF_MAYBE_WEAKREF;
+            }
+            if (_Py_atomic_compare_exchange_uint32(
+                    &op->ob_ref_shared,
+                    shared,
+                    new_shared)) {
+                return op;
+            }
+        }
+    }
+    return op;
+}
+
+static inline PyObject *
+_Py_XNewRefWithLock(PyObject *obj)
+{
+    if (obj == NULL) {
+        return NULL;
+    }
+    return _Py_NewRefWithLock(obj);
+}
+
+static inline void
+_PyObject_SetMaybeWeakref(PyObject *op)
+{
+    if (_PyObject_IS_IMMORTAL(op)) {
+        return;
+    }
+    for (;;) {
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        if ((shared & _Py_REF_SHARED_FLAG_MASK) != 0) {
+            return;
+        }
+        if (_Py_atomic_compare_exchange_uint32(
+                &op->ob_ref_shared,
+                shared,
+                shared | _Py_REF_MAYBE_WEAKREF)) {
+            return;
+        }
+    }
+}
 
 #ifdef Py_REF_DEBUG
 extern void _PyDebug_PrintTotalRefs(void);
