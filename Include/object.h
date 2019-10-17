@@ -82,7 +82,7 @@ typedef struct _typeobject PyTypeObject;
 
 #define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
-    1, type }
+    0, 1, type }
 
 #define PyObject_HEAD_INIT(type)        \
     _PyObject_STRUCT_INIT(type),
@@ -99,6 +99,9 @@ typedef struct _typeobject PyTypeObject;
 #define PyObject_VAR_HEAD      PyVarObject ob_base;
 #define Py_INVALID_SIZE (Py_ssize_t)-1
 
+#define _PyObject_ThreadId(ob) (_PyObject_CAST(ob)->ob_tid)
+
+
 /* Nothing is actually declared to be a PyObject, but every pointer to
  * a Python object can be cast to a PyObject*.  This is inheritance built
  * by hand.  Similarly every pointer to a variable-size Python object can,
@@ -106,6 +109,7 @@ typedef struct _typeobject PyTypeObject;
  */
 typedef struct _object {
     _PyObject_HEAD_EXTRA
+    uintptr_t ob_tid;
     Py_ssize_t ob_ref_local;
     PyTypeObject *ob_type;
 } PyObject;
@@ -394,6 +398,28 @@ PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
 
 
 PyAPI_FUNC(void) _Py_Dealloc(PyObject *);
+
+static inline uintptr_t
+_Py_ThreadId(void)
+{
+#if defined(__GNUC__)
+// TODO: only AMD64 fix i386
+    uintptr_t out;
+    #if defined(__MACH__)
+    __asm__ ("mov %%gs:0, %0" : "=r" (out));  // value of fs
+    #else
+    __asm__ ("mov %%fs:0, %0" : "=r" (out));  // value of fs
+    #endif
+    return out;
+#elif defined(_WIN64) && defined(_X86_)
+    // TODO: figure out what happens when you target 32-bit Windows from 64-bit windows
+    return __readgsdword(0x48);  // current thread ID
+#elif defined(_WIN32) && defined(_X86_)
+    return __readfsdword(0x24);  // current thread ID
+#else
+    return 0;
+#endif
+}
 
 #define _Py_REF_LOCAL_SHIFT     2
 #define _Py_REF_IMMORTAL_MASK   0x1
