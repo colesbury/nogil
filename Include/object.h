@@ -84,7 +84,7 @@ typedef struct _typeobject PyTypeObject;
 
 #define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
-    1, type }
+    0, 1, type }
 
 #define PyObject_HEAD_INIT(type)        \
     _PyObject_STRUCT_INIT(type),
@@ -101,6 +101,9 @@ typedef struct _typeobject PyTypeObject;
 #define PyObject_VAR_HEAD      PyVarObject ob_base;
 #define Py_INVALID_SIZE (Py_ssize_t)-1
 
+#define _PyObject_ThreadId(ob) (_Py_atomic_load_uintptr_relaxed(&_PyObject_CAST(ob)->ob_tid))
+
+
 /* Nothing is actually declared to be a PyObject, but every pointer to
  * a Python object can be cast to a PyObject*.  This is inheritance built
  * by hand.  Similarly every pointer to a variable-size Python object can,
@@ -108,6 +111,7 @@ typedef struct _typeobject PyTypeObject;
  */
 typedef struct _object {
     _PyObject_HEAD_EXTRA
+    uintptr_t ob_tid;
     Py_ssize_t ob_ref_local;
     PyTypeObject *ob_type;
 } PyObject;

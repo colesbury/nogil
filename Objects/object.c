@@ -1834,6 +1834,7 @@ _Py_NewReference(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
+    op->ob_tid = _Py_ThreadId();
     op->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);
 #ifdef Py_TRACE_REFS
     _Py_AddToAllObjects(op, 1);

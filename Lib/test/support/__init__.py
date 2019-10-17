@@ -1478,7 +1478,7 @@ def python_is_optimized():
     return final_opt not in ('', '-O0', '-Og')
 
 
-_header = 'nP'
+_header = 'nPP'
 _align = '0n'
 if hasattr(sys, "getobjects"):
     _header = '2P' + _header
