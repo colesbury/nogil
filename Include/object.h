@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-
 /* Object and type object interface */
 
 /*
@@ -83,9 +82,12 @@ typedef struct _typeobject PyTypeObject;
 /* PyObject_HEAD defines the initial segment of every PyObject. */
 #define PyObject_HEAD                   PyObject ob_base;
 
-#define PyObject_HEAD_INIT(type)        \
+#define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
-    1, type },
+    1, type }
+
+#define PyObject_HEAD_INIT(type)        \
+    _PyObject_STRUCT_INIT(type),
 
 #define PyVarObject_HEAD_INIT(type, size)       \
     { PyObject_HEAD_INIT(type) size },
@@ -106,7 +108,7 @@ typedef struct _typeobject PyTypeObject;
  */
 typedef struct _object {
     _PyObject_HEAD_EXTRA
-    Py_ssize_t ob_refcnt;
+    Py_ssize_t ob_ref_local;
     PyTypeObject *ob_type;
 } PyObject;
 
@@ -122,7 +124,9 @@ typedef struct {
 /* Cast argument to PyVarObject* type. */
 #define _PyVarObject_CAST(op) ((PyVarObject*)(op))
 
-#define Py_REFCNT(ob)           (_PyObject_CAST(ob)->ob_refcnt)
+#define Py_REFCNT(ob)           (_PyObject_Refcount(_PyObject_CAST(ob)))
+#define Py_RESURRECT(ob, rc)    (_PyObject_Resurrect(ob, rc))
+#define Py_IS_REFERENCED(ob)    (_PyObject_IsReferened(_PyObject_CAST(ob)))
 #define Py_TYPE(ob)             (_PyObject_CAST(ob)->ob_type)
 #define Py_SIZE(ob)             (_PyVarObject_CAST(ob)->ob_size)
 
@@ -132,7 +136,7 @@ static inline int _Py_IS_TYPE(const PyObject *ob, const PyTypeObject *type) {
 #define Py_IS_TYPE(ob, type) _Py_IS_TYPE(_PyObject_CAST_CONST(ob), type)
 
 static inline void _Py_SET_REFCNT(PyObject *ob, Py_ssize_t refcnt) {
-    ob->ob_refcnt = refcnt;
+    ob->ob_ref_local = refcnt;
 }
 #define Py_SET_REFCNT(ob, refcnt) _Py_SET_REFCNT(_PyObject_CAST(ob), refcnt)
 
@@ -280,6 +284,7 @@ PyAPI_FUNC(void) Py_ReprLeave(PyObject *);
 /* Flag bits for printing: */
 #define Py_PRINT_RAW    1       /* No string quotes etc. */
 
+
 /*
 Type flags (tp_flags)
 
@@ -400,6 +405,7 @@ PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
                                       PyObject *op);
 #endif /* Py_REF_DEBUG */
 
+
 PyAPI_FUNC(void) _Py_Dealloc(PyObject *);
 
 static inline uintptr_t
@@ -429,15 +435,43 @@ _Py_ThreadId(void)
   return tid;
 }
 
-static inline void _Py_INCREF(PyObject *op)
+#define _Py_REF_LOCAL_SHIFT     2
+#define _Py_REF_IMMORTAL_MASK   0x1
+
+#define _Py_REF_SHARED_SHIFT    2
+#define _Py_REF_QUEUED_MASK     0x2
+#define _Py_REF_MERGED_MASK     0x1
+
+static inline int
+_Py_REF_IS_IMMORTAL(Py_ssize_t local)
 {
+    return (local & _Py_REF_IMMORTAL_MASK) != 0;
+}
+
+static inline int
+_PyObject_IS_IMMORTAL(PyObject *op)
+{
+    return _Py_REF_IS_IMMORTAL(op->ob_ref_local);
+}
+
+static inline void
+_Py_INCREF(PyObject *op)
+{
+    Py_ssize_t refcnt = op->ob_ref_local;
+    if (_Py_REF_IS_IMMORTAL(refcnt)) {
+        return;
+    }
+
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    op->ob_refcnt++;
+    refcnt += (1 << _Py_REF_LOCAL_SHIFT);
+    op->ob_ref_local = refcnt;
 }
 
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
+
+#define _Py_TRY_INCREF(op) _Py_TryIncref(_PyObject_CAST(op))
 
 static inline void _Py_DECREF(
 #ifdef Py_REF_DEBUG
@@ -445,17 +479,23 @@ static inline void _Py_DECREF(
 #endif
     PyObject *op)
 {
+    Py_ssize_t refcnt = op->ob_ref_local;
+    if (_Py_REF_IS_IMMORTAL(refcnt)) {
+        return;
+    }
+
 #ifdef Py_REF_DEBUG
     _Py_RefTotal--;
 #endif
-    if (--op->ob_refcnt != 0) {
+    refcnt -= (1 << _Py_REF_LOCAL_SHIFT);
+    op->ob_ref_local = refcnt;
+
 #ifdef Py_REF_DEBUG
-        if (op->ob_refcnt < 0) {
-            _Py_NegativeRefcount(filename, lineno, op);
-        }
-#endif
+    if (refcnt < 0) {
+        _Py_NegativeRefcount(filename, lineno, op);
     }
-    else {
+#endif
+    if (refcnt == 0) {
         _Py_Dealloc(op);
     }
 }
@@ -498,7 +538,7 @@ static inline void _Py_DECREF(
  * There are cases where it's safe to use the naive code, but they're brittle.
  * For example, if `op` points to a Python integer, you know that destroying
  * one of those can't cause problems -- but in part that relies on that
- * Python integers aren't currently weakly referencable.  Best practice is
+ * Python integers aren't currently weakly referenceable.  Best practice is
  * to use Py_CLEAR() even if you can't think of a reason for why you need to.
  */
 #define Py_CLEAR(op)                            \
@@ -529,6 +569,28 @@ static inline void _Py_XDECREF(PyObject *op)
 
 #define Py_XDECREF(op) _Py_XDECREF(_PyObject_CAST(op))
 
+static inline Py_ssize_t
+_PyObject_Refcount(PyObject *op)
+{
+    if (_PyObject_IS_IMMORTAL(op)) {
+        return 999;
+    }
+    return op->ob_ref_local >> _Py_REF_LOCAL_SHIFT;
+}
+
+static inline int
+_PyObject_IsReferened(PyObject *op)
+{
+    return op->ob_ref_local != 0;
+}
+
+static inline void
+_PyObject_Resurrect(PyObject *op, Py_ssize_t refcnt)
+{
+    assert(!_PyObject_IS_IMMORTAL(op));
+    op->ob_ref_local = (refcnt << _Py_REF_LOCAL_SHIFT);
+}
+
 /*
 These are provided as conveniences to Python runtime embedders, so that
 they can have object code that is not dependent on Python compilation flags.
@@ -546,7 +608,7 @@ PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 #define Py_None (&_Py_NoneStruct)
 
 /* Macro for returning Py_None from a function */
-#define Py_RETURN_NONE return Py_INCREF(Py_None), Py_None
+#define Py_RETURN_NONE return Py_None
 
 /*
 Py_NotImplemented is a singleton used to signal that an operation is
@@ -556,8 +618,7 @@ PyAPI_DATA(PyObject) _Py_NotImplementedStruct; /* Don't use this directly */
 #define Py_NotImplemented (&_Py_NotImplementedStruct)
 
 /* Macro for returning Py_NotImplemented from a function */
-#define Py_RETURN_NOTIMPLEMENTED \
-    return Py_INCREF(Py_NotImplemented), Py_NotImplemented
+#define Py_RETURN_NOTIMPLEMENTED return Py_NotImplemented
 
 /* Rich comparison opcodes */
 #define Py_LT 0

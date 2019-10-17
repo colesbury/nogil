@@ -208,7 +208,7 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
     }
 
     /* Temporarily resurrect the object. */
-    Py_SET_REFCNT(self, 1);
+    self->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);
 
     PyObject_CallFinalizer(self);
 
@@ -218,16 +218,18 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
 
     /* Undo the temporary resurrection; can't use DECREF here, it would
      * cause a recursive call. */
-    Py_SET_REFCNT(self, Py_REFCNT(self) - 1);
+    self->ob_ref_local -= (1 << _Py_REF_LOCAL_SHIFT);
     if (Py_REFCNT(self) == 0) {
         return 0;         /* this is the normal path out */
     }
 
     /* tp_finalize resurrected it!  Make it look like the original Py_DECREF
      * never happened. */
-    Py_ssize_t refcnt = Py_REFCNT(self);
-    _Py_NewReference(self);
-    Py_SET_REFCNT(self, refcnt);
+#ifdef Py_TRACE_REFS
+    if (_Py_tracemalloc_config.tracing) {
+        _PyTraceMalloc_NewReference(op);
+    }
+#endif
 
     _PyObject_ASSERT(self,
                      (!_PyType_IS_GC(Py_TYPE(self))
@@ -1624,10 +1626,7 @@ PyTypeObject _PyNone_Type = {
     none_new,           /*tp_new */
 };
 
-PyObject _Py_NoneStruct = {
-  _PyObject_EXTRA_INIT
-  1, &_PyNone_Type
-};
+PyObject _Py_NoneStruct = _PyObject_STRUCT_INIT(&_PyNone_Type);
 
 /* NotImplemented is an object that can be used to signal that an
    operation is not implemented for the given type combination. */
@@ -1725,10 +1724,8 @@ PyTypeObject _PyNotImplemented_Type = {
     notimplemented_new, /*tp_new */
 };
 
-PyObject _Py_NotImplementedStruct = {
-    _PyObject_EXTRA_INIT
-    1, &_PyNotImplemented_Type
-};
+PyObject _Py_NotImplementedStruct =
+    _PyObject_STRUCT_INIT(&_PyNotImplemented_Type);
 
 PyStatus
 _PyTypes_Init(void)
@@ -1817,6 +1814,16 @@ _PyTypes_Init(void)
 #undef INIT_TYPE
 }
 
+void
+_Py_ReattachReference(PyObject *op)
+{
+    if (_Py_tracemalloc_config.tracing) {
+        _PyTraceMalloc_NewReference(op);
+    }
+#ifdef Py_TRACE_REFS
+    _Py_AddToAllObjects(op, 1);
+#endif
+}
 
 void
 _Py_NewReference(PyObject *op)
@@ -1827,7 +1834,7 @@ _Py_NewReference(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    Py_SET_REFCNT(op, 1);
+    op->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);
 #ifdef Py_TRACE_REFS
     _Py_AddToAllObjects(op, 1);
 #endif
