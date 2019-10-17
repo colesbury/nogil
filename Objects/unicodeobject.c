@@ -15717,7 +15717,8 @@ PyUnicode_InternInPlace(PyObject **p)
 
     /* The two references in interned are not counted by refcnt.
        The deallocator will take care of this */
-    Py_SET_REFCNT(s, Py_REFCNT(s) - 2);
+    Py_DECREF(s);
+    Py_DECREF(s);
     _PyUnicode_STATE(s).interned = SSTATE_INTERNED_MORTAL;
 #endif
 }

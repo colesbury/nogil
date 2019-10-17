@@ -42,7 +42,7 @@ PyModuleDef_Init(struct PyModuleDef* def)
          return NULL;
     if (def->m_base.m_index == 0) {
         max_module_number++;
-        Py_SET_REFCNT(def, 1);
+        assert(_PyObject_IS_IMMORTAL((PyObject*) def));
         Py_SET_TYPE(def, &PyModuleDef_Type);
         def->m_base.m_index = max_module_number;
     }
