@@ -16,7 +16,7 @@ terms of the MIT license. A copy of the license can be found in the file
 
 static uintptr_t mi_max_error_count = 16;  // stop outputting errors after this
 
-static void mi_add_stderr_output();
+static void mi_add_stderr_output(void);
 
 int mi_version(void) mi_attr_noexcept {
   return MI_MALLOC_VERSION;
@@ -209,11 +209,19 @@ static void mi_out_buf_stderr(const char* msg, void* arg) {
 // Default output handler
 // --------------------------------------------------------
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4180)
+#endif
+
 // Should be atomic but gives errors on many platforms as generally we cannot cast a function pointer to a uintptr_t.
 // For now, don't register output from multiple threads.
-#pragma warning(suppress:4180)
 static mi_output_fun* volatile mi_out_default; // = NULL
 static volatile _Atomic(void*) mi_out_arg; // = NULL
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 static mi_output_fun* mi_out_get_default(void** parg) {
   if (parg != NULL) { *parg = mi_atomic_read_ptr(void,&mi_out_arg); }
@@ -228,7 +236,7 @@ void mi_register_output(mi_output_fun* out, void* arg) mi_attr_noexcept {
 }
 
 // add stderr to the delayed output after the module is loaded
-static void mi_add_stderr_output() {
+static void mi_add_stderr_output(void) {
   mi_assert_internal(mi_out_default == NULL);
   mi_out_buf_flush(&mi_out_stderr, false, NULL); // flush current contents to stderr
   mi_out_default = &mi_out_buf_stderr;           // and add stderr to the delayed output
@@ -374,18 +382,25 @@ void _mi_error_message(int err, const char* fmt, ...) {
 // Initialize options by checking the environment
 // --------------------------------------------------------
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4996)
+#endif
+
 static void mi_strlcpy(char* dest, const char* src, size_t dest_size) {
   dest[0] = 0;
-  #pragma warning(suppress:4996)
   strncpy(dest, src, dest_size - 1);
   dest[dest_size - 1] = 0;
 }
 
 static void mi_strlcat(char* dest, const char* src, size_t dest_size) {
-  #pragma warning(suppress:4996)
   strncat(dest, src, dest_size - 1);
   dest[dest_size - 1] = 0;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #if defined _WIN32
 // On Windows use GetEnvironmentVariable instead of getenv to work

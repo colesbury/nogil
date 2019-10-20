@@ -108,10 +108,14 @@ mi_decl_restrict unsigned char* mi_mbsdup(const unsigned char* s)  mi_attr_noexc
   return (unsigned char*)mi_strdup((const char*)s);
 }
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4996)
+#endif
+
 int mi_dupenv_s(char** buf, size_t* size, const char* name) mi_attr_noexcept {
   if (buf==NULL || name==NULL) return EINVAL;
   if (size != NULL) *size = 0;
-  #pragma warning(suppress:4996)
   char* p = getenv(name);
   if (p==NULL) {
     *buf = NULL;
@@ -132,7 +136,6 @@ int mi_wdupenv_s(unsigned short** buf, size_t* size, const unsigned short* name)
   *buf = NULL;
   return EINVAL;
 #else
-  #pragma warning(suppress:4996)
   unsigned short* p = (unsigned short*)_wgetenv((const wchar_t*)name);
   if (p==NULL) {
     *buf = NULL;
@@ -145,6 +148,10 @@ int mi_wdupenv_s(unsigned short** buf, size_t* size, const unsigned short* name)
   return 0;
 #endif
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 void* mi_aligned_offset_recalloc(void* p, size_t newcount, size_t size, size_t alignment, size_t offset) mi_attr_noexcept { // Microsoft
   return mi_recalloc_aligned_at(p, newcount, size, alignment, offset);

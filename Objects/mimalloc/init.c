@@ -389,11 +389,11 @@ static bool os_preloading = true;    // true until this module is initialized
 static bool mi_redirected = false;   // true if malloc redirects to mi_malloc
 
 // Returns true if this module has not been initialized; Don't use C runtime routines until it returns false.
-bool _mi_preloading() {
+bool _mi_preloading(void) {
   return os_preloading;
 }
 
-bool mi_is_redirected() mi_attr_noexcept {
+bool mi_is_redirected(void) mi_attr_noexcept {
   return mi_redirected;
 }
 

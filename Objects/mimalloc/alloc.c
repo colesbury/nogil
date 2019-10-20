@@ -733,7 +733,7 @@ static bool mi_try_new_handler(bool nothrow) {
   }
 }
 #else
-typedef void (*std_new_handler_t)();
+typedef void (*std_new_handler_t)(void);
 
 #if (defined(__GNUC__) || defined(__clang__))
 std_new_handler_t __attribute((weak)) _ZSt15get_new_handlerv() {
