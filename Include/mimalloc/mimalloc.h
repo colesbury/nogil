@@ -251,7 +251,7 @@ mi_decl_export bool mi_heap_visit_blocks(const mi_heap_t* heap, bool visit_all_b
 
 // Experimental
 mi_decl_nodiscard mi_decl_export bool mi_is_in_heap_region(const void* p) mi_attr_noexcept;
-mi_decl_nodiscard mi_decl_export bool mi_is_redirected() mi_attr_noexcept;
+mi_decl_nodiscard mi_decl_export bool mi_is_redirected(void) mi_attr_noexcept;
 
 mi_decl_export int mi_reserve_huge_os_pages_interleave(size_t pages, size_t numa_nodes, size_t timeout_msecs) mi_attr_noexcept;
 mi_decl_export int mi_reserve_huge_os_pages_at(size_t pages, int numa_node, size_t timeout_msecs) mi_attr_noexcept;

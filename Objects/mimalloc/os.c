@@ -178,6 +178,11 @@ void _mi_os_init() {
   Raw allocation on Windows (VirtualAlloc) and Unix's (mmap).
 ----------------------------------------------------------- */
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4996)
+#endif
+
 static bool mi_os_mem_free(void* addr, size_t size, bool was_committed, mi_stats_t* stats)
 {
   if (addr == NULL || size == 0) return true; // || _mi_os_is_huge_reserved(addr)
@@ -192,7 +197,6 @@ static bool mi_os_mem_free(void* addr, size_t size, bool was_committed, mi_stats
   if (was_committed) _mi_stat_decrease(&stats->committed, size);
   _mi_stat_decrease(&stats->reserved, size);
   if (err) {
-    #pragma warning(suppress:4996)
     _mi_warning_message("munmap failed: %s, addr 0x%8li, size %lu\n", strerror(errno), (size_t)addr, size);
     return false;
   }
@@ -200,6 +204,10 @@ static bool mi_os_mem_free(void* addr, size_t size, bool was_committed, mi_stats
     return true;
   }
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 static void* mi_os_get_aligned_hint(size_t try_alignment, size_t size);
 
