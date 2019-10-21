@@ -559,7 +559,7 @@ static PyGetSetDef frame_getsetlist[] = {
    frames could provoke free_list into growing without bound.
 */
 /* max value for numfree */
-#define PyFrame_MAXFREELIST 200
+#define PyFrame_MAXFREELIST 0
 
 #if PyFrame_MAXFREELIST > 0
 static PyFrameObject *free_list = NULL;

@@ -96,37 +96,20 @@ list_preallocate_exact(PyListObject *self, Py_ssize_t size)
     return 0;
 }
 
-/* Empty list reuse scheme to save calls to malloc and free */
-#ifndef PyList_MAXFREELIST
-#  define PyList_MAXFREELIST 80
-#endif
-
-static PyListObject *free_list[PyList_MAXFREELIST];
-static int numfree = 0;
-
 void
 _PyList_ClearFreeList(void)
 {
-    while (numfree) {
-        PyListObject *op = free_list[--numfree];
-        assert(PyList_CheckExact(op));
-        PyObject_GC_Del(op);
-    }
 }
 
 void
 _PyList_Fini(void)
 {
-    _PyList_ClearFreeList();
 }
 
 /* Print summary info about the state of the optimized allocator */
 void
 _PyList_DebugMallocStats(FILE *out)
 {
-    _PyDebugAllocatorStats(out,
-                           "free PyListObject",
-                           numfree, sizeof(PyListObject));
 }
 
 PyObject *
@@ -138,15 +121,9 @@ PyList_New(Py_ssize_t size)
         PyErr_BadInternalCall();
         return NULL;
     }
-    if (numfree) {
-        numfree--;
-        op = free_list[numfree];
-        _Py_NewReference((PyObject *)op);
-    } else {
-        op = PyObject_GC_New(PyListObject, &PyList_Type);
-        if (op == NULL)
-            return NULL;
-    }
+    op = PyObject_GC_New(PyListObject, &PyList_Type);
+    if (op == NULL)
+        return NULL;
     if (size <= 0)
         op->ob_item = NULL;
     else {
@@ -338,10 +315,7 @@ list_dealloc(PyListObject *op)
         }
         PyMem_FREE(op->ob_item);
     }
-    if (numfree < PyList_MAXFREELIST && PyList_CheckExact(op))
-        free_list[numfree++] = op;
-    else
-        Py_TYPE(op)->tp_free((PyObject *)op);
+    Py_TYPE(op)->tp_free((PyObject *)op);
     Py_TRASHCAN_END
 }
 

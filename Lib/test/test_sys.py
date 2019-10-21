@@ -778,7 +778,6 @@ class SysModuleTest(unittest.TestCase):
         from test.support.script_helper import assert_python_ok
         args = ['-c', 'import sys; sys._debugmallocstats()']
         ret, out, err = assert_python_ok(*args)
-        self.assertIn(b"free PyDictObjects", err)
 
         # The function has no parameter
         self.assertRaises(TypeError, sys._debugmallocstats, True)
@@ -819,7 +818,7 @@ class SysModuleTest(unittest.TestCase):
             pass
         gc.collect()
         b = sys.getallocatedblocks()
-        self.assertLessEqual(b, a)
+        # self.assertLessEqual(b, a)  # unreliable without object caches
         gc.collect()
         c = sys.getallocatedblocks()
         self.assertIn(c, range(b - 50, b + 50))

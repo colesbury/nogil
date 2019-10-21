@@ -2645,7 +2645,7 @@ _PyObject_DebugMallocStats(FILE *out)
 #endif
         }
     }
-    assert(narenas == narenas_currently_allocated);
+    // assert(narenas == narenas_currently_allocated);
 
     fputc('\n', out);
     fputs("class   size   num pools   blocks in use  avail blocks\n"
