@@ -248,7 +248,7 @@ static uint64_t pydict_global_version = 0;
 
 /* Dictionary reuse scheme to save calls to malloc and free */
 #ifndef PyDict_MAXFREELIST
-#define PyDict_MAXFREELIST 80
+#define PyDict_MAXFREELIST 0
 #endif
 
 #if PyDict_MAXFREELIST > 0
