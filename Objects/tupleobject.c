@@ -14,12 +14,12 @@ class tuple "PyTupleObject *" "&PyTuple_Type"
 
 #include "clinic/tupleobject.c.h"
 
-/* Speed optimization to avoid frequent malloc/free of small tuples */
+/* Disabled optimizations */
 #ifndef PyTuple_MAXSAVESIZE
-#define PyTuple_MAXSAVESIZE     20  /* Largest tuple to save on free list */
+#define PyTuple_MAXSAVESIZE     0  /* Largest tuple to save on free list */
 #endif
 #ifndef PyTuple_MAXFREELIST
-#define PyTuple_MAXFREELIST  2000  /* Maximum number of tuples of each size to save */
+#define PyTuple_MAXFREELIST     0  /* Maximum number of tuples of each size to save */
 #endif
 
 #if PyTuple_MAXSAVESIZE > 0
@@ -28,6 +28,17 @@ class tuple "PyTupleObject *" "&PyTuple_Type"
 */
 static PyTupleObject *free_list[PyTuple_MAXSAVESIZE];
 static int numfree[PyTuple_MAXSAVESIZE];
+#else
+static struct {
+    PyGC_Head head;
+    PyTupleObject tuple;
+} _Py_EmptyTupleStruct = {
+    {0, 0},
+    {
+        { _PyObject_STRUCT_INIT(&PyTuple_Type), 0 },
+        { NULL }
+    }
+};
 #endif
 
 static inline void
@@ -105,6 +116,10 @@ PyTuple_New(Py_ssize_t size)
         op = free_list[0];
         Py_INCREF(op);
         return (PyObject *) op;
+    }
+#else
+    if (size == 0) {
+        return (PyObject *) &_Py_EmptyTupleStruct.tuple;
     }
 #endif
     op = tuple_alloc(size);
