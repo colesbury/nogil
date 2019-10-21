@@ -615,11 +615,6 @@ static PyGetSetDef frame_getsetlist[] = {
    frames could provoke free_list into growing without bound.
 */
 
-static PyFrameObject *free_list = NULL;
-static int numfree = 0;         /* number of frames currently in free_list */
-/* max value for numfree */
-#define PyFrame_MAXFREELIST 200
-
 static void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
@@ -650,11 +645,6 @@ frame_dealloc(PyFrameObject *f)
     co = f->f_code;
     if (co->co_zombieframe == NULL)
         co->co_zombieframe = f;
-    else if (numfree < PyFrame_MAXFREELIST) {
-        ++numfree;
-        f->f_back = free_list;
-        free_list = f;
-    }
     else
         PyObject_GC_Del(f);
 
@@ -870,29 +860,10 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         nfrees = PyTuple_GET_SIZE(code->co_freevars);
         extras = code->co_stacksize + code->co_nlocals + ncells +
             nfrees;
-        if (free_list == NULL) {
-            f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type,
-            extras);
-            if (f == NULL) {
-                Py_DECREF(builtins);
-                return NULL;
-            }
-        }
-        else {
-            assert(numfree > 0);
-            --numfree;
-            f = free_list;
-            free_list = free_list->f_back;
-            if (Py_SIZE(f) < extras) {
-                PyFrameObject *new_f = PyObject_GC_Resize(PyFrameObject, f, extras);
-                if (new_f == NULL) {
-                    PyObject_GC_Del(f);
-                    Py_DECREF(builtins);
-                    return NULL;
-                }
-                f = new_f;
-            }
-            _Py_NewReference((PyObject *)f);
+        f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
+        if (f == NULL) {
+            Py_DECREF(builtins);
+            return NULL;
         }
 
         f->f_code = code;
@@ -1190,16 +1161,7 @@ PyFrame_LocalsToFast(PyFrameObject *f, int clear)
 int
 PyFrame_ClearFreeList(void)
 {
-    int freelist_size = numfree;
-
-    while (free_list != NULL) {
-        PyFrameObject *f = free_list;
-        free_list = free_list->f_back;
-        PyObject_GC_Del(f);
-        --numfree;
-    }
-    assert(numfree == 0);
-    return freelist_size;
+    return 0;
 }
 
 void
@@ -1212,8 +1174,5 @@ _PyFrame_Fini(void)
 void
 _PyFrame_DebugMallocStats(FILE *out)
 {
-    _PyDebugAllocatorStats(out,
-                           "free PyFrameObject",
-                           numfree, sizeof(PyFrameObject));
 }
 

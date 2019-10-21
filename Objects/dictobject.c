@@ -245,39 +245,18 @@ static uint64_t pydict_global_version = 0;
 
 #define DICT_NEXT_VERSION() (++pydict_global_version)
 
-/* Dictionary reuse scheme to save calls to malloc and free */
-#ifndef PyDict_MAXFREELIST
-#define PyDict_MAXFREELIST 80
-#endif
-static PyDictObject *free_list[PyDict_MAXFREELIST];
-static int numfree = 0;
-static PyDictKeysObject *keys_free_list[PyDict_MAXFREELIST];
-static int numfreekeys = 0;
-
 #include "clinic/dictobject.c.h"
 
 int
 PyDict_ClearFreeList(void)
 {
-    PyDictObject *op;
-    int ret = numfree + numfreekeys;
-    while (numfree) {
-        op = free_list[--numfree];
-        assert(PyDict_CheckExact(op));
-        PyObject_GC_Del(op);
-    }
-    while (numfreekeys) {
-        PyObject_FREE(keys_free_list[--numfreekeys]);
-    }
-    return ret;
+    return 0;
 }
 
 /* Print summary info about the state of the optimized allocator */
 void
 _PyDict_DebugMallocStats(FILE *out)
 {
-    _PyDebugAllocatorStats(out,
-                           "free PyDictObject", numfree, sizeof(PyDictObject));
 }
 
 
@@ -555,17 +534,12 @@ static PyDictKeysObject *new_keys_object(Py_ssize_t size)
         es = sizeof(Py_ssize_t);
     }
 
-    if (size == PyDict_MINSIZE && numfreekeys > 0) {
-        dk = keys_free_list[--numfreekeys];
-    }
-    else {
-        dk = PyObject_MALLOC(sizeof(PyDictKeysObject)
-                             + es * size
-                             + sizeof(PyDictKeyEntry) * usable);
-        if (dk == NULL) {
-            PyErr_NoMemory();
-            return NULL;
-        }
+    dk = PyObject_MALLOC(sizeof(PyDictKeysObject)
+                        + es * size
+                        + sizeof(PyDictKeyEntry) * usable);
+    if (dk == NULL) {
+        PyErr_NoMemory();
+        return NULL;
     }
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
@@ -589,10 +563,6 @@ free_keys_object(PyDictKeysObject *keys)
         Py_XDECREF(entries[i].me_key);
         Py_XDECREF(entries[i].me_value);
     }
-    if (keys->dk_size == PyDict_MINSIZE && numfreekeys < PyDict_MAXFREELIST) {
-        keys_free_list[numfreekeys++] = keys;
-        return;
-    }
     PyObject_FREE(keys);
 }
 
@@ -605,21 +575,13 @@ new_dict(PyDictKeysObject *keys, PyObject **values)
 {
     PyDictObject *mp;
     assert(keys != NULL);
-    if (numfree) {
-        mp = free_list[--numfree];
-        assert (mp != NULL);
-        assert (Py_TYPE(mp) == &PyDict_Type);
-        _Py_NewReference((PyObject *)mp);
-    }
-    else {
-        mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
-        if (mp == NULL) {
-            dictkeys_decref(keys);
-            if (values != empty_values) {
-                free_values(values);
-            }
-            return NULL;
+    mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
+    if (mp == NULL) {
+        dictkeys_decref(keys);
+        if (values != empty_values) {
+            free_values(values);
         }
+        return NULL;
     }
     mp->ma_keys = keys;
     mp->ma_values = values;
@@ -1260,14 +1222,7 @@ dictresize(PyDictObject *mp, Py_ssize_t minsize)
 #ifdef Py_REF_DEBUG
         _Py_RefTotal--;
 #endif
-        if (oldkeys->dk_size == PyDict_MINSIZE &&
-            numfreekeys < PyDict_MAXFREELIST)
-        {
-            keys_free_list[numfreekeys++] = oldkeys;
-        }
-        else {
-            PyObject_FREE(oldkeys);
-        }
+        PyObject_FREE(oldkeys);
     }
 
     build_indices(mp->ma_keys, newentries, numentries);
@@ -2007,10 +1962,7 @@ dict_dealloc(PyDictObject *mp)
         assert(keys->dk_refcnt == 1);
         dictkeys_decref(keys);
     }
-    if (numfree < PyDict_MAXFREELIST && Py_TYPE(mp) == &PyDict_Type)
-        free_list[numfree++] = mp;
-    else
-        Py_TYPE(mp)->tp_free((PyObject *)mp);
+    Py_TYPE(mp)->tp_free((PyObject *)mp);
     Py_TRASHCAN_END
 }
 

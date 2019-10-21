@@ -1484,25 +1484,12 @@ typedef struct {
 } futureiterobject;
 
 
-#define FI_FREELIST_MAXLEN 255
-static futureiterobject *fi_freelist = NULL;
-static Py_ssize_t fi_freelist_len = 0;
-
-
 static void
 FutureIter_dealloc(futureiterobject *it)
 {
     PyObject_GC_UnTrack(it);
     Py_CLEAR(it->future);
-
-    if (fi_freelist_len < FI_FREELIST_MAXLEN) {
-        fi_freelist_len++;
-        it->future = (FutureObj*) fi_freelist;
-        fi_freelist = it;
-    }
-    else {
-        PyObject_GC_Del(it);
-    }
+    PyObject_GC_Del(it);
 }
 
 static PyObject *
@@ -1650,18 +1637,9 @@ future_new_iter(PyObject *fut)
 
     ENSURE_FUTURE_ALIVE(fut)
 
-    if (fi_freelist_len) {
-        fi_freelist_len--;
-        it = fi_freelist;
-        fi_freelist = (futureiterobject*) it->future;
-        it->future = NULL;
-        _Py_NewReference((PyObject*) it);
-    }
-    else {
-        it = PyObject_GC_New(futureiterobject, &FutureIterType);
-        if (it == NULL) {
-            return NULL;
-        }
+    it = PyObject_GC_New(futureiterobject, &FutureIterType);
+    if (it == NULL) {
+        return NULL;
     }
 
     Py_INCREF(fut);
@@ -3229,26 +3207,6 @@ static PyTypeObject PyRunningLoopHolder_Type = {
 
 
 static void
-module_free_freelists(void)
-{
-    PyObject *next;
-    PyObject *current;
-
-    next = (PyObject*) fi_freelist;
-    while (next != NULL) {
-        assert(fi_freelist_len > 0);
-        fi_freelist_len--;
-
-        current = next;
-        next = (PyObject*) ((futureiterobject*) current)->future;
-        PyObject_GC_Del(current);
-    }
-    assert(fi_freelist_len == 0);
-    fi_freelist = NULL;
-}
-
-
-static void
 module_free(void *m)
 {
     Py_CLEAR(asyncio_mod);
@@ -3267,8 +3225,6 @@ module_free(void *m)
     Py_CLEAR(iscoroutine_typecache);
 
     Py_CLEAR(context_kwname);
-
-    module_free_freelists();
 }
 
 static int

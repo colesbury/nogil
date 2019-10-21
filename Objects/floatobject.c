@@ -15,17 +15,6 @@ class float "PyObject *" "&PyFloat_Type"
 
 #include "clinic/floatobject.c.h"
 
-/* Special free list
-   free_list is a singly-linked list of available PyFloatObjects, linked
-   via abuse of their ob_type members.
-*/
-
-#ifndef PyFloat_MAXFREELIST
-#define PyFloat_MAXFREELIST    100
-#endif
-static int numfree = 0;
-static PyFloatObject *free_list = NULL;
-
 double
 PyFloat_GetMax(void)
 {
@@ -114,17 +103,11 @@ PyFloat_GetInfo(void)
 PyObject *
 PyFloat_FromDouble(double fval)
 {
-    PyFloatObject *op = free_list;
-    if (op != NULL) {
-        free_list = (PyFloatObject *) Py_TYPE(op);
-        numfree--;
-    } else {
-        op = (PyFloatObject*) PyObject_MALLOC(sizeof(PyFloatObject));
-        if (!op)
-            return PyErr_NoMemory();
-    }
-    /* Inline PyObject_New */
-    (void)PyObject_INIT(op, &PyFloat_Type);
+    PyFloatObject *op = PyObject_MALLOC(sizeof(PyFloatObject));
+    if (!op)
+        return PyErr_NoMemory();
+    Py_TYPE(op) = &PyFloat_Type;
+    _Py_NewReference((PyObject *)op);
     op->ob_fval = fval;
     return (PyObject *) op;
 }
@@ -210,22 +193,6 @@ PyFloat_FromString(PyObject *v)
     PyBuffer_Release(&view);
     Py_XDECREF(s_buffer);
     return result;
-}
-
-static void
-float_dealloc(PyFloatObject *op)
-{
-    if (PyFloat_CheckExact(op)) {
-        if (numfree >= PyFloat_MAXFREELIST)  {
-            PyObject_FREE(op);
-            return;
-        }
-        numfree++;
-        Py_SET_TYPE(op, (PyTypeObject *)free_list);
-        free_list = op;
-    }
-    else
-        Py_TYPE(op)->tp_free((PyObject *)op);
 }
 
 double
@@ -1903,7 +1870,7 @@ PyTypeObject PyFloat_Type = {
     "float",
     sizeof(PyFloatObject),
     0,
-    (destructor)float_dealloc,                  /* tp_dealloc */
+    NULL,                                       /* tp_dealloc */
     0,                                          /* tp_vectorcall_offset */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
@@ -2000,16 +1967,7 @@ _PyFloat_Init(void)
 int
 PyFloat_ClearFreeList(void)
 {
-    PyFloatObject *f = free_list, *next;
-    int i = numfree;
-    while (f) {
-        next = (PyFloatObject*) Py_TYPE(f);
-        PyObject_FREE(f);
-        f = next;
-    }
-    free_list = NULL;
-    numfree = 0;
-    return i;
+    return 0;
 }
 
 void
@@ -2024,7 +1982,7 @@ _PyFloat_DebugMallocStats(FILE *out)
 {
     _PyDebugAllocatorStats(out,
                            "free PyFloatObject",
-                           numfree, sizeof(PyFloatObject));
+                           0, sizeof(PyFloatObject));
 }
 
 
