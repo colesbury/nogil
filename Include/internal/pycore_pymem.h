@@ -106,6 +106,12 @@ struct _gc_runtime_state {
        collections, and are awaiting to undergo a full collection for
        the first time. */
     Py_ssize_t long_lived_pending;
+
+    int64_t gc_live;
+
+    int64_t gc_threshold;
+
+    int gc_scale;
 };
 
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);

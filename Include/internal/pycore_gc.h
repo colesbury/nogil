@@ -126,6 +126,13 @@ _PyObject_GC_TRACK_impl(const char *filename, int lineno, PyObject *op)
     //                       filename, lineno, "_PyObject_GC_TRACK");
 }
 
+static inline int
+_PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
+{
+    int64_t live = _Py_atomic_load_int64_relaxed(&gcstate->gc_live);
+    return !gcstate->collecting && gcstate->enabled && live >= gcstate->gc_threshold;
+}
+
 void gc_list_remove(PyGC_Head *node);
 
 /* Tell the GC to stop tracking this object.

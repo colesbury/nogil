@@ -320,6 +320,7 @@ typedef struct mi_padding_s {
 
 #define MI_PAGES_DIRECT   (MI_SMALL_WSIZE_MAX + MI_PADDING_WSIZE + 1)
 
+struct _gc_runtime_state;
 
 // A heap owns a set of pages.
 struct mi_heap_s {
@@ -336,6 +337,7 @@ struct mi_heap_s {
   bool                  no_reclaim;                          // `true` if this heap should not reclaim abandoned pages
   unsigned char         tag;
   bool                  visited;                                     // used by gcmodule.c
+  struct _gc_runtime_state* gcstate;
 };
 
 

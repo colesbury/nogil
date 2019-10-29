@@ -295,6 +295,7 @@ class GCTests(unittest.TestCase):
     # To minimize variations, though, we first store the get_count() results
     # and check them at the end.
     @refcount_test
+    @unittest.skip('samisdumb: gc changes')
     def test_get_count(self):
         gc.collect()
         a, b, c = gc.get_count()
@@ -1277,15 +1278,9 @@ class GCTogglingTests(unittest.TestCase):
 
         # We want to let gc happen "naturally", to preserve the distinction
         # between generations.
-        junk = []
-        i = 0
-        detector = GC_Detector()
-        while not detector.gc_happened:
-            i += 1
-            if i > 10000:
-                self.fail("gc didn't happen after 10000 iterations")
-            self.assertEqual(len(ouch), 0)
-            junk.append([])  # this will eventually trigger gc
+        # TODO(sgross): revisit this. no guaranteed "natural" collection, so trigger
+        # collection of generation 0.
+        gc.collect(0)
 
         self.assertEqual(len(ouch), 1)  # else the callback wasn't invoked
         for x in ouch:
@@ -1344,15 +1339,9 @@ class GCTogglingTests(unittest.TestCase):
 
         # We want to let gc happen "naturally", to preserve the distinction
         # between generations.
-        detector = GC_Detector()
-        junk = []
-        i = 0
-        while not detector.gc_happened:
-            i += 1
-            if i > 10000:
-                self.fail("gc didn't happen after 10000 iterations")
-            self.assertEqual(len(ouch), 0)
-            junk.append([])  # this will eventually trigger gc
+        # TODO(sgross): revisit this. no guaranteed "natural" collection, so trigger
+        # collection of generation 0.
+        gc.collect(0)
 
         self.assertEqual(len(ouch), 1)  # else __del__ wasn't invoked
         for x in ouch:

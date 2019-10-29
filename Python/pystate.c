@@ -11,6 +11,7 @@
 #include "../Modules/hashtable.h"
 
 #include "mimalloc.h"
+#include "mimalloc-internal.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -674,6 +675,7 @@ _PyThreadState_Init(PyThreadState *tstate)
     tstate->heap_backing = mi_heap_get_backing();
     tstate->heap_obj = mi_heap_get_obj();
     tstate->heap_gc = mi_heap_get_gc();
+    tstate->heap_gc->gcstate = &tstate->interp->gc;
     // printf("_PyThreadState_Init: %p (tid %ld) runtime=%p interp=%p\n", tstate, tstate->fast_thread_id, runtime, tstate->interp);
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -870,6 +872,9 @@ tstate_delete_common(PyThreadState *tstate,
         // In these cases we don't delete the heap, because it's not
         // safe to call that function from a different thread.
         mi_thread_done();
+        if (tstate->heap_gc) {
+            tstate->heap_gc->gcstate = NULL;
+        }
         if (tstate->heap_backing) {
             _mi_heap_done(tstate->heap_backing);
         }
