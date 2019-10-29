@@ -135,6 +135,10 @@ struct _ts {
     void (*on_delete)(void *);
     void *on_delete_data;
 
+    /* Version counters
+     */
+    uint64_t pydict_next_version;
+
     int coroutine_origin_tracking_depth;
 
     PyObject *async_gen_firstiter;
