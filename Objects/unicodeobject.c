@@ -49,6 +49,7 @@ OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include "ucnhash.h"
 #include "bytes_methods.h"
 #include "stringlib/eq.h"
+#include "Python/condvar.h"
 
 #ifdef MS_WINDOWS
 #include <windows.h>
@@ -203,8 +204,10 @@ extern "C" {
 
    Another way to look at this is that to say that the actual reference
    count of a string is:  s->ob_refcnt + (s->state ? 2 : 0)
+   FIXME(sgross): make sure these are deallocated properly
 */
-static PyObject *interned = NULL;
+PyMUTEX_T interned_mutex;
+PyObject *interned;
 
 /* The empty Unicode object is shared to improve performance. */
 static PyObject *unicode_empty = NULL;
@@ -1897,6 +1900,8 @@ _PyUnicode_Ready(PyObject *unicode)
 static void
 unicode_dealloc(PyObject *unicode)
 {
+    int err;
+
     switch (PyUnicode_CHECK_INTERNED(unicode)) {
     case SSTATE_NOT_INTERNED:
         break;
@@ -1904,10 +1909,16 @@ unicode_dealloc(PyObject *unicode)
     case SSTATE_INTERNED_MORTAL:
         /* revive dead object temporarily for DelItem */
         Py_SET_REFCNT(unicode, 3);
-        if (PyDict_DelItem(interned, unicode) != 0) {
+
+        // FIXME(sgross): is this safe? can DelItem trigger a GC or
+        // other functions here?
+        PyMUTEX_LOCK(&interned_mutex);
+        err = PyDict_DelItem(interned, unicode);
+        PyMUTEX_UNLOCK(&interned_mutex);
+
+        if (err != 0)
             _PyErr_WriteUnraisableMsg("deletion of interned string failed",
                                       NULL);
-        }
         break;
 
     case SSTATE_INTERNED_IMMORTAL:
@@ -2233,18 +2244,34 @@ PyUnicode_FromString(const char *u)
 PyObject *
 _PyUnicode_FromId(_Py_Identifier *id)
 {
-    if (!id->object) {
-        id->object = PyUnicode_DecodeUTF8Stateful(id->string,
-                                                  strlen(id->string),
-                                                  NULL, NULL);
-        if (!id->object)
-            return NULL;
-        PyUnicode_InternInPlace(&id->object);
-        assert(!id->next);
-        id->next = static_strings;
-        static_strings = id;
+    PyObject *object = _Py_atomic_load_ptr_relaxed(&id->object);
+    if (object) {
+        return object;
     }
-    return id->object;
+
+    object = PyUnicode_DecodeUTF8Stateful(id->string,
+                                          strlen(id->string),
+                                          NULL, NULL);
+    if (!object)
+        return NULL;
+
+    PyUnicode_InternInPlace(&object);
+
+    int ok = _Py_atomic_compare_exchange_ptr(&id->object, NULL, object);
+    if (!ok) {
+        return _Py_atomic_load_ptr(&id->object);
+    }
+
+    assert(!id->next);
+    for (;;) {
+        _Py_Identifier *next = _Py_atomic_load_ptr_relaxed(&static_strings);
+        id->next = next;
+        if (_Py_atomic_compare_exchange_ptr(&static_strings, next, id)) {
+            break;
+        }
+    }
+
+    return object;
 }
 
 void
@@ -15282,8 +15309,27 @@ PyTypeObject PyUnicode_Type = {
     PyObject_Del,                 /* tp_free */
 };
 
-/* Initialize the Unicode implementation */
+/* Initialize the intern dictionary. Note this happens once per-process */
+PyStatus
+_PyUnicode_InitIntern(void)
+{
+    if (interned) {
+        return _PyStatus_OK();
+    }
 
+    if (PyMUTEX_INIT(&interned_mutex) != 0) {
+        return _PyStatus_ERR("Can't initialize mutex for interned strings");
+    }
+
+    interned = PyDict_New();
+    if (!interned) {
+        return _PyStatus_ERR("Can't initialize dictionary for interned strings");
+    }
+
+    return _PyStatus_OK();
+}
+
+/* Initialize the Unicode implementation */
 PyStatus
 _PyUnicode_Init(void)
 {
@@ -15346,15 +15392,11 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     if (PyUnicode_CHECK_INTERNED(s))
         return;
-    if (interned == NULL) {
-        interned = PyDict_New();
-        if (interned == NULL) {
-            PyErr_Clear(); /* Don't leave an exception */
-            return;
-        }
-    }
+
     Py_ALLOW_RECURSION
+    PyMUTEX_LOCK(&interned_mutex);
     t = PyDict_SetDefault(interned, s, s);
+    PyMUTEX_UNLOCK(&interned_mutex);
     Py_END_ALLOW_RECURSION
     if (t == NULL) {
         PyErr_Clear();
@@ -15425,13 +15467,14 @@ unicode_release_interned(void)
         }
         switch (PyUnicode_CHECK_INTERNED(s)) {
         case SSTATE_INTERNED_IMMORTAL:
-            Py_REFCNT(s) += 1;
+            Py_INCREF(s);
 #ifdef INTERNED_STATS
             immortal_size += PyUnicode_GET_LENGTH(s);
 #endif
             break;
         case SSTATE_INTERNED_MORTAL:
-            Py_REFCNT(s) += 2;
+            Py_INCREF(s);
+            Py_INCREF(s);
 #ifdef INTERNED_STATS
             mortal_size += PyUnicode_GET_LENGTH(s);
 #endif
