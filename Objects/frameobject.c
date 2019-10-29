@@ -643,7 +643,7 @@ frame_dealloc(PyFrameObject *f)
     Py_CLEAR(f->f_trace);
 
     co = f->f_code;
-    if (co->co_zombieframe == NULL)
+    if (_PyObject_ThreadId(co) == _Py_ThreadId() && co->co_zombieframe == NULL)
         co->co_zombieframe = f;
     else
         PyObject_GC_Del(f);
@@ -848,7 +848,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         assert(builtins != NULL);
         Py_INCREF(builtins);
     }
-    if (code->co_zombieframe != NULL) {
+    if (_PyObject_ThreadId(code) == _Py_ThreadId() && code->co_zombieframe != NULL) {
         f = code->co_zombieframe;
         code->co_zombieframe = NULL;
         _Py_NewReference((PyObject *)f);
