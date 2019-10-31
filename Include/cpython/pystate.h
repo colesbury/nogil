@@ -158,7 +158,7 @@ struct _ts {
     uint64_t id;
 
     /* XXX signal handlers should also be here */
-
+    struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
 };
 
 /* Get the current interpreter state.
