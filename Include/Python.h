@@ -46,6 +46,7 @@
 #include "typeslots.h"
 #include "pyhash.h"
 #include "cpython/pydebug.h"
+#include "cpython/lock.h"
 #include "bytearrayobject.h"
 #include "bytesobject.h"
 #include "unicodeobject.h"

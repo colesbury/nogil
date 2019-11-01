@@ -6,6 +6,7 @@
 #include "pycore_code.h"           // stats
 #include "pycore_frame.h"
 #include "pycore_initconfig.h"
+#include "pycore_lock.h"          // _PyRawEvent
 #include "pycore_object.h"        // _PyType_InitCache()
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
@@ -14,6 +15,8 @@
 #include "pycore_runtime_init.h"  // _PyRuntimeState_INIT
 #include "pycore_sysmodule.h"
 #include "pyatomic.h"
+
+#include "parking_lot.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -937,6 +940,7 @@ void
 _PyThreadState_SetCurrent(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
+    _PyParkingLot_InitThread();
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
 
@@ -1154,6 +1158,7 @@ tstate_delete_common(PyThreadState *tstate,
 
     if (is_current) {
         _PyThreadState_SET(NULL);
+        _PyParkingLot_DeinitThread();
     }
     _PyStackChunk *chunk = tstate->datastack_chunk;
     tstate->datastack_chunk = NULL;

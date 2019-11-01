@@ -34,6 +34,7 @@
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_signal.h"        // Py_NSIG
 
+#include "parking_lot.h"
 #include "structmember.h"         // PyMemberDef
 #ifndef MS_WINDOWS
 #  include "posixmodule.h"
@@ -586,6 +587,11 @@ PyOS_AfterFork_Child(void)
 {
     PyStatus status;
     _PyRuntimeState *runtime = &_PyRuntime;
+
+    // Clears the parking lot. Any waiting threads are dead. This must be
+    // called before releasing any locks that use the parking lot so that
+    // unlocking the locks doesn't try to wake up dead threads.
+    _PyParkingLot_AfterFork();
 
     status = _PyGILState_Reinit(runtime);
     if (_PyStatus_EXCEPTION(status)) {
