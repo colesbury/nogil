@@ -95,7 +95,7 @@ CONFIGURE_LDFLAGS=	@LDFLAGS@
 # command line to append to these values without stomping the pre-set
 # values.
 PY_CFLAGS=	$(BASECFLAGS) $(OPT) $(CONFIGURE_CFLAGS) $(CFLAGS) $(EXTRA_CFLAGS)
-PY_CFLAGS_NODIST=$(CONFIGURE_CFLAGS_NODIST) $(CFLAGS_NODIST) -I$(srcdir)/Include/internal
+PY_CFLAGS_NODIST=$(CONFIGURE_CFLAGS_NODIST) $(CFLAGS_NODIST) -std=gnu11 -I$(srcdir)/Include/internal
 # Both CPPFLAGS and LDFLAGS need to contain the shell's value for setup.py to
 # be able to build extension modules using the directories specified in the
 # environment variables
@@ -364,10 +364,12 @@ PYTHON_OBJS=	\
 		Python/import.o \
 		Python/importdl.o \
 		Python/initconfig.o \
+		Python/lock.o \
 		Python/marshal.o \
 		Python/modsupport.o \
 		Python/mysnprintf.o \
 		Python/mystrtoul.o \
+		Python/parking_lot.o \
 		Python/pathconfig.o \
 		Python/peephole.o \
 		Python/preconfig.o \
@@ -1056,6 +1058,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/intrcheck.h \
 		$(srcdir)/Include/iterobject.h \
 		$(srcdir)/Include/listobject.h \
+		$(srcdir)/Include/lock.h \
 		$(srcdir)/Include/longintrepr.h \
 		$(srcdir)/Include/longobject.h \
 		$(srcdir)/Include/marshal.h \
@@ -1071,6 +1074,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/opcode.h \
 		$(srcdir)/Include/osdefs.h \
 		$(srcdir)/Include/osmodule.h \
+		$(srcdir)/Include/parking_lot.h \
 		$(srcdir)/Include/patchlevel.h \
 		$(srcdir)/Include/picklebufobject.h \
 		$(srcdir)/Include/pyarena.h \

@@ -190,6 +190,7 @@
     <ClInclude Include="..\Include\internal\pycore_import.h" />
     <ClInclude Include="..\Include\internal\pycore_initconfig.h" />
     <ClInclude Include="..\Include\internal\pycore_interp.h" />
+    <ClInclude Include="..\Include\internal\pycore_llist.h" />
     <ClInclude Include="..\Include\internal\pycore_object.h" />
     <ClInclude Include="..\Include\internal\pycore_pathconfig.h" />
     <ClInclude Include="..\Include\internal\pycore_pyerrors.h" />
@@ -206,6 +207,7 @@
     <ClInclude Include="..\Include\intrcheck.h" />
     <ClInclude Include="..\Include\iterobject.h" />
     <ClInclude Include="..\Include\listobject.h" />
+    <ClInclude Include="..\Include\lock.h" />
     <ClInclude Include="..\Include\longintrepr.h" />
     <ClInclude Include="..\Include\longobject.h" />
     <ClInclude Include="..\Include\marshal.h" />
@@ -221,6 +223,7 @@
     <ClInclude Include="..\Include\opcode.h" />
     <ClInclude Include="..\Include\osdefs.h" />
     <ClInclude Include="..\Include\osmodule.h" />
+    <ClInclude Include="..\Include\parking_lot.h" />
     <ClInclude Include="..\Include\parsetok.h" />
     <ClInclude Include="..\Include\patchlevel.h" />
     <ClInclude Include="..\Include\picklebufobject.h" />
@@ -471,10 +474,12 @@
     <ClCompile Include="..\Python\import.c" />
     <ClCompile Include="..\Python\importdl.c" />
     <ClCompile Include="..\Python\initconfig.c" />
+    <ClCompile Include="..\Python\lock.c" />
     <ClCompile Include="..\Python\marshal.c" />
     <ClCompile Include="..\Python\modsupport.c" />
     <ClCompile Include="..\Python\mysnprintf.c" />
     <ClCompile Include="..\Python\mystrtoul.c" />
+    <ClCompile Include="..\Python\parking_lot.c" />
     <ClCompile Include="..\Python\pathconfig.c" />
     <ClCompile Include="..\Python\peephole.c" />
     <ClCompile Include="..\Python\preconfig.c" />
