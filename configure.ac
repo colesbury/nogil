@@ -1241,6 +1241,18 @@ else AC_MSG_RESULT(no); Py_DEBUG='false'
 fi],
 [AC_MSG_RESULT(no)])
 
+# Check for --with-nogil
+AC_MSG_CHECKING(for --with-nogil)
+AC_ARG_WITH(nogil, AS_HELP_STRING([--with-nogil], [build with Py_NOGIL defined]),
+[
+if test "$withval" != no
+then
+  AC_DEFINE(Py_NOGIL, 1, [Define if you want to build an interpreter without the GIL.])
+  AC_MSG_RESULT(yes);
+else AC_MSG_RESULT(no);
+fi],
+[AC_MSG_RESULT(no)])
+
 # Check for --with-trace-refs
 # --with-trace-refs
 AC_MSG_CHECKING(for --with-trace-refs)
