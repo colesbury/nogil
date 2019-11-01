@@ -50,6 +50,10 @@ typedef struct _err_stackitem {
 struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
 
+// See pycore_pystate.h
+struct PyThreadStateOS;
+typedef struct PyThreadStateOS PyThreadStateOS;
+
 
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
@@ -58,6 +62,9 @@ struct _ts {
     struct _ts *prev;
     struct _ts *next;
     PyInterpreterState *interp;
+
+    /* OS-specific state */
+    PyThreadStateOS *os;
 
     mi_heap_t *heap_backing;
     mi_heap_t *heap_obj;

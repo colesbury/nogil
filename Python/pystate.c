@@ -8,6 +8,7 @@
 #include "pycore_pystate.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_refcnt.h"
+#include "Python/condvar.h"
 #include "../Modules/hashtable.h"
 
 #include "mimalloc.h"
@@ -45,6 +46,7 @@ extern "C" {
 /* Forward declarations */
 static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
+static int _PyThreadStateOS_Init(PyThreadStateOS *os);
 
 
 static PyStatus
@@ -582,10 +584,13 @@ static PyThreadState *
 new_threadstate(PyInterpreterState *interp, int init)
 {
     _PyRuntimeState *runtime = interp->runtime;
-    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
+    size_t size = sizeof(PyThreadState) + sizeof(PyThreadStateOS);
+    PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(size);
     if (tstate == NULL) {
         return NULL;
     }
+
+    memset(tstate, 0, size);
 
     if (_PyThreadState_GetFrame == NULL) {
         _PyThreadState_GetFrame = threadstate_getframe;
@@ -641,6 +646,13 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->id = ++interp->tstate_next_unique_id;
 
+    PyThreadStateOS *os = (PyThreadStateOS *)(tstate + 1);
+    tstate->os = os;
+    os->tstate = tstate;
+    if (_PyThreadStateOS_Init(os) < 0) {
+        return NULL;
+    }
+
     if (init) {
         _PyThreadState_Init(tstate);
     }
@@ -680,6 +692,33 @@ _PyThreadState_Init(PyThreadState *tstate)
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
+
+static int
+_PyThreadStateOS_Init(PyThreadStateOS *os)
+{
+    os->next_waiter = NULL;
+    os->waiter_counter = 0;
+    if (PyMUTEX_INIT(&os->waiter_mutex)) {
+        return -1;
+    }
+
+    if (PyCOND_INIT(&os->waiter_cond)) {
+        PyMUTEX_FINI(&os->waiter_mutex);
+        return -1;
+    }
+    return 0;
+}
+
+static void _PyThreadStateOS_Delete(PyThreadStateOS *os)
+{
+    if (PyMUTEX_FINI(&os->waiter_mutex)) {
+        Py_FatalError("unable to destroy PyThreadStateOS waiter_mutex");
+    }
+    if (PyCOND_FINI(&os->waiter_cond)) {
+        Py_FatalError("unable to destroy PyThreadStateOS waiter_cond");
+    }
+}
+
 
 PyObject*
 PyState_FindModule(struct PyModuleDef* module)
@@ -883,6 +922,8 @@ tstate_delete_common(PyThreadState *tstate,
     tstate->heap_backing = NULL;
     tstate->heap_obj = NULL;
     tstate->heap_gc = NULL;
+
+    _PyThreadStateOS_Delete(tstate->os);
 
     PyInterpreterState *interp = tstate->interp;
     if (interp == NULL) {

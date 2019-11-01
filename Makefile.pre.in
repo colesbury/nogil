@@ -400,6 +400,7 @@ OBJECT_OBJS=	\
 		Objects/funcobject.o \
 		Objects/interpreteridobject.o \
 		Objects/iterobject.o \
+		Objects/lock.o \
 		Objects/listobject.o \
 		Objects/longobject.o \
 		Objects/dictobject.o \

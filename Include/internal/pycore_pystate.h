@@ -11,6 +11,7 @@ extern "C" {
 #include "pycore_gil.h"       /* struct _gil_runtime_state  */
 #include "pycore_pymem.h"     /* struct _gc_runtime_state */
 #include "pycore_warnings.h"  /* struct _warnings_runtime_state */
+#include "lock.h"
 
 /* Forward declaration */
 struct _Py_hashtable_t;
@@ -266,6 +267,8 @@ typedef struct pyruntimestate {
     void *open_code_userdata;
     _Py_AuditHookEntry *audit_hook_head;
 
+    _PyMutex mutex;
+
     // XXX Consolidate globals found via the check-c-globals script.
 } _PyRuntimeState;
 
@@ -323,6 +326,14 @@ PyAPI_FUNC(int) _Py_IsMainInterpreter(PyThreadState* tstate);
 
 
 /* Other */
+
+struct PyThreadStateOS {
+    PyThreadState *tstate;
+    PyThreadState *next_waiter;
+    PyMUTEX_T waiter_mutex;
+    PyCOND_T waiter_cond;
+    int waiter_counter;
+};
 
 PyAPI_FUNC(void) _PyThreadState_Init(
     PyThreadState *tstate);
