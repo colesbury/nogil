@@ -24,6 +24,7 @@
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
 #include "pycore_import.h"        // _PyImport_ReInitLock()
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
+#include "parking_lot.h"
 #include "structmember.h"         // PyMemberDef
 #ifndef MS_WINDOWS
 #  include "posixmodule.h"
@@ -578,6 +579,12 @@ void
 PyOS_AfterFork_Child(void)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
+
+    // Clears the parking lot. Any waiting threads are dead. This must be
+    // called before releasing any locks that use the parking lot so that
+    // unlocking the locks doesn't try to wake up dead threads.
+    _PyParkingLot_AfterFork();
+
     _PyGILState_Reinit(runtime);
     _PyEval_ReInitThreads(runtime);
     _PyImport_ReInitLock();
