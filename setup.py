@@ -876,7 +876,8 @@ class PyBuildExt(build_ext):
         # _abc speedups
         self.add(Extension("_abc", ["_abc.c"]))
         # _queue module
-        self.add(Extension("_queue", ["_queuemodule.c"]))
+        self.add(Extension("_queue", ["_queuemodule.c"],
+                           extra_compile_args=['-DPy_BUILD_CORE_MODULE']))
         # _statistics module
         self.add(Extension("_statistics", ["_statisticsmodule.c"]))
 

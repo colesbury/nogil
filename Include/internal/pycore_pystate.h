@@ -123,6 +123,14 @@ static inline PyInterpreterState* _PyInterpreterState_GET(void) {
 
 /* Other */
 
+struct PyThreadStateOS {
+    PyThreadState *tstate;
+    PyThreadState *next_waiter;
+    PyMUTEX_T waiter_mutex;
+    PyCOND_T waiter_cond;
+    int waiter_counter;
+};
+
 PyAPI_FUNC(void) _PyThreadState_Init(
     PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
