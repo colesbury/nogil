@@ -65,47 +65,47 @@ _Py_atomic_exchange_ptr(volatile void *address, void *value);
 
 
 static inline int32_t
-_Py_atomic_load_int32(volatile int32_t *address);
+_Py_atomic_load_int32(const volatile int32_t *address);
 
 static inline int64_t
-_Py_atomic_load_int64(volatile int64_t *address);
+_Py_atomic_load_int64(const volatile int64_t *address);
 
 static inline intptr_t
-_Py_atomic_load_intptr(volatile intptr_t *address);
+_Py_atomic_load_intptr(const volatile intptr_t *address);
 
 static inline uint32_t
-_Py_atomic_load_uint32(volatile uint32_t *address);
+_Py_atomic_load_uint32(const volatile uint32_t *address);
 
 static inline uint64_t
-_Py_atomic_load_uint64(volatile uint64_t *address);
+_Py_atomic_load_uint64(const volatile uint64_t *address);
 
 static inline uintptr_t
-_Py_atomic_load_uintptr(volatile uintptr_t *address);
+_Py_atomic_load_uintptr(const volatile uintptr_t *address);
 
 static inline void *
-_Py_atomic_load_ptr(volatile void *address);
+_Py_atomic_load_ptr(const volatile void *address);
 
 
 static inline int32_t
-_Py_atomic_load_int32_relaxed(volatile int32_t *address);
+_Py_atomic_load_int32_relaxed(const volatile int32_t *address);
 
 static inline int64_t
-_Py_atomic_load_int64_relaxed(volatile int64_t *address);
+_Py_atomic_load_int64_relaxed(const volatile int64_t *address);
 
 static inline intptr_t
-_Py_atomic_load_intptr_relaxed(volatile intptr_t *address);
+_Py_atomic_load_intptr_relaxed(const volatile intptr_t *address);
 
 static inline uint32_t
-_Py_atomic_load_uint32_relaxed(volatile uint32_t *address);
+_Py_atomic_load_uint32_relaxed(const volatile uint32_t *address);
 
 static inline uint64_t
-_Py_atomic_load_uint64_relaxed(volatile uint64_t *address);
+_Py_atomic_load_uint64_relaxed(const volatile uint64_t *address);
 
 static inline uintptr_t
-_Py_atomic_load_uintptr_relaxed(volatile uintptr_t *address);
+_Py_atomic_load_uintptr_relaxed(const volatile uintptr_t *address);
 
 static inline void *
-_Py_atomic_load_ptr_relaxed(volatile void *address);
+_Py_atomic_load_ptr_relaxed(const volatile void *address);
 
 
 static inline void
