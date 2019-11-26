@@ -326,13 +326,28 @@ PyAPI_FUNC(int) _Py_IsMainInterpreter(PyThreadState* tstate);
 
 
 /* Other */
+struct PyThreadStateWaiter {
+    struct PyThreadStateWaiter *next;
+    struct PyThreadStateWaiter *prev;
+    uintptr_t key;
+    int64_t time_to_be_fair;
+};
 
 struct PyThreadStateOS {
+    struct PyThreadStateWaiter waiter;
+
     PyThreadState *tstate;
     PyThreadState *next_waiter;
     PyMUTEX_T waiter_mutex;
     PyCOND_T waiter_cond;
     int waiter_counter;
+    int token;
+
+    /* DEBUG info */
+    PyThreadState *last_notifier;
+    const char *last_notifier_msg;
+    void *last_notifier_data;
+    int64_t counter;
 };
 
 PyAPI_FUNC(void) _PyThreadState_Init(

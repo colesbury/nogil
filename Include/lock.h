@@ -9,23 +9,40 @@ extern "C" {
 
 typedef struct {
     uintptr_t v;
+} _PyRawMutex;
+
+typedef struct {
+    uintptr_t v;
+} _PyRawEvent;
+
+typedef struct {
+    uintptr_t v;
 } _PyMutex;
 
 typedef struct {
     uintptr_t v;
-} _PyOnce;
+    size_t recursions;
+} _PyRecursiveMutex;
 
 typedef enum {
     UNLOCKED = 0,
-    LOCKED = 1
+    LOCKED = 1,
+    HAS_PARKED = 2,
 } _PyMutex_State;
 
 void _PyMutex_lock_slow(_PyMutex *m);
 void _PyMutex_unlock_slow(_PyMutex *m);
 
-void _PyOnce_Notify(_PyOnce *o);
-void _PyOnce_Wait(_PyOnce *o);
-void _PyOnce_Reset(_PyOnce *o);
+void _PyRawMutex_lock_slow(_PyRawMutex *m);
+void _PyRawMutex_unlock_slow(_PyRawMutex *m);
+
+void _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m);
+void _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m);
+
+void _PyRawEvent_Notify(_PyRawEvent *o);
+void _PyRawEvent_Wait(_PyRawEvent *o, PyThreadState *tstate);
+int _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns);
+void _PyRawEvent_Reset(_PyRawEvent *o);
 
 static inline int
 _PyMutex_is_locked(_PyMutex *m)
@@ -33,7 +50,30 @@ _PyMutex_is_locked(_PyMutex *m)
     return _Py_atomic_load_uintptr(&m->v) & 1;
 }
 
-// extern int64_t lock_count;
+static inline int
+_PyRawMutex_is_locked(_PyRawMutex *m)
+{
+    return _Py_atomic_load_uintptr(&m->v) & 1;
+}
+
+static inline void
+_PyRawMutex_lock(_PyRawMutex *m)
+{
+    // lock_count++;
+    if (_Py_atomic_compare_exchange_uintptr(&m->v, UNLOCKED, LOCKED)) {
+        return;
+    }
+    _PyRawMutex_lock_slow(m);
+}
+
+static inline void
+_PyRawMutex_unlock(_PyRawMutex *m)
+{
+    if (_Py_atomic_compare_exchange_uintptr(&m->v, LOCKED, UNLOCKED)) {
+        return;
+    }
+    _PyRawMutex_unlock_slow(m);
+}
 
 static inline void
 _PyMutex_lock(_PyMutex *m)
@@ -52,6 +92,27 @@ _PyMutex_unlock(_PyMutex *m)
         return;
     }
     _PyMutex_unlock_slow(m);
+}
+
+static inline void
+_PyRecursiveMutex_lock(_PyRecursiveMutex *m)
+{
+    if (_Py_atomic_compare_exchange_uintptr(&m->v, UNLOCKED, _Py_ThreadId() | LOCKED)) {
+        return;
+    }
+    _PyRecursiveMutex_lock_slow(m);
+}
+
+static inline void
+_PyRecursiveMutex_unlock(_PyRecursiveMutex *m)
+{
+    uintptr_t v = _Py_atomic_load_uintptr_relaxed(&m->v);
+    if (m->recursions == 0 && (v & 3) == LOCKED) {
+        if (_Py_atomic_compare_exchange_uintptr(&m->v, v, UNLOCKED)) {
+            return;
+        }
+    }
+    _PyRecursiveMutex_unlock_slow(m);
 }
 
 #ifdef __cplusplus
