@@ -112,6 +112,12 @@ struct _gc_runtime_state {
     int64_t gc_threshold;
 
     int gc_scale;
+
+    /* Number of threads that must park themselves to stop-the-world.
+       Protected by HEAD_LOCK(runtime). */
+    int32_t gc_thread_countdown;
+
+    _PyRawEvent gc_stop_event;
 };
 
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);

@@ -16,6 +16,14 @@ extern "C" {
 /* Forward declaration */
 struct _Py_hashtable_t;
 
+
+typedef enum {
+    _Py_THREAD_DETACHED=0,
+    _Py_THREAD_ATTACHED,
+    _Py_THREAD_GC,
+} _Py_thread_status;
+
+
 /* ceval state */
 
 struct _pending_calls {
@@ -52,6 +60,8 @@ struct _ceval_runtime_state {
     struct _pending_calls pending;
     /* Request for checking signals. */
     _Py_atomic_int signals_pending;
+    /* Request to stop all threads for GC. */
+    _Py_atomic_int stop_the_world;
     struct _gil_runtime_state gil;
 };
 
@@ -232,6 +242,9 @@ typedef struct pyruntimestate {
        is called again. */
     PyThreadState *finalizing;
 
+    /* List of parked threads that need to be awoken during start-the-world */
+    PyThreadState *parked;
+
     struct pyinterpreters {
         PyThread_type_lock mutex;
         PyInterpreterState *head;
@@ -267,7 +280,10 @@ typedef struct pyruntimestate {
     void *open_code_userdata;
     _Py_AuditHookEntry *audit_hook_head;
 
+    /* Used for types for now */
     _PyMutex mutex;
+
+    _PyMutex stoptheworld_mutex;
 
     // XXX Consolidate globals found via the check-c-globals script.
 } _PyRuntimeState;
@@ -280,6 +296,9 @@ PyAPI_DATA(_PyRuntimeState) _PyRuntime;
 PyAPI_FUNC(PyStatus) _PyRuntimeState_Init(_PyRuntimeState *runtime);
 PyAPI_FUNC(void) _PyRuntimeState_Fini(_PyRuntimeState *runtime);
 PyAPI_FUNC(void) _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime);
+
+PyAPI_FUNC(void) _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime);
+PyAPI_FUNC(void) _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime);
 
 /* Initialize _PyRuntimeState.
    Return NULL on success, or return an error message on failure. */
@@ -375,6 +394,9 @@ PyAPI_FUNC(void) _PyThreadState_Init(
 PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
     _PyRuntimeState *runtime,
     PyThreadState *tstate);
+PyAPI_FUNC(int) _PyThreadState_GetStatus(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_GC_Park(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_GC_Stop(PyThreadState *tstate);
 
 PyAPI_FUNC(PyThreadState *) _PyThreadState_Swap(
     struct _gilstate_runtime_state *gilstate,

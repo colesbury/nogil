@@ -28,6 +28,7 @@ PyAPI_FUNC(int) _PyEval_AddPendingCall(
     void *arg);
 PyAPI_FUNC(void) _PyEval_SignalAsyncExc(
     struct _ceval_runtime_state *ceval);
+PyAPI_FUNC(void) _PyEval_ComputeEvalBreaker(void);
 PyAPI_FUNC(void) _PyEval_ReInitThreads(
     struct pyruntimestate *runtime);
 PyAPI_FUNC(void) _PyEval_SetCoroutineOriginTrackingDepth(

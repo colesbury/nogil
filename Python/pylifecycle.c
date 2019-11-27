@@ -1370,9 +1370,14 @@ Py_FinalizeEx(void)
 
     /* Remaining threads (e.g. daemon threads) will automatically exit
        after taking the GIL (in PyEval_RestoreThread()). */
-    runtime->finalizing = tstate;
+    runtime->finalizing = tstate; // FIXME: sgross data race
     runtime->initialized = 0;
     runtime->core_initialized = 0;
+
+    /* Wait until all daemon threads exit */
+    _PyMutex_lock(&runtime->stoptheworld_mutex);
+    _PyRuntimeState_StopTheWorld(runtime);
+    _PyMutex_unlock(&runtime->stoptheworld_mutex);
 
     /* Flush sys.stdout and sys.stderr */
     if (flush_std_files() < 0) {
@@ -1543,6 +1548,9 @@ new_interpreter(PyThreadState **tstate_p)
     }
 
     PyThreadState *save_tstate = PyThreadState_Swap(tstate);
+    if (save_tstate) {
+        assert(save_tstate->fast_thread_id == tstate->fast_thread_id);
+    }
 
     /* Copy the current interpreter config into the new interpreter */
     PyConfig *config;

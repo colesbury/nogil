@@ -2,6 +2,8 @@
 #  error "this header file must not be included directly"
 #endif
 
+#include "lock.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -65,6 +67,11 @@ struct _ts {
 
     /* OS-specific state */
     PyThreadStateOS *os;
+
+    /* thread status */
+    volatile int32_t status;
+    _PyRawEvent park;
+    struct _ts *next_parked;
 
     mi_heap_t *heap_backing;
     mi_heap_t *heap_obj;

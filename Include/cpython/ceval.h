@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+PyAPI_FUNC(void) _PyEval_TakeGIL(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyEval_DropGIL(PyThreadState *tstate);
+
 PyAPI_FUNC(void) PyEval_SetProfile(Py_tracefunc, PyObject *);
 PyAPI_FUNC(void) PyEval_SetTrace(Py_tracefunc, PyObject *);
 PyAPI_FUNC(int) _PyEval_GetCoroutineOriginTrackingDepth(void);

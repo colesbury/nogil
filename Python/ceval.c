@@ -186,7 +186,12 @@ static size_t opcache_global_misses = 0;
 #include <errno.h>
 #endif
 #include "pythread.h"
+
+#ifdef Py_NOGIL
+#include "ceval_nogil.h"
+#else
 #include "ceval_gil.h"
+#endif
 
 int
 PyEval_ThreadsInitialized(void)
@@ -208,6 +213,7 @@ PyEval_InitThreads(void)
     PyThread_init_thread();
     create_gil(gil);
     PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
+    assert(tstate->status == _Py_THREAD_ATTACHED);
     take_gil(ceval, tstate);
 
     struct _pending_calls *pending = &ceval->pending;
@@ -301,20 +307,27 @@ PyEval_ReleaseLock(void)
 }
 
 void
+_PyEval_TakeGIL(PyThreadState *tstate)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    take_gil(&runtime->ceval, tstate);
+    _PyRuntimeState_SetThreadState(runtime, tstate);
+}
+
+void
+_PyEval_DropGIL(PyThreadState *tstate)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _PyRuntimeState_SetThreadState(runtime, NULL);
+    drop_gil(&runtime->ceval, tstate);
+}
+
+void
 PyEval_AcquireThread(PyThreadState *tstate)
 {
     assert(tstate != NULL);
 
-    _PyRuntimeState *runtime = tstate->interp->runtime;
-    struct _ceval_runtime_state *ceval = &runtime->ceval;
-
-    /* Check someone has called PyEval_InitThreads() to create the lock */
-    assert(gil_created(&ceval->gil));
-    take_gil(ceval, tstate);
-    exit_thread_if_finalizing(tstate);
-    if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
-        Py_FatalError("PyEval_AcquireThread: non-NULL old thread state");
-    }
+    PyEval_RestoreThread(tstate);
 }
 
 void
@@ -322,12 +335,10 @@ PyEval_ReleaseThread(PyThreadState *tstate)
 {
     assert(tstate != NULL);
 
-    _PyRuntimeState *runtime = tstate->interp->runtime;
-    PyThreadState *new_tstate = _PyThreadState_Swap(&runtime->gilstate, NULL);
+    PyThreadState *new_tstate = PyEval_SaveThread();
     if (new_tstate != tstate) {
         Py_FatalError("PyEval_ReleaseThread: wrong thread state");
     }
-    drop_gil(&runtime->ceval, tstate);
 }
 
 /* This function is called from PyOS_AfterFork_Child to destroy all threads
@@ -399,8 +410,9 @@ PyEval_RestoreThread(PyThreadState *tstate)
     errno = err;
 
     _PyThreadState_Swap(&runtime->gilstate, tstate);
-}
 
+    assert(_Py_atomic_load_int32_relaxed(&tstate->status) == _Py_THREAD_ATTACHED);
+}
 
 /* Mechanism whereby asynchronously executing callbacks (e.g. UNIX
    signal handlers or Mac I/O completion routines) can schedule calls
@@ -629,6 +641,13 @@ Py_MakePendingCalls(void)
     }
 
     return 0;
+}
+
+void
+_PyEval_ComputeEvalBreaker(void)
+{
+    struct _ceval_runtime_state *ceval = &_PyRuntime.ceval;
+    COMPUTE_EVAL_BREAKER(ceval);
 }
 
 /* The interpreter's recursion limit */
@@ -1223,7 +1242,9 @@ main_loop:
                 */
                 goto fast_next_opcode;
             }
-
+            if (_Py_atomic_load_relaxed(&ceval->stop_the_world)) {
+                _PyThreadState_GC_Stop(tstate);
+            }
             if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
                 if (handle_signals(runtime) != 0) {
                     goto error;

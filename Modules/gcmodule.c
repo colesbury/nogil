@@ -81,6 +81,17 @@ module gc
 /* Get the object given the GC head */
 #define FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
 
+typedef enum {
+    /* GC was triggered by heap allocation */
+    GC_REASON_HEAP,
+
+    /* GC was called due to shutdown */
+    GC_REASON_SHUTDOWN,
+
+    /* GC was called via gc.collect() or PyGC_Collect */
+    GC_REASON_MANUAL
+} _PyGC_Reason;
+
 static inline void
 gc_set_unreachable(PyGC_Head *g)
 {
@@ -127,6 +138,11 @@ gc_decref(PyGC_Head *g)
                 DEBUG_SAVEALL
 
 #define GEN_HEAD(gcstate, n) (&(gcstate)->generations[n].head)
+
+static void
+invoke_gc_callback(PyThreadState *tstate, const char *phase,
+                   int generation, Py_ssize_t collected,
+                   Py_ssize_t uncollectable);
 
 void
 _PyGC_InitState(GCState *gcstate)
@@ -1525,21 +1541,51 @@ handle_resurrected_objects(PyGC_Head *unreachable, PyGC_Head* still_unreachable,
     promote_list(resurrected, old_generation);
 }
 
+static int
+gc_reason_is_valid(GCState *gcstate, _PyGC_Reason reason)
+{
+    if (reason == GC_REASON_HEAP) {
+        return _PyGC_ShouldCollect(gcstate);
+    }
+    return 1;
+}
+
 /* This is the main function.  Read this to understand how the
  * collection process works. */
 static Py_ssize_t
-collect(PyThreadState *tstate, int generation,
-        Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable, int nofail)
+collect(PyThreadState *tstate, int generation, _PyGC_Reason reason)
 {
     int i;
-    Py_ssize_t m = 0; /* # objects collected */
-    Py_ssize_t n = 0; /* # unreachable objects that couldn't be collected */
+    Py_ssize_t n_collected = 0; /* # objects collected */
+    Py_ssize_t n_uncollectable = 0; /* # unreachable objects that couldn't be collected */
     PyGC_Head young; /* the generation we are examining */
     PyGC_Head unreachable; /* non-problematic unreachable trash */
     PyGC_Head finalizers;  /* objects with, & reachable from, __del__ */
     PyGC_Head *gc;
     _PyTime_t t1 = 0;   /* initialize to prevent a compiler warning */
     GCState *gcstate = &tstate->interp->gc;
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    // TODO(sgross): we want to prevent re-entrant collections, but maybe other
+    // threads should wait before this collection finishes instead of just returning 0.
+    if (gcstate->collecting) {
+        return 0;
+    }
+
+    _PyMutex_lock(&runtime->stoptheworld_mutex);
+
+    if (!gc_reason_is_valid(gcstate, reason)) {
+         _PyMutex_unlock(&runtime->stoptheworld_mutex);
+         return 0;
+    }
+
+    _PyRuntimeState_StopTheWorld(runtime);
+
+    gcstate->collecting = generation;
+
+    if (reason != GC_REASON_SHUTDOWN) {
+        invoke_gc_callback(tstate, "start", generation, 0, 0);
+    }
 
     using_debug_allocator = _PyMem_DebugEnabled();
 
@@ -1619,7 +1665,7 @@ collect(PyThreadState *tstate, int generation,
     }
 
     /* Clear weakrefs and invoke callbacks as necessary. */
-    m += handle_weakrefs(&unreachable, old_generation);
+    n_collected += handle_weakrefs(&unreachable, old_generation);
 
     validate_list(&unreachable, unreachable_set);
 
@@ -1639,7 +1685,7 @@ collect(PyThreadState *tstate, int generation,
     * the reference cycles to be broken.  It may also cause some objects
     * in finalizers to be freed.
     */
-    m += gc_list_size(&final_unreachable);
+    n_collected += gc_list_size(&final_unreachable);
     delete_garbage(tstate, gcstate, &final_unreachable, old_generation);
 
     validate_refcount();
@@ -1647,7 +1693,7 @@ collect(PyThreadState *tstate, int generation,
     /* Collect statistics on uncollectable objects found and print
      * debugging information. */
     for (gc = GC_NEXT(&finalizers); gc != &finalizers; gc = GC_NEXT(gc)) {
-        n++;
+        n_uncollectable++;
         if (gcstate->debug & DEBUG_UNCOLLECTABLE)
             debug_cycle("uncollectable", FROM_GC(gc));
     }
@@ -1656,7 +1702,7 @@ collect(PyThreadState *tstate, int generation,
         PySys_WriteStderr(
             "gc: done, %" PY_FORMAT_SIZE_T "d unreachable, "
             "%" PY_FORMAT_SIZE_T "d uncollectable, %.4fs elapsed\n",
-            n+m, n, d);
+            n_collected+n_uncollectable, n_uncollectable, d);
     }
 
     /* Append instances in the uncollectable set to a Python
@@ -1672,7 +1718,7 @@ collect(PyThreadState *tstate, int generation,
     }
 
     if (_PyErr_Occurred(tstate)) {
-        if (nofail) {
+        if (reason == GC_REASON_SHUTDOWN) {
             _PyErr_Clear(tstate);
         }
         else {
@@ -1681,17 +1727,10 @@ collect(PyThreadState *tstate, int generation,
     }
 
     /* Update stats */
-    if (n_collected) {
-        *n_collected = m;
-    }
-    if (n_uncollectable) {
-        *n_uncollectable = n;
-    }
-
     struct gc_generation_stats *stats = &gcstate->generation_stats[generation-1];
     stats->collections++;
-    stats->collected += m;
-    stats->uncollectable += n;
+    stats->collected += n_collected;
+    stats->uncollectable += n_uncollectable;
 
     if (generation == NUM_GENERATIONS) {
         int64_t live = _Py_atomic_load_int64_relaxed(&gcstate->gc_live);
@@ -1703,12 +1742,24 @@ collect(PyThreadState *tstate, int generation,
     }
 
     if (PyDTrace_GC_DONE_ENABLED()) {
-        PyDTrace_GC_DONE(n + m);
+        PyDTrace_GC_DONE(n_collected + n_uncollectable);
     }
 
     validate_tracked_heap(GC_UNREACHABLE_MASK, 0);
+
     assert(!_PyErr_Occurred(tstate));
-    return n + m;
+
+    if (reason != GC_REASON_SHUTDOWN) {
+        invoke_gc_callback(tstate, "stop", generation, n_collected, n_uncollectable);
+    }
+
+    gcstate->collecting = 0;
+
+    _PyRuntimeState_StartTheWorld(runtime);
+
+    _PyMutex_unlock(&runtime->stoptheworld_mutex);
+
+    return n_collected + n_uncollectable;
 }
 
 /* Invoke progress callbacks to notify clients that garbage collection
@@ -1756,35 +1807,10 @@ invoke_gc_callback(PyThreadState *tstate, const char *phase,
     assert(!_PyErr_Occurred(tstate));
 }
 
-/* Perform garbage collection of a generation and invoke
- * progress callbacks.
- */
-static Py_ssize_t
-collect_with_callback(PyThreadState *tstate, int generation)
-{
-    assert(!_PyErr_Occurred(tstate));
-    Py_ssize_t result, collected, uncollectable;
-    invoke_gc_callback(tstate, "start", generation, 0, 0);
-    result = collect(tstate, generation, &collected, &uncollectable, 0);
-    invoke_gc_callback(tstate, "stop", generation, collected, uncollectable);
-    assert(!_PyErr_Occurred(tstate));
-    return result;
-}
-
-static Py_ssize_t
-collect_generations(PyThreadState *tstate)
-{
-    GCState *gcstate = &tstate->interp->gc;
-    gcstate->collecting = NUM_GENERATIONS;
-    Py_ssize_t n = collect_with_callback(tstate, NUM_GENERATIONS);
-    gcstate->collecting = 0;
-    return n;
-}
-
 Py_ssize_t
 _PyGC_Collect(PyThreadState *tstate)
 {
-    return collect_generations(tstate);
+    return collect(tstate, NUM_GENERATIONS, GC_REASON_HEAP);
 }
 
 #include "clinic/gcmodule.c.h"
@@ -1861,18 +1887,7 @@ gc_collect_impl(PyObject *module, int generation)
         return -1;
     }
 
-    GCState *gcstate = &tstate->interp->gc;
-    Py_ssize_t n;
-    if (gcstate->collecting) {
-        /* already collecting, don't do anything */
-        n = 0;
-    }
-    else {
-        gcstate->collecting = generation + 1;
-        n = collect_with_callback(tstate, generation + 1);
-        gcstate->collecting = 0;
-    }
-    return n;
+    return collect(tstate, generation + 1, GC_REASON_MANUAL);
 }
 
 /*[clinic input]
@@ -2424,19 +2439,10 @@ PyGC_Collect(void)
         return 0;
     }
 
-    Py_ssize_t n;
-    if (gcstate->collecting) {
-        /* already collecting, don't do anything */
-        n = 0;
-    }
-    else {
-        PyObject *exc, *value, *tb;
-        gcstate->collecting = NUM_GENERATIONS;
-        _PyErr_Fetch(tstate, &exc, &value, &tb);
-        n = collect_with_callback(tstate, NUM_GENERATIONS);
-        _PyErr_Restore(tstate, exc, value, tb);
-        gcstate->collecting = 0;
-    }
+    PyObject *exc, *value, *tb;
+    PyErr_Fetch(&exc, &value, &tb);
+    Py_ssize_t n = collect(tstate, NUM_GENERATIONS, GC_REASON_MANUAL);
+    PyErr_Restore(exc, value, tb);
 
     return n;
 }
@@ -2452,25 +2458,13 @@ _PyGC_CollectNoFail(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
     assert(!_PyErr_Occurred(tstate));
-
-    GCState *gcstate = &tstate->interp->gc;
-    Py_ssize_t n;
-
     /* Ideally, this function is only called on interpreter shutdown,
        and therefore not recursively.  Unfortunately, when there are daemon
        threads, a daemon thread can start a cyclic garbage collection
        during interpreter shutdown (and then never finish it).
        See http://bugs.python.org/issue8713#msg195178 for an example.
        */
-    if (gcstate->collecting) {
-        n = 0;
-    }
-    else {
-        gcstate->collecting = NUM_GENERATIONS;
-        n = collect(tstate, NUM_GENERATIONS, NULL, NULL, 1);
-        gcstate->collecting = 0;
-    }
-    return n;
+    return collect(tstate, NUM_GENERATIONS, GC_REASON_SHUTDOWN);
 }
 
 void
@@ -2579,5 +2573,4 @@ PyObject_GC_UnTrack(void *op_raw)
     if (_PyObject_GC_IS_TRACKED(op)) {
         _PyObject_GC_UNTRACK(op);
     }
-
 }
