@@ -760,6 +760,18 @@ _PyInterpreterState_GetMainModule(PyInterpreterState *interp)
     return PyMapping_GetItemString(interp->modules, "__main__");
 }
 
+long
+_PyInterpreterState_GetNumThreads(PyInterpreterState *interp)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    HEAD_LOCK(runtime);
+    long num_threads = interp->num_threads;
+    HEAD_UNLOCK(runtime);
+
+    return num_threads;
+}
+
 PyObject *
 PyInterpreterState_GetDict(PyInterpreterState *interp)
 {
@@ -864,6 +876,7 @@ new_threadstate(PyInterpreterState *interp, int init)
     if (tstate->next)
         tstate->next->prev = tstate;
     interp->tstate_head = tstate;
+    interp->num_threads++;
     HEAD_UNLOCK(runtime);
 
     return tstate;
@@ -1137,6 +1150,7 @@ tstate_delete_common(PyThreadState *tstate,
         interp->tstate_head = tstate->next;
     if (tstate->next)
         tstate->next->prev = tstate->prev;
+    interp->num_threads--;
     HEAD_UNLOCK(runtime);
 
     PyMem_RawFree(tstate);
@@ -1214,6 +1228,7 @@ _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
         tstate->next->prev = tstate->prev;
     tstate->prev = tstate->next = NULL;
     interp->tstate_head = tstate;
+    interp->num_threads = 1;
     HEAD_UNLOCK(runtime);
     /* Clear and deallocate all stale thread states.  Even if this
        executes Python code, we should be safe since it executes

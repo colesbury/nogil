@@ -29,10 +29,9 @@
 
 #include <ctype.h>
 
-#ifdef Py_DEBUG
+#if defined(Py_DEBUG) && !defined(Py_NOGIL)
 /* For debugging the interpreter: */
 #define LLTRACE  1      /* Low-level trace feature */
-#define CHECKEXC 1      /* Double-check exception checking */
 #endif
 
 #if !defined(Py_BUILD_CORE)

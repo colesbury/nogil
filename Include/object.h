@@ -66,8 +66,8 @@ A standard interface exists for objects that contain an array of items
 whose size is determined when the object is allocated.
 */
 
-/* Py_DEBUG implies Py_REF_DEBUG. */
-#if defined(Py_DEBUG) && !defined(Py_REF_DEBUG)
+/* Py_DEBUG implies Py_REF_DEBUG except in no GIL builds. */
+#if defined(Py_DEBUG) && !defined(Py_REF_DEBUG) && !defined(Py_NOGIL)
 #define Py_REF_DEBUG
 #endif
 
@@ -488,7 +488,7 @@ _Py_INCREF(PyObject *op)
     uintptr_t owner_tid = _PyObject_ThreadId(op);
     if (_PY_LIKELY(owner_tid == _Py_ThreadId())) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
-        op->ob_ref_local = local;
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
     }
     else {
         _Py_IncRefShared(op);
@@ -510,7 +510,7 @@ _Py_TryIncref(PyObject *op) {
     uintptr_t owner_tid = _PyObject_ThreadId(op);
     if (owner_tid == _Py_ThreadId()) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
-        op->ob_ref_local = local;
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
         return 1;
     }
     else {
@@ -542,7 +542,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
         }
 #endif
         local -= (1 << _Py_REF_LOCAL_SHIFT);
-        op->ob_ref_local = local;
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
 
         if (_PY_UNLIKELY(local == 0)) {
             _Py_MergeZeroRefcount(op);

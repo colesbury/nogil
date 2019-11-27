@@ -1009,7 +1009,6 @@ t_bootstrap(void *boot_raw)
     tstate->thread_id = PyThread_get_thread_ident();
     _PyThreadState_Init(tstate);
     PyEval_AcquireThread(tstate);
-    tstate->interp->num_threads++;
     res = PyObject_Call(boot->func, boot->args, boot->keyw);
     if (res == NULL) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit))
@@ -1026,7 +1025,6 @@ t_bootstrap(void *boot_raw)
     Py_DECREF(boot->args);
     Py_XDECREF(boot->keyw);
     PyMem_DEL(boot_raw);
-    tstate->interp->num_threads--;
     PyThreadState_Clear(tstate);
     _PyThreadState_DeleteCurrent(runtime);
     PyThread_exit_thread();
@@ -1184,7 +1182,7 @@ static PyObject *
 thread__count(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     PyInterpreterState *interp = _PyInterpreterState_Get();
-    return PyLong_FromLong(interp->num_threads);
+    return PyLong_FromLong(_PyInterpreterState_GetNumThreads(interp));
 }
 
 PyDoc_STRVAR(_count_doc,
