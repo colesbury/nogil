@@ -296,8 +296,28 @@ PyAPI_FUNC(int) _Py_IsMainInterpreter(PyThreadState* tstate);
 /* Variable and macro for in-line access to current thread
    and interpreter state */
 
-#define _PyRuntimeState_GetThreadState(runtime) \
-    ((PyThreadState*)_Py_atomic_load_relaxed(&(runtime)->gilstate.tstate_current))
+extern Py_DECL_THREAD PyThreadState *_Py_current_tstate;
+
+static inline PyThreadState *
+_PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
+{
+#ifdef Py_NOGIL
+    return _Py_current_tstate;
+#else
+    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->gilstate.tstate_current);
+#endif
+}
+
+static inline void
+_PyRuntimeState_SetThreadState(_PyRuntimeState *runtime, PyThreadState *tstate)
+{
+#ifdef Py_NOGIL
+    _Py_current_tstate = tstate;
+#else
+    _Py_atomic_store_relaxed(&runtime->gilstate.tstate_current, (uintptr_t)tstate);
+#endif
+}
+
 
 /* Get the current Python thread state.
 

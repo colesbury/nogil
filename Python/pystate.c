@@ -37,16 +37,12 @@ to avoid the expense of doing their own locking).
 extern "C" {
 #endif
 
-#define _PyRuntimeGILState_GetThreadState(gilstate) \
-    ((PyThreadState*)_Py_atomic_load_relaxed(&(gilstate)->tstate_current))
-#define _PyRuntimeGILState_SetThreadState(gilstate, value) \
-    _Py_atomic_store_relaxed(&(gilstate)->tstate_current, \
-                             (uintptr_t)(value))
-
 /* Forward declarations */
 static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 static int _PyThreadStateOS_Init(PyThreadStateOS *os);
+
+Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 
 
 static PyStatus
@@ -953,7 +949,7 @@ _PyThreadState_Delete(PyThreadState *tstate, int check_current)
 {
     struct _gilstate_runtime_state *gilstate = &tstate->interp->runtime->gilstate;
     if (check_current) {
-        if (tstate == _PyRuntimeGILState_GetThreadState(gilstate)) {
+        if (tstate == _PyRuntimeState_GetThreadState(&_PyRuntime)) {
             Py_FatalError("PyThreadState_Delete: tstate is still current");
         }
     }
@@ -972,12 +968,12 @@ void
 _PyThreadState_DeleteCurrent(_PyRuntimeState *runtime)
 {
     struct _gilstate_runtime_state *gilstate = &runtime->gilstate;
-    PyThreadState *tstate = _PyRuntimeGILState_GetThreadState(gilstate);
+    PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
     if (tstate == NULL)
         Py_FatalError(
             "PyThreadState_DeleteCurrent: no current tstate");
     tstate_delete_common(tstate, gilstate);
-    _PyRuntimeGILState_SetThreadState(gilstate, NULL);
+    _PyRuntimeState_SetThreadState(&_PyRuntime, NULL);
     PyEval_ReleaseLock();
 }
 
@@ -1046,9 +1042,9 @@ PyThreadState_Get(void)
 PyThreadState *
 _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *newts)
 {
-    PyThreadState *oldts = _PyRuntimeGILState_GetThreadState(gilstate);
+    PyThreadState *oldts = _PyRuntimeState_GetThreadState(&_PyRuntime);
 
-    _PyRuntimeGILState_SetThreadState(gilstate, newts);
+    _PyRuntimeState_SetThreadState(&_PyRuntime, newts);
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
        builds.
@@ -1265,9 +1261,8 @@ static int
 PyThreadState_IsCurrent(PyThreadState *tstate)
 {
     /* Must be the tstate for this thread */
-    struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    assert(_PyGILState_GetThisThreadState(gilstate) == tstate);
-    return tstate == _PyRuntimeGILState_GetThreadState(gilstate);
+    assert(_PyGILState_GetThisThreadState(&_PyRuntime.gilstate) == tstate);
+    return tstate == _PyRuntimeState_GetThreadState(&_PyRuntime);
 }
 
 /* Internal initialization/finalization functions called by
@@ -1395,7 +1390,7 @@ PyGILState_Check(void)
         return 1;
     }
 
-    PyThreadState *tstate = _PyRuntimeGILState_GetThreadState(gilstate);
+    PyThreadState *tstate = _PyRuntimeState_GetThreadState(&_PyRuntime);
     if (tstate == NULL) {
         return 0;
     }
@@ -1605,7 +1600,7 @@ _call_in_interpreter(struct _gilstate_runtime_state *gilstate,
      * naive approach.
      */
     PyThreadState *save_tstate = NULL;
-    if (interp != _PyRuntimeGILState_GetThreadState(gilstate)->interp) {
+    if (interp != _PyRuntimeState_GetThreadState(&_PyRuntime)->interp) {
         // XXX Using the "head" thread isn't strictly correct.
         PyThreadState *tstate = PyInterpreterState_ThreadHead(interp);
         // XXX Possible GILState issues?

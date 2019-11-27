@@ -752,6 +752,12 @@ extern char * _getpty(int *, int, mode_t, int);
 #define Py_ALIGNED(x)
 #endif
 
+#ifdef _MSC_VER
+#define Py_DECL_THREAD __declspec(thread)
+#else
+#define Py_DECL_THREAD __thread
+#endif
+
 /* Eliminate end-of-loop code not reached warnings from SunPro C
  * when using do{...}while(0) macros
  */
