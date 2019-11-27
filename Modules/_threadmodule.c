@@ -181,8 +181,8 @@ lock_PyThread_release_lock(lockobject *self, PyObject *Py_UNUSED(ignored))
         return NULL;
     }
 
-    PyThread_release_lock(self->lock_lock);
     self->locked = 0;
+    PyThread_release_lock(self->lock_lock);
     Py_RETURN_NONE;
 }
 
@@ -1212,8 +1212,8 @@ release_sentinel(void *wr_raw)
         assert(Py_TYPE(obj) == &Locktype);
         lock = (lockobject *) obj;
         if (lock->locked) {
-            PyThread_release_lock(lock->lock_lock);
             lock->locked = 0;
+            PyThread_release_lock(lock->lock_lock);
         }
     }
     /* Deallocating a weakref with a NULL callback only calls
