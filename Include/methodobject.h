@@ -92,6 +92,7 @@ typedef struct {
     PyObject    *m_module; /* The __module__ attribute, can be anything */
     PyObject    *m_weakreflist; /* List of weak references */
     vectorcallfunc vectorcall;
+    vectorcallfunc base_vectorcall; /* For synchronized functions. TODO: sgross also see descrobject.h. Should it be separate? */
 } PyCFunctionObject;
 #endif
 

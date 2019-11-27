@@ -232,8 +232,11 @@ typedef struct {
        isn't ready for writing. */
     Py_off_t write_end;
 
+    /* TODO: sgross merge this with rlock */
     PyThread_type_lock lock;
     volatile unsigned long owner;
+
+    _PyRecursiveMutex rlock;
 
     Py_ssize_t buffer_size;
     Py_ssize_t buffer_mask;
@@ -2459,7 +2462,7 @@ PyTypeObject PyBufferedReader_Type = {
     0,                          /* tp_is_gc */
     0,                          /* tp_bases */
     0,                          /* tp_mro */
-    0,                          /* tp_cache */
+    offsetof(buffered, rlock),  /* tp_lockoffset */
     0,                          /* tp_subclasses */
     0,                          /* tp_weaklist */
     0,                          /* tp_del */
@@ -2545,7 +2548,7 @@ PyTypeObject PyBufferedWriter_Type = {
     0,                          /* tp_is_gc */
     0,                          /* tp_bases */
     0,                          /* tp_mro */
-    0,                          /* tp_cache */
+    offsetof(buffered, rlock),  /* tp_lockoffset */
     0,                          /* tp_subclasses */
     0,                          /* tp_weaklist */
     0,                          /* tp_del */
@@ -2716,7 +2719,7 @@ PyTypeObject PyBufferedRandom_Type = {
     0,                          /* tp_is_gc */
     0,                          /* tp_bases */
     0,                          /* tp_mro */
-    0,                          /* tp_cache */
+    offsetof(buffered, rlock),  /* tp_lockoffset */
     0,                          /* tp_subclasses */
     0,                          /* tp_weaklist */
     0,                          /* tp_del */

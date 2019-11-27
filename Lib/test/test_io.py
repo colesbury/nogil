@@ -1452,6 +1452,7 @@ class BufferedReaderTest(unittest.TestCase, CommonBufferedTests):
             N = 1000
             l = list(range(256)) * N
             random.shuffle(l)
+            lock = threading.Lock()
             s = bytes(bytearray(l))
             with self.open(support.TESTFN, "wb") as f:
                 f.write(s)
@@ -1467,9 +1468,11 @@ class BufferedReaderTest(unittest.TestCase, CommonBufferedTests):
                             if not s:
                                 break
                             # list.append() is atomic
-                            results.append(s)
+                            with lock:
+                                results.append(s)
                     except Exception as e:
-                        errors.append(e)
+                        with lock:
+                            errors.append(e)
                         raise
                 threads = [threading.Thread(target=f) for x in range(20)]
                 with support.start_threads(threads):
@@ -1809,6 +1812,7 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
                 queue.append(contents[n:n+size])
                 n += size
             del contents
+            lock = threading.Lock()
             # We use a real file object because it allows us to
             # exercise situations where the GIL is released before
             # writing the buffer to the raw streams. This is in addition
@@ -1821,12 +1825,14 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
                     try:
                         while True:
                             try:
-                                s = queue.popleft()
+                                with lock:
+                                    s = queue.popleft()
                             except IndexError:
                                 return
                             bufio.write(s)
                     except Exception as e:
-                        errors.append(e)
+                        with lock:
+                            errors.append(e)
                         raise
                 threads = [threading.Thread(target=f) for x in range(20)]
                 with support.start_threads(threads):
@@ -4514,4 +4520,5 @@ def load_tests(*args):
     return suite
 
 if __name__ == "__main__":
+    load_tests()
     unittest.main()

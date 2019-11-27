@@ -54,6 +54,7 @@ typedef struct {
     PyDescr_COMMON;
     PyMethodDef *d_method;
     vectorcallfunc vectorcall;
+    vectorcallfunc base_vectorcall;  /* TODO: sgross maybe move to a subtype? */
 } PyMethodDescrObject;
 
 typedef struct {

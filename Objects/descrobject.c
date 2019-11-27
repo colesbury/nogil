@@ -427,6 +427,38 @@ method_vectorcall_O(
     return result;
 }
 
+static PyObject *
+method_vectorcall_synchronized(
+      PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
+{
+    PyMethodDescrObject *descr = (PyMethodDescrObject *)func;
+
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (method_check_args(func, args, nargs, kwnames)) {
+        return NULL;
+    }
+
+    PyObject *self = args[0];
+    Py_ssize_t tp_lockoffset = Py_TYPE(self)->tp_lockoffset;
+    if (tp_lockoffset == 0) {
+        PyObject *funcstr = _PyObject_FunctionStr(func);
+        if (funcstr) {
+            PyErr_Format(PyExc_TypeError,
+               "%U expects an object with a recursive lock",
+                funcstr);
+            Py_DECREF(funcstr);
+        }
+        return NULL;
+    }
+
+    _PyRecursiveMutex *m = (_PyRecursiveMutex *)((char*)self + tp_lockoffset);
+
+    _PyRecursiveMutex_lock(m);
+    PyObject *result = descr->base_vectorcall(func, args, nargsf, kwnames);
+    _PyRecursiveMutex_unlock(m);
+
+    return result;
+}
 
 /* Instances of classmethod_descriptor are unlikely to be called directly.
    For one, the analogous class "classmethod" (for Python classes) is not
@@ -896,10 +928,19 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
 
     descr = (PyMethodDescrObject *)descr_new(&PyMethodDescr_Type,
                                              type, method->ml_name);
-    if (descr != NULL) {
-        descr->d_method = method;
+    if (descr == NULL) {
+        return NULL;
+    }
+
+    descr->d_method = method;
+    if (type->tp_lockoffset) {
+        descr->vectorcall = method_vectorcall_synchronized;
+        descr->base_vectorcall = vectorcall;
+    }
+    else {
         descr->vectorcall = vectorcall;
     }
+
     return (PyObject *)descr;
 }
 

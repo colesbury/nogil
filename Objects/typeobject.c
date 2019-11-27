@@ -3395,7 +3395,6 @@ type_dealloc(PyTypeObject *type)
     Py_XDECREF(type->tp_dict);
     Py_XDECREF(type->tp_bases);
     Py_XDECREF(type->tp_mro);
-    Py_XDECREF(type->tp_cache);
     Py_XDECREF(type->tp_subclasses);
     /* A type's tp_doc is heap allocated, unlike the tp_doc slots
      * of most other objects.  It's okay to cast it to char *.
@@ -3591,7 +3590,6 @@ type_traverse(PyTypeObject *type, visitproc visit, void *arg)
     }
 
     Py_VISIT(type->tp_dict);
-    Py_VISIT(type->tp_cache);
     Py_VISIT(type->tp_mro);
     Py_VISIT(type->tp_bases);
     Py_VISIT(type->tp_base);
@@ -3621,9 +3619,6 @@ type_clear(PyTypeObject *type)
        won't be broken otherwise (it's a tuple and tuples don't have a
        tp_clear handler).  None of the other fields need to be
        cleared, and here's why:
-
-       tp_cache:
-           Not used; if it were, it would be a dict.
 
        tp_bases, tp_base:
            If these are involved in a cycle, there must be at least
@@ -5257,6 +5252,7 @@ inherit_slots(PyTypeObject *type, PyTypeObject *base)
         COPYSLOT(tp_alloc);
         COPYSLOT(tp_is_gc);
         COPYSLOT(tp_finalize);
+        COPYSLOT(tp_lockoffset);
         if ((type->tp_flags & Py_TPFLAGS_HAVE_GC) ==
             (base->tp_flags & Py_TPFLAGS_HAVE_GC)) {
             /* They agree about gc. */

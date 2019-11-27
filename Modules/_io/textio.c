@@ -11,6 +11,7 @@
 #include "pycore_object.h"
 #include "structmember.h"
 #include "_iomodule.h"
+#include "lock.h"
 
 /*[clinic input]
 module _io
@@ -638,6 +639,7 @@ typedef PyObject *
 typedef struct
 {
     PyObject_HEAD
+    _PyRecursiveMutex lock;
     int ok; /* initialized? */
     int detached;
     Py_ssize_t chunk_size;
@@ -3315,7 +3317,7 @@ PyTypeObject PyTextIOWrapper_Type = {
     0,                          /* tp_is_gc */
     0,                          /* tp_bases */
     0,                          /* tp_mro */
-    0,                          /* tp_cache */
+    offsetof(textio, lock),     /* tp_lockoffset */
     0,                          /* tp_subclasses */
     0,                          /* tp_weaklist */
     0,                          /* tp_del */
