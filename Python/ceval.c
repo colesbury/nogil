@@ -5533,3 +5533,27 @@ void Py_LeaveRecursiveCall(void)
 {
     _Py_LeaveRecursiveCall_inline();
 }
+
+void
+Py_PrintTraceback(void)
+{
+    // From https://stackoverflow.com/questions/1796510/accessing-a-python-traceback-from-the-c-api
+    PyThreadState *tstate = PyThreadState_GET();
+    if (tstate && tstate->frame) {
+        PyFrameObject *frame = tstate->frame;
+
+        fprintf(stderr, "Python stack trace:\n");
+        while (NULL != frame) {
+            // int line = frame->f_lineno;
+            /*
+             frame->f_lineno will not always return the correct line number
+             you need to call PyCode_Addr2Line().
+            */
+            int line = PyCode_Addr2Line(frame->f_code, frame->f_lasti);
+            const char *filename = PyUnicode_AsUTF8(frame->f_code->co_filename);
+            const char *funcname = PyUnicode_AsUTF8(frame->f_code->co_name);
+            fprintf(stderr, "    %s(%d): %s\n", filename, line, funcname);
+            frame = frame->f_back;
+        }
+    }
+}
