@@ -298,9 +298,9 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     assert(_PyMutex_is_locked(&runtime->stoptheworld_mutex));
 
     HEAD_LOCK(runtime);
-
     PyInterpreterState *head = runtime->interpreters.head;
 
+    _Py_atomic_store_relaxed(&runtime->ceval.stop_the_world, 1);
     gc->gc_thread_countdown = 0;
 
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
@@ -316,10 +316,11 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
         }
     }
 
-    /* don't wait our own thread  */
+    /* Don't wait our own thread  */
     assert(this_tstate->status == _Py_THREAD_ATTACHED);
     gc->gc_thread_countdown--;
 
+    /* Switch threads that are detached to the GC stopped state */
     gc->gc_thread_countdown -= park_detached_threads(runtime);
 
     int stopped_all_threads = gc->gc_thread_countdown == 0;
@@ -1151,6 +1152,14 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate->next)
         tstate->next->prev = tstate->prev;
     interp->num_threads--;
+    if (_Py_atomic_load_relaxed(&runtime->ceval.stop_the_world)) {
+        assert(tstate->status == _Py_THREAD_ATTACHED);
+        struct _gc_runtime_state *gc = &tstate->interp->gc;
+        gc->gc_thread_countdown--;
+        if (gc->gc_thread_countdown == 0) {
+            _PyRawEvent_Notify(&gc->gc_stop_event);
+        }
+    }
     HEAD_UNLOCK(runtime);
 
     PyMem_RawFree(tstate);
