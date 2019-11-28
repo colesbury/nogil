@@ -295,27 +295,6 @@ _PyDict_Fini(void)
 
 static void free_keys_object(PyDictKeysObject *keys);
 
-static inline void
-dictkeys_incref(PyDictKeysObject *dk)
-{
-#ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
-#endif
-    dk->dk_refcnt++;
-}
-
-static inline void
-dictkeys_decref(PyDictKeysObject *dk)
-{
-    assert(dk->dk_refcnt > 0);
-#ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
-#endif
-    if (--dk->dk_refcnt == 0) {
-        free_keys_object(dk);
-    }
-}
-
 /* lookup indices.  returns DKIX_EMPTY, DKIX_DUMMY, or ix >=0 */
 static inline Py_ssize_t
 dictkeys_get_index(PyDictKeysObject *keys, Py_ssize_t i)
@@ -424,7 +403,7 @@ dictkeys_set_index(PyDictKeysObject *keys, Py_ssize_t i, Py_ssize_t ix)
  * (which cannot fail and thus can do no allocation).
  */
 static PyDictKeysObject empty_keys_struct = {
-        1, /* dk_refcnt */
+        0, /* dk_refcnt */
         1, /* dk_size */
         lookdict_split, /* dk_lookup */
         0, /* dk_usable (immutable) */
@@ -436,6 +415,31 @@ static PyDictKeysObject empty_keys_struct = {
 static PyObject *empty_values[1] = { NULL };
 
 #define Py_EMPTY_KEYS &empty_keys_struct
+
+static inline void
+dictkeys_incref(PyDictKeysObject *dk)
+{
+    if (dk != Py_EMPTY_KEYS) {
+#ifdef Py_REF_DEBUG
+        _Py_RefTotal++;
+#endif
+        dk->dk_refcnt++;
+    }
+}
+
+static inline void
+dictkeys_decref(PyDictKeysObject *dk)
+{
+    if (dk != Py_EMPTY_KEYS) {
+        assert(dk->dk_refcnt > 0);
+#ifdef Py_REF_DEBUG
+        _Py_RefTotal--;
+#endif
+        if (--dk->dk_refcnt == 0) {
+            free_keys_object(dk);
+        }
+    }
+}
 
 /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
 /* #define DEBUG_PYDICT */
@@ -676,7 +680,6 @@ clone_combined_dict(PyDictObject *orig)
 PyObject *
 PyDict_New(void)
 {
-    dictkeys_incref(Py_EMPTY_KEYS);
     return new_dict(Py_EMPTY_KEYS, empty_values);
 }
 
@@ -1102,7 +1105,6 @@ insert_to_emptydict(PyDictObject *mp, PyObject *key, Py_hash_t hash,
     if (!PyUnicode_CheckExact(key)) {
         newkeys->dk_lookup = lookdict;
     }
-    dictkeys_decref(Py_EMPTY_KEYS);
     mp->ma_keys = newkeys;
     mp->ma_values = NULL;
 
@@ -1684,7 +1686,6 @@ PyDict_Clear(PyObject *op)
     if (oldvalues == empty_values)
         return;
     /* Empty the dict... */
-    dictkeys_incref(Py_EMPTY_KEYS);
     mp->ma_keys = Py_EMPTY_KEYS;
     mp->ma_values = empty_values;
     mp->ma_used = 0;
