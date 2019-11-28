@@ -4,6 +4,7 @@ Various tests for synchronization primitives.
 
 import sys
 import time
+import _atomic
 from _thread import start_new_thread, TIMEOUT_MAX
 import threading
 import unittest
@@ -33,33 +34,46 @@ class Bunch(object):
         self._can_exit = not wait_before_exit
         self.wait_thread = support.wait_threads_exit()
         self.wait_thread.__enter__()
+        self._lock = threading.Lock()
+        self.results = [None] * self.n
 
-        def task():
+        def task(i):
             tid = threading.get_ident()
-            self.started.append(tid)
+            with self._lock:
+                self.started.append(tid)
             try:
-                f()
+                self.results[i] = f()
             finally:
-                self.finished.append(tid)
+                with self._lock:
+                    self.finished.append(tid)
                 while not self._can_exit:
                     _wait()
 
         try:
             for i in range(n):
-                start_new_thread(task, ())
+                start_new_thread(task, (i,))
         except:
             self._can_exit = True
             raise
 
+    def num_started(self):
+        with self._lock:
+            return len(self.started)
+
+    def num_finished(self):
+        with self._lock:
+            return len(self.finished)
+
     def wait_for_started(self):
-        while len(self.started) < self.n:
+        while self.num_started() < self.n:
             _wait()
 
     def wait_for_finished(self):
-        while len(self.finished) < self.n:
+        while self.num_finished() < self.n:
             _wait()
         # Wait for threads exit
         self.wait_thread.__exit__(None, None, None)
+        return self.results
 
     def do_finish(self):
         self._can_exit = True
@@ -225,24 +239,24 @@ class LockTests(BaseLockTests):
     def test_reacquire(self):
         # Lock needs to be released before re-acquiring.
         lock = self.locktype()
-        phase = []
+        phase = _atomic.int()
 
         def f():
             lock.acquire()
-            phase.append(None)
+            phase.add(1)
             lock.acquire()
-            phase.append(None)
+            phase.add(1)
 
         with support.wait_threads_exit():
             start_new_thread(f, ())
-            while len(phase) == 0:
+            while phase.load() == 0:
                 _wait()
             _wait()
-            self.assertEqual(len(phase), 1)
+            self.assertEqual(phase.load(), 1)
             lock.release()
-            while len(phase) == 1:
+            while phase.load() == 1:
                 _wait()
-            self.assertEqual(len(phase), 2)
+            self.assertEqual(phase.load(), 2)
 
     def test_different_thread(self):
         # Lock can be released from a different thread.
@@ -706,11 +720,12 @@ class BaseSemaphoreTests(BaseTestCase):
     def test_try_acquire_contended(self):
         sem = self.semtype(4)
         sem.acquire()
-        results = []
         def f():
-            results.append(sem.acquire(False))
-            results.append(sem.acquire(False))
-        Bunch(f, 5).wait_for_finished()
+            a = sem.acquire(False)
+            b = sem.acquire(False)
+            return (a, b)
+        results = Bunch(f, 5).wait_for_finished()
+        results = [item for t in results for item in t]
         # There can be a thread switch between acquiring the semaphore and
         # appending the result, therefore results will not necessarily be
         # ordered.
@@ -809,11 +824,11 @@ class BarrierTests(BaseTestCase):
         m = self.barrier.parties
         self.assertEqual(m, self.N)
         for i in range(n):
-            results[0].append(True)
-            self.assertEqual(len(results[1]), i * m)
+            results[0].add(1)
+            self.assertEqual(results[1].load(), i * m)
             self.barrier.wait()
-            results[1].append(True)
-            self.assertEqual(len(results[0]), (i + 1) * m)
+            results[1].add(1)
+            self.assertEqual(results[0].load(), (i + 1) * m)
             self.barrier.wait()
         self.assertEqual(self.barrier.n_waiting, 0)
         self.assertFalse(self.barrier.broken)
@@ -822,7 +837,7 @@ class BarrierTests(BaseTestCase):
         """
         Test that a barrier is passed in lockstep
         """
-        results = [[],[]]
+        results = [_atomic.int(), _atomic.int()]
         def f():
             self.multipass(results, passes)
         self.run_threads(f)
@@ -863,33 +878,33 @@ class BarrierTests(BaseTestCase):
         """
         Test that an abort will put the barrier in a broken state
         """
-        results1 = []
-        results2 = []
+        results1 = _atomic.int()
+        results2 = _atomic.int()
         def f():
             try:
                 i = self.barrier.wait()
                 if i == self.N//2:
                     raise RuntimeError
                 self.barrier.wait()
-                results1.append(True)
+                results1.add(1)
             except threading.BrokenBarrierError:
-                results2.append(True)
+                results2.add(1)
             except RuntimeError:
                 self.barrier.abort()
                 pass
 
         self.run_threads(f)
-        self.assertEqual(len(results1), 0)
-        self.assertEqual(len(results2), self.N-1)
+        self.assertEqual(results1.load(), 0)
+        self.assertEqual(results2.load(), self.N-1)
         self.assertTrue(self.barrier.broken)
 
     def test_reset(self):
         """
         Test that a 'reset' on a barrier frees the waiting threads
         """
-        results1 = []
-        results2 = []
-        results3 = []
+        results1 = _atomic.int()
+        results2 = _atomic.int()
+        results3 = _atomic.int()
         def f():
             i = self.barrier.wait()
             if i == self.N//2:
@@ -900,26 +915,26 @@ class BarrierTests(BaseTestCase):
             else:
                 try:
                     self.barrier.wait()
-                    results1.append(True)
+                    results1.add(1)
                 except threading.BrokenBarrierError:
-                    results2.append(True)
+                    results2.add(1)
             # Now, pass the barrier again
             self.barrier.wait()
-            results3.append(True)
+            results3.add(1)
 
         self.run_threads(f)
-        self.assertEqual(len(results1), 0)
-        self.assertEqual(len(results2), self.N-1)
-        self.assertEqual(len(results3), self.N)
+        self.assertEqual(results1.load(), 0)
+        self.assertEqual(results2.load(), self.N-1)
+        self.assertEqual(results3.load(), self.N)
 
 
     def test_abort_and_reset(self):
         """
         Test that a barrier can be reset after being broken.
         """
-        results1 = []
-        results2 = []
-        results3 = []
+        results1 = _atomic.int()
+        results2 = _atomic.int()
+        results3 = _atomic.int()
         barrier2 = self.barriertype(self.N)
         def f():
             try:
@@ -927,9 +942,9 @@ class BarrierTests(BaseTestCase):
                 if i == self.N//2:
                     raise RuntimeError
                 self.barrier.wait()
-                results1.append(True)
+                results1.add(1)
             except threading.BrokenBarrierError:
-                results2.append(True)
+                results2.add(1)
             except RuntimeError:
                 self.barrier.abort()
                 pass
@@ -940,12 +955,12 @@ class BarrierTests(BaseTestCase):
                 self.barrier.reset()
             barrier2.wait()
             self.barrier.wait()
-            results3.append(True)
+            results3.add(1)
 
         self.run_threads(f)
-        self.assertEqual(len(results1), 0)
-        self.assertEqual(len(results2), self.N-1)
-        self.assertEqual(len(results3), self.N)
+        self.assertEqual(results1.load(), 0)
+        self.assertEqual(results2.load(), self.N-1)
+        self.assertEqual(results3.load(), self.N)
 
     def test_timeout(self):
         """

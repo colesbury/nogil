@@ -5,6 +5,7 @@ from test import support
 import _thread as thread
 import time
 import weakref
+import _atomic
 
 from test import lock_tests
 
@@ -109,16 +110,16 @@ class ThreadRunningTests(BasicThreadTest):
         orig = thread._count()
         mut = thread.allocate_lock()
         mut.acquire()
-        started = []
+        started = _atomic.int()
 
         def task():
-            started.append(None)
+            started.add(1)
             mut.acquire()
             mut.release()
 
         with support.wait_threads_exit():
             thread.start_new_thread(task, ())
-            while not started:
+            while started.load() == 0:
                 time.sleep(POLL_SLEEP)
             self.assertEqual(thread._count(), orig + 1)
             # Allow the task to finish.
