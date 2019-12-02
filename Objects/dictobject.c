@@ -4632,6 +4632,16 @@ _PyDict_NewKeysForClass(void)
 
 #define CACHED_KEYS(tp) (((PyHeapTypeObject*)tp)->ht_cached_keys)
 
+static PyDictKeysObject *
+_PyTypeObject_CachedKeys(PyTypeObject *tp)
+{
+    if ((tp->tp_flags & Py_TPFLAGS_HEAPTYPE) &&
+        _PyObject_ThreadId(tp) == _Py_ThreadId()) {
+        return ((PyHeapTypeObject*)tp)->ht_cached_keys;
+    }
+    return NULL;
+}
+
 PyObject *
 PyObject_GenericGetDict(PyObject *obj, void *context)
 {
@@ -4643,10 +4653,10 @@ PyObject_GenericGetDict(PyObject *obj, void *context)
     }
     dict = *dictptr;
     if (dict == NULL) {
-        PyTypeObject *tp = Py_TYPE(obj);
-        if ((tp->tp_flags & Py_TPFLAGS_HEAPTYPE) && CACHED_KEYS(tp)) {
-            dictkeys_incref(CACHED_KEYS(tp));
-            *dictptr = dict = new_dict_with_shared_keys(CACHED_KEYS(tp));
+        PyDictKeysObject *keys = _PyTypeObject_CachedKeys(Py_TYPE(obj));
+        if (keys) {
+            dictkeys_incref(keys);
+            *dictptr = dict = new_dict_with_shared_keys(keys);
         }
         else {
             *dictptr = dict = PyDict_New();
@@ -4665,7 +4675,8 @@ _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr,
     PyDictKeysObject *cached;
 
     assert(dictptr != NULL);
-    if ((tp->tp_flags & Py_TPFLAGS_HEAPTYPE) && (cached = CACHED_KEYS(tp))) {
+    cached = _PyTypeObject_CachedKeys(tp);
+    if (cached) {
         assert(dictptr != NULL);
         dict = *dictptr;
         if (dict == NULL) {
