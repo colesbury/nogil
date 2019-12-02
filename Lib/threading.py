@@ -883,7 +883,13 @@ class Thread:
         finally:
             # Avoid a refcycle if the thread is running a function with
             # an argument that has a member that points to the thread.
-            del self._target, self._args, self._kwargs
+            # TODO(sgross): The original del statement races with reads
+            # from other threads, such as in the join() function. Maybe
+            # think about how to implement del in a non racy way?
+            self._target = None
+            self._args = None
+            self._kwargs = None
+            # del self._target, self._args, self._kwargs
 
     def _bootstrap(self):
         # Wrapper around the real bootstrap code that ignores
