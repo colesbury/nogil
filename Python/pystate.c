@@ -786,6 +786,43 @@ PyInterpreterState_GetDict(PyInterpreterState *interp)
     return interp->dict;
 }
 
+void
+_PyInterpreterState_WaitForThreads(PyInterpreterState *interp)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *tstate = PyThreadState_Get();
+
+    if (tstate->join_event) {
+        /* First, mark the active thread as done */
+        _PyEvent_Notify(&tstate->join_event->event);
+    }
+
+    for (;;) {
+        _PyEventRC *join_event = NULL;
+
+        HEAD_LOCK(runtime);
+        for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+            if (p == tstate) {
+                continue;
+            }
+            if (p->join_event && !p->daemon) {
+                join_event = p->join_event;
+                _PyEventRC_Incref(join_event);
+                break;
+            }
+        }
+        HEAD_UNLOCK(runtime);
+
+        if (!join_event) {
+            break;
+        }
+
+        _PyEvent_Wait(&join_event->event, tstate);
+        _PyEventRC_Decref(join_event);
+    }
+
+}
+
 /* Default implementation for _PyThreadState_GetFrame */
 static struct _frame *
 threadstate_getframe(PyThreadState *self)
@@ -843,8 +880,6 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->object_queue = NULL;
     tstate->trash_delete_nesting = 0;
     tstate->trash_delete_later = NULL;
-    tstate->on_delete = NULL;
-    tstate->on_delete_data = NULL;
 
     tstate->coroutine_origin_tracking_depth = 0;
 
@@ -860,10 +895,19 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->id = ++interp->tstate_next_unique_id;
 
+    if (init) {
+        tstate->join_event = _PyEventRC_New();
+        if (!tstate->join_event) {
+            PyMem_RawFree(tstate);
+            return NULL;
+        }
+    }
+
     PyThreadStateOS *os = (PyThreadStateOS *)(tstate + 1);
     tstate->os = os;
     os->tstate = tstate;
     if (_PyThreadStateOS_Init(os) < 0) {
+        PyMem_RawFree(tstate);
         return NULL;
     }
 
@@ -1103,9 +1147,35 @@ PyThreadState_Clear(PyThreadState *tstate)
 
     Py_CLEAR(tstate->context);
 
-    if (tstate->on_delete != NULL) {
-        tstate->on_delete(tstate->on_delete_data);
+    /// FIXME event here???
+}
+
+void
+_PyEventRC_Incref(_PyEventRC *e)
+{
+    _Py_atomic_add_intptr(&e->refcnt, 1);
+}
+
+void
+_PyEventRC_Decref(_PyEventRC *e)
+{
+    intptr_t rc = _Py_atomic_add_intptr(&e->refcnt, -1) - 1;
+    assert(rc >= 0);
+    if (rc == 0) {
+        PyMem_RawFree(e);
     }
+}
+
+_PyEventRC *
+_PyEventRC_New(void)
+{
+    _PyEventRC *e;
+    e = PyMem_RawMalloc(sizeof(*e));
+    if (e != NULL) {
+        memset(e, 0, sizeof(*e));
+        e->refcnt = 1;
+    }
+    return e;
 }
 
 bool _mi_heap_done(mi_heap_t* heap);
@@ -1144,6 +1214,9 @@ tstate_delete_common(PyThreadState *tstate,
     if (interp == NULL) {
         Py_FatalError("PyThreadState_Delete: NULL interp");
     }
+
+    _PyEventRC *join_event;
+
     HEAD_LOCK(runtime);
     if (tstate->prev)
         tstate->prev->next = tstate->next;
@@ -1152,6 +1225,8 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate->next)
         tstate->next->prev = tstate->prev;
     interp->num_threads--;
+    join_event = tstate->join_event;
+    tstate->join_event = NULL;
     if (_Py_atomic_load_relaxed(&runtime->ceval.stop_the_world)) {
         assert(tstate->status == _Py_THREAD_ATTACHED);
         struct _gc_runtime_state *gc = &tstate->interp->gc;
@@ -1161,6 +1236,11 @@ tstate_delete_common(PyThreadState *tstate,
         }
     }
     HEAD_UNLOCK(runtime);
+
+    if (join_event) {
+        _PyEvent_Notify(&join_event->event);
+        _PyEventRC_Decref(join_event);
+    }
 
     PyMem_RawFree(tstate);
 

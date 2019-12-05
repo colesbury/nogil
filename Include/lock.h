@@ -21,6 +21,10 @@ typedef struct {
 
 typedef struct {
     uintptr_t v;
+} _PyEvent;
+
+typedef struct {
+    uintptr_t v;
     size_t recursions;
 } _PyRecursiveMutex;
 
@@ -43,6 +47,10 @@ void _PyRawEvent_Notify(_PyRawEvent *o);
 void _PyRawEvent_Wait(_PyRawEvent *o, PyThreadState *tstate);
 int _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns);
 void _PyRawEvent_Reset(_PyRawEvent *o);
+
+void _PyEvent_Notify(_PyEvent *o);
+void _PyEvent_Wait(_PyEvent *o, PyThreadState *tstate);
+int _PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns);
 
 static inline int
 _PyMutex_is_locked(_PyMutex *m)
@@ -113,6 +121,12 @@ _PyRecursiveMutex_unlock(_PyRecursiveMutex *m)
         }
     }
     _PyRecursiveMutex_unlock_slow(m);
+}
+
+static inline int
+_PyEvent_IsSet(_PyEvent *e)
+{
+    return _Py_atomic_load_uintptr(&e->v) == LOCKED;
 }
 
 #ifdef __cplusplus

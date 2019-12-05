@@ -54,7 +54,6 @@ _Py_IDENTIFIER(name);
 _Py_IDENTIFIER(stdin);
 _Py_IDENTIFIER(stdout);
 _Py_IDENTIFIER(stderr);
-_Py_IDENTIFIER(threading);
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,7 +68,6 @@ static PyStatus init_set_builtins_open(PyThreadState *tstate);
 static PyStatus init_sys_streams(PyThreadState *tstate);
 static PyStatus init_signals(PyThreadState *tstate);
 static void call_py_exitfuncs(PyThreadState *tstate);
-static void wait_for_thread_shutdown(PyThreadState *tstate);
 static void call_ll_exitfuncs(_PyRuntimeState *runtime);
 
 int _Py_UnhandledKeyboardInterrupt = 0;
@@ -1339,7 +1337,7 @@ Py_FinalizeEx(void)
     PyInterpreterState *interp = tstate->interp;
 
     // Wrap up existing "threading"-module-created, non-daemon threads.
-    wait_for_thread_shutdown(tstate);
+    _PyInterpreterState_WaitForThreads(interp);
 
     // Make any remaining pending calls.
     _Py_FinishPendingCalls(tstate);
@@ -1631,7 +1629,7 @@ Py_EndInterpreter(PyThreadState *tstate)
     interp->finalizing = 1;
 
     // Wrap up existing "threading"-module-created, non-daemon threads.
-    wait_for_thread_shutdown(tstate);
+    _PyInterpreterState_WaitForThreads(interp);
 
     call_py_exitfuncs(tstate);
 
@@ -2297,33 +2295,6 @@ call_py_exitfuncs(PyThreadState *tstate)
 
     (*interp->pyexitfunc)(interp->pyexitmodule);
     _PyErr_Clear(tstate);
-}
-
-/* Wait until threading._shutdown completes, provided
-   the threading module was imported in the first place.
-   The shutdown routine will wait until all non-daemon
-   "threading" threads have completed. */
-static void
-wait_for_thread_shutdown(PyThreadState *tstate)
-{
-    _Py_IDENTIFIER(_shutdown);
-    PyObject *result;
-    PyObject *threading = _PyImport_GetModuleId(&PyId_threading);
-    if (threading == NULL) {
-        if (_PyErr_Occurred(tstate)) {
-            PyErr_WriteUnraisable(NULL);
-        }
-        /* else: threading not imported */
-        return;
-    }
-    result = _PyObject_CallMethodIdNoArgs(threading, &PyId__shutdown);
-    if (result == NULL) {
-        PyErr_WriteUnraisable(threading);
-    }
-    else {
-        Py_DECREF(result);
-    }
-    Py_DECREF(threading);
 }
 
 #define NEXITFUNCS 32

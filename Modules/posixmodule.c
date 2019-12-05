@@ -40,6 +40,7 @@
 #include "pycore_pystate.h"   /* _PyRuntime */
 #include "pythread.h"
 #include "structmember.h"
+#include "Objects/parking_lot.h"
 #ifndef MS_WINDOWS
 #  include "posixmodule.h"
 #else
@@ -475,6 +476,7 @@ PyOS_AfterFork_Child(void)
     _PySignal_AfterFork();
     _PyRuntimeState_ReInitThreads(runtime);
     _PyInterpreterState_DeleteExceptMain(runtime);
+    _PyParkingLot_AfterFork();
 
     run_at_forkers(_PyInterpreterState_Get()->after_forkers_child, 0);
 }

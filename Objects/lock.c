@@ -178,6 +178,53 @@ _PyRawEvent_Reset(_PyRawEvent *o)
     _Py_atomic_store_uintptr(&o->v, UNLOCKED);
 }
 
+//
+
+void
+_PyEvent_Notify(_PyEvent *o)
+{
+    uintptr_t v = _Py_atomic_exchange_uintptr(&o->v, LOCKED);
+    if (v == UNLOCKED) {
+        return;
+    }
+    else if (v == LOCKED) {
+        // Py_FatalError("_PyEvent: duplicate notifications");
+        return;
+    }
+    else {
+        assert(v == HAS_PARKED);
+        _PyParkingLot_UnparkAll(&o->v);
+    }
+}
+
+void
+_PyEvent_Wait(_PyEvent *o, PyThreadState *tstate)
+{
+    int64_t ns = -1;
+    _PyEvent_TimedWait(o, tstate, ns);
+}
+
+int
+_PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns)
+{
+    assert(tstate);
+
+    uintptr_t v = _Py_atomic_load_uintptr(&o->v);
+    if (v == LOCKED) {
+        return 1;
+    }
+    if (v == UNLOCKED) {
+        _Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, HAS_PARKED);
+    }
+
+    _PyTime_t now = _PyTime_GetMonotonicClock();
+    _PyParkingLot_Park(&o->v, HAS_PARKED, now, ns);
+
+    return _Py_atomic_load_uintptr(&o->v) == LOCKED;
+}
+
+//
+
 void
 _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
 {
@@ -221,7 +268,7 @@ _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
             }
         }
 
-        int ret = _PyParkingLot_Park(&m->v, newv, now);
+        int ret = _PyParkingLot_Park(&m->v, newv, now, -1);
         if (ret == -1) {
             continue;
         }

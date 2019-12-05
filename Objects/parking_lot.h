@@ -21,7 +21,10 @@ _PySemaphore_Signal(PyThreadStateOS *os, const char *msg, void *data);
 /* Functions for waking and parking threads */
 int
 _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
-				   _PyTime_t start_time);
+				   _PyTime_t start_time, int64_t timeout_ns);
+
+void
+_PyParkingLot_UnparkAll(const void *key);
 
 void
 _PyParkingLot_BeginUnpark(const void *key, PyThreadStateOS **os,
@@ -29,6 +32,9 @@ _PyParkingLot_BeginUnpark(const void *key, PyThreadStateOS **os,
 
 void
 _PyParkingLot_FinishUnpark(const void *key, PyThreadStateOS *os);
+
+void
+_PyParkingLot_AfterFork(void);
 
 
 #ifdef __cplusplus
