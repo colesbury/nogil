@@ -27,6 +27,7 @@ typedef struct {
     PyTypeObject *lock_type;
     PyTypeObject *local_type;
     PyTypeObject *local_dummy_type;
+    PyTypeObject *event_type;
 } thread_module_state;
 
 static inline thread_module_state*
@@ -668,6 +669,128 @@ static PyType_Spec critlock_type_spec = {
     .slots = critlock_type_slots,
 };
 
+typedef struct {
+    PyObject_HEAD
+    _PyEventRc *event;
+} PyEventObject;
+
+static void
+event_dealloc(PyEventObject *self)
+{
+    if (self->event) {
+        _PyEventRc_Decref(self->event);
+        self->event = NULL;
+    }
+    Py_TYPE(self)->tp_free(self);
+}
+
+static PyObject *
+wrap_event(PyTypeObject *type, _PyEventRc *event)
+{
+    PyEventObject *self;
+    self = (PyEventObject *) type->tp_alloc(type, 0);
+    if (self != NULL) {
+        self->event = event;
+        _PyEventRc_Incref(event);
+    }
+    return (PyObject *) self;
+}
+
+static PyObject *
+event_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    _PyEventRc *event = _PyEventRc_New();
+    if (event == NULL) {
+        PyErr_SetString(ThreadError, "can't allocate event");
+        return NULL;
+    }
+    PyObject *result = wrap_event(type, event);
+    _PyEventRc_Decref(event);
+    return result;
+}
+
+static PyObject *
+event_repr(PyEventObject *self)
+{
+    int is_set = _PyEvent_IsSet(&self->event->event);
+    return PyUnicode_FromFormat("<_thread.Event object is_set=%d at %p>",
+        is_set,
+        self);
+}
+
+static PyObject *
+event_is_set(PyEventObject *self, PyObject *Py_UNUSED(ignored))
+{
+    if (_PyEvent_IsSet(&self->event->event)) {
+        Py_RETURN_TRUE;
+    }
+    else {
+        Py_RETURN_FALSE;
+    }
+}
+
+static PyObject *
+event_set(PyEventObject *self, PyObject *Py_UNUSED(ignored))
+{
+    _PyEvent_Notify(&self->event->event);
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+event_wait(PyEventObject *self, PyObject *args)
+{
+    PyObject *timeout_obj = NULL;
+    if (!PyArg_ParseTuple(args, "|O:wait", &timeout_obj)) {
+        return NULL;
+    }
+
+    _PyTime_t timeout_ns = -1;
+    if (timeout_obj && timeout_obj != Py_None) {
+        int err = _PyTime_FromSecondsObject(
+            &timeout_ns,
+            timeout_obj,
+            _PyTime_ROUND_TIMEOUT);
+
+        if (err < 0) {
+            return NULL;
+        }
+    }
+
+    int ok = _PyEvent_TimedWait(&self->event->event, timeout_ns);
+    if (ok) {
+        Py_RETURN_TRUE;
+    }
+    else {
+        Py_RETURN_FALSE;
+    }
+}
+
+static PyMethodDef event_methods[] = {
+    {"is_set",      (PyCFunction)event_is_set,
+     METH_NOARGS, NULL},
+    {"set",      (PyCFunction)event_set,
+     METH_NOARGS, NULL},
+    {"wait", (PyCFunction)event_wait,
+     METH_VARARGS, NULL},
+    {NULL,           NULL}              /* sentinel */
+};
+
+static PyType_Slot event_type_slots[] = {
+    {Py_tp_repr, (reprfunc)event_repr},
+    {Py_tp_methods, event_methods},
+    {Py_tp_alloc, PyType_GenericAlloc},
+    {Py_tp_dealloc, (destructor)event_dealloc},
+    {Py_tp_new, event_new},
+    {0, 0},
+};
+
+static PyType_Spec event_type_spec = {
+    .name = "_thread.Event",
+    .basicsize = sizeof(PyEventObject),
+    .flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE),
+    .slots = event_type_slots,
+};
+
 static lockobject *
 newlockobject(PyObject *module)
 {
@@ -1192,15 +1315,42 @@ PyDoc_STRVAR(daemon_threads_allowed_doc,
 Return True if daemon threads are allowed in the current interpreter,\n\
 and False otherwise.\n");
 
+static _PyEventRc *
+unpack_or_create_event(PyObject *op)
+{
+    if (op) {
+        _PyEventRc *event = ((PyEventObject *)op)->event;
+        _PyEventRc_Incref(event);
+        return event;
+    }
+    else {
+        return _PyEventRc_New();
+    }
+}
+
 static PyObject *
-thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
+thread_PyThread_start_new_thread(PyObject *module, PyObject *fargs, PyObject *fkwargs)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
     PyObject *func, *args, *kwargs = NULL;
+    PyObject *join_event = NULL;
+    int daemon = 0;
+    static char *keywords[] = {
+        "function",
+        "args",
+        "kwargs",
+        "join_event",
+        "daemon",
+        NULL
+    };
 
-    if (!PyArg_UnpackTuple(fargs, "start_new_thread", 2, 3,
-                           &func, &args, &kwargs))
+    thread_module_state *state = get_thread_state(module);
+
+    if (!PyArg_ParseTupleAndKeywords(
+            fargs, fkwargs, "OO|OOp:start_new_thread", keywords,
+            &func, &args, &kwargs, &join_event, &daemon)) {
         return NULL;
+    }
     if (!PyCallable_Check(func)) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be callable");
@@ -1213,7 +1363,15 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
     }
     if (kwargs != NULL && !PyDict_Check(kwargs)) {
         PyErr_SetString(PyExc_TypeError,
-                        "optional 3rd arg must be a dictionary");
+                        "'kwargs' must be a dictionary");
+        return NULL;
+    }
+    if (join_event == Py_None) {
+        join_event = NULL;
+    }
+    if (join_event != NULL && !Py_IS_TYPE(join_event, state->event_type)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "'join_event' must be an Event");
         return NULL;
     }
 
@@ -1229,12 +1387,19 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
         return NULL;
     }
 
+    _PyEventRc *event = unpack_or_create_event(join_event);
+    if (event == NULL) {
+        return PyErr_NoMemory();
+    }
+
     struct bootstate *boot = PyMem_NEW(struct bootstate, 1);
     if (boot == NULL) {
+        _PyEventRc_Decref(event);
         return PyErr_NoMemory();
     }
     boot->interp = _PyInterpreterState_GET();
-    boot->tstate = _PyThreadState_Prealloc(boot->interp);
+    boot->tstate = _PyThreadState_Prealloc(boot->interp, event);
+    _PyEventRc_Decref(event);
     if (boot->tstate == NULL) {
         PyMem_Free(boot);
         if (!PyErr_Occurred()) {
@@ -1242,6 +1407,7 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
         }
         return NULL;
     }
+    boot->tstate->daemon = daemon;
     boot->runtime = runtime;
     boot->func = Py_NewRef(func);
     boot->args = Py_NewRef(args);
@@ -1380,67 +1546,13 @@ yet finished.\n\
 This function is meant for internal and specialized purposes only.\n\
 In most applications `threading.enumerate()` should be used instead.");
 
-static void
-release_sentinel(void *wr_raw)
-{
-    PyObject *wr = _PyObject_CAST(wr_raw);
-    /* Tricky: this function is called when the current thread state
-       is being deleted.  Therefore, only simple C code can safely
-       execute here. */
-    // FIXME(sgross): this isn't simple C code
-    PyObject *obj = PyWeakref_FetchObject(wr);
-    lockobject *lock;
-    if (obj != Py_None) {
-        lock = (lockobject *) obj;
-        if (lock->locked) {
-            lock->locked = 0;
-            PyThread_release_lock(lock->lock_lock);
-        }
-        Py_DECREF(obj);
-    }
-    /* Deallocating a weakref with a NULL callback only calls
-       PyObject_GC_Del(), which can't call any Python code. */
-    Py_DECREF(wr);
-}
-
 static PyObject *
-thread__set_sentinel(PyObject *module, PyObject *Py_UNUSED(ignored))
+thread__get_join_event(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
-    PyObject *wr;
-    PyThreadState *tstate = _PyThreadState_GET();
-    lockobject *lock;
-
-    if (tstate->on_delete_data != NULL) {
-        /* We must support the re-creation of the lock from a
-           fork()ed child. */
-        assert(tstate->on_delete == &release_sentinel);
-        wr = (PyObject *) tstate->on_delete_data;
-        tstate->on_delete = NULL;
-        tstate->on_delete_data = NULL;
-        Py_DECREF(wr);
-    }
-    lock = newlockobject(module);
-    if (lock == NULL)
-        return NULL;
-    /* The lock is owned by whoever called _set_sentinel(), but the weakref
-       hangs to the thread state. */
-    wr = PyWeakref_NewRef((PyObject *) lock, NULL);
-    if (wr == NULL) {
-        Py_DECREF(lock);
-        return NULL;
-    }
-    tstate->on_delete_data = (void *) wr;
-    tstate->on_delete = &release_sentinel;
-    return (PyObject *) lock;
+    PyThreadState *tstate = PyThreadState_Get();
+    thread_module_state *state = get_thread_state(module);
+    return wrap_event(state->event_type, tstate->done_event);
 }
-
-PyDoc_STRVAR(_set_sentinel_doc,
-"_set_sentinel() -> lock\n\
-\n\
-Set a sentinel lock that will be released when the current thread\n\
-state is finalized (after it is untied from the interpreter).\n\
-\n\
-This is a private API for the threading module.");
 
 static PyObject *
 thread_stack_size(PyObject *self, PyObject *args)
@@ -1638,11 +1750,25 @@ PyDoc_STRVAR(excepthook_doc,
 \n\
 Handle uncaught Thread.run() exception.");
 
+static PyObject *
+thread_shutdown(PyObject *self, PyObject *args)
+{
+    PyInterpreterState *interp = _PyInterpreterState_Get();
+    _PyInterpreterState_WaitForThreads(interp);
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(shutdown_doc,
+"_shutdown()\n\
+\n\
+Waits for all non-main threads to stop.");
+
+
 static PyMethodDef thread_methods[] = {
-    {"start_new_thread",        (PyCFunction)thread_PyThread_start_new_thread,
-     METH_VARARGS, start_new_doc},
-    {"start_new",               (PyCFunction)thread_PyThread_start_new_thread,
-     METH_VARARGS, start_new_doc},
+    {"start_new_thread",        _PyCFunction_CAST(thread_PyThread_start_new_thread),
+     METH_VARARGS | METH_KEYWORDS, start_new_doc},
+    {"start_new",               _PyCFunction_CAST(thread_PyThread_start_new_thread),
+     METH_VARARGS | METH_KEYWORDS, start_new_doc},
     {"daemon_threads_allowed",  (PyCFunction)thread_daemon_threads_allowed,
      METH_NOARGS, daemon_threads_allowed_doc},
     {"allocate_lock",           thread_PyThread_allocate_lock,
@@ -1665,10 +1791,12 @@ static PyMethodDef thread_methods[] = {
      METH_NOARGS, _count_doc},
     {"stack_size",              (PyCFunction)thread_stack_size,
      METH_VARARGS, stack_size_doc},
-    {"_set_sentinel",           thread__set_sentinel,
-     METH_NOARGS, _set_sentinel_doc},
-    {"_excepthook",              thread_excepthook,
+    {"_get_join_event",         thread__get_join_event,
+     METH_NOARGS, NULL},
+    {"_excepthook",             thread_excepthook,
      METH_O, excepthook_doc},
+    {"_shutdown",               thread_shutdown,
+     METH_NOARGS, shutdown_doc},
     {NULL,                      NULL}           /* sentinel */
 };
 
@@ -1714,6 +1842,15 @@ thread_module_exec(PyObject *module)
         return -1;
     }
     Py_DECREF(critlock_type);
+
+    // Event
+    state->event_type = (PyTypeObject *)PyType_FromModuleAndSpec(module, &event_type_spec, NULL);
+    if (state->event_type == NULL) {
+        return -1;
+    }
+    if (PyModule_AddType(module, state->event_type) < 0) {
+        return -1;
+    }
 
     // Local dummy
     state->local_dummy_type = (PyTypeObject *)PyType_FromSpec(&local_dummy_type_spec);
@@ -1768,6 +1905,7 @@ thread_module_traverse(PyObject *module, visitproc visit, void *arg)
     Py_VISIT(state->lock_type);
     Py_VISIT(state->local_type);
     Py_VISIT(state->local_dummy_type);
+    Py_VISIT(state->event_type);
     return 0;
 }
 
@@ -1779,6 +1917,7 @@ thread_module_clear(PyObject *module)
     Py_CLEAR(state->lock_type);
     Py_CLEAR(state->local_type);
     Py_CLEAR(state->local_dummy_type);
+    Py_CLEAR(state->event_type);
     return 0;
 }
 

@@ -2,7 +2,6 @@
 #  error "this header file must not be included directly"
 #endif
 
-
 /*
 Runtime Feature Flags
 
@@ -109,6 +108,7 @@ typedef struct _stack_chunk {
 
 struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
+typedef struct _PyEventRc _PyEventRc;
 
 // must match MI_NUM_HEAPS in mimalloc.h
 #define Py_NUM_HEAPS 5
@@ -190,31 +190,8 @@ struct _ts {
 
     uintptr_t critical_section;
 
-    /* Called when a thread state is deleted normally, but not when it
-     * is destroyed after fork().
-     * Pain:  to prevent rare but fatal shutdown errors (issue 18808),
-     * Thread.join() must wait for the join'ed thread's tstate to be unlinked
-     * from the tstate chain.  That happens at the end of a thread's life,
-     * in pystate.c.
-     * The obvious way doesn't quite work:  create a lock which the tstate
-     * unlinking code releases, and have Thread.join() wait to acquire that
-     * lock.  The problem is that we _are_ at the end of the thread's life:
-     * if the thread holds the last reference to the lock, decref'ing the
-     * lock will delete the lock, and that may trigger arbitrary Python code
-     * if there's a weakref, with a callback, to the lock.  But by this time
-     * _PyRuntime.gilstate.tstate_current is already NULL, so only the simplest
-     * of C code can be allowed to run (in particular it must not be possible to
-     * release the GIL).
-     * So instead of holding the lock directly, the tstate holds a weakref to
-     * the lock:  that's the value of on_delete_data below.  Decref'ing a
-     * weakref is harmless.
-     * on_delete points to _threadmodule.c's static release_sentinel() function.
-     * After the tstate is unlinked, release_sentinel is called with the
-     * weakref-to-lock (on_delete_data) argument, and release_sentinel releases
-     * the indirectly held lock.
-     */
-    void (*on_delete)(void *);
-    void *on_delete_data;
+    _PyEventRc *done_event; /* Set when thread is about to exit */
+    int daemon;
 
     int coroutine_origin_tracking_depth;
 
@@ -270,7 +247,7 @@ struct _ts {
 // Alias for backward compatibility with Python 3.8
 #define _PyInterpreterState_Get PyInterpreterState_Get
 
-PyAPI_FUNC(PyThreadState *) _PyThreadState_Prealloc(PyInterpreterState *);
+PyAPI_FUNC(PyThreadState *) _PyThreadState_Prealloc(PyInterpreterState *, _PyEventRc *done_event);
 
 /* Similar to PyThreadState_Get(), but don't issue a fatal error
  * if it is NULL. */

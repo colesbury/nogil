@@ -503,6 +503,61 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
     free_interpreter(interp);
 }
 
+void
+_PyInterpreterState_WaitForThreads(PyInterpreterState *interp)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *tstate = _PyThreadState_GET();
+
+    if (tstate->done_event) {
+        /* First, mark the active thread as done */
+        _PyEventRc *done_event = tstate->done_event;
+        tstate->done_event = NULL;
+        _PyEvent_Notify(&done_event->event);
+        _PyEventRc_Decref(done_event);
+    }
+
+    for (;;) {
+        _PyEventRc *done_event = NULL;
+
+        // Find a thread that's not yet finished.
+        HEAD_LOCK(runtime);
+        for (PyThreadState *p = interp->threads.head; p != NULL; p = p->next) {
+            if (p == tstate) {
+                continue;
+            }
+            if (p->done_event && !p->daemon) {
+                done_event = p->done_event;
+                _PyEventRc_Incref(done_event);
+                break;
+            }
+        }
+        HEAD_UNLOCK(runtime);
+
+        if (!done_event) {
+            // No more non-daemon threads to wait on!
+            break;
+        }
+
+        // Wait for the other thread to finish. If we're interrupted, such
+        // as by a ctrl-c we print the error and exit early.
+        for (;;) {
+            if (_PyEvent_TimedWait(&done_event->event, -1)) {
+                break;
+            }
+
+            // interrupted
+            if (Py_MakePendingCalls() < 0) {
+                PyErr_WriteUnraisable(NULL);
+                _PyEventRc_Decref(done_event);
+                return;
+            }
+        }
+
+        _PyEventRc_Decref(done_event);
+    }
+}
+
 
 #ifdef HAVE_FORK
 /*
@@ -743,7 +798,8 @@ static void
 init_threadstate(PyThreadState *tstate,
                  PyInterpreterState *interp, uint64_t id,
                  PyThreadState *next,
-                 struct qsbr *empty_qsbr)
+                 struct qsbr *empty_qsbr,
+                 _PyEventRc *done_event)
 {
     if (tstate->_initialized) {
         Py_FatalError("thread state already initialized");
@@ -791,12 +847,15 @@ init_threadstate(PyThreadState *tstate,
     tstate->datastack_chunk = NULL;
     tstate->datastack_top = NULL;
     tstate->datastack_limit = NULL;
+    tstate->daemon = (id > 1);
+    tstate->done_event = done_event;
+    _PyEventRc_Incref(done_event);
 
     tstate->_initialized = 1;
 }
 
 static PyThreadState *
-new_threadstate(PyInterpreterState *interp)
+new_threadstate(PyInterpreterState *interp, _PyEventRc *done_event)
 {
     PyThreadState *tstate;
     _PyRuntimeState *runtime = interp->runtime;
@@ -842,7 +901,7 @@ new_threadstate(PyInterpreterState *interp)
     }
     interp->threads.head = tstate;
 
-    init_threadstate(tstate, interp, id, old_head, qsbr);
+    init_threadstate(tstate, interp, id, old_head, qsbr, done_event);
 
     HEAD_UNLOCK(runtime);
     if (!used_newtstate) {
@@ -859,17 +918,22 @@ new_threadstate(PyInterpreterState *interp)
 PyThreadState *
 PyThreadState_New(PyInterpreterState *interp)
 {
-    PyThreadState *tstate = new_threadstate(interp);
+    _PyEventRc *done_event = _PyEventRc_New();
+    if (done_event == NULL) {
+        return NULL;
+    }
+    PyThreadState *tstate = new_threadstate(interp, done_event);
     if (tstate) {
         _PyThreadState_SetCurrent(tstate);
     }
+    _PyEventRc_Decref(done_event);
     return tstate;
 }
 
 PyThreadState *
-_PyThreadState_Prealloc(PyInterpreterState *interp)
+_PyThreadState_Prealloc(PyInterpreterState *interp, _PyEventRc *done_event)
 {
-    return new_threadstate(interp);
+    return new_threadstate(interp, done_event);
 }
 
 // We keep this around for (accidental) stable ABI compatibility.
@@ -1068,10 +1132,6 @@ PyThreadState_Clear(PyThreadState *tstate)
     Py_CLEAR(tstate->async_gen_finalizer);
 
     Py_CLEAR(tstate->context);
-
-    if (tstate->on_delete != NULL) {
-        tstate->on_delete(tstate->on_delete_data);
-    }
 }
 
 
@@ -1111,6 +1171,7 @@ tstate_delete_common(PyThreadState *tstate,
         tstate->heaps[tag] = NULL;
     }
 
+    _PyEventRc *done_event;
     _PyRuntimeState *runtime = interp->runtime;
     HEAD_LOCK(runtime);
     if (tstate->prev) {
@@ -1122,11 +1183,21 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate->next) {
         tstate->next->prev = tstate->prev;
     }
+    done_event = tstate->done_event;
+    tstate->done_event = NULL;
 #ifdef Py_REF_DEBUG
     runtime->ref_total += tstate->ref_total;
     tstate->ref_total = 0;
 #endif
     HEAD_UNLOCK(runtime);
+
+    // Notify threads waiting on Thread.join(). This should happen after the
+    // thread state is unlinked, but must happen before parking lot is
+    // deinitialized.
+    if (done_event) {
+        _PyEvent_Notify(&done_event->event);
+        _PyEventRc_Decref(done_event);
+    }
 
     if (is_current) {
         _PyThreadState_SET(NULL);
