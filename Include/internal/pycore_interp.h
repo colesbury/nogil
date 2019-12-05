@@ -179,6 +179,7 @@ PyAPI_FUNC(struct _is*) _PyInterpreterState_LookUpID(int64_t);
 PyAPI_FUNC(int) _PyInterpreterState_IDInitref(struct _is *);
 PyAPI_FUNC(void) _PyInterpreterState_IDIncref(struct _is *);
 PyAPI_FUNC(void) _PyInterpreterState_IDDecref(struct _is *);
+PyAPI_FUNC(void) _PyInterpreterState_WaitForThreads(struct _is *);
 
 #ifdef __cplusplus
 }
