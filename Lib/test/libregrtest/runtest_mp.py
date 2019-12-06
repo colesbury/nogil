@@ -125,11 +125,12 @@ class TestWorkerProcess(threading.Thread):
         self.ns = runner.ns
         self.timeout = runner.worker_timeout
         self.regrtest = runner.regrtest
-        self.current_test_name = None
+        self._current_test_name = None
         self.start_time = None
         self._popen = None
         self._killed = False
         self._stopped = False
+        self._lock = threading.Lock()
 
     def __repr__(self):
         info = [f'TestWorkerProcess #{self.worker_id}']
@@ -146,6 +147,16 @@ class TestWorkerProcess(threading.Thread):
             info.extend((f'pid={self._popen.pid}',
                          f'time={format_duration(dt)}'))
         return '<%s>' % ' '.join(info)
+
+    @property
+    def current_test_name(self):
+        with self._lock:
+            return self._current_test_name
+
+    @current_test_name.setter
+    def current_test_name(self, name):
+        with self._lock:
+            self._current_test_name = name
 
     def _kill(self):
         popen = self._popen
