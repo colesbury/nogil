@@ -69,10 +69,6 @@ MEMORY_SANITIZER = (
     '--with-memory-sanitizer' in _config_args
 )
 
-# Does io.IOBase finalizer log the exception if the close() method fails?
-# The exception is ignored silently by default in release build.
-IOBASE_EMITS_UNRAISABLE = (hasattr(sys, "gettotalrefcount") or sys.flags.dev_mode)
-
 
 def _default_chunk_size():
     """Get the default TextIOWrapper chunk size"""
@@ -1113,9 +1109,7 @@ class CommonBufferedTests:
             with self.assertRaises(AttributeError):
                 self.tp(rawio).xyzzy
 
-            if not IOBASE_EMITS_UNRAISABLE:
-                self.assertIsNone(cm.unraisable)
-            elif cm.unraisable is not None:
+            if cm.unraisable is not None:
                 self.assertEqual(cm.unraisable.exc_type, OSError)
 
     def test_repr(self):
@@ -2886,9 +2880,7 @@ class TextIOWrapperTest(unittest.TestCase):
             with self.assertRaises(AttributeError):
                 self.TextIOWrapper(rawio).xyzzy
 
-            if not IOBASE_EMITS_UNRAISABLE:
-                self.assertIsNone(cm.unraisable)
-            elif cm.unraisable is not None:
+            if cm.unraisable is not None:
                 self.assertEqual(cm.unraisable.exc_type, OSError)
 
     # Systematic tests of the text I/O API
