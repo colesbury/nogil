@@ -121,6 +121,7 @@
 #ifndef PY_NO_SHORT_FLOAT_REPR
 
 #include "float.h"
+#include "lock.h"
 
 #define MALLOC PyMem_Malloc
 #define FREE PyMem_Free
@@ -588,6 +589,7 @@ mult(Bigint *a, Bigint *b)
 
 /* p5s is a linked list of powers of 5 of the form 5**(2**i), i >= 2 */
 
+static _PyMutex dtoa_mutex;
 static Bigint *p5s;
 
 /* multiply the Bigint b by 5**k.  Returns a pointer to the result, or NULL on
@@ -609,13 +611,15 @@ pow5mult(Bigint *b, int k)
 
     if (!(k >>= 2))
         return b;
+
+    _PyMutex_lock(&dtoa_mutex);
     p5 = p5s;
     if (!p5) {
         /* first time */
         p5 = i2b(625);
         if (p5 == NULL) {
             Bfree(b);
-            return NULL;
+            goto err;
         }
         p5s = p5;
         p5->next = 0;
@@ -626,7 +630,7 @@ pow5mult(Bigint *b, int k)
             Bfree(b);
             b = b1;
             if (b == NULL)
-                return NULL;
+                goto err;
         }
         if (!(k >>= 1))
             break;
@@ -635,14 +639,20 @@ pow5mult(Bigint *b, int k)
             p51 = mult(p5,p5);
             if (p51 == NULL) {
                 Bfree(b);
-                return NULL;
+                goto err;
             }
             p51->next = 0;
             p5->next = p51;
         }
         p5 = p51;
     }
+
+    _PyMutex_unlock(&dtoa_mutex);
     return b;
+
+err:
+    _PyMutex_unlock(&dtoa_mutex);
+    return NULL;
 }
 
 #else
