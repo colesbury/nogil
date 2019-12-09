@@ -50,13 +50,24 @@ _PyObject_CheckConsistency(PyObject *op, int check_content)
 
 
 #ifdef Py_REF_DEBUG
-Py_ssize_t _Py_RefTotal;
+void
+_Py_IncRefTotal(void)
+{
+    _PyThreadState_GET()->thread_ref_total++;
+}
+
+void
+_Py_DecRefTotal(void)
+{
+    _PyThreadState_GET()->thread_ref_total--;
+}
+
 
 Py_ssize_t
 _Py_GetRefTotal(void)
 {
     PyObject *o;
-    Py_ssize_t total = _Py_RefTotal;
+    Py_ssize_t total = (Py_ssize_t)_PyRuntimeState_GetRefTotal();
     o = _PySet_Dummy;
     if (o != NULL)
         total -= Py_REFCNT(o);
@@ -245,7 +256,7 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
     /* If Py_REF_DEBUG macro is defined, _Py_NewReference() increased
        _Py_RefTotal, so we need to undo that. */
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
     return -1;
 }
@@ -1823,7 +1834,7 @@ _Py_NewReference(PyObject *op)
         _PyTraceMalloc_NewReference(op);
     }
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     op->ob_tid = _Py_ThreadId();
     op->ob_ref_local = (1 << _Py_REF_LOCAL_SHIFT);

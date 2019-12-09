@@ -287,6 +287,8 @@ typedef struct pyruntimestate {
 
     _PyMutex stoptheworld_mutex;
 
+    intptr_t ref_total;
+
     // XXX Consolidate globals found via the check-c-globals script.
 } _PyRuntimeState;
 
@@ -301,6 +303,8 @@ PyAPI_FUNC(void) _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime);
 
 PyAPI_FUNC(void) _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime);
 PyAPI_FUNC(void) _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime);
+
+PyAPI_FUNC(intptr_t) _PyRuntimeState_GetRefTotal(void);
 
 /* Initialize _PyRuntimeState.
    Return NULL on success, or return an error message on failure. */

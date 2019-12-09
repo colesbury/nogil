@@ -140,6 +140,8 @@ struct _ts {
     PyObject *context;
     uint64_t context_ver;
 
+    intptr_t thread_ref_total;
+
     /* Unique thread state id. */
     uint64_t id;
 

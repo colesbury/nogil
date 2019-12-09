@@ -67,7 +67,7 @@ whose size is determined when the object is allocated.
 */
 
 /* Py_DEBUG implies Py_REF_DEBUG except in no GIL builds. */
-#if defined(Py_DEBUG) && !defined(Py_REF_DEBUG) && !defined(Py_NOGIL)
+#if defined(Py_DEBUG) && !defined(Py_REF_DEBUG)
 #define Py_REF_DEBUG
 #endif
 
@@ -407,7 +407,8 @@ you can count such references to the type object.)
 */
 
 #ifdef Py_REF_DEBUG
-PyAPI_DATA(Py_ssize_t) _Py_RefTotal;
+PyAPI_FUNC(void) _Py_IncRefTotal(void);
+PyAPI_FUNC(void) _Py_DecRefTotal(void);
 PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
                                       PyObject *op);
 #endif /* Py_REF_DEBUG */
@@ -500,7 +501,7 @@ _Py_INCREF(PyObject *op)
     }
 
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
@@ -521,7 +522,7 @@ _Py_TryIncref(PyObject *op) {
     }
 
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
@@ -547,7 +548,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
     }
 
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
 #ifdef Py_REF_DEBUG

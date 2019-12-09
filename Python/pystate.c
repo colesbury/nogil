@@ -377,6 +377,23 @@ _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime)
     HEAD_UNLOCK(runtime);
 }
 
+intptr_t
+_PyRuntimeState_GetRefTotal(void)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    intptr_t total = runtime->ref_total;
+
+    HEAD_LOCK(runtime);
+    PyInterpreterState *interp = runtime->interpreters.head;
+    for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+        total += p->thread_ref_total;
+    }
+    HEAD_UNLOCK(runtime);
+
+    return total;
+}
+
 PyStatus
 _PyInterpreterState_Enable(_PyRuntimeState *runtime)
 {
@@ -1235,6 +1252,10 @@ tstate_delete_common(PyThreadState *tstate,
             _PyRawEvent_Notify(&gc->gc_stop_event);
         }
     }
+#ifdef Py_REF_DEBUG
+    runtime->ref_total += tstate->thread_ref_total;
+    tstate->thread_ref_total = 0;
+#endif
     HEAD_UNLOCK(runtime);
 
     if (join_event) {
