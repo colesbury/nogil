@@ -6,6 +6,7 @@ from test.support import (verbose, refcount_test, run_unittest,
                           import_module)
 from test.support.script_helper import assert_python_ok, make_script
 
+import _atomic
 import gc
 import sys
 import sysconfig
@@ -378,15 +379,15 @@ class GCTests(unittest.TestCase):
                 time.sleep(0.000001)
 
         class C(list):
-            # Appending to a list is atomic, which avoids the use of a lock.
-            inits = []
-            dels = []
+            inits = _atomic.int()
+            dels = _atomic.int()
+
             def __init__(self, alist):
                 self[:] = alist
-                C.inits.append(None)
+                C.inits.add(1)
             def __del__(self):
                 # This __del__ is called by subtype_dealloc().
-                C.dels.append(None)
+                C.dels.add(1)
                 # `g` will release the GIL when garbage-collected.  This
                 # helps assert subtype_dealloc's behaviour when threads
                 # switch in the middle of it.
@@ -405,23 +406,23 @@ class GCTests(unittest.TestCase):
 
         def run_thread():
             """Exercise make_nested() in a loop."""
-            while not exit:
+            while exit.load() == 0:
                 make_nested()
 
         old_switchinterval = sys.getswitchinterval()
         sys.setswitchinterval(1e-5)
         try:
-            exit = []
+            exit = _atomic.int()
             threads = []
             for i in range(N_THREADS):
                 t = threading.Thread(target=run_thread)
                 threads.append(t)
-            with start_threads(threads, lambda: exit.append(1)):
+            with start_threads(threads, lambda: exit.store(1)):
                 time.sleep(1.0)
         finally:
             sys.setswitchinterval(old_switchinterval)
         gc.collect()
-        self.assertEqual(len(C.inits), len(C.dels))
+        self.assertEqual(C.inits.load(), C.dels.load())
 
     def test_boom(self):
         class Boom:
