@@ -222,6 +222,9 @@ class TestWorkerProcess(threading.Thread):
                 stdout, stderr = popen.communicate(timeout=self.timeout)
                 retcode = popen.returncode
                 assert retcode is not None
+            except UnicodeDecodeError:
+                stdout = "<UnicodeDecodeError>"
+                stderr = "<UnicodeDecodeError>"
             except subprocess.TimeoutExpired:
                 if self._stopped:
                     # kill() has been called: communicate() fails
