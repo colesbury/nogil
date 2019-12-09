@@ -67,6 +67,8 @@
 /* ---------------------------------------------------------------*/
 
 #include "Python.h"
+#include "lock.h"
+#include <stddef.h>
 #include <time.h>               /* for seeding to current time */
 #ifdef HAVE_PROCESS_H
 #  include <process.h>          /* needed for getpid() */
@@ -92,6 +94,7 @@ static struct PyModuleDef _randommodule;
 
 typedef struct {
     PyObject_HEAD
+    _PyRecursiveMutex lock;
     int index;
     uint32_t state[N];
 } RandomObject;
@@ -603,6 +606,8 @@ PyInit__random(void)
     if (Random_Type == NULL) {
         return NULL;
     }
+    ((PyTypeObject *)Random_Type)->tp_lockoffset =
+        offsetof(RandomObject, lock);
 
     m = PyModule_Create(&_randommodule);
     if (m == NULL) {
