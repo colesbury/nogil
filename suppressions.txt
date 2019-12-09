@@ -1,0 +1,17 @@
+# Supression file for thread-sanitizer
+race:_mi_segment_try_reclaim_abandoned
+race:mi_segment_abandon
+race:mi_atomic_write
+race:mi_stat_update
+race:_mi_stats_main
+race:_mi_page_malloc
+race:_mi_free_block_mt
+race:mi_page_queue_remove
+race:^mi_*
+
+# TOOD: fix in Python
+race:_Py_RefcntQueue_Push
+
+# TOOD: fix race
+race:assign_version_tag
+race:_PyType_Lookup
