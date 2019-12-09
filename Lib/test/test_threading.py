@@ -1287,6 +1287,7 @@ class TimerTests(BaseTestCase):
 class LockTests(lock_tests.LockTests):
     locktype = staticmethod(threading.Lock)
 
+@unittest.skip('dummy Python implementation of RLock is not thread-safe')
 class PyRLockTests(lock_tests.RLockTests):
     locktype = staticmethod(threading._PyRLock)
 
