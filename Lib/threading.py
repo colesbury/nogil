@@ -723,14 +723,16 @@ class Barrier:
         """Return the number of threads currently waiting at the barrier."""
         # We don't need synchronization here since this is an ephemeral result
         # anyway.  It returns the correct value in the steady state.
-        if self._state == 0:
-            return self._count
+        with self._cond:
+            if self._state == 0:
+                return self._count
         return 0
 
     @property
     def broken(self):
         """Return True if the barrier is in a broken state."""
-        return self._state == -2
+        with self._cond:
+            return self._state == -2
 
 # exception raised by the Barrier class
 class BrokenBarrierError(RuntimeError):
@@ -1262,7 +1264,8 @@ def current_thread():
 
     """
     try:
-        return _active[get_ident()]
+        with _active_limbo_lock:
+            return _active[get_ident()]
     except KeyError:
         return _DummyThread()
 
