@@ -15,3 +15,7 @@ race:_Py_RefcntQueue_Push
 # TOOD: fix race
 race:assign_version_tag
 race:_PyType_Lookup
+
+# TODO: fix data race using relaxed atomics in _threadmodule.c
+race:rlock_acquire
+race:rlock_release
