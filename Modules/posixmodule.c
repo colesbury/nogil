@@ -452,14 +452,25 @@ run_at_forkers(PyObject *lst, int reverse)
 void
 PyOS_BeforeFork(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
     run_at_forkers(_PyInterpreterState_Get()->before_forkers, 1);
 
     _PyImport_AcquireLock();
+
+    /* Stop all other threads still attached to the Python VM.
+     * It's not so much taht thi */
+    _PyMutex_lock(&runtime->stoptheworld_mutex);
+    _PyRuntimeState_StopTheWorld(runtime);
 }
 
 void
 PyOS_AfterFork_Parent(void)
 {
+    _PyRuntimeState *runtime = &_PyRuntime;
+
+    _PyRuntimeState_StartTheWorld(runtime);
+    _PyMutex_unlock(&runtime->stoptheworld_mutex);
+
     if (_PyImport_ReleaseLock() <= 0)
         Py_FatalError("failed releasing import lock after fork");
 
@@ -477,6 +488,8 @@ PyOS_AfterFork_Child(void)
     _PyRuntimeState_ReInitThreads(runtime);
     _PyInterpreterState_DeleteExceptMain(runtime);
     _PyParkingLot_AfterFork();
+    _PyRuntimeState_StartTheWorld(runtime);
+    _PyMutex_unlock(&runtime->stoptheworld_mutex);
 
     run_at_forkers(_PyInterpreterState_Get()->after_forkers_child, 0);
 }
