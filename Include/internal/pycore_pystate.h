@@ -60,8 +60,8 @@ struct _ceval_runtime_state {
     struct _pending_calls pending;
     /* Request for checking signals. */
     _Py_atomic_int signals_pending;
-    /* Request to stop all threads for GC. */
-    _Py_atomic_int stop_the_world;
+    /* Request to stop all threads (e.g. for GC). */
+    _Py_atomic_int please_stop;
     struct _gil_runtime_state gil;
 };
 
@@ -240,12 +240,12 @@ typedef struct pyruntimestate {
     /* Is Python fully initialized? Set to 1 by Py_Initialize() */
     int initialized;
 
+    /* Is Python stopping all threads? */
+    int stop_the_world;
+
     /* Set by Py_FinalizeEx(). Only reset to NULL if Py_Initialize()
        is called again. */
     PyThreadState *finalizing;
-
-    /* List of parked threads that need to be awoken during start-the-world */
-    PyThreadState *parked;
 
     struct pyinterpreters {
         PyThread_type_lock mutex;

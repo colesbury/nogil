@@ -71,9 +71,7 @@ struct _ts {
     PyThreadStateOS *os;
 
     /* thread status */
-    volatile int32_t status;
-    _PyRawEvent park;
-    struct _ts *next_parked;
+    int32_t status;
 
     mi_heap_t *heap_backing;
     mi_heap_t *heap_obj;

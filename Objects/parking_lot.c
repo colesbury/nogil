@@ -83,11 +83,17 @@ dequeue(Bucket *bucket, const void *key)
 }
 
 int
-_PySemaphore_Wait(PyThreadStateOS *os, int detach, int64_t ns)
+_PySemaphore_Wait(PyThreadState *tstate, int64_t ns)
 {
-    PyThreadState *tstate = NULL;
-    if (detach) {
-        tstate = PyEval_SaveThread();
+    PyThreadStateOS *os = tstate->os;
+    int was_attached =
+        (_Py_atomic_load_int32(&tstate->status) == _Py_THREAD_ATTACHED);
+
+    if (was_attached) {
+        PyEval_ReleaseThread(tstate);
+    }
+    else {
+        _PyEval_DropGIL(tstate);
     }
 
     PyMUTEX_LOCK(&os->waiter_mutex);
@@ -97,8 +103,11 @@ _PySemaphore_Wait(PyThreadStateOS *os, int detach, int64_t ns)
             if (ret) {
                 /* timeout */
                 PyMUTEX_UNLOCK(&os->waiter_mutex);
-                if (detach) {
-                    PyEval_RestoreThread(tstate);
+                if (was_attached) {
+                    PyEval_AcquireThread(tstate);
+                }
+                else {
+                    _PyEval_TakeGIL(tstate);
                 }
                 return SEMA_TIMEOUT;
             }
@@ -110,8 +119,11 @@ _PySemaphore_Wait(PyThreadStateOS *os, int detach, int64_t ns)
     os->waiter_counter--;
     PyMUTEX_UNLOCK(&os->waiter_mutex);
 
-    if (detach) {
-        PyEval_RestoreThread(tstate);
+    if (was_attached) {
+        PyEval_AcquireThread(tstate);
+    }
+    else {
+        _PyEval_TakeGIL(tstate);
     }
     return SEMA_OK;
 }
@@ -130,6 +142,26 @@ _PySemaphore_Signal(PyThreadStateOS *os, const char *msg, void *data)
 }
 
 int
+_PyParkingLot_ParkInt32(const int32_t *key, int32_t expected)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    assert(tstate);
+
+    Bucket *bucket = &buckets[((uintptr_t)key) % NUM_BUCKETS];
+
+    _PyRawMutex_lock(&bucket->mutex);
+    if (_Py_atomic_load_int32(key) != expected) {
+        _PyRawMutex_unlock(&bucket->mutex);
+        return -1;
+    }
+    enqueue(bucket, key, tstate, 0);
+    _PyRawMutex_unlock(&bucket->mutex);
+
+    _PySemaphore_Wait(tstate, -1);
+    return 0;
+}
+
+int
 _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
                    _PyTime_t start_time, int64_t ns)
 {
@@ -144,7 +176,7 @@ _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
     enqueue(bucket, key, tstate, start_time);
     _PyRawMutex_unlock(&bucket->mutex);
 
-    int res = _PySemaphore_Wait(tstate->os, DETACH, ns);
+    int res = _PySemaphore_Wait(tstate, ns);
     if (res == SEMA_TIMEOUT) {
         /* timeout */
         _PyRawMutex_lock(&bucket->mutex);
@@ -152,7 +184,7 @@ _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
         struct PyThreadStateWaiter *waiter = &tstate->os->waiter;
         if (waiter->next == NULL) {
             _PyRawMutex_unlock(&bucket->mutex);
-            res = _PySemaphore_Wait(tstate->os, DETACH, -1);
+            res = _PySemaphore_Wait(tstate, -1);
             assert(res == SEMA_OK);
             return 0;
         }

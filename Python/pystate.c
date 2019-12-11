@@ -10,6 +10,7 @@
 #include "pycore_refcnt.h"
 #include "Python/condvar.h"
 #include "../Modules/hashtable.h"
+#include "../Objects/parking_lot.h"
 
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
@@ -187,8 +188,10 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
 
     HEAD_LOCK(runtime);
     assert(tstate->status == _Py_THREAD_ATTACHED);
+    assert(runtime->stop_the_world);
     tstate->status = _Py_THREAD_GC;
     gc->gc_thread_countdown--;
+    assert(gc->gc_thread_countdown >= 0);
     if (gc->gc_thread_countdown == 0) {
         _PyRawEvent_Notify(&gc->gc_stop_event);
     }
@@ -201,43 +204,29 @@ void
 _PyThreadState_GC_Park(PyThreadState *tstate)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
-    struct _gc_runtime_state *gc = &tstate->interp->gc;
 
-    assert(tstate->status == _Py_THREAD_GC);
-
-    int collecting;
     int count = 0;
-    do {
+    for (;;) {
         // FIXME: this is just exit_thread_if_finalizing from ceval.c
         if (runtime->finalizing != NULL && !_Py_CURRENTLY_FINALIZING(runtime, tstate)) {
             _PyEval_DropGIL(tstate);
             PyThread_exit_thread();
         }
 
-        _PyEval_DropGIL(tstate);
+        /* Wait until we're switched out of GC to DETACHED. */
+        _PyParkingLot_ParkInt32(&tstate->status, _Py_THREAD_GC);
 
-        /* Wait until the GC finishes. */
-        _PyRawEvent_Wait(&tstate->park, tstate);
-        _PyRawEvent_Reset(&tstate->park);
-
-        _PyEval_TakeGIL(tstate);
-
-        HEAD_LOCK(runtime);
-        collecting = gc->collecting;
-        if (collecting) {
-            /* add to list of parked threads */
-            tstate->next_parked = runtime->parked;
-            runtime->parked = tstate;
+        /* Once we're back in DETACHED we can re-attach  */
+        if (_Py_atomic_compare_exchange_int32(
+                &tstate->status,
+                _Py_THREAD_DETACHED,
+                _Py_THREAD_ATTACHED)) {
+            /* We gucci */
+            return;
         }
-        else {
-            /* re-attach */
-            assert(tstate->status == _Py_THREAD_GC);
-            tstate->status = _Py_THREAD_ATTACHED;
-        }
-        HEAD_UNLOCK(runtime);
 
         count++;
-    } while (collecting);
+    }
 }
 
 static void
@@ -264,9 +253,9 @@ assert_all_stopped(_PyRuntimeState *runtime)
 static int
 park_detached_threads(_PyRuntimeState *runtime)
 {
-    PyInterpreterState *head = runtime->interpreters.head;
     int num_parked = 0;
 
+    PyInterpreterState *head = runtime->interpreters.head;
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
             int status = _PyThreadState_GetStatus(p);
@@ -276,10 +265,6 @@ park_detached_threads(_PyRuntimeState *runtime)
                     &p->status,
                     _Py_THREAD_DETACHED,
                     _Py_THREAD_GC)) {
-
-                assert(!p->next_parked);
-                p->next_parked = runtime->parked;
-                runtime->parked = p;
 
                 num_parked++;
             }
@@ -298,20 +283,24 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     assert(_PyMutex_is_locked(&runtime->stoptheworld_mutex));
 
     HEAD_LOCK(runtime);
-    PyInterpreterState *head = runtime->interpreters.head;
+    if (runtime->stop_the_world) {
+        assert(_Py_CURRENTLY_FINALIZING(runtime, this_tstate));
+        HEAD_UNLOCK(runtime);
+        return;
+    }
 
-    _Py_atomic_store_relaxed(&runtime->ceval.stop_the_world, 1);
+    runtime->stop_the_world = 1;
+
+    _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 1);
     gc->gc_thread_countdown = 0;
 
+    PyInterpreterState *head = runtime->interpreters.head;
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
-            if (_PyThreadState_GetStatus(p) == _Py_THREAD_GC) {
-                /* The thread is already in GC state from a previous GC.
-                 * Don't add it to the parked list to avoid duplicate notifications.
-                 * If it wakes up during GC, it will re-park itself.
-                 */
-                continue;
-            }
+#ifdef Py_DEBUG
+            int status = _PyThreadState_GetStatus(p);
+            assert(status == _Py_THREAD_ATTACHED || status == _Py_THREAD_DETACHED);
+#endif
             gc->gc_thread_countdown++;
         }
     }
@@ -321,17 +310,20 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     gc->gc_thread_countdown--;
 
     /* Switch threads that are detached to the GC stopped state */
-    gc->gc_thread_countdown -= park_detached_threads(runtime);
+    int parked = park_detached_threads(runtime);
+    gc->gc_thread_countdown -= parked;
 
+    assert(gc->gc_thread_countdown >= 0);
     int stopped_all_threads = gc->gc_thread_countdown == 0;
     HEAD_UNLOCK(runtime);
+
 
     /* We're done if we successfully transitioned all other threads to
      * _Py_THREAD_GC (or if we are the only thread). */
     while (!stopped_all_threads) {
         /* Otherwise we need to wait until the remaining threads stop themselves.
-         * Set ceval.eval_breaker to trigger this soon. */
-        _Py_atomic_store_relaxed(&runtime->ceval.stop_the_world, 1);
+         * Ask nicely. Set ceval.eval_breaker to trigger this soon. */
+        _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 1);
         _PyEval_ComputeEvalBreaker();
 
         int64_t wait_ns = 1000*1000;
@@ -345,11 +337,12 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
         HEAD_LOCK(runtime);
         int num_detached = park_detached_threads(runtime);
         gc->gc_thread_countdown -= num_detached;
+        assert(gc->gc_thread_countdown >= 0);
         stopped_all_threads = (num_detached > 0) && (gc->gc_thread_countdown == 0);
         HEAD_UNLOCK(runtime);
     }
 
-    _Py_atomic_store_relaxed(&runtime->ceval.stop_the_world, 0);
+    _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 0);
     _PyEval_ComputeEvalBreaker();
 }
 
@@ -360,20 +353,21 @@ _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime)
     assert(!_PyThreadState_GET()->interp->gc.collecting);
 
     HEAD_LOCK(runtime);
+    runtime->stop_the_world = 0;
+    PyInterpreterState *head = runtime->interpreters.head;
+    for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
+        for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+            int status = _PyThreadState_GetStatus(p);
+            if (status == _Py_THREAD_GC &&
+                _Py_atomic_compare_exchange_int32(
+                    &p->status,
+                    _Py_THREAD_GC,
+                    _Py_THREAD_DETACHED)) {
 
-    // what about my own threads park status???
-    PyThreadState *tstate = runtime->parked;
-    PyThreadState *next_tstate;
-    runtime->parked = NULL;
-    while (tstate) {
-        next_tstate = tstate->next_parked;
-        tstate->next_parked = NULL;
-
-        _PyRawEvent_Notify(&tstate->park);
-
-        tstate = next_tstate;
+                _PyParkingLot_UnparkAll(&p->status);
+            }
+        }
     }
-
     HEAD_UNLOCK(runtime);
 }
 
@@ -939,6 +933,9 @@ new_threadstate(PyInterpreterState *interp, int init)
         tstate->next->prev = tstate;
     interp->tstate_head = tstate;
     interp->num_threads++;
+    if (runtime->stop_the_world) {
+        tstate->status = _Py_THREAD_GC;
+    }
     HEAD_UNLOCK(runtime);
 
     return tstate;
@@ -1207,7 +1204,59 @@ tstate_delete_common(PyThreadState *tstate,
         Py_FatalError("PyThreadState_Delete: NULL tstate");
     }
 
-    if (tstate->fast_thread_id == _Py_ThreadId()) {
+    PyInterpreterState *interp = tstate->interp;
+    if (interp == NULL) {
+        Py_FatalError("PyThreadState_Delete: NULL interp");
+    }
+
+    _PyEventRC *join_event;
+
+    HEAD_LOCK(runtime);
+
+    /* Unlink thread state */
+    if (tstate->prev)
+        tstate->prev->next = tstate->next;
+    else
+        interp->tstate_head = tstate->next;
+    if (tstate->next)
+        tstate->next->prev = tstate->prev;
+
+    interp->num_threads--;
+
+    /* The _PyEvent_Notify calls may block in acquiring parking lot locks.
+     * Set the status to detached so that it doesn't try to detach/reattach.
+      */
+    tstate->status = _Py_THREAD_DETACHED;
+
+    join_event = tstate->join_event;
+    tstate->join_event = NULL;
+
+    if (runtime->stop_the_world) {
+        struct _gc_runtime_state *gc = &tstate->interp->gc;
+        gc->gc_thread_countdown--;
+        assert(gc->gc_thread_countdown >= 0);
+        if (gc->gc_thread_countdown == 0) {
+            _PyRawEvent_Notify(&gc->gc_stop_event);
+        }
+    }
+
+#ifdef Py_REF_DEBUG
+    runtime->ref_total += tstate->thread_ref_total;
+    tstate->thread_ref_total = 0;
+#endif
+
+    HEAD_UNLOCK(runtime);
+
+    /* Notify threads waiting on Thread.join(). This should happen after the
+     * thread state is unlinked, but must happen before tstate->os is deleted.
+     */
+    if (join_event) {
+        _PyEvent_Notify(&join_event->event);
+        _PyEventRC_Decref(join_event);
+    }
+
+
+   if (tstate->heap_obj->thread_id == _Py_ThreadId()) {
         // NOTE: this may be called from a different thread. This can
         // happend during shutdown of the interpreter or after forking.
         // In these cases we don't delete the heap, because it's not
@@ -1226,43 +1275,6 @@ tstate_delete_common(PyThreadState *tstate,
     tstate->heap_gc = NULL;
 
     _PyThreadStateOS_Delete(tstate->os);
-
-    PyInterpreterState *interp = tstate->interp;
-    if (interp == NULL) {
-        Py_FatalError("PyThreadState_Delete: NULL interp");
-    }
-
-    _PyEventRC *join_event;
-
-    HEAD_LOCK(runtime);
-    if (tstate->prev)
-        tstate->prev->next = tstate->next;
-    else
-        interp->tstate_head = tstate->next;
-    if (tstate->next)
-        tstate->next->prev = tstate->prev;
-    interp->num_threads--;
-    join_event = tstate->join_event;
-    tstate->join_event = NULL;
-    if (_Py_atomic_load_relaxed(&runtime->ceval.stop_the_world)) {
-        assert(tstate->status == _Py_THREAD_ATTACHED);
-        struct _gc_runtime_state *gc = &tstate->interp->gc;
-        gc->gc_thread_countdown--;
-        if (gc->gc_thread_countdown == 0) {
-            _PyRawEvent_Notify(&gc->gc_stop_event);
-        }
-    }
-#ifdef Py_REF_DEBUG
-    runtime->ref_total += tstate->thread_ref_total;
-    tstate->thread_ref_total = 0;
-#endif
-    HEAD_UNLOCK(runtime);
-
-    if (join_event) {
-        _PyEvent_Notify(&join_event->event);
-        _PyEventRC_Decref(join_event);
-    }
-
     PyMem_RawFree(tstate);
 
     if (gilstate->autoInterpreterState &&
@@ -1301,8 +1313,11 @@ _PyThreadState_DeleteCurrent(_PyRuntimeState *runtime)
     if (tstate == NULL)
         Py_FatalError(
             "PyThreadState_DeleteCurrent: no current tstate");
-    _PyRuntimeState_SetThreadState(runtime, NULL);
     tstate_delete_common(tstate, gilstate);
+
+    /* Current thread state can't be set to NULL until after tstate_delete_common
+     * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls. */
+    _PyRuntimeState_SetThreadState(runtime, NULL);
     PyEval_ReleaseLock();
 }
 
@@ -1402,6 +1417,7 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
             assert(_Py_atomic_load_int32(&newts->status) == _Py_THREAD_GC);
 
             // drop the GIL?
+            assert(_PyThreadState_GET());
             _PyThreadState_GC_Park(newts);
         }
 

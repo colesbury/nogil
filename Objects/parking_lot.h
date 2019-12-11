@@ -7,21 +7,19 @@
 extern "C" {
 #endif
 
-enum {
-    DONT_DETACH = 0,
-    DETACH = 1
-};
-
 int
-_PySemaphore_Wait(PyThreadStateOS *os, int detach, int64_t ns);
+_PySemaphore_Wait(PyThreadState *tstate, int64_t ns);
 
 void
 _PySemaphore_Signal(PyThreadStateOS *os, const char *msg, void *data);
 
 /* Functions for waking and parking threads */
 int
+_PyParkingLot_ParkInt32(const int32_t *key, int32_t expected);
+
+int
 _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
-				   _PyTime_t start_time, int64_t timeout_ns);
+                   _PyTime_t start_time, int64_t timeout_ns);
 
 void
 _PyParkingLot_UnparkAll(const void *key);

@@ -27,8 +27,7 @@ _PyMutex_lock_slow(_PyMutex *m)
             continue;
         }
 
-        int64_t ns = -1;
-        _PySemaphore_Wait(tstate->os, DETACH, ns);
+        _PySemaphore_Wait(tstate, -1);
     }
 }
 
@@ -82,7 +81,7 @@ _PyRawMutex_lock_slow(_PyRawMutex *m)
         }
 
         int64_t ns = -1;
-        _PySemaphore_Wait(tstate->os, DONT_DETACH, ns);
+        _PySemaphore_Wait(tstate, ns);
     }
 }
 
@@ -141,7 +140,7 @@ _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns)
     assert(tstate);
 
     if (_Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, (uintptr_t)tstate)) {
-        if (_PySemaphore_Wait(tstate->os, DONT_DETACH, ns)) {
+        if (_PySemaphore_Wait(tstate, ns)) {
             assert(_Py_atomic_load_uintptr(&o->v) == LOCKED);
             return 1;
         }
@@ -153,7 +152,7 @@ _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns)
                 uintptr_t v = _Py_atomic_load_uintptr(&o->v);
                 if (v == LOCKED) {
                     /* Grab the notification */
-                    int ret = _PySemaphore_Wait(tstate->os, DONT_DETACH, -1);
+                    int ret = _PySemaphore_Wait(tstate, -1);
                     assert(ret == 1);
                     return 1;
                 }
