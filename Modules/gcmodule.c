@@ -1572,6 +1572,10 @@ collect(PyThreadState *tstate, int generation, _PyGC_Reason reason)
         return 0;
     }
 
+    if (tstate->cant_stop_wont_stop) {
+        return 0;
+    }
+
     _PyMutex_lock(&runtime->stoptheworld_mutex);
 
     if (!gc_reason_is_valid(gcstate, reason)) {

@@ -203,6 +203,7 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
 void
 _PyThreadState_GC_Park(PyThreadState *tstate)
 {
+    assert(!tstate->cant_stop_wont_stop);
     _PyRuntimeState *runtime = &_PyRuntime;
 
     int count = 0;
@@ -261,6 +262,7 @@ park_detached_threads(_PyRuntimeState *runtime)
             int status = _PyThreadState_GetStatus(p);
 
             if (status == _Py_THREAD_DETACHED &&
+                !p->cant_stop_wont_stop &&
                 _Py_atomic_compare_exchange_int32(
                     &p->status,
                     _Py_THREAD_DETACHED,

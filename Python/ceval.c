@@ -1241,7 +1241,8 @@ main_loop:
                 */
                 goto fast_next_opcode;
             }
-            if (_Py_atomic_load_relaxed(&ceval->please_stop)) {
+            if (_Py_atomic_load_relaxed(&ceval->please_stop) &&
+                !tstate->cant_stop_wont_stop) {
                 _PyThreadState_GC_Stop(tstate);
             }
             if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
