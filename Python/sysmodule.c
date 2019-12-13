@@ -2470,6 +2470,7 @@ static PyStructSequence_Field flags_fields[] = {
     {"hash_randomization",      "-R"},
     {"isolated",                "-I"},
     {"dev_mode",                "-X dev"},
+    {"nogil",                   "-X nogil"},
     {"utf8_mode",               "-X utf8"},
     {0}
 };
@@ -2513,6 +2514,7 @@ make_flags(PyThreadState *tstate)
     SetFlag(config->use_hash_seed == 0 || config->hash_seed != 0);
     SetFlag(config->isolated);
     PyStructSequence_SET_ITEM(seq, pos++, PyBool_FromLong(config->dev_mode));
+    PyStructSequence_SET_ITEM(seq, pos++, PyBool_FromLong(config->disable_gil));
     SetFlag(preconfig->utf8_mode);
 #undef SetFlag
 

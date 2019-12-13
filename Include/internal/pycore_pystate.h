@@ -62,6 +62,8 @@ struct _ceval_runtime_state {
     _Py_atomic_int signals_pending;
     /* Request to stop all threads (e.g. for GC). */
     _Py_atomic_int please_stop;
+    /* Enable the GIL */
+    int use_gil;
     struct _gil_runtime_state gil;
 };
 

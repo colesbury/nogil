@@ -29,7 +29,7 @@
 
 #include <ctype.h>
 
-#if defined(Py_DEBUG) && !defined(Py_NOGIL)
+#if defined(Py_DEBUG)
 /* For debugging the interpreter: */
 #define LLTRACE  1      /* Low-level trace feature */
 #endif
@@ -185,12 +185,7 @@ static size_t opcache_global_misses = 0;
 #include <errno.h>
 #endif
 #include "pythread.h"
-
-#ifdef Py_NOGIL
-#include "ceval_nogil.h"
-#else
 #include "ceval_gil.h"
-#endif
 
 int
 PyEval_ThreadsInitialized(void)
@@ -205,6 +200,7 @@ PyEval_InitThreads(void)
     _PyRuntimeState *runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     struct _gil_runtime_state *gil = &ceval->gil;
+    gil->enabled = !runtime->preconfig.disable_gil;
     if (gil_created(gil)) {
         return;
     }
@@ -1190,7 +1186,10 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
     }
 
 #ifdef LLTRACE
-    lltrace = _PyDict_GetItemId(f->f_globals, &PyId___ltrace__) != NULL;
+    /* TODO(sgross): LLTRACE requires the GIL for now */
+    if (!_PyRuntime.preconfig.disable_gil) {
+        lltrace = _PyDict_GetItemId(f->f_globals, &PyId___ltrace__) != NULL;
+    }
 #endif
 
     if (throwflag) /* support for generator.throw() */

@@ -119,6 +119,8 @@ typedef struct {
        environment variable. */
     int dev_mode;
 
+    int disable_gil;        /* Disable the global interpreter lock */
+
     /* Memory allocator: PYTHONMALLOC env var.
        See PyMemAllocatorName for valid values. */
     int allocator;
@@ -136,6 +138,7 @@ typedef struct {
     int isolated;         /* Isolated mode? see PyPreConfig.isolated */
     int use_environment;  /* Use environment variables? see PyPreConfig.use_environment */
     int dev_mode;         /* Python Development Mode? See PyPreConfig.dev_mode */
+    int disable_gil;      /* Disable the GIL. See PyPreConfig.disable_gil */
 
     /* Install signal handlers? Yes by default. */
     int install_signal_handlers;
