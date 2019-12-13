@@ -39,8 +39,8 @@ atomicint_add(atomicint *self, PyObject *value)
         return NULL;
     }
 
-    _Py_atomic_add_int32(&self->value, (int32_t)v);
-    Py_RETURN_NONE;
+    int32_t old = _Py_atomic_add_int32(&self->value, (int32_t)v);
+    return PyLong_FromLong(old);
 }
 
 static PyObject *
