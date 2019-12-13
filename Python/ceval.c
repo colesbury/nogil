@@ -279,6 +279,7 @@ _PyEval_InitGIL(PyThreadState *tstate)
     }
 
     struct _gil_runtime_state *gil = &tstate->interp->runtime->ceval.gil;
+    gil->enabled = !_PyRuntime.preconfig.disable_gil;
     assert(!gil_created(gil));
 
     PyThread_init_thread();
