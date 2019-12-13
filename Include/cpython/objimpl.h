@@ -75,11 +75,17 @@ PyAPI_FUNC(Py_ssize_t) _PyGC_CollectIfEnabled(void);
     (PyType_IS_GC(Py_TYPE(o)) \
      && (Py_TYPE(o)->tp_is_gc == NULL || Py_TYPE(o)->tp_is_gc(o)))
 
+#ifdef __cplusplus
+#define _Py_ALIGN_AS alignas
+#else
+#define _Py_ALIGN_AS _Alignas
+#endif
+
 /* GC information is stored BEFORE the object structure. */
 typedef struct {
     // Pointer to previous object in the list.
     // Lowest two bits are used for flags documented later.
-    _Alignas(16) uintptr_t _gc_prev;
+    _Py_ALIGN_AS(16) uintptr_t _gc_prev;
 
     // Pointer to next object in the list.
     // 0 means the object is not tracked
