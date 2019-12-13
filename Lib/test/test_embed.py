@@ -353,11 +353,13 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         use_environment=0,
         utf8_mode=0,
         dev_mode=0,
+        disable_gil=0,
         coerce_c_locale=0,
     )
 
     COPY_PRE_CONFIG = [
         'dev_mode',
+        'disable_gil',
         'isolated',
         'use_environment',
     ]
@@ -368,6 +370,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'use_environment': 1,
         'dev_mode': 0,
         '_use_peg_parser': 1,
+        'disable_gil': 0,
 
         'install_signal_handlers': 1,
         'use_hash_seed': 0,

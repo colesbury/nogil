@@ -104,30 +104,34 @@ static int gil_created(struct _gil_runtime_state *gil)
 
 static void create_gil(struct _gil_runtime_state *gil)
 {
-    MUTEX_INIT(gil->mutex);
+    if (gil->enabled) {
+        MUTEX_INIT(gil->mutex);
 #ifdef FORCE_SWITCHING
-    MUTEX_INIT(gil->switch_mutex);
+        MUTEX_INIT(gil->switch_mutex);
 #endif
-    COND_INIT(gil->cond);
+        COND_INIT(gil->cond);
 #ifdef FORCE_SWITCHING
-    COND_INIT(gil->switch_cond);
+        COND_INIT(gil->switch_cond);
 #endif
-    _Py_atomic_store_relaxed(&gil->last_holder, 0);
+        _Py_atomic_store_relaxed(&gil->last_holder, 0);
+    }
     _Py_ANNOTATE_RWLOCK_CREATE(&gil->locked);
     _Py_atomic_store_explicit(&gil->locked, 0, _Py_memory_order_release);
 }
 
 static void destroy_gil(struct _gil_runtime_state *gil)
 {
-    /* some pthread-like implementations tie the mutex to the cond
-     * and must have the cond destroyed first.
-     */
-    COND_FINI(gil->cond);
-    MUTEX_FINI(gil->mutex);
+    if (gil->enabled) {
+        /* some pthread-like implementations tie the mutex to the cond
+         * and must have the cond destroyed first.
+         */
+        COND_FINI(gil->cond);
+        MUTEX_FINI(gil->mutex);
 #ifdef FORCE_SWITCHING
-    COND_FINI(gil->switch_cond);
-    MUTEX_FINI(gil->switch_mutex);
+        COND_FINI(gil->switch_cond);
+        MUTEX_FINI(gil->switch_mutex);
 #endif
+    }
     _Py_atomic_store_explicit(&gil->locked, -1,
                               _Py_memory_order_release);
     _Py_ANNOTATE_RWLOCK_DESTROY(&gil->locked);
@@ -145,6 +149,9 @@ drop_gil(struct _ceval_runtime_state *ceval, struct _ceval_state *ceval2,
          PyThreadState *tstate)
 {
     struct _gil_runtime_state *gil = &ceval->gil;
+    if (!gil->enabled) {
+        return;
+    }
     if (!_Py_atomic_load_relaxed(&gil->locked)) {
         Py_FatalError("drop_gil: GIL is not locked");
     }
@@ -229,6 +236,9 @@ take_gil(PyThreadState *tstate)
     struct _ceval_runtime_state *ceval = &interp->runtime->ceval;
     struct _ceval_state *ceval2 = &interp->ceval;
     struct _gil_runtime_state *gil = &ceval->gil;
+    if (!gil->enabled) {
+        return;
+    }
 
     /* Check that _PyEval_InitThreads() was called to create the lock */
     assert(gil_created(gil));
