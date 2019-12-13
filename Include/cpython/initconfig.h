@@ -119,6 +119,8 @@ typedef struct PyPreConfig {
        environment variable. */
     int dev_mode;
 
+    int disable_gil;        /* Disable the global interpreter lock */
+
     /* Memory allocator: PYTHONMALLOC env var.
        See PyMemAllocatorName for valid values. */
     int allocator;
@@ -137,6 +139,7 @@ typedef struct PyConfig {
     int isolated;
     int use_environment;
     int dev_mode;
+    int disable_gil;
     int install_signal_handlers;
     int use_hash_seed;
     unsigned long hash_seed;

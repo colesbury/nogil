@@ -138,6 +138,7 @@ precmdline_get_preconfig(_PyPreCmdline *cmdline, const PyPreConfig *config)
     COPY_ATTR(isolated);
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
+    COPY_ATTR(disable_gil);
 
 #undef COPY_ATTR
 }
@@ -152,6 +153,7 @@ precmdline_set_preconfig(const _PyPreCmdline *cmdline, PyPreConfig *config)
     COPY_ATTR(isolated);
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
+    COPY_ATTR(disable_gil);
 
 #undef COPY_ATTR
 }
@@ -171,6 +173,7 @@ _PyPreCmdline_SetConfig(const _PyPreCmdline *cmdline, PyConfig *config)
     COPY_ATTR(isolated);
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
+    COPY_ATTR(disable_gil);
     COPY_ATTR(warn_default_encoding);
     return _PyStatus_OK();
 
@@ -267,9 +270,24 @@ _PyPreCmdline_Read(_PyPreCmdline *cmdline, const PyPreConfig *preconfig)
         cmdline->warn_default_encoding = 1;
     }
 
+    /* GIL */
+    if (cmdline->disable_gil < 0) {
+        const char* env = NULL;
+        if (_Py_get_xoption(&cmdline->xoptions, L"nogil")) {
+            cmdline->disable_gil = 1;
+        }
+        else if ((env = _Py_GetEnv(cmdline->use_environment, "PYTHONGIL"))) {
+            cmdline->disable_gil = (strcmp(env, "0") == 0);
+        }
+        else {
+            cmdline->disable_gil = 0;
+        }
+    }
+
     assert(cmdline->use_environment >= 0);
     assert(cmdline->isolated >= 0);
     assert(cmdline->dev_mode >= 0);
+    assert(cmdline->disable_gil >= 0);
     assert(cmdline->warn_default_encoding >= 0);
 
     return _PyStatus_OK();
@@ -300,6 +318,7 @@ _PyPreConfig_InitCompatConfig(PyPreConfig *config)
     config->coerce_c_locale_warn = 0;
 
     config->dev_mode = -1;
+    config->disable_gil = -1;
     config->allocator = PYMEM_ALLOCATOR_NOT_SET;
 #ifdef MS_WINDOWS
     config->legacy_windows_fs_encoding = -1;
@@ -386,6 +405,7 @@ preconfig_copy(PyPreConfig *config, const PyPreConfig *config2)
     COPY_ATTR(use_environment);
     COPY_ATTR(configure_locale);
     COPY_ATTR(dev_mode);
+    COPY_ATTR(disable_gil);
     COPY_ATTR(coerce_c_locale);
     COPY_ATTR(coerce_c_locale_warn);
     COPY_ATTR(utf8_mode);
@@ -433,6 +453,7 @@ _PyPreConfig_AsDict(const PyPreConfig *config)
     SET_ITEM_INT(legacy_windows_fs_encoding);
 #endif
     SET_ITEM_INT(dev_mode);
+    SET_ITEM_INT(disable_gil);
     SET_ITEM_INT(allocator);
     return dict;
 
@@ -456,6 +477,7 @@ _PyPreConfig_GetConfig(PyPreConfig *preconfig, const PyConfig *config)
     COPY_ATTR(isolated);
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
+    COPY_ATTR(disable_gil);
 
 #undef COPY_ATTR
 }

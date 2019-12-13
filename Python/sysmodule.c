@@ -2726,6 +2726,7 @@ static PyStructSequence_Field flags_fields[] = {
     {"hash_randomization",      "-R"},
     {"isolated",                "-I"},
     {"dev_mode",                "-X dev"},
+    {"nogil",                   "-X nogil"},
     {"utf8_mode",               "-X utf8"},
     {"warn_default_encoding",   "-X warn_default_encoding"},
     {"safe_path", "-P"},
@@ -2775,6 +2776,7 @@ set_flags_from_config(PyInterpreterState *interp, PyObject *flags)
     SetFlag(config->use_hash_seed == 0 || config->hash_seed != 0);
     SetFlag(config->isolated);
     SetFlagObj(PyBool_FromLong(config->dev_mode));
+    SetFlagObj(PyBool_FromLong(config->disable_gil));
     SetFlag(preconfig->utf8_mode);
     SetFlag(config->warn_default_encoding);
     SetFlagObj(PyBool_FromLong(config->safe_path));

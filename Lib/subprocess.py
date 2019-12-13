@@ -345,6 +345,8 @@ def _args_from_interpreter_flags():
     # -X options
     if dev_mode:
         args.extend(('-X', 'dev'))
+    if sys.flags.nogil:
+        args.extend(('-X', 'nogil'))
     for opt in ('faulthandler', 'tracemalloc', 'importtime',
                 'showrefcount', 'utf8'):
         if opt in xoptions:
