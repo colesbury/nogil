@@ -385,6 +385,12 @@ PyAPI_FUNC(PyObject *) _PyObject_FunctionStr(PyObject *);
     } while (0)
 
 
+#define Py_RESURRECT(ob)        Py_INCREF(ob)
+#define Py_UNRESURRECT(ob)      _PyObject_Unresurrect(_PyObject_CAST(ob))
+
+PyAPI_FUNC(int)
+_PyObject_Unresurrect(PyObject *op);
+
 PyAPI_DATA(PyTypeObject) _PyNone_Type;
 PyAPI_DATA(PyTypeObject) _PyNotImplemented_Type;
 

@@ -363,6 +363,21 @@ _PyObject_IsFreed(PyObject *op)
     return 0;
 }
 
+/* Subtracts one from the shared reference count, but does not deallocate
+   the object if the reference count is zero. This is useful in destructor
+   calls where the object's reference count is temporarily increased.
+   The object must already have a merged reference count. */
+int
+_PyObject_Unresurrect(PyObject *op)
+{
+    assert(_Py_REF_IS_MERGED(_Py_atomic_load_uint32_relaxed(&op->ob_ref_shared)));
+
+    uint32_t prev = _Py_atomic_add_uint32(
+        &op->ob_ref_shared,
+        ((uint32_t)-1) << _Py_REF_SHARED_SHIFT);
+
+    return ((prev >> _Py_REF_SHARED_SHIFT) - 1) != 0;
+}
 
 /* For debugging convenience.  See Misc/gdbinit for some useful gdb hooks */
 void

@@ -141,7 +141,6 @@ typedef struct {
 #define _PyVarObject_CAST(op) ((PyVarObject*)(op))
 
 #define Py_REFCNT(ob)           (_PyObject_Refcount(_PyObject_CAST(ob)))
-#define Py_RESURRECT(ob, rc)    (_PyObject_Resurrect(ob, rc))
 #define Py_IS_REFERENCED(ob)    (_PyObject_IsReferened(_PyObject_CAST(ob)))
 #define Py_TYPE(ob)             (_PyObject_CAST(ob)->ob_type)
 #define Py_SIZE(ob)             (_PyVarObject_CAST(ob)->ob_size)
@@ -722,20 +721,6 @@ _PyObject_IsReferened(PyObject *op)
     _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
 
     return (local_refcount + shared_refcount) > 0;
-}
-
-static inline void
-_PyObject_Resurrect(PyObject *op, Py_ssize_t refcnt)
-{
-    assert(!_PyObject_IS_IMMORTAL(op));
-    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
-
-    assert(_Py_REF_IS_MERGED(shared));
-    assert((shared >> _Py_REF_SHARED_SHIFT) == 0);
-
-    shared = (((uint32_t)refcnt) << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED_MASK;
-
-    _Py_atomic_store_uint32_relaxed(&op->ob_ref_shared, shared);
 }
 
 /*
