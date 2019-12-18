@@ -1,0 +1,34 @@
+diff --git a/Cython/Compiler/ModuleNode.py b/Cython/Compiler/ModuleNode.py
+index 35d5e4f6e..4232c3f07 100644
+--- a/Cython/Compiler/ModuleNode.py
++++ b/Cython/Compiler/ModuleNode.py
+@@ -1593,9 +1593,9 @@ class ModuleNode(Nodes.Node, Nodes.BlockNode):
+         code.putln("{")
+         code.putln("PyObject *etype, *eval, *etb;")
+         code.putln("PyErr_Fetch(&etype, &eval, &etb);")
+-        code.putln("++Py_REFCNT(o);")
++        code.putln("Py_RESURRECT(o);");
+         code.putln("%s(o);" % entry.func_cname)
+-        code.putln("--Py_REFCNT(o);")
++        code.putln("Py_UNRESURRECT(o);")
+         code.putln("PyErr_Restore(etype, eval, etb);")
+         code.putln("}")
+ 
+diff --git a/Cython/Utility/ModuleSetupCode.c b/Cython/Utility/ModuleSetupCode.c
+index dc12bac3d..bb0d6a3c9 100644
+--- a/Cython/Utility/ModuleSetupCode.c
++++ b/Cython/Utility/ModuleSetupCode.c
+@@ -24,6 +24,13 @@
+   #define DL_EXPORT(t) t
+ #endif
+ 
++#ifndef Py_RESURRECT
++  #define Py_RESURRECT(ob) ++Py_REFCNT(ob)
++#endif
++#ifndef Py_UNRESURRECT
++  #define Py_UNRESURRECT(ob) --Py_REFCNT(ob)
++#endif
++
+ // For use in DL_IMPORT/DL_EXPORT macros.
+ #define __PYX_COMMA ,
+ 
