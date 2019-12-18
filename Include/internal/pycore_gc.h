@@ -28,8 +28,7 @@ extern "C" {
 #define _PyObject_GC_IS_TRACKED(o) \
     (_PyObject_GC_IS_TRACKED_impl(_Py_AS_GC(o)))
 
-#define _PyGC_FINALIZED(o) \
-    (_PyObject_GC_FINALIZED_impl(_Py_AS_GC(o)))
+// _PyGC_FINALIZED(o) defined in objimpl.h (used by Cython)
 
 #define _PyGC_SET_FINALIZED(o) \
     (_PyObject_GC_SET_FINALIZED_impl(_Py_AS_GC(o)))
@@ -160,19 +159,6 @@ _PyObject_GC_UNTRACK_impl(const char *filename, int lineno, PyObject *op)
     assert(_PyGCHead_PREV(gc) == NULL);
     gc->_gc_prev &= GC_FINALIZED_MASK;
     assert(GC_BITS_GENERATION(gc) == 0);
-}
-
-static inline int
-_PyObject_IsFinalized(PyObject *op)
-{
-    return GC_BITS_IS_FINALIZED(_Py_AS_GC(op));
-}
-
-static inline void
-_PyObject_SetFinalized(PyObject *op)
-{
-    PyGC_Head *gc = _Py_AS_GC(op);
-    gc->_gc_prev |= GC_FINALIZED_MASK;
 }
 
 #ifdef __cplusplus

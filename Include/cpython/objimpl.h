@@ -123,6 +123,10 @@ PyAPI_FUNC(int) PyObject_GC_IsTracked(void *);
     } while (0)
 
 
+// Used by Cython
+#define _PyGC_FINALIZED(o) _PyObject_IsFinalized(o)
+
+PyAPI_FUNC(int) _PyObject_IsFinalized(PyObject *op);
 PyAPI_FUNC(PyObject *) _PyObject_GC_Malloc(size_t size);
 PyAPI_FUNC(PyObject *) _PyObject_GC_Calloc(size_t size);
 

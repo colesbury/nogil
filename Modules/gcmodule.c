@@ -2542,6 +2542,12 @@ visit_validate(PyObject *op, void *parent_raw)
    functions must always be available */
 
 int
+_PyObject_IsFinalized(PyObject *op)
+{
+    return GC_BITS_IS_FINALIZED(_Py_AS_GC(op));
+}
+
+int
 PyObject_GC_IsTracked(void *op_raw)
 {
     PyObject *op = _PyObject_CAST(op_raw);
