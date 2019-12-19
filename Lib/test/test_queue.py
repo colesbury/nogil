@@ -426,35 +426,54 @@ class BaseSimpleQueueTest:
 
     def run_threads(self, n_feeders, n_consumers, q, inputs,
                     feed_func, consume_func):
-        results = []
         sentinel = None
-        seq = inputs + [sentinel] * n_consumers
-        seq.reverse()
         rnd = random.Random(42)
 
-        exceptions = []
-        def log_exceptions(f):
-            def wrapper(*args, **kwargs):
-                try:
-                    f(*args, **kwargs)
-                except BaseException as e:
-                    exceptions.append(e)
-            return wrapper
+        class Feeder(threading.Thread):
+            def __init__(self):
+                super().__init__()
+                self.exception = None
+                self.seq = []
 
-        feeders = [threading.Thread(target=log_exceptions(feed_func),
-                                    args=(q, seq, rnd))
-                   for i in range(n_feeders)]
-        consumers = [threading.Thread(target=log_exceptions(consume_func),
-                                      args=(q, results, sentinel))
-                     for i in range(n_consumers)]
+            def run(self):
+                try:
+                    feed_func(q, self.seq, rnd)
+                except BaseException as e:
+                    self.exception = e
+
+        class Consumer(threading.Thread):
+            def __init__(self):
+                super().__init__()
+                self.exception = None
+                self.results = []
+
+            def run(self):
+                try:
+                    consume_func(q, self.results, sentinel)
+                except BaseException as e:
+                    self.exception = e
+
+        feeders = [Feeder() for i in range(n_feeders)]
+        consumers = [Consumer() for i in range(n_feeders)]
+
+        # randomly distribute inputs to threads
+        for item in inputs:
+            f = feeders[rnd.randint(0, n_feeders - 1)]
+            f.seq.append(item)
+
+        for f in feeders:
+            f.seq.append(sentinel)
+            f.seq.reverse()
 
         with support.start_threads(feeders + consumers):
             pass
 
-        self.assertFalse(exceptions)
+        for t in (feeders + consumers):
+            self.assertIsNone(t.exception)
         self.assertTrue(q.empty())
         self.assertEqual(q.qsize(), 0)
 
+        results = sum((c.results for c in consumers), [])
         return results
 
     def test_basic(self):
