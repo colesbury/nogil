@@ -6,11 +6,8 @@ import threading
 import time
 import unittest
 import weakref
+import queue as queuemodule
 from test import support
-
-py_queue = support.import_fresh_module('queue', blocked=['_queue'])
-c_queue = support.import_fresh_module('queue', fresh=['_queue'])
-need_c_queue = unittest.skipUnless(c_queue, "No _queue module found")
 
 QUEUE_SIZE = 5
 
@@ -236,57 +233,34 @@ class BaseQueueTestMixin(BlockingTestMixin):
         with self.assertRaises(self.queue.Full):
             q.put_nowait(4)
 
-class QueueTest(BaseQueueTestMixin):
+class QueueTest(BaseQueueTestMixin, unittest.TestCase):
+    queue = queuemodule
 
     def setUp(self):
         self.type2test = self.queue.Queue
         super().setUp()
 
-class PyQueueTest(QueueTest, unittest.TestCase):
-    queue = py_queue
 
-
-@need_c_queue
-class CQueueTest(QueueTest, unittest.TestCase):
-    queue = c_queue
-
-
-class LifoQueueTest(BaseQueueTestMixin):
+class LifoQueueTest(BaseQueueTestMixin, unittest.TestCase):
+    queue = queuemodule
 
     def setUp(self):
         self.type2test = self.queue.LifoQueue
         super().setUp()
 
-
-class PyLifoQueueTest(LifoQueueTest, unittest.TestCase):
-    queue = py_queue
-
-
-@need_c_queue
-class CLifoQueueTest(LifoQueueTest, unittest.TestCase):
-    queue = c_queue
-
-
-class PriorityQueueTest(BaseQueueTestMixin):
+class PriorityQueueTest(BaseQueueTestMixin, unittest.TestCase):
+    queue = queuemodule
 
     def setUp(self):
         self.type2test = self.queue.PriorityQueue
         super().setUp()
 
 
-class PyPriorityQueueTest(PriorityQueueTest, unittest.TestCase):
-    queue = py_queue
-
-
-@need_c_queue
-class CPriorityQueueTest(PriorityQueueTest, unittest.TestCase):
-    queue = c_queue
-
-
 # A Queue subclass that can provoke failure at a moment's notice :)
 class FailingQueueException(Exception): pass
 
-class FailingQueueTest(BlockingTestMixin):
+class FailingQueueTest(BlockingTestMixin, unittest.TestCase):
+    queue = queuemodule
 
     def setUp(self):
 
@@ -400,16 +374,6 @@ class FailingQueueTest(BlockingTestMixin):
         q = self.FailingQueue(QUEUE_SIZE)
         self.failing_queue_test(q)
         self.failing_queue_test(q)
-
-
-
-class PyFailingQueueTest(FailingQueueTest, unittest.TestCase):
-    queue = py_queue
-
-
-@need_c_queue
-class CFailingQueueTest(FailingQueueTest, unittest.TestCase):
-    queue = c_queue
 
 
 class BaseSimpleQueueTest:
@@ -591,18 +555,8 @@ class BaseSimpleQueueTest:
             self.assertIsNone(wr())
 
 
-class PySimpleQueueTest(BaseSimpleQueueTest, unittest.TestCase):
-
-    queue = py_queue
-    def setUp(self):
-        self.type2test = self.queue._PySimpleQueue
-        super().setUp()
-
-
-@need_c_queue
-class CSimpleQueueTest(BaseSimpleQueueTest, unittest.TestCase):
-
-    queue = c_queue
+class SimpleQueueTest(BaseSimpleQueueTest, unittest.TestCase):
+    queue = queuemodule
 
     def setUp(self):
         self.type2test = self.queue.SimpleQueue
