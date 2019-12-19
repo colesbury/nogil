@@ -67,8 +67,9 @@ struct _ts {
     struct _ts *next;
     PyInterpreterState *interp;
 
-    /* OS-specific state */
+    /* OS-specific state (for locking and parking) */
     PyThreadStateOS *os;
+    uintptr_t handoff_elem;
 
     /* thread status */
     int32_t status;

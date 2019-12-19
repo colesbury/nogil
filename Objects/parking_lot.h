@@ -7,6 +7,13 @@
 extern "C" {
 #endif
 
+enum {
+    PY_PARK_AGAIN = -1,
+    PY_PARK_TIMEOUT = -2,
+    PY_PARK_INTR = -3,
+    PY_PARK_OK = 0,
+};
+
 int
 _PySemaphore_Wait(PyThreadState *tstate, int64_t ns);
 
@@ -25,11 +32,11 @@ void
 _PyParkingLot_UnparkAll(const void *key);
 
 void
-_PyParkingLot_BeginUnpark(const void *key, PyThreadStateOS **os,
+_PyParkingLot_BeginUnpark(const void *key, PyThreadState **tstate,
                           int *more_waiters, int *time_to_be_fair);
 
 void
-_PyParkingLot_FinishUnpark(const void *key, PyThreadStateOS *os);
+_PyParkingLot_FinishUnpark(const void *key, PyThreadState *tstate);
 
 void
 _PyParkingLot_AfterFork(void);

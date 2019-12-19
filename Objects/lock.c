@@ -140,25 +140,27 @@ _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns)
     assert(tstate);
 
     if (_Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, (uintptr_t)tstate)) {
-        if (_PySemaphore_Wait(tstate, ns)) {
+        if (_PySemaphore_Wait(tstate, ns) == PY_PARK_OK) {
             assert(_Py_atomic_load_uintptr(&o->v) == LOCKED);
             return 1;
         }
 
-        for (;;) {
-                if (_Py_atomic_compare_exchange_uintptr(&o->v, (uintptr_t)tstate, UNLOCKED)) {
-                    return 0;
-                }
-                uintptr_t v = _Py_atomic_load_uintptr(&o->v);
-                if (v == LOCKED) {
-                    /* Grab the notification */
-                    int ret = _PySemaphore_Wait(tstate, -1);
-                    assert(ret == 1);
+        /* remove us as the waiter */
+        if (_Py_atomic_compare_exchange_uintptr(&o->v, (uintptr_t)tstate, UNLOCKED)) {
+            return 0;
+        }
+
+        uintptr_t v = _Py_atomic_load_uintptr(&o->v);
+        if (v == LOCKED) {
+            /* Grab the notification */
+            for (;;) {
+                if (_PySemaphore_Wait(tstate, -1) == PY_PARK_OK) {
                     return 1;
                 }
-                else {
-                    Py_FatalError("_PyRawEvent: invalid state");
-                }
+            }
+        }
+        else {
+            Py_FatalError("_PyRawEvent: invalid state");
         }
     }
 
@@ -199,8 +201,11 @@ _PyEvent_Notify(_PyEvent *o)
 void
 _PyEvent_Wait(_PyEvent *o, PyThreadState *tstate)
 {
-    int64_t ns = -1;
-    _PyEvent_TimedWait(o, tstate, ns);
+    for (;;) {
+        if (_PyEvent_TimedWait(o, tstate, -1)) {
+            return;
+        }
+    }
 }
 
 int
@@ -268,11 +273,7 @@ _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
         }
 
         int ret = _PyParkingLot_Park(&m->v, newv, now, -1);
-        if (ret == -1) {
-            continue;
-        }
-
-        if (tstate->os->token) {
+        if (ret == PY_PARK_OK && tstate->handoff_elem) {
             assert((_Py_atomic_load_uintptr_relaxed(&m->v) & ~2) == (_Py_ThreadId() | LOCKED));
             return;
         }
@@ -296,15 +297,15 @@ _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m)
         else if ((v & 2) == HAS_PARKED) {
             int more_waiters;
             int should_be_fair;
-            PyThreadStateOS *os;
+            PyThreadState *tstate;
 
-            _PyParkingLot_BeginUnpark(&m->v, &os, &more_waiters,
+            _PyParkingLot_BeginUnpark(&m->v, &tstate, &more_waiters,
                                       &should_be_fair);
             v = 0;
-            if (os) {
-                os->token = should_be_fair;
+            if (tstate) {
+                tstate->handoff_elem = should_be_fair;
                 if (should_be_fair) {
-                    v |= os->tstate->fast_thread_id;
+                    v |= tstate->fast_thread_id;
                     v |= LOCKED;
                 }
                 if (more_waiters) {
@@ -313,7 +314,7 @@ _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m)
             }
             _Py_atomic_store_uintptr(&m->v, v);
 
-            _PyParkingLot_FinishUnpark(&m->v, os);
+            _PyParkingLot_FinishUnpark(&m->v, tstate);
             return;
         }
         else if (_Py_atomic_compare_exchange_uintptr(&m->v, v, UNLOCKED)) {

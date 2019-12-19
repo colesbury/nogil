@@ -382,7 +382,6 @@ struct PyThreadStateOS {
     PyMUTEX_T waiter_mutex;
     PyCOND_T waiter_cond;
     int waiter_counter;
-    int token;
 
     /* DEBUG info */
     PyThreadState *last_notifier;

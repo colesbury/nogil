@@ -806,7 +806,7 @@ _PyInterpreterState_WaitForThreads(PyInterpreterState *interp)
     PyThreadState *tstate = PyThreadState_Get();
 
     if (tstate->join_event) {
-        /* First, mark the active thread as done */
+        /* First, mark the current thread as done */
         _PyEvent_Notify(&tstate->join_event->event);
     }
 

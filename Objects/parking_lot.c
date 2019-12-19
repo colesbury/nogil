@@ -13,11 +13,6 @@ typedef struct {
     size_t num_waiters;
 } Bucket;
 
-enum {
-    SEMA_TIMEOUT = 0,
-    SEMA_OK = 1,
-};
-
 #define NUM_BUCKETS 251
 
 static Bucket buckets[NUM_BUCKETS];
@@ -96,27 +91,25 @@ _PySemaphore_Wait(PyThreadState *tstate, int64_t ns)
         _PyEval_DropGIL(tstate);
     }
 
+    int res = PY_PARK_INTR;
+
     PyMUTEX_LOCK(&os->waiter_mutex);
-    while (os->waiter_counter == 0) {
+    if (os->waiter_counter == 0) {
+        int err;
         if (ns >= 0) {
-            int ret = PyCOND_TIMEDWAIT(&os->waiter_cond, &os->waiter_mutex, ns / 1000);
-            if (ret) {
-                /* timeout */
-                PyMUTEX_UNLOCK(&os->waiter_mutex);
-                if (was_attached) {
-                    PyEval_AcquireThread(tstate);
-                }
-                else {
-                    _PyEval_TakeGIL(tstate);
-                }
-                return SEMA_TIMEOUT;
-            }
+            err = PyCOND_TIMEDWAIT(&os->waiter_cond, &os->waiter_mutex, ns / 1000);
         }
         else {
-            PyCOND_WAIT(&os->waiter_cond, &os->waiter_mutex);
+            err = PyCOND_WAIT(&os->waiter_cond, &os->waiter_mutex);
+        }
+        if (err) {
+            res = PY_PARK_TIMEOUT;
         }
     }
-    os->waiter_counter--;
+    if (os->waiter_counter > 0) {
+        os->waiter_counter--;
+        res = PY_PARK_OK;
+    }
     PyMUTEX_UNLOCK(&os->waiter_mutex);
 
     if (was_attached) {
@@ -125,7 +118,7 @@ _PySemaphore_Wait(PyThreadState *tstate, int64_t ns)
     else {
         _PyEval_TakeGIL(tstate);
     }
-    return SEMA_OK;
+    return res;
 }
 
 void
@@ -152,13 +145,12 @@ _PyParkingLot_ParkInt32(const int32_t *key, int32_t expected)
     _PyRawMutex_lock(&bucket->mutex);
     if (_Py_atomic_load_int32(key) != expected) {
         _PyRawMutex_unlock(&bucket->mutex);
-        return -1;
+        return PY_PARK_AGAIN;
     }
     enqueue(bucket, key, tstate, 0);
     _PyRawMutex_unlock(&bucket->mutex);
 
-    _PySemaphore_Wait(tstate, -1);
-    return 0;
+    return _PySemaphore_Wait(tstate, -1);
 }
 
 int
@@ -171,31 +163,33 @@ _PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
     _PyRawMutex_lock(&bucket->mutex);
     if (_Py_atomic_load_uintptr(key) != expected) {
         _PyRawMutex_unlock(&bucket->mutex);
-        return -1;
+        return PY_PARK_AGAIN;
     }
     enqueue(bucket, key, tstate, start_time);
     _PyRawMutex_unlock(&bucket->mutex);
 
     int res = _PySemaphore_Wait(tstate, ns);
-    if (res == SEMA_TIMEOUT) {
-        /* timeout */
-        _PyRawMutex_lock(&bucket->mutex);
-
-        struct PyThreadStateWaiter *waiter = &tstate->os->waiter;
-        if (waiter->next == NULL) {
-            _PyRawMutex_unlock(&bucket->mutex);
-            res = _PySemaphore_Wait(tstate, -1);
-            assert(res == SEMA_OK);
-            return 0;
-        }
-        else {
-            unlink_waiter(bucket, waiter);
-        }
-
-        _PyRawMutex_unlock(&bucket->mutex);
-        return -2;
+    if (res == PY_PARK_OK) {
+        return res;
     }
-    return 0;
+
+    /* timeout or interrupt */
+    _PyRawMutex_lock(&bucket->mutex);
+    struct PyThreadStateWaiter *waiter = &tstate->os->waiter;
+    if (waiter->next == NULL) {
+        _PyRawMutex_unlock(&bucket->mutex);
+        /* We've been removed the waiter queue. Wait until we
+         * receive process the wakup signal. */
+        do {
+            res = _PySemaphore_Wait(tstate, -1);
+        } while (res != PY_PARK_OK);
+        return PY_PARK_OK;
+    }
+    else {
+        unlink_waiter(bucket, waiter);
+    }
+    _PyRawMutex_unlock(&bucket->mutex);
+    return res;
 }
 
 void
@@ -217,7 +211,7 @@ _PyParkingLot_UnparkAll(const void *key)
 }
 
 void
-_PyParkingLot_BeginUnpark(const void *key, PyThreadStateOS **out_os,
+_PyParkingLot_BeginUnpark(const void *key, PyThreadState **out_tstate,
                           int *more_waiters, int *time_to_be_fair)
 {
     Bucket *bucket = &buckets[((uintptr_t)key) % NUM_BUCKETS];
@@ -227,23 +221,24 @@ _PyParkingLot_BeginUnpark(const void *key, PyThreadStateOS **out_os,
     _PyTime_t now = _PyTime_GetMonotonicClock();
     PyThreadStateOS *os = dequeue(bucket, key);
 
-    *out_os = os;
     *more_waiters = (bucket->num_waiters > 0);
     if (os) {
         *time_to_be_fair = now >= os->waiter.time_to_be_fair;
+        *out_tstate = os->tstate;
     } else {
         *time_to_be_fair = 0;
+        *out_tstate = NULL;
     }
 }
 
 void
-_PyParkingLot_FinishUnpark(const void *key, PyThreadStateOS *os)
+_PyParkingLot_FinishUnpark(const void *key, PyThreadState *tstate)
 {
     Bucket *bucket = &buckets[((uintptr_t)key) % NUM_BUCKETS];
     _PyRawMutex_unlock(&bucket->mutex);
 
-    if (os) {
-        _PySemaphore_Signal(os, "_PyParkingLot_UnparkOne", NULL);
+    if (tstate) {
+        _PySemaphore_Signal(tstate->os, "_PyParkingLot_UnparkOne", NULL);
     }
 }
 
