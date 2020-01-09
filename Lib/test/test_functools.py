@@ -21,9 +21,6 @@ from test.support.script_helper import assert_python_ok
 
 import functools
 
-py_functools = support.import_fresh_module('functools', blocked=['_functools'])
-c_functools = support.import_fresh_module('functools', fresh=['_functools'])
-
 decimal = support.import_fresh_module('decimal', fresh=['_decimal'])
 
 @contextlib.contextmanager
@@ -55,7 +52,8 @@ class MyDict(dict):
     pass
 
 
-class TestPartial:
+class TestPartial(unittest.TestCase):
+    partial = functools.partial
 
     def test_basic_examples(self):
         p = self.partial(capture, 1, 2, a=10, b=20)
@@ -196,7 +194,7 @@ class TestPartial:
         kwargs = {'a': object(), 'b': object()}
         kwargs_reprs = ['a={a!r}, b={b!r}'.format_map(kwargs),
                         'b={b!r}, a={a!r}'.format_map(kwargs)]
-        if self.partial in (c_functools.partial, py_functools.partial):
+        if self.partial == functools.partial:
             name = 'functools.partial'
         else:
             name = self.partial.__name__
@@ -218,7 +216,7 @@ class TestPartial:
                        for kwargs_repr in kwargs_reprs])
 
     def test_recursive_repr(self):
-        if self.partial in (c_functools.partial, py_functools.partial):
+        if self.partial == functools.partial:
             name = 'functools.partial'
         else:
             name = self.partial.__name__
@@ -245,12 +243,11 @@ class TestPartial:
             f.__setstate__((capture, (), {}, {}))
 
     def test_pickle(self):
-        with self.AllowPickle():
-            f = self.partial(signature, ['asdf'], bar=[True])
-            f.attr = []
-            for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-                f_copy = pickle.loads(pickle.dumps(f, proto))
-                self.assertEqual(signature(f_copy), signature(f))
+        f = self.partial(signature, ['asdf'], bar=[True])
+        f.attr = []
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            f_copy = pickle.loads(pickle.dumps(f, proto))
+            self.assertEqual(signature(f_copy), signature(f))
 
     def test_copy(self):
         f = self.partial(signature, ['asdf'], bar=[True])
@@ -328,39 +325,38 @@ class TestPartial:
         self.assertIs(type(r[0]), tuple)
 
     def test_recursive_pickle(self):
-        with self.AllowPickle():
-            f = self.partial(capture)
-            f.__setstate__((f, (), {}, {}))
-            try:
-                for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-                    with self.assertRaises(RecursionError):
-                        pickle.dumps(f, proto)
-            finally:
-                f.__setstate__((capture, (), {}, {}))
+        f = self.partial(capture)
+        f.__setstate__((f, (), {}, {}))
+        try:
+            for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+                with self.assertRaises(RecursionError):
+                    pickle.dumps(f, proto)
+        finally:
+            f.__setstate__((capture, (), {}, {}))
 
-            f = self.partial(capture)
-            f.__setstate__((capture, (f,), {}, {}))
-            try:
-                for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-                    f_copy = pickle.loads(pickle.dumps(f, proto))
-                    try:
-                        self.assertIs(f_copy.args[0], f_copy)
-                    finally:
-                        f_copy.__setstate__((capture, (), {}, {}))
-            finally:
-                f.__setstate__((capture, (), {}, {}))
+        f = self.partial(capture)
+        f.__setstate__((capture, (f,), {}, {}))
+        try:
+            for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+                f_copy = pickle.loads(pickle.dumps(f, proto))
+                try:
+                    self.assertIs(f_copy.args[0], f_copy)
+                finally:
+                    f_copy.__setstate__((capture, (), {}, {}))
+        finally:
+            f.__setstate__((capture, (), {}, {}))
 
-            f = self.partial(capture)
-            f.__setstate__((capture, (), {'a': f}, {}))
-            try:
-                for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-                    f_copy = pickle.loads(pickle.dumps(f, proto))
-                    try:
-                        self.assertIs(f_copy.keywords['a'], f_copy)
-                    finally:
-                        f_copy.__setstate__((capture, (), {}, {}))
-            finally:
-                f.__setstate__((capture, (), {}, {}))
+        f = self.partial(capture)
+        f.__setstate__((capture, (), {'a': f}, {}))
+        try:
+            for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+                f_copy = pickle.loads(pickle.dumps(f, proto))
+                try:
+                    self.assertIs(f_copy.keywords['a'], f_copy)
+                finally:
+                    f_copy.__setstate__((capture, (), {}, {}))
+        finally:
+            f.__setstate__((capture, (), {}, {}))
 
     # Issue 6083: Reference counting bug
     def test_setstate_refcount(self):
@@ -378,17 +374,6 @@ class TestPartial:
 
         f = self.partial(object)
         self.assertRaises(TypeError, f.__setstate__, BadSequence())
-
-@unittest.skipUnless(c_functools, 'requires the C _functools module')
-class TestPartialC(TestPartial, unittest.TestCase):
-    if c_functools:
-        partial = c_functools.partial
-
-    class AllowPickle:
-        def __enter__(self):
-            return self
-        def __exit__(self, type, value, tb):
-            return False
 
     def test_attributes_unwritable(self):
         # attributes should not be writable
@@ -430,35 +415,14 @@ class TestPartialC(TestPartial, unittest.TestCase):
         self.assertIn('astr', r)
         self.assertIn("['sth']", r)
 
-
-class TestPartialPy(TestPartial, unittest.TestCase):
-    partial = py_functools.partial
-
-    class AllowPickle:
-        def __init__(self):
-            self._cm = replaced_module("functools", py_functools)
-        def __enter__(self):
-            return self._cm.__enter__()
-        def __exit__(self, type, value, tb):
-            return self._cm.__exit__(type, value, tb)
-
-if c_functools:
-    class CPartialSubclass(c_functools.partial):
-        pass
-
-class PyPartialSubclass(py_functools.partial):
+class PartialSubclass(functools.partial):
     pass
 
-@unittest.skipUnless(c_functools, 'requires the C _functools module')
-class TestPartialCSubclass(TestPartialC):
-    if c_functools:
-        partial = CPartialSubclass
+class TestPartialSubclass(TestPartial):
+    partial = PartialSubclass
 
     # partial subclasses are not optimized for nested calls
     test_nested_optimization = None
-
-class TestPartialPySubclass(TestPartialPy):
-    partial = PyPartialSubclass
 
 class TestPartialMethod(unittest.TestCase):
 
@@ -766,7 +730,9 @@ class TestWraps(TestUpdateWrapper):
         self.assertEqual(wrapper.dict_attr, f.dict_attr)
 
 
-class TestReduce:
+class TestReduce(unittest.TestCase):
+    reduce = functools.reduce
+
     def test_reduce(self):
         class Squares:
             def __init__(self, max):
@@ -845,17 +811,8 @@ class TestReduce:
         self.assertEqual(self.reduce(add, d), "".join(d.keys()))
 
 
-@unittest.skipUnless(c_functools, 'requires the C _functools module')
-class TestReduceC(TestReduce, unittest.TestCase):
-    if c_functools:
-        reduce = c_functools.reduce
-
-
-class TestReducePy(TestReduce, unittest.TestCase):
-    reduce = staticmethod(py_functools.reduce)
-
-
-class TestCmpToKey:
+class TestCmpToKey(unittest.TestCase):
+    cmp_to_key = functools.cmp_to_key
 
     def test_cmp_to_key(self):
         def cmp1(x, y):
@@ -936,16 +893,6 @@ class TestCmpToKey:
         k = key(10)
         self.assertRaises(TypeError, hash, k)
         self.assertNotIsInstance(k, collections.abc.Hashable)
-
-
-@unittest.skipUnless(c_functools, 'requires the C _functools module')
-class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
-    if c_functools:
-        cmp_to_key = c_functools.cmp_to_key
-
-
-class TestCmpToKeyPy(TestCmpToKey, unittest.TestCase):
-    cmp_to_key = staticmethod(py_functools.cmp_to_key)
 
 
 class TestTotalOrdering(unittest.TestCase):
@@ -1430,12 +1377,24 @@ class TestTopologicalSort(unittest.TestCase):
         self.assertEqual(run1, run2)
 
 
-class TestLRU:
+class TestLRU(unittest.TestCase):
+    @functools.lru_cache()
+    def cached_func(x, y):
+        return 3 * x + y
+
+    @functools.lru_cache()
+    def cached_meth(self, x, y):
+        return 3 * x + y
+
+    @staticmethod
+    @functools.lru_cache()
+    def cached_staticmeth(x, y):
+        return 3 * x + y
 
     def test_lru(self):
         def orig(x, y):
             return 3 * x + y
-        f = self.module.lru_cache(maxsize=20)(orig)
+        f = functools.lru_cache(maxsize=20)(orig)
         hits, misses, maxsize, currsize = f.cache_info()
         self.assertEqual(maxsize, 20)
         self.assertEqual(currsize, 0)
@@ -1473,7 +1432,7 @@ class TestLRU:
         self.assertEqual(currsize, 1)
 
         # test size zero (which means "never-cache")
-        @self.module.lru_cache(0)
+        @functools.lru_cache(0)
         def f():
             nonlocal f_cnt
             f_cnt += 1
@@ -1489,7 +1448,7 @@ class TestLRU:
         self.assertEqual(currsize, 0)
 
         # test size one
-        @self.module.lru_cache(1)
+        @functools.lru_cache(1)
         def f():
             nonlocal f_cnt
             f_cnt += 1
@@ -1505,7 +1464,7 @@ class TestLRU:
         self.assertEqual(currsize, 1)
 
         # test size two
-        @self.module.lru_cache(2)
+        @functools.lru_cache(2)
         def f(x):
             nonlocal f_cnt
             f_cnt += 1
@@ -1522,7 +1481,7 @@ class TestLRU:
         self.assertEqual(currsize, 2)
 
     def test_lru_no_args(self):
-        @self.module.lru_cache
+        @functools.lru_cache
         def square(x):
             return x ** 2
 
@@ -1542,7 +1501,7 @@ class TestLRU:
 
         once = True                 # Modified by f(x) below
 
-        @self.module.lru_cache(maxsize=10)
+        @functools.lru_cache(maxsize=10)
         def f(x):
             nonlocal once
             rv = f'.{x}.'
@@ -1566,7 +1525,7 @@ class TestLRU:
         # This did not result in an incorrect answer, but it did trigger
         # an unexpected cache miss.
 
-        @self.module.lru_cache()
+        @functools.lru_cache()
         def f(x):
             pass
 
@@ -1580,7 +1539,7 @@ class TestLRU:
         # LRU cache guarantees that it will only call __hash__
         # only once per use as an argument to the cached function.
 
-        @self.module.lru_cache(maxsize=1)
+        @functools.lru_cache(maxsize=1)
         def f(x, y):
             return x * 3 + y
 
@@ -1615,7 +1574,7 @@ class TestLRU:
         # cached, we shouldn't use it inside the lru code itself.
         old_len = builtins.len
         try:
-            builtins.len = self.module.lru_cache(4)(len)
+            builtins.len = functools.lru_cache(4)(len)
             for i in [0, 0, 1, 2, 3, 3, 4, 5, 6, 1, 7, 2, 1]:
                 self.assertEqual(len('abcdefghijklmn'[:i]), i)
         finally:
@@ -1650,7 +1609,7 @@ class TestLRU:
             limited_cache([])
 
     def test_lru_with_maxsize_none(self):
-        @self.module.lru_cache(maxsize=None)
+        @functools.lru_cache(maxsize=None)
         def fib(n):
             if n < 2:
                 return n
@@ -1658,26 +1617,26 @@ class TestLRU:
         self.assertEqual([fib(n) for n in range(16)],
             [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610])
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=28, misses=16, maxsize=None, currsize=16))
+            functools._CacheInfo(hits=28, misses=16, maxsize=None, currsize=16))
         fib.cache_clear()
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=0, misses=0, maxsize=None, currsize=0))
+            functools._CacheInfo(hits=0, misses=0, maxsize=None, currsize=0))
 
     def test_lru_with_maxsize_negative(self):
-        @self.module.lru_cache(maxsize=-10)
+        @functools.lru_cache(maxsize=-10)
         def eq(n):
             return n
         for i in (0, 1):
             self.assertEqual([eq(n) for n in range(150)], list(range(150)))
         self.assertEqual(eq.cache_info(),
-            self.module._CacheInfo(hits=0, misses=300, maxsize=0, currsize=0))
+            functools._CacheInfo(hits=0, misses=300, maxsize=0, currsize=0))
 
     def test_lru_with_exceptions(self):
         # Verify that user_function exceptions get passed through without
         # creating a hard-to-read chained exception.
         # http://bugs.python.org/issue13177
         for maxsize in (None, 128):
-            @self.module.lru_cache(maxsize)
+            @functools.lru_cache(maxsize)
             def func(i):
                 return 'abc'[i]
             self.assertEqual(func(0), 'a')
@@ -1690,7 +1649,7 @@ class TestLRU:
 
     def test_lru_with_types(self):
         for maxsize in (None, 128):
-            @self.module.lru_cache(maxsize=maxsize, typed=True)
+            @functools.lru_cache(maxsize=maxsize, typed=True)
             def square(x):
                 return x * x
             self.assertEqual(square(3), 9)
@@ -1705,7 +1664,7 @@ class TestLRU:
             self.assertEqual(square.cache_info().misses, 4)
 
     def test_lru_with_keyword_args(self):
-        @self.module.lru_cache()
+        @functools.lru_cache()
         def fib(n):
             if n < 2:
                 return n
@@ -1715,13 +1674,13 @@ class TestLRU:
             [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610]
         )
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=28, misses=16, maxsize=128, currsize=16))
+            functools._CacheInfo(hits=28, misses=16, maxsize=128, currsize=16))
         fib.cache_clear()
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=0, misses=0, maxsize=128, currsize=0))
+            functools._CacheInfo(hits=0, misses=0, maxsize=128, currsize=0))
 
     def test_lru_with_keyword_args_maxsize_none(self):
-        @self.module.lru_cache(maxsize=None)
+        @functools.lru_cache(maxsize=None)
         def fib(n):
             if n < 2:
                 return n
@@ -1729,34 +1688,34 @@ class TestLRU:
         self.assertEqual([fib(n=number) for number in range(16)],
             [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610])
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=28, misses=16, maxsize=None, currsize=16))
+            functools._CacheInfo(hits=28, misses=16, maxsize=None, currsize=16))
         fib.cache_clear()
         self.assertEqual(fib.cache_info(),
-            self.module._CacheInfo(hits=0, misses=0, maxsize=None, currsize=0))
+            functools._CacheInfo(hits=0, misses=0, maxsize=None, currsize=0))
 
     def test_kwargs_order(self):
         # PEP 468: Preserving Keyword Argument Order
-        @self.module.lru_cache(maxsize=10)
+        @functools.lru_cache(maxsize=10)
         def f(**kwargs):
             return list(kwargs.items())
         self.assertEqual(f(a=1, b=2), [('a', 1), ('b', 2)])
         self.assertEqual(f(b=2, a=1), [('b', 2), ('a', 1)])
         self.assertEqual(f.cache_info(),
-            self.module._CacheInfo(hits=0, misses=2, maxsize=10, currsize=2))
+            functools._CacheInfo(hits=0, misses=2, maxsize=10, currsize=2))
 
     def test_lru_cache_decoration(self):
         def f(zomg: 'zomg_annotation'):
             """f doc string"""
             return 42
-        g = self.module.lru_cache()(f)
-        for attr in self.module.WRAPPER_ASSIGNMENTS:
+        g = functools.lru_cache()(f)
+        for attr in functools.WRAPPER_ASSIGNMENTS:
             self.assertEqual(getattr(g, attr), getattr(f, attr))
 
     def test_lru_cache_threaded(self):
         n, m = 5, 11
         def orig(x, y):
             return 3 * x + y
-        f = self.module.lru_cache(maxsize=n*m)(orig)
+        f = functools.lru_cache(maxsize=n*m)(orig)
         hits, misses, maxsize, currsize = f.cache_info()
         self.assertEqual(currsize, 0)
 
@@ -1781,13 +1740,8 @@ class TestLRU:
                 start.set()
 
             hits, misses, maxsize, currsize = f.cache_info()
-            if self.module is py_functools:
-                # XXX: Why can be not equal?
-                self.assertLessEqual(misses, n)
-                self.assertLessEqual(hits, m*n - misses)
-            else:
-                self.assertEqual(misses, n)
-                self.assertEqual(hits, m*n - misses)
+            self.assertEqual(misses, n)
+            self.assertEqual(hits, m*n - misses)
             self.assertEqual(currsize, n)
 
             # create n threads in order to fill cache and 1 to clear it
@@ -1806,7 +1760,7 @@ class TestLRU:
         start = threading.Barrier(n+1)
         pause = threading.Barrier(n+1)
         stop = threading.Barrier(n+1)
-        @self.module.lru_cache(maxsize=m*n)
+        @functools.lru_cache(maxsize=m*n)
         def f(x):
             pause.wait(10)
             return 3 * x
@@ -1828,7 +1782,7 @@ class TestLRU:
                 self.assertEqual(f.cache_info(), (0, (i+1)*n, m*n, i+1))
 
     def test_lru_cache_threaded3(self):
-        @self.module.lru_cache(maxsize=2)
+        @functools.lru_cache(maxsize=2)
         def f(x):
             time.sleep(.01)
             return 3 * x
@@ -1843,7 +1797,7 @@ class TestLRU:
     def test_need_for_rlock(self):
         # This will deadlock on an LRU cache that uses a regular lock
 
-        @self.module.lru_cache(maxsize=10)
+        @functools.lru_cache(maxsize=10)
         def test_func(x):
             'Used to demonstrate a reentrant lru_cache call within a single thread'
             return x
@@ -1867,7 +1821,7 @@ class TestLRU:
     def test_lru_method(self):
         class X(int):
             f_cnt = 0
-            @self.module.lru_cache(2)
+            @functools.lru_cache(2)
             def f(self, x):
                 self.f_cnt += 1
                 return x*10+self
@@ -1897,7 +1851,7 @@ class TestLRU:
 
     def test_pickle(self):
         cls = self.__class__
-        for f in cls.cached_func[0], cls.cached_meth, cls.cached_staticmeth:
+        for f in cls.cached_func, cls.cached_meth, cls.cached_staticmeth:
             for proto in range(pickle.HIGHEST_PROTOCOL + 1):
                 with self.subTest(proto=proto, func=f):
                     f_copy = pickle.loads(pickle.dumps(f, proto))
@@ -1907,9 +1861,9 @@ class TestLRU:
         cls = self.__class__
         def orig(x, y):
             return 3 * x + y
-        part = self.module.partial(orig, 2)
-        funcs = (cls.cached_func[0], cls.cached_meth, cls.cached_staticmeth,
-                 self.module.lru_cache(2)(part))
+        part = functools.partial(orig, 2)
+        funcs = (cls.cached_func, cls.cached_meth, cls.cached_staticmeth,
+                 functools.lru_cache(2)(part))
         for f in funcs:
             with self.subTest(func=f):
                 f_copy = copy.copy(f)
@@ -1919,61 +1873,24 @@ class TestLRU:
         cls = self.__class__
         def orig(x, y):
             return 3 * x + y
-        part = self.module.partial(orig, 2)
-        funcs = (cls.cached_func[0], cls.cached_meth, cls.cached_staticmeth,
-                 self.module.lru_cache(2)(part))
+        part = functools.partial(orig, 2)
+        funcs = (cls.cached_func, cls.cached_meth, cls.cached_staticmeth,
+                 functools.lru_cache(2)(part))
         for f in funcs:
             with self.subTest(func=f):
                 f_copy = copy.deepcopy(f)
                 self.assertIs(f_copy, f)
 
     def test_lru_cache_parameters(self):
-        @self.module.lru_cache(maxsize=2)
+        @functools.lru_cache(maxsize=2)
         def f():
             return 1
         self.assertEqual(f.cache_parameters(), {'maxsize': 2, "typed": False})
 
-        @self.module.lru_cache(maxsize=1000, typed=True)
+        @functools.lru_cache(maxsize=1000, typed=True)
         def f():
             return 1
         self.assertEqual(f.cache_parameters(), {'maxsize': 1000, "typed": True})
-
-
-@py_functools.lru_cache()
-def py_cached_func(x, y):
-    return 3 * x + y
-
-@c_functools.lru_cache()
-def c_cached_func(x, y):
-    return 3 * x + y
-
-
-class TestLRUPy(TestLRU, unittest.TestCase):
-    module = py_functools
-    cached_func = py_cached_func,
-
-    @module.lru_cache()
-    def cached_meth(self, x, y):
-        return 3 * x + y
-
-    @staticmethod
-    @module.lru_cache()
-    def cached_staticmeth(x, y):
-        return 3 * x + y
-
-
-class TestLRUC(TestLRU, unittest.TestCase):
-    module = c_functools
-    cached_func = c_cached_func,
-
-    @module.lru_cache()
-    def cached_meth(self, x, y):
-        return 3 * x + y
-
-    @staticmethod
-    @module.lru_cache()
-    def cached_staticmeth(x, y):
-        return 3 * x + y
 
 
 class TestSingleDispatch(unittest.TestCase):
@@ -2669,9 +2586,9 @@ class CachedCostItem:
     _cost = 1
 
     def __init__(self):
-        self.lock = py_functools.RLock()
+        self.lock = functools.RLock()
 
-    @py_functools.cached_property
+    @functools.cached_property
     def cost(self):
         """The cost of the item."""
         with self.lock:
@@ -2687,17 +2604,17 @@ class OptionallyCachedCostItem:
         self._cost += 1
         return self._cost
 
-    cached_cost = py_functools.cached_property(get_cost)
+    cached_cost = functools.cached_property(get_cost)
 
 
 class CachedCostItemWait:
 
     def __init__(self, event):
         self._cost = 1
-        self.lock = py_functools.RLock()
+        self.lock = functools.RLock()
         self.event = event
 
-    @py_functools.cached_property
+    @functools.cached_property
     def cost(self):
         self.event.wait(1)
         with self.lock:
@@ -2711,7 +2628,7 @@ class CachedCostItemWithSlots:
     def __init__(self):
         self._cost = 1
 
-    @py_functools.cached_property
+    @functools.cached_property
     def cost(self):
         raise RuntimeError('never called, slots not supported')
 
@@ -2759,7 +2676,7 @@ class TestCachedProperty(unittest.TestCase):
 
     def test_immutable_dict(self):
         class MyMeta(type):
-            @py_functools.cached_property
+            @functools.cached_property
             def prop(self):
                 return True
 
@@ -2776,7 +2693,7 @@ class TestCachedProperty(unittest.TestCase):
         """Disallow this case because decorated function a would not be cached."""
         with self.assertRaises(RuntimeError) as ctx:
             class ReusedCachedProperty:
-                @py_functools.cached_property
+                @functools.cached_property
                 def a(self):
                     pass
 
@@ -2791,7 +2708,7 @@ class TestCachedProperty(unittest.TestCase):
         """Reusing a cached_property on different classes under the same name is OK."""
         counter = 0
 
-        @py_functools.cached_property
+        @functools.cached_property
         def _cp(_self):
             nonlocal counter
             counter += 1
@@ -2811,7 +2728,7 @@ class TestCachedProperty(unittest.TestCase):
         self.assertEqual(a.cp, 1)
 
     def test_set_name_not_called(self):
-        cp = py_functools.cached_property(lambda s: None)
+        cp = functools.cached_property(lambda s: None)
         class Foo:
             pass
 
@@ -2824,7 +2741,7 @@ class TestCachedProperty(unittest.TestCase):
             Foo().cp
 
     def test_access_from_class(self):
-        self.assertIsInstance(CachedCostItem.cost, py_functools.cached_property)
+        self.assertIsInstance(CachedCostItem.cost, functools.cached_property)
 
     def test_doc(self):
         self.assertEqual(CachedCostItem.cost.__doc__, "The cost of the item.")
