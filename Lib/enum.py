@@ -1,5 +1,6 @@
 import sys
 from types import MappingProxyType, DynamicClassAttribute
+import _thread
 
 
 __all__ = [
@@ -174,6 +175,7 @@ class EnumMeta(type):
 
         # Reverse value->name map for hashable values.
         enum_class._value2member_map_ = {}
+        enum_class._mutex = _thread.allocate_lock()
 
         # If a custom type is mixed into the Enum, and it does not know how
         # to pickle itself, pickle.dumps will succeed but pickle.loads will
@@ -558,7 +560,8 @@ class Enum(metaclass=EnumMeta):
         # by-value search for a matching enum member
         # see if it's in the reverse mapping (for hashable values)
         try:
-            return cls._value2member_map_[value]
+            with cls._mutex:
+                return cls._value2member_map_[value]
         except KeyError:
             # Not found, no need to do long O(n) search
             pass
@@ -701,7 +704,8 @@ class Flag(Enum):
         """
         Create a composite member iff value contains only members.
         """
-        pseudo_member = cls._value2member_map_.get(value, None)
+        with cls._mutex:
+            pseudo_member = cls._value2member_map_.get(value, None)
         if pseudo_member is None:
             # verify all bits are accounted for
             _, extra_flags = _decompose(cls, value)
@@ -713,7 +717,8 @@ class Flag(Enum):
             pseudo_member._value_ = value
             # use setdefault in case another thread already created a composite
             # with this value
-            pseudo_member = cls._value2member_map_.setdefault(value, pseudo_member)
+            with cls._mutex:
+                pseudo_member = cls._value2member_map_.setdefault(value, pseudo_member)
         return pseudo_member
 
     def __contains__(self, other):
@@ -786,7 +791,8 @@ class IntFlag(int, Flag):
 
     @classmethod
     def _create_pseudo_member_(cls, value):
-        pseudo_member = cls._value2member_map_.get(value, None)
+        with cls._mutex:
+            pseudo_member = cls._value2member_map_.get(value, None)
         if pseudo_member is None:
             need_to_create = [value]
             # get unaccounted for bits
@@ -796,9 +802,11 @@ class IntFlag(int, Flag):
                 # timer -= 1
                 bit = _high_bit(extra_flags)
                 flag_value = 2 ** bit
-                if (flag_value not in cls._value2member_map_ and
-                        flag_value not in need_to_create
-                        ):
+                with cls._mutex:
+                    should_create = (
+                        flag_value not in cls._value2member_map_ and
+                        flag_value not in need_to_create)
+                if should_create:
                     need_to_create.append(flag_value)
                 if extra_flags == -flag_value:
                     extra_flags = 0
@@ -811,7 +819,8 @@ class IntFlag(int, Flag):
                 pseudo_member._value_ = value
                 # use setdefault in case another thread already created a composite
                 # with this value
-                pseudo_member = cls._value2member_map_.setdefault(value, pseudo_member)
+                with cls._mutex:
+                    pseudo_member = cls._value2member_map_.setdefault(value, pseudo_member)
         return pseudo_member
 
     def __or__(self, other):
@@ -867,16 +876,17 @@ def _decompose(flag, value):
         if member_value and member_value & value == member_value:
             members.append(member)
             not_covered &= ~member_value
-    if not negative:
-        tmp = not_covered
-        while tmp:
-            flag_value = 2 ** _high_bit(tmp)
-            if flag_value in flag._value2member_map_:
-                members.append(flag._value2member_map_[flag_value])
-                not_covered &= ~flag_value
-            tmp &= ~flag_value
-    if not members and value in flag._value2member_map_:
-        members.append(flag._value2member_map_[value])
+    with flag._mutex:
+        if not negative:
+            tmp = not_covered
+            while tmp:
+                flag_value = 2 ** _high_bit(tmp)
+                if flag_value in flag._value2member_map_:
+                    members.append(flag._value2member_map_[flag_value])
+                    not_covered &= ~flag_value
+                tmp &= ~flag_value
+        if not members and value in flag._value2member_map_:
+            members.append(flag._value2member_map_[value])
     members.sort(key=lambda m: m._value_, reverse=True)
     if len(members) > 1 and members[0].value == value:
         # we have the breakdown, don't need the value member itself
