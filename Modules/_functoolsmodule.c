@@ -782,6 +782,7 @@ typedef struct lru_cache_object {
     Py_ssize_t misses;
     PyObject *cache_info_type;
     PyObject *dict;
+    _PyRecursiveMutex rlock;
 } lru_cache_object;
 
 static PyTypeObject lru_cache_type;
@@ -860,7 +861,9 @@ uncached_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwd
     PyObject *result;
 
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result)
         return NULL;
     return result;
@@ -891,7 +894,9 @@ infinite_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwd
         return NULL;
     }
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result) {
         Py_DECREF(key);
         return NULL;
@@ -995,7 +1000,9 @@ bounded_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwds
         return NULL;
     }
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result) {
         Py_DECREF(key);
         return NULL;
@@ -1238,7 +1245,10 @@ lru_cache_dealloc(lru_cache_object *obj)
 static PyObject *
 lru_cache_call(lru_cache_object *self, PyObject *args, PyObject *kwds)
 {
-    return self->wrapper(self, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
+    PyObject *result = self->wrapper(self, args, kwds);
+    _PyRecursiveMutex_unlock(&self->rlock);
+    return result;
 }
 
 static PyObject *
@@ -1396,6 +1406,12 @@ static PyTypeObject lru_cache_type = {
     0,                                  /* tp_init */
     0,                                  /* tp_alloc */
     lru_cache_new,                      /* tp_new */
+    0,                                  /* tp_free */
+    0,                                  /* tp_is_gc */
+    0,                                  /* tp_bases */
+    0,                                  /* tp_mro */
+    offsetof(lru_cache_object, rlock),  /* tp_lockoffset */
+
 };
 
 /* module level code ********************************************************/

@@ -1787,8 +1787,12 @@ class TestLRU(unittest.TestCase):
             time.sleep(.01)
             return 3 * x
         def test(i, x):
-            with self.subTest(thread=i):
-                self.assertEqual(f(x), 3 * x, i)
+            # with self.subTest(thread=i):
+            #     self.assertEqual(f(x), 3 * x, i)
+            # FIXME(sgross): TestCase.sub_test isn't thread-safe. I'm not sure
+            # it's correct for multiple threads even with the GIL, but it can
+            # lead to segfaults currently when run without the GIL.
+            assert f(x) == 3 * x
         threads = [threading.Thread(target=test, args=(i, v))
                    for i, v in enumerate([1, 2, 2, 3, 2])]
         with support.start_threads(threads):
