@@ -19,3 +19,8 @@ race:_PyType_Lookup
 # TODO: fix data race using relaxed atomics in _threadmodule.c
 race:rlock_acquire
 race:rlock_release
+
+
+# TODO: fix dynamic GIL races
+race:drop_gil
+race:take_gil
