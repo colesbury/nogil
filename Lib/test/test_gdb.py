@@ -787,6 +787,7 @@ Traceback \(most recent call first\):
     foo\(1, 2, 3\)
 ''')
 
+    @unittest.skipIf(sys.flags.nogil, "Python is running without the GIL")
     def test_threads(self):
         'Verify that "py-bt" indicates threads that are waiting for the GIL'
         cmd = '''
