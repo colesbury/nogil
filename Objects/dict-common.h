@@ -1,6 +1,8 @@
 #ifndef Py_DICT_COMMON_H
 #define Py_DICT_COMMON_H
 
+#include "lock.h"
+
 typedef struct {
     /* Cached hash code of me_key. */
     Py_hash_t me_hash;
@@ -12,7 +14,7 @@ typedef struct {
  * -1 when no entry found, -3 when compare raises error.
  */
 typedef Py_ssize_t (*dict_lookup_func)
-    (PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr);
+    (PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr, _PyMutex *mutex);
 
 #define DKIX_EMPTY (-1)
 #define DKIX_DUMMY (-2)  /* Used internally */

@@ -224,15 +224,18 @@ equally good collision statistics, needed less code & used less memory.
 */
 
 /* forward declarations */
-static Py_ssize_t lookdict(PyDictObject *mp, PyObject *key,
-                           Py_hash_t hash, PyObject **value_addr);
-static Py_ssize_t lookdict_unicode(PyDictObject *mp, PyObject *key,
-                                   Py_hash_t hash, PyObject **value_addr);
 static Py_ssize_t
-lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key,
-                         Py_hash_t hash, PyObject **value_addr);
-static Py_ssize_t lookdict_split(PyDictObject *mp, PyObject *key,
-                                 Py_hash_t hash, PyObject **value_addr);
+lookdict(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+         PyObject **value_addr, _PyMutex *mutex);
+static Py_ssize_t
+lookdict_unicode(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+                 PyObject **value_addr, _PyMutex *mutex);
+static Py_ssize_t
+lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+                         PyObject **value_addr, _PyMutex *mutex);
+static Py_ssize_t
+lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+               PyObject **value_addr, _PyMutex *mutex);
 
 static int dictresize(PyDictObject *mp, Py_ssize_t minused);
 
@@ -441,6 +444,24 @@ dictkeys_decref(PyDictKeysObject *dk)
     }
 }
 
+static _PyMutex *
+dict_lock(PyDictObject *mp)
+{
+    if (mp->ma_use_mutex) {
+        _PyMutex_lock(&mp->ma_mutex);
+        return &mp->ma_mutex;
+    }
+    return NULL;
+}
+
+static void
+dict_unlock(_PyMutex *mutex)
+{
+    if (mutex) {
+        _PyMutex_unlock(mutex);
+    }
+}
+
 /* Uncomment to check the dict content in _PyDict_CheckConsistency() */
 /* #define DEBUG_PYDICT */
 
@@ -599,6 +620,8 @@ new_dict(PyDictKeysObject *keys, PyObject **values)
     mp->ma_values = values;
     mp->ma_used = 0;
     mp->ma_version_tag = DICT_NEXT_VERSION();
+    mp->ma_mutex.v = 0;
+    mp->ma_use_mutex = 0;
     ASSERT_CONSISTENT(mp);
     return (PyObject *)mp;
 }
@@ -730,8 +753,8 @@ the <dummy> value.
 For both, when the key isn't found a DKIX_EMPTY is returned.
 */
 static Py_ssize_t _Py_HOT_FUNCTION
-lookdict(PyDictObject *mp, PyObject *key,
-         Py_hash_t hash, PyObject **value_addr)
+lookdict(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+         PyObject **value_addr, _PyMutex *mutex)
 {
     size_t i, mask, perturb;
     PyDictKeysObject *dk;
@@ -760,7 +783,13 @@ top:
             if (ep->me_hash == hash) {
                 PyObject *startkey = ep->me_key;
                 Py_INCREF(startkey);
+                if (mutex) {
+                    _PyMutex_unlock(mutex);
+                }
                 int cmp = PyObject_RichCompareBool(startkey, key, Py_EQ);
+                if (mutex) {
+                    _PyMutex_lock(mutex);
+                }
                 Py_DECREF(startkey);
                 if (cmp < 0) {
                     *value_addr = NULL;
@@ -786,8 +815,8 @@ top:
 
 /* Specialized version for string-only keys */
 static Py_ssize_t _Py_HOT_FUNCTION
-lookdict_unicode(PyDictObject *mp, PyObject *key,
-                 Py_hash_t hash, PyObject **value_addr)
+lookdict_unicode(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+                 PyObject **value_addr, _PyMutex *mutex)
 {
     assert(mp->ma_values == NULL);
     /* Make sure this function doesn't have to handle non-unicode keys,
@@ -796,7 +825,7 @@ lookdict_unicode(PyDictObject *mp, PyObject *key,
        that here. */
     if (!PyUnicode_CheckExact(key)) {
         mp->ma_keys->dk_lookup = lookdict;
-        return lookdict(mp, key, hash, value_addr);
+        return lookdict(mp, key, hash, value_addr, mutex);
     }
 
     PyDictKeyEntry *ep0 = DK_ENTRIES(mp->ma_keys);
@@ -829,8 +858,8 @@ lookdict_unicode(PyDictObject *mp, PyObject *key,
 /* Faster version of lookdict_unicode when it is known that no <dummy> keys
  * will be present. */
 static Py_ssize_t _Py_HOT_FUNCTION
-lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key,
-                         Py_hash_t hash, PyObject **value_addr)
+lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+                         PyObject **value_addr, _PyMutex *mutex)
 {
     assert(mp->ma_values == NULL);
     /* Make sure this function doesn't have to handle non-unicode keys,
@@ -839,7 +868,7 @@ lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key,
        that here. */
     if (!PyUnicode_CheckExact(key)) {
         mp->ma_keys->dk_lookup = lookdict;
-        return lookdict(mp, key, hash, value_addr);
+        return lookdict(mp, key, hash, value_addr, mutex);
     }
 
     PyDictKeyEntry *ep0 = DK_ENTRIES(mp->ma_keys);
@@ -874,13 +903,13 @@ lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key,
  * so algorithm is the same as lookdict_unicode_nodummy.
  */
 static Py_ssize_t _Py_HOT_FUNCTION
-lookdict_split(PyDictObject *mp, PyObject *key,
-               Py_hash_t hash, PyObject **value_addr)
+lookdict_split(PyDictObject *mp, PyObject *key, Py_hash_t hash,
+               PyObject **value_addr, _PyMutex *mutex)
 {
     /* mp must split table */
     assert(mp->ma_values != NULL);
     if (!PyUnicode_CheckExact(key)) {
-        Py_ssize_t ix = lookdict(mp, key, hash, value_addr);
+        Py_ssize_t ix = lookdict(mp, key, hash, value_addr, mutex);
         if (ix >= 0) {
             *value_addr = mp->ma_values[ix];
         }
@@ -1006,7 +1035,8 @@ Used both by the internal resize routine and by the public insert routine.
 Returns -1 if an error occurred, or 0 on success.
 */
 static int
-insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
+insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value,
+           _PyMutex *mutex)
 {
     PyObject *old_value;
     PyDictKeyEntry *ep;
@@ -1018,7 +1048,7 @@ insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
             goto Fail;
     }
 
-    Py_ssize_t ix = mp->ma_keys->dk_lookup(mp, key, hash, &old_value);
+    Py_ssize_t ix = mp->ma_keys->dk_lookup(mp, key, hash, &old_value, mutex);
     if (ix == DKIX_ERROR)
         goto Fail;
 
@@ -1062,6 +1092,7 @@ insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
         mp->ma_keys->dk_nentries++;
         assert(mp->ma_keys->dk_usable >= 0);
         ASSERT_CONSISTENT(mp);
+        dict_unlock(mutex);
         return 0;
     }
 
@@ -1080,12 +1111,14 @@ insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
         }
         mp->ma_version_tag = DICT_NEXT_VERSION();
     }
-    Py_XDECREF(old_value); /* which **CAN** re-enter (see issue #22653) */
     ASSERT_CONSISTENT(mp);
+    dict_unlock(mutex);
+    Py_XDECREF(old_value); /* which **CAN** re-enter (see issue #22653) */
     Py_DECREF(key);
     return 0;
 
 Fail:
+    dict_unlock(mutex);
     Py_DECREF(value);
     Py_DECREF(key);
     return -1;
@@ -1094,12 +1127,13 @@ Fail:
 // Same to insertdict but specialized for ma_keys = Py_EMPTY_KEYS.
 static int
 insert_to_emptydict(PyDictObject *mp, PyObject *key, Py_hash_t hash,
-                    PyObject *value)
+                    PyObject *value, _PyMutex *mutex)
 {
     assert(mp->ma_keys == Py_EMPTY_KEYS);
 
     PyDictKeysObject *newkeys = new_keys_object(PyDict_MINSIZE);
     if (newkeys == NULL) {
+        dict_unlock(mutex);
         return -1;
     }
     if (!PyUnicode_CheckExact(key)) {
@@ -1122,6 +1156,7 @@ insert_to_emptydict(PyDictObject *mp, PyObject *key, Py_hash_t hash,
     mp->ma_version_tag = DICT_NEXT_VERSION();
     mp->ma_keys->dk_usable--;
     mp->ma_keys->dk_nentries++;
+    dict_unlock(mutex);
     return 0;
 }
 
@@ -1358,14 +1393,18 @@ PyDict_GetItem(PyObject *op, PyObject *key)
         /* preserve the existing exception */
         PyObject *err_type, *err_value, *err_tb;
         PyErr_Fetch(&err_type, &err_value, &err_tb);
-        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+        _PyMutex *mutex = dict_lock(mp);
+        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, NULL);
+        dict_unlock(mutex);
         /* ignore errors */
         PyErr_Restore(err_type, err_value, err_tb);
         if (ix < 0)
             return NULL;
     }
     else {
-        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+        _PyMutex *mutex = dict_lock(mp);
+        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, mutex);
+        dict_unlock(mutex);
         if (ix < 0) {
             PyErr_Clear();
             return NULL;
@@ -1390,7 +1429,9 @@ _PyDict_GetItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
         return NULL;
     }
 
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    _PyMutex *mutex = dict_lock(mp);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, mutex);
+    dict_unlock(mutex);
     if (ix < 0) {
         return NULL;
     }
@@ -1422,9 +1463,38 @@ PyDict_GetItemWithError(PyObject *op, PyObject *key)
         }
     }
 
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    _PyMutex *mutex = dict_lock(mp);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, mutex);
+    dict_unlock(mutex);
     if (ix < 0)
         return NULL;
+    return value;
+}
+
+PyObject *
+PyDict_GetItemWithError2(PyObject *op, PyObject *key)
+{
+    Py_hash_t hash;
+    PyDictObject*mp = (PyDictObject *)op;
+    PyObject *value = NULL;
+
+    if (!PyDict_Check(op)) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    if (!PyUnicode_CheckExact(key) ||
+        (hash = ((PyASCIIObject *) key)->hash) == -1)
+    {
+        hash = PyObject_Hash(key);
+        if (hash == -1) {
+            return NULL;
+        }
+    }
+
+    _PyMutex *mutex = dict_lock(mp);
+    (mp->ma_keys->dk_lookup)(mp, key, hash, &value, mutex);
+    Py_XINCREF(value);
+    dict_unlock(mutex);
     return value;
 }
 
@@ -1474,14 +1544,14 @@ _PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
     }
 
     /* namespace 1: globals */
-    ix = globals->ma_keys->dk_lookup(globals, key, hash, &value);
+    ix = globals->ma_keys->dk_lookup(globals, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return NULL;
     if (ix != DKIX_EMPTY && value != NULL)
         return value;
 
     /* namespace 2: builtins */
-    ix = builtins->ma_keys->dk_lookup(builtins, key, hash, &value);
+    ix = builtins->ma_keys->dk_lookup(builtins, key, hash, &value, NULL);
     if (ix < 0)
         return NULL;
     return value;
@@ -1513,11 +1583,12 @@ PyDict_SetItem(PyObject *op, PyObject *key, PyObject *value)
             return -1;
     }
 
+    _PyMutex *mutex = dict_lock(mp);
     if (mp->ma_keys == Py_EMPTY_KEYS) {
-        return insert_to_emptydict(mp, key, hash, value);
+        return insert_to_emptydict(mp, key, hash, value, mutex);
     }
     /* insertdict() handles any resizing that might be necessary */
-    return insertdict(mp, key, hash, value);
+    return insertdict(mp, key, hash, value, mutex);
 }
 
 int
@@ -1535,16 +1606,17 @@ _PyDict_SetItem_KnownHash(PyObject *op, PyObject *key, PyObject *value,
     assert(hash != -1);
     mp = (PyDictObject *)op;
 
+    _PyMutex *mutex = dict_lock(mp);
     if (mp->ma_keys == Py_EMPTY_KEYS) {
-        return insert_to_emptydict(mp, key, hash, value);
+        return insert_to_emptydict(mp, key, hash, value, mutex);
     }
     /* insertdict() handles any resizing that might be necessary */
-    return insertdict(mp, key, hash, value);
+    return insertdict(mp, key, hash, value, mutex);
 }
 
 static int
 delitem_common(PyDictObject *mp, Py_hash_t hash, Py_ssize_t ix,
-               PyObject *old_value)
+               PyObject *old_value, _PyMutex *mutex)
 {
     PyObject *old_key;
     PyDictKeyEntry *ep;
@@ -1560,10 +1632,11 @@ delitem_common(PyDictObject *mp, Py_hash_t hash, Py_ssize_t ix,
     old_key = ep->me_key;
     ep->me_key = NULL;
     ep->me_value = NULL;
+    ASSERT_CONSISTENT(mp);
+    dict_unlock(mutex);
+
     Py_DECREF(old_key);
     Py_DECREF(old_value);
-
-    ASSERT_CONSISTENT(mp);
     return 0;
 }
 
@@ -1596,10 +1669,15 @@ _PyDict_DelItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
     assert(key);
     assert(hash != -1);
     mp = (PyDictObject *)op;
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
-    if (ix == DKIX_ERROR)
+
+    _PyMutex *mutex = dict_lock(mp);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, mutex);
+    if (ix == DKIX_ERROR) {
+        dict_unlock(mutex);
         return -1;
+    }
     if (ix == DKIX_EMPTY || old_value == NULL) {
+        dict_unlock(mutex);
         _PyErr_SetKeyError(key);
         return -1;
     }
@@ -1607,13 +1685,14 @@ _PyDict_DelItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
     // Split table doesn't allow deletion.  Combine it.
     if (_PyDict_HasSplitTable(mp)) {
         if (dictresize(mp, DK_SIZE(mp->ma_keys))) {
+            dict_unlock(mutex);
             return -1;
         }
-        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
+        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, mutex);
         assert(ix >= 0);
     }
 
-    return delitem_common(mp, hash, ix, old_value);
+    return delitem_common(mp, hash, ix, old_value, mutex);
 }
 
 /* This function promises that the predicate -> deletion sequence is atomic
@@ -1639,7 +1718,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
     if (hash == -1)
         return -1;
     mp = (PyDictObject *)op;
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, NULL);
     if (ix == DKIX_ERROR)
         return -1;
     if (ix == DKIX_EMPTY || old_value == NULL) {
@@ -1652,7 +1731,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
         if (dictresize(mp, DK_SIZE(mp->ma_keys))) {
             return -1;
         }
-        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
+        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, NULL);
         assert(ix >= 0);
     }
 
@@ -1664,7 +1743,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
     assert(hashpos >= 0);
 
     if (res > 0)
-        return delitem_common(mp, hashpos, ix, old_value);
+        return delitem_common(mp, hashpos, ix, old_value, NULL);
     else
         return 0;
 }
@@ -1790,7 +1869,9 @@ _PyDict_Pop_KnownHash(PyObject *dict, PyObject *key, Py_hash_t hash, PyObject *d
     assert(PyDict_Check(dict));
     mp = (PyDictObject *)dict;
 
+    _PyMutex *mutex = dict_lock(mp);
     if (mp->ma_used == 0) {
+        dict_unlock(mutex);
         if (deflt) {
             Py_INCREF(deflt);
             return deflt;
@@ -1798,10 +1879,13 @@ _PyDict_Pop_KnownHash(PyObject *dict, PyObject *key, Py_hash_t hash, PyObject *d
         _PyErr_SetKeyError(key);
         return NULL;
     }
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
-    if (ix == DKIX_ERROR)
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, mutex);
+    if (ix == DKIX_ERROR) {
+        dict_unlock(mutex);
         return NULL;
+    }
     if (ix == DKIX_EMPTY || old_value == NULL) {
+        dict_unlock(mutex);
         if (deflt) {
             Py_INCREF(deflt);
             return deflt;
@@ -1813,9 +1897,10 @@ _PyDict_Pop_KnownHash(PyObject *dict, PyObject *key, Py_hash_t hash, PyObject *d
     // Split table doesn't allow deletion.  Combine it.
     if (_PyDict_HasSplitTable(mp)) {
         if (dictresize(mp, DK_SIZE(mp->ma_keys))) {
+            dict_unlock(mutex);
             return NULL;
         }
-        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
+        ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value, mutex);
         assert(ix >= 0);
     }
 
@@ -1830,9 +1915,11 @@ _PyDict_Pop_KnownHash(PyObject *dict, PyObject *key, Py_hash_t hash, PyObject *d
     old_key = ep->me_key;
     ep->me_key = NULL;
     ep->me_value = NULL;
+    ASSERT_CONSISTENT(mp);
+    dict_unlock(mutex);
+
     Py_DECREF(old_key);
 
-    ASSERT_CONSISTENT(mp);
     return old_value;
 }
 
@@ -1885,7 +1972,7 @@ _PyDict_FromKeys(PyObject *cls, PyObject *iterable, PyObject *value)
             }
 
             while (_PyDict_Next(iterable, &pos, &key, &oldvalue, &hash)) {
-                if (insertdict(mp, key, hash, value)) {
+                if (insertdict(mp, key, hash, value, NULL)) {
                     Py_DECREF(d);
                     return NULL;
                 }
@@ -1904,7 +1991,7 @@ _PyDict_FromKeys(PyObject *cls, PyObject *iterable, PyObject *value)
             }
 
             while (_PySet_NextEntry(iterable, &pos, &key, &hash)) {
-                if (insertdict(mp, key, hash, value)) {
+                if (insertdict(mp, key, hash, value, NULL)) {
                     Py_DECREF(d);
                     return NULL;
                 }
@@ -2078,7 +2165,7 @@ dict_subscript(PyDictObject *mp, PyObject *key)
         if (hash == -1)
             return NULL;
     }
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return NULL;
     if (ix == DKIX_EMPTY || value == NULL) {
@@ -2482,14 +2569,14 @@ dict_merge(PyObject *a, PyObject *b, int override)
                 Py_INCREF(key);
                 Py_INCREF(value);
                 if (override == 1)
-                    err = insertdict(mp, key, hash, value);
+                    err = insertdict(mp, key, hash, value, NULL);
                 else if (_PyDict_GetItem_KnownHash(a, key, hash) == NULL) {
                     if (PyErr_Occurred()) {
                         Py_DECREF(value);
                         Py_DECREF(key);
                         return -1;
                     }
-                    err = insertdict(mp, key, hash, value);
+                    err = insertdict(mp, key, hash, value, NULL);
                 }
                 else if (override != 0) {
                     _PyErr_SetKeyError(key);
@@ -2630,6 +2717,8 @@ PyDict_Copy(PyObject *o)
         split_copy->ma_keys = mp->ma_keys;
         split_copy->ma_used = mp->ma_used;
         split_copy->ma_version_tag = DICT_NEXT_VERSION();
+        split_copy->ma_mutex.v = 0;
+        split_copy->ma_use_mutex = 0;
         dictkeys_incref(mp->ma_keys);
         for (i = 0, n = size; i < n; i++) {
             PyObject *value = mp->ma_values[i];
@@ -2740,7 +2829,7 @@ dict_equal(PyDictObject *a, PyDictObject *b)
             /* ditto for key */
             Py_INCREF(key);
             /* reuse the known hash value */
-            b->ma_keys->dk_lookup(b, key, ep->me_hash, &bval);
+            b->ma_keys->dk_lookup(b, key, ep->me_hash, &bval, NULL);
             if (bval == NULL) {
                 Py_DECREF(key);
                 Py_DECREF(aval);
@@ -2807,7 +2896,7 @@ dict___contains__(PyDictObject *self, PyObject *key)
         if (hash == -1)
             return NULL;
     }
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    ix = mp->ma_keys->dk_lookup(mp, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return NULL;
     if (ix == DKIX_EMPTY || value == NULL)
@@ -2839,13 +2928,17 @@ dict_get_impl(PyDictObject *self, PyObject *key, PyObject *default_value)
         if (hash == -1)
             return NULL;
     }
-    ix = (self->ma_keys->dk_lookup) (self, key, hash, &val);
-    if (ix == DKIX_ERROR)
-        return NULL;
-    if (ix == DKIX_EMPTY || val == NULL) {
+
+    _PyMutex *mutex = dict_lock(self);
+    ix = (self->ma_keys->dk_lookup)(self, key, hash, &val, NULL);
+    if (ix == DKIX_ERROR) {
+        val = NULL;
+    }
+    else if (ix == DKIX_EMPTY || val == NULL) {
         val = default_value;
     }
-    Py_INCREF(val);
+    Py_XINCREF(val);
+    dict_unlock(mutex);
     return val;
 }
 
@@ -2868,7 +2961,7 @@ PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj)
             return NULL;
     }
     if (mp->ma_keys == Py_EMPTY_KEYS) {
-        if (insert_to_emptydict(mp, key, hash, defaultobj) < 0) {
+        if (insert_to_emptydict(mp, key, hash, defaultobj, NULL) < 0) {
             return NULL;
         }
         return defaultobj;
@@ -2879,7 +2972,7 @@ PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj)
             return NULL;
     }
 
-    Py_ssize_t ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    Py_ssize_t ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return NULL;
 
@@ -3201,7 +3294,7 @@ PyDict_Contains(PyObject *op, PyObject *key)
         if (hash == -1)
             return -1;
     }
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return -1;
     return (ix != DKIX_EMPTY && value != NULL);
@@ -3215,7 +3308,7 @@ _PyDict_Contains(PyObject *op, PyObject *key, Py_hash_t hash)
     PyObject *value;
     Py_ssize_t ix;
 
-    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value);
+    ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &value, NULL);
     if (ix == DKIX_ERROR)
         return -1;
     return (ix != DKIX_EMPTY && value != NULL);
