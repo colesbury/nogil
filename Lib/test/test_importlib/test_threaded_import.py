@@ -6,6 +6,7 @@
 # randrange, and then Python hangs.
 
 import _imp as imp
+import _atomic
 import os
 import importlib
 import sys
@@ -22,7 +23,7 @@ def task(N, done, done_tasks, errors):
     try:
         # We don't use modulefinder but still import it in order to stress
         # importing of different modules from several threads.
-        if len(done_tasks) % 2:
+        if done_tasks.load() % 2:
             import modulefinder
             import random
         else:
@@ -33,8 +34,8 @@ def task(N, done, done_tasks, errors):
     except Exception as e:
         errors.append(e.with_traceback(None))
     finally:
-        done_tasks.append(threading.get_ident())
-        finished = len(done_tasks) == N
+        done_tasks.add(1)
+        finished = done_tasks.load() == N
         if finished:
             done.set()
 
@@ -121,7 +122,7 @@ class ThreadedImportTests(unittest.TestCase):
                 except KeyError:
                     pass
             errors = []
-            done_tasks = []
+            done_tasks = _atomic.int(0)
             done.clear()
             t0 = time.monotonic()
             with start_threads(threading.Thread(target=task,
@@ -132,7 +133,7 @@ class ThreadedImportTests(unittest.TestCase):
             dt = time.monotonic() - t0
             if verbose:
                 print("%.1f ms" % (dt*1e3), flush=True, end=" ")
-            dbg_info = 'done: %s/%s' % (len(done_tasks), N)
+            dbg_info = 'done: %s/%s' % (done_tasks.load(), N)
             self.assertFalse(errors, dbg_info)
             self.assertTrue(completed, dbg_info)
             if verbose:
