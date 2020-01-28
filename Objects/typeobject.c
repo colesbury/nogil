@@ -7421,22 +7421,17 @@ resolve_slotdups(PyTypeObject *type, PyObject *name)
 {
     /* XXX Maybe this could be optimized more -- but is it worth it? */
 
-    /* pname and ptrs act as a little cache */
-    static PyObject *pname;
-    static slotdef *ptrs[MAX_EQUIV];
+    slotdef *ptrs[MAX_EQUIV];
     slotdef *p, **pp;
     void **res, **ptr;
 
-    if (pname != name) {
         /* Collect all slotdefs that match name into ptrs. */
-        pname = name;
-        pp = ptrs;
-        for (p = slotdefs; p->name_strobj; p++) {
-            if (p->name_strobj == name)
-                *pp++ = p;
-        }
-        *pp = NULL;
+    pp = ptrs;
+    for (p = slotdefs; p->name_strobj; p++) {
+        if (p->name_strobj == name)
+            *pp++ = p;
     }
+    *pp = NULL;
 
     /* Look in all slots of the type matching the name. If exactly one of these
        has a filled-in slot, return a pointer to that slot.
