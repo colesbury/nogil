@@ -1414,7 +1414,7 @@ static int add_ast_fields(void)
 }
 
 
-static int init_types(void)
+static int init_types_inner(void)
 {
     PyObject *m;
     if (PyState_FindModule(&_astmodule) == NULL) {
@@ -1835,6 +1835,24 @@ static int init_types(void)
                                        TypeIgnore_fields, 2);
     if (!state->TypeIgnore_type) return 0;
     state->initialized = 1;
+    return 1;
+}
+
+static int
+init_types(void)
+{
+    static _PyOnceFlag once;
+    if (!_PyBeginOnce(&once)) {
+        return 1;
+    }
+
+    int ok = init_types_inner();
+    if (!ok) {
+        _PyEndOnceFailed(&once);
+        return 0;
+    }
+
+    _PyEndOnce(&once);
     return 1;
 }
 

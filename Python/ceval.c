@@ -194,9 +194,15 @@ PyEval_ThreadsInitialized(void)
     return gil_created(&runtime->ceval.gil);
 }
 
+static _PyOnceFlag init_threads_once_flag;
+
 void
 PyEval_InitThreads(void)
 {
+    if (!_PyBeginOnce(&init_threads_once_flag)) {
+        return;
+    }
+
     _PyRuntimeState *runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     struct _gil_runtime_state *gil = &ceval->gil;
@@ -216,6 +222,7 @@ PyEval_InitThreads(void)
     if (pending->lock == NULL) {
         Py_FatalError("Can't initialize threads for pending calls");
     }
+    _PyEndOnce(&init_threads_once_flag);
 }
 
 void
@@ -226,6 +233,13 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
         return;
     }
 
+    // FIXME (sgross): this is never executed because the order is always:
+    // 1) _PyEval_Initialize (calls _gil_initialize)
+    // 2) _PyEval_FiniThreads
+    // 3) PyEval_InitThreads
+    // Since the GIL is always initialized in step (1) then it's never
+    // created in step 2.
+
     destroy_gil(gil);
     assert(!gil_created(gil));
 
@@ -234,6 +248,7 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
         PyThread_free_lock(pending->lock);
         pending->lock = NULL;
     }
+    memset(&init_threads_once_flag, 0, sizeof(init_threads_once_flag));
 }
 
 static inline void
@@ -659,6 +674,7 @@ _PyEval_Initialize(struct _ceval_runtime_state *state)
     state->recursion_limit = Py_DEFAULT_RECURSION_LIMIT;
     _Py_CheckRecursionLimit = Py_DEFAULT_RECURSION_LIMIT;
     _gil_initialize(&state->gil);
+    memset(&init_threads_once_flag, 0, sizeof(init_threads_once_flag));
 }
 
 int
