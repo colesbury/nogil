@@ -483,11 +483,16 @@ PyOS_AfterFork_Child(void)
     _PyRuntimeState *runtime = &_PyRuntime;
     _PyGILState_Reinit(runtime);
     _PyEval_ReInitThreads(runtime);
+
+    /* Clears the parking lot. Any waiting threads are dead. This must be
+     * called before _PyImport_ReInitLock so that unlocking the import
+     * lock doesn't try to wak up dead threads. */
+    _PyParkingLot_AfterFork();
+
     _PyImport_ReInitLock();
     _PySignal_AfterFork();
     _PyRuntimeState_ReInitThreads(runtime);
     _PyInterpreterState_DeleteExceptMain(runtime);
-    _PyParkingLot_AfterFork();
     _PyRuntimeState_StartTheWorld(runtime);
     _PyMutex_unlock(&runtime->stoptheworld_mutex);
 
