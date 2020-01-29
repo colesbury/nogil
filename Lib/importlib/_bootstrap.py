@@ -690,6 +690,7 @@ def _load_unlocked(spec):
         # their own.
         module = sys.modules.pop(spec.name)
         sys.modules[spec.name] = module
+        _imp.module_initialized(module)
         _verbose_message('import {!r} # {!r}', spec.name, spec.loader)
     finally:
         spec._initializing = False
