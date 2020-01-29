@@ -148,51 +148,22 @@ _PyImportZip_Init(PyThreadState *tstate)
    in different threads to return with a partially loaded module.
    These calls are serialized by the global interpreter lock. */
 
-static PyThread_type_lock import_lock = 0;
-static unsigned long import_lock_thread = PYTHREAD_INVALID_THREAD_ID;
-static int import_lock_level = 0;
+_PyRecursiveMutex import_lock;
 
 void
 _PyImport_AcquireLock(void)
 {
-    unsigned long me = PyThread_get_thread_ident();
-    if (me == PYTHREAD_INVALID_THREAD_ID)
-        return; /* Too bad */
-    if (import_lock == NULL) {
-        import_lock = PyThread_allocate_lock();
-        if (import_lock == NULL)
-            return;  /* Nothing much we can do. */
-    }
-    if (import_lock_thread == me) {
-        import_lock_level++;
-        return;
-    }
-    if (import_lock_thread != PYTHREAD_INVALID_THREAD_ID ||
-        !PyThread_acquire_lock(import_lock, 0))
-    {
-        PyThreadState *tstate = PyEval_SaveThread();
-        PyThread_acquire_lock(import_lock, 1);
-        PyEval_RestoreThread(tstate);
-    }
-    assert(import_lock_level == 0);
-    import_lock_thread = me;
-    import_lock_level = 1;
+    _PyRecursiveMutex_lock(&import_lock);
 }
 
 int
 _PyImport_ReleaseLock(void)
 {
-    unsigned long me = PyThread_get_thread_ident();
-    if (me == PYTHREAD_INVALID_THREAD_ID || import_lock == NULL)
-        return 0; /* Too bad */
-    if (import_lock_thread != me)
+    if (!_PyRecursiveMutex_owns_lock(&import_lock)) {
+        /* Awkward... but test_imp.py checks for this case. */
         return -1;
-    import_lock_level--;
-    assert(import_lock_level >= 0);
-    if (import_lock_level == 0) {
-        import_lock_thread = PYTHREAD_INVALID_THREAD_ID;
-        PyThread_release_lock(import_lock);
     }
+    _PyRecursiveMutex_unlock(&import_lock);
     return 1;
 }
 
@@ -205,25 +176,15 @@ _PyImport_ReleaseLock(void)
 void
 _PyImport_ReInitLock(void)
 {
-    if (import_lock != NULL) {
-        if (_PyThread_at_fork_reinit(&import_lock) < 0) {
-            _Py_FatalErrorFunc(__func__, "failed to create a new lock");
-        }
+    if (!_PyRecursiveMutex_owns_lock(&import_lock)) {
+        /* We acquire the import lock before forking, so we should stil be
+         * holding it after the fork. */
+        Py_FatalError("forked thread does not hold import lock");
     }
-    if (import_lock_level > 1) {
-        /* Forked as a side effect of import */
-        unsigned long me = PyThread_get_thread_ident();
-        /* The following could fail if the lock is already held, but forking as
-           a side-effect of an import is a) rare, b) nuts, and c) difficult to
-           do thanks to the lock only being held when doing individual module
-           locks per import. */
-        PyThread_acquire_lock(import_lock, NOWAIT_LOCK);
-        import_lock_thread = me;
-        import_lock_level--;
-    } else {
-        import_lock_thread = PYTHREAD_INVALID_THREAD_ID;
-        import_lock_level = 0;
-    }
+
+    /* This requires that _PyParkingLot_AfterFork() be called before hand.
+     * Otherwise we may try to wake up a dead thread. */
+    _PyRecursiveMutex_unlock(&import_lock);
 }
 #endif
 
@@ -239,7 +200,7 @@ static PyObject *
 _imp_lock_held_impl(PyObject *module)
 /*[clinic end generated code: output=8b89384b5e1963fc input=9b088f9b217d9bdf]*/
 {
-    return PyBool_FromLong(import_lock_thread != PYTHREAD_INVALID_THREAD_ID);
+    return PyBool_FromLong(_PyRecursiveMutex_owns_lock(&import_lock));
 }
 
 /*[clinic input]
@@ -279,14 +240,32 @@ _imp_release_lock_impl(PyObject *module)
     Py_RETURN_NONE;
 }
 
+/*[clinic input]
+_imp.module_initialized
+
+    mod: object
+    initialized: bool
+    \
+
+Marks the module as initialized.
+[clinic start generated code]*/
+
+static PyObject *
+_imp_module_initialized_impl(PyObject *module, PyObject *mod,
+                             int initialized)
+/*[clinic end generated code: output=095eaf5a632a5e69 input=358a9cd7d8eb70e1]*/
+{
+    if (PyModule_Check(mod)) {
+        _PyModule_SetInitialized(mod, initialized);
+    }
+    Py_RETURN_NONE;
+}
+
 void
 _PyImport_Fini(void)
 {
     Py_CLEAR(extensions);
-    if (import_lock != NULL) {
-        PyThread_free_lock(import_lock);
-        import_lock = NULL;
-    }
+    memset(&import_lock, 0, sizeof(import_lock));
 }
 
 void
@@ -369,8 +348,7 @@ import_get_module(PyThreadState *tstate, PyObject *name)
     PyObject *m;
     Py_INCREF(modules);
     if (PyDict_CheckExact(modules)) {
-        m = PyDict_GetItemWithError(modules, name);  /* borrowed */
-        Py_XINCREF(m);
+        m = PyDict_GetItemWithError2(modules, name);
     }
     else {
         m = PyObject_GetItem(modules, name);
@@ -387,7 +365,6 @@ static int
 import_ensure_initialized(PyThreadState *tstate, PyObject *mod, PyObject *name)
 {
     PyInterpreterState *interp = tstate->interp;
-    PyObject *spec;
 
     _Py_IDENTIFIER(_lock_unlock_module);
 
@@ -396,10 +373,7 @@ import_ensure_initialized(PyThreadState *tstate, PyObject *mod, PyObject *name)
        NOTE: because of this, initializing must be set *before*
        stuffing the new module in sys.modules.
     */
-    spec = _PyObject_GetAttrId(mod, &PyId___spec__);
-    int busy = _PyModuleSpec_IsInitializing(spec);
-    Py_XDECREF(spec);
-    if (busy) {
+    if (!PyModule_Check(mod) || !_PyModule_IsInitialized(mod)) {
         /* Wait until module is done importing. */
         PyObject *value = _PyObject_CallMethodIdOneArg(
             interp->importlib, &PyId__lock_unlock_module, name);
@@ -2392,6 +2366,7 @@ static PyMethodDef imp_methods[] = {
     _IMP_EXEC_BUILTIN_METHODDEF
     _IMP__FIX_CO_FILENAME_METHODDEF
     _IMP_SOURCE_HASH_METHODDEF
+    _IMP_MODULE_INITIALIZED_METHODDEF
     {NULL, NULL}  /* sentinel */
 };
 

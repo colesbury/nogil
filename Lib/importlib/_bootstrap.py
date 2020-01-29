@@ -669,6 +669,7 @@ def _load_unlocked(spec):
     # (otherwise an optimization shortcut in import.c becomes
     # wrong).
     spec._initializing = True
+    _imp.module_initialized(module, False)
     try:
         sys.modules[spec.name] = module
         try:
@@ -690,6 +691,7 @@ def _load_unlocked(spec):
         # their own.
         module = sys.modules.pop(spec.name)
         sys.modules[spec.name] = module
+        _imp.module_initialized(module, True)
         _verbose_message('import {!r} # {!r}', spec.name, spec.loader)
     finally:
         spec._initializing = False
