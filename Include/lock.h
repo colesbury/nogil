@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+struct _ts;
+typedef struct _ts PyThreadState;
+
 typedef struct {
     uintptr_t v;
 } _PyRawMutex;
@@ -14,6 +17,10 @@ typedef struct {
 typedef struct {
     uintptr_t v;
 } _PyRawEvent;
+
+typedef struct {
+    uintptr_t v;
+} _PyOnceFlag;
 
 typedef struct {
     uintptr_t v;
@@ -32,6 +39,7 @@ typedef enum {
     UNLOCKED = 0,
     LOCKED = 1,
     HAS_PARKED = 2,
+    ONCE_INITIALIZED = 4,
 } _PyMutex_State;
 
 void _PyMutex_lock_slow(_PyMutex *m);
@@ -51,6 +59,11 @@ void _PyRawEvent_Reset(_PyRawEvent *o);
 void _PyEvent_Notify(_PyEvent *o);
 void _PyEvent_Wait(_PyEvent *o, PyThreadState *tstate);
 int _PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns);
+
+int _PyBeginOnce_slow(_PyOnceFlag *o);
+void _PyEndOnce(_PyOnceFlag *o);
+void _PyEndOnceFailed(_PyOnceFlag *o);
+
 
 static inline int
 _PyMutex_is_locked(_PyMutex *m)
@@ -127,6 +140,15 @@ static inline int
 _PyEvent_IsSet(_PyEvent *e)
 {
     return _Py_atomic_load_uintptr(&e->v) == LOCKED;
+}
+
+static inline int
+_PyBeginOnce(_PyOnceFlag *o)
+{
+    if ((_Py_atomic_load_uintptr(&o->v) & ONCE_INITIALIZED) != 0) {
+        return 0;
+    }
+    return _PyBeginOnce_slow(o);
 }
 
 #ifdef __cplusplus

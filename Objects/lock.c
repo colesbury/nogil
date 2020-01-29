@@ -227,6 +227,51 @@ _PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns)
     return _Py_atomic_load_uintptr(&o->v) == LOCKED;
 }
 
+int
+_PyBeginOnce_slow(_PyOnceFlag *o)
+{
+    for (;;) {
+        uintptr_t v = _Py_atomic_load_uintptr(&o->v);
+        if (v == UNLOCKED) {
+            if (_Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, LOCKED)) {
+                return 1;
+            }
+        }
+        if (v == ONCE_INITIALIZED) {
+            return 0;
+        }
+
+        assert((v & LOCKED) != 0);
+        uintptr_t newv = LOCKED | HAS_PARKED;
+        if (!_Py_atomic_compare_exchange_uintptr(&o->v, v, newv)) {
+            continue;
+        }
+
+        _PyTime_t now = _PyTime_GetMonotonicClock();
+        _PyParkingLot_Park(&o->v, newv, now, -1);
+    }
+}
+
+void
+_PyEndOnce(_PyOnceFlag *o)
+{
+    uintptr_t v = _Py_atomic_exchange_uintptr(&o->v, ONCE_INITIALIZED);
+    assert((v & LOCKED) != 0);
+    if ((v & HAS_PARKED) != 0) {
+        _PyParkingLot_UnparkAll(&o->v);
+    }
+}
+
+void
+_PyEndOnceFailed(_PyOnceFlag *o)
+{
+    uintptr_t v = _Py_atomic_exchange_uintptr(&o->v, UNLOCKED);
+    assert((v & LOCKED) != 0);
+    if ((v & HAS_PARKED) != 0) {
+        _PyParkingLot_UnparkAll(&o->v);
+    }
+}
+
 //
 
 void
