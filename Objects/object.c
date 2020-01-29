@@ -2259,8 +2259,8 @@ _Py_MergeZeroRefcount(PyObject *op)
             shared | _Py_REF_MERGED_MASK);
     } while (!ok);
 
-    op->ob_tid = 0;
-    op->ob_ref_local = 0;
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
+    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
 
     if (refcount == 0) {
         _Py_Dealloc(op);
