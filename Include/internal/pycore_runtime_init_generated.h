@@ -955,6 +955,7 @@ extern "C" {
     INIT_ID(initial), \
     INIT_ID(initial_bytes), \
     INIT_ID(initial_value), \
+    INIT_ID(initialized), \
     INIT_ID(initval), \
     INIT_ID(inner_size), \
     INIT_ID(input), \

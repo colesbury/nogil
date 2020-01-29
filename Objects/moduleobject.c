@@ -51,6 +51,22 @@ PyModuleDef_Init(PyModuleDef* def)
     return (PyObject*)def;
 }
 
+int
+_PyModule_IsInitialized(PyObject *self)
+{
+    assert(PyModule_Check(self));
+    PyModuleObject *mod = (PyModuleObject*)self;
+    return _Py_atomic_load_int(&mod->md_initialized);
+}
+
+void
+_PyModule_SetInitialized(PyObject *self, int initialized)
+{
+    assert(PyModule_Check(self));
+    PyModuleObject *mod = (PyModuleObject*)self;
+    _Py_atomic_store_int(&mod->md_initialized, initialized);
+}
+
 static int
 module_init_dict(PyModuleObject *mod, PyObject *md_dict,
                  PyObject *name, PyObject *doc)
@@ -70,7 +86,9 @@ module_init_dict(PyModuleObject *mod, PyObject *md_dict,
     if (PyDict_SetItem(md_dict, &_Py_ID(__spec__), Py_None) != 0)
         return -1;
     if (PyUnicode_CheckExact(name)) {
-        Py_XSETREF(mod->md_name, Py_NewRef(name));
+        Py_INCREF(name);
+        PyUnicode_InternInPlace(&name);
+        Py_XSETREF(mod->md_name, name);
     }
 
     return 0;
@@ -111,6 +129,7 @@ PyModule_NewObject(PyObject *name)
     PyModuleObject *m = new_module_notrack(&PyModule_Type);
     if (m == NULL)
         return NULL;
+    m->md_initialized = 1;
     if (module_init_dict(m, m->md_dict, name, NULL) != 0)
         goto fail;
     PyObject_GC_Track(m);
@@ -125,7 +144,7 @@ PyObject *
 PyModule_New(const char *name)
 {
     PyObject *nameobj, *module;
-    nameobj = PyUnicode_FromString(name);
+    nameobj = PyUnicode_InternFromString(name);
     if (nameobj == NULL)
         return NULL;
     module = PyModule_NewObject(nameobj);
@@ -254,6 +273,7 @@ _PyModule_CreateInitialized(PyModuleDef* module, int module_api_version)
         }
     }
     m->md_def = module;
+    m->md_initialized = 1;
     return (PyObject*)m;
 }
 
@@ -274,6 +294,7 @@ PyModule_FromDefAndSpec2(PyModuleDef* def, PyObject *spec, int module_api_versio
     if (nameobj == NULL) {
         return NULL;
     }
+    PyUnicode_InternInPlace(&nameobj);
     name = PyUnicode_AsUTF8(nameobj);
     if (name == NULL) {
         goto error;

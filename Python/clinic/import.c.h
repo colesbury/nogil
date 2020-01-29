@@ -69,6 +69,67 @@ _imp_release_lock(PyObject *module, PyObject *Py_UNUSED(ignored))
     return _imp_release_lock_impl(module);
 }
 
+PyDoc_STRVAR(_imp_module_initialized__doc__,
+"module_initialized($module, /, mod, initialized)\n"
+"--\n"
+"\n"
+"Marks the module as initialized.");
+
+#define _IMP_MODULE_INITIALIZED_METHODDEF    \
+    {"module_initialized", _PyCFunction_CAST(_imp_module_initialized), METH_FASTCALL|METH_KEYWORDS, _imp_module_initialized__doc__},
+
+static PyObject *
+_imp_module_initialized_impl(PyObject *module, PyObject *mod,
+                             int initialized);
+
+static PyObject *
+_imp_module_initialized(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 2
+    static struct {
+        _PyGC_Head_UNUSED _this_is_not_used;
+        PyObject_VAR_HEAD
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_item = { &_Py_ID(mod), &_Py_ID(initialized), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"mod", "initialized", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "module_initialized",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[2];
+    PyObject *mod;
+    int initialized;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser, 2, 2, 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    mod = args[0];
+    initialized = PyObject_IsTrue(args[1]);
+    if (initialized < 0) {
+        goto exit;
+    }
+    return_value = _imp_module_initialized_impl(module, mod, initialized);
+
+exit:
+    return return_value;
+}
+
 PyDoc_STRVAR(_imp__fix_co_filename__doc__,
 "_fix_co_filename($module, code, path, /)\n"
 "--\n"
@@ -617,4 +678,4 @@ exit:
 #ifndef _IMP_EXEC_DYNAMIC_METHODDEF
     #define _IMP_EXEC_DYNAMIC_METHODDEF
 #endif /* !defined(_IMP_EXEC_DYNAMIC_METHODDEF) */
-/*[clinic end generated code: output=b69045413c136c4e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c116db5eadfd91bd input=a9049054013a1b77]*/

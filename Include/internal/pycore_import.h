@@ -22,11 +22,7 @@ struct _import_runtime_state {
        Modules are added there and looked up in _imp.find_extension(). */
     PyObject *extensions;
     /* The global import lock. */
-    struct {
-        PyThread_type_lock mutex;
-        unsigned long thread;
-        int level;
-    } lock;
+    _PyRecursiveMutex lock;
     struct {
         int import_level;
         _PyTime_t accumulated;

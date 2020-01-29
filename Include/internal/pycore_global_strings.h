@@ -449,6 +449,7 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(initial)
         STRUCT_FOR_ID(initial_bytes)
         STRUCT_FOR_ID(initial_value)
+        STRUCT_FOR_ID(initialized)
         STRUCT_FOR_ID(initval)
         STRUCT_FOR_ID(inner_size)
         STRUCT_FOR_ID(input)

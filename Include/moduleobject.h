@@ -30,6 +30,8 @@ PyAPI_FUNC(PyObject *) PyModule_GetFilenameObject(PyObject *);
 #ifndef Py_LIMITED_API
 PyAPI_FUNC(void) _PyModule_Clear(PyObject *);
 PyAPI_FUNC(void) _PyModule_ClearDict(PyObject *);
+PyAPI_FUNC(int) _PyModule_IsInitialized(PyObject *);
+PyAPI_FUNC(void) _PyModule_SetInitialized(PyObject *self, int initialized);
 PyAPI_FUNC(int) _PyModuleSpec_IsInitializing(PyObject *);
 #endif
 PyAPI_FUNC(PyModuleDef*) PyModule_GetDef(PyObject*);

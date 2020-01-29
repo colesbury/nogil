@@ -964,6 +964,7 @@ _PyStaticObjects_CheckRefcnt(PyInterpreterState *interp) {
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(initial));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(initial_bytes));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(initial_value));
+    _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(initialized));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(initval));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(inner_size));
     _PyStaticObject_CheckRefcnt((PyObject *)&_Py_ID(input));
