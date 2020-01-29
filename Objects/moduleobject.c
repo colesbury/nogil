@@ -19,6 +19,7 @@ typedef struct {
     void *md_state;
     PyObject *md_weaklist;
     PyObject *md_name;  /* for logging purposes after md_dict is cleared */
+    int md_initialized;
 } PyModuleObject;
 
 static PyMemberDef module_members[] = {
@@ -46,6 +47,22 @@ PyModuleDef_Init(struct PyModuleDef* def)
         def->m_base.m_index = _Py_atomic_add_ssize(&max_module_number, 1) + 1;
     }
     return (PyObject*)def;
+}
+
+int
+_PyModule_IsInitialized(PyObject *self)
+{
+    assert(PyModule_Check(self));
+    PyModuleObject *mod = (PyModuleObject*)self;
+    return _Py_atomic_load_int(&mod->md_initialized);
+}
+
+void
+_PyModule_SetInitialized(PyObject *self, int initialized)
+{
+    assert(PyModule_Check(self));
+    PyModuleObject *mod = (PyModuleObject*)self;
+    return _Py_atomic_store_int(&mod->md_initialized, initialized);
 }
 
 static int
@@ -91,6 +108,7 @@ PyModule_NewObject(PyObject *name)
     m->md_weaklist = NULL;
     m->md_name = NULL;
     m->md_dict = PyDict_New();
+    m->md_initialized = 1;
     if (module_init_dict(m, m->md_dict, name, NULL) != 0)
         goto fail;
     PyObject_GC_Track(m);
@@ -232,6 +250,7 @@ _PyModule_CreateInitialized(struct PyModuleDef* module, int module_api_version)
         }
     }
     m->md_def = module;
+    m->md_initialized = 1;
     return (PyObject*)m;
 }
 

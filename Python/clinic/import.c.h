@@ -63,6 +63,44 @@ _imp_release_lock(PyObject *module, PyObject *Py_UNUSED(ignored))
     return _imp_release_lock_impl(module);
 }
 
+PyDoc_STRVAR(_imp_module_initialized__doc__,
+"module_initialized($module, /, mod, initialized)\n"
+"--\n"
+"\n"
+"Marks the module as initialized.");
+
+#define _IMP_MODULE_INITIALIZED_METHODDEF    \
+    {"module_initialized", (PyCFunction)(void(*)(void))_imp_module_initialized, METH_FASTCALL|METH_KEYWORDS, _imp_module_initialized__doc__},
+
+static PyObject *
+_imp_module_initialized_impl(PyObject *module, PyObject *mod,
+                             int initialized);
+
+static PyObject *
+_imp_module_initialized(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
+{
+    PyObject *return_value = NULL;
+    static const char * const _keywords[] = {"mod", "initialized", NULL};
+    static _PyArg_Parser _parser = {NULL, _keywords, "module_initialized", 0};
+    PyObject *argsbuf[2];
+    PyObject *mod;
+    int initialized;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser, 2, 2, 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    mod = args[0];
+    initialized = PyObject_IsTrue(args[1]);
+    if (initialized < 0) {
+        goto exit;
+    }
+    return_value = _imp_module_initialized_impl(module, mod, initialized);
+
+exit:
+    return return_value;
+}
+
 PyDoc_STRVAR(_imp__fix_co_filename__doc__,
 "_fix_co_filename($module, code, path, /)\n"
 "--\n"
@@ -454,4 +492,4 @@ exit:
 #ifndef _IMP_EXEC_DYNAMIC_METHODDEF
     #define _IMP_EXEC_DYNAMIC_METHODDEF
 #endif /* !defined(_IMP_EXEC_DYNAMIC_METHODDEF) */
-/*[clinic end generated code: output=3dc495e9c64d944e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=ad3aa4964e8ac26f input=a9049054013a1b77]*/
