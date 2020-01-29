@@ -2329,6 +2329,41 @@ done:
     Py_RETURN_NONE;
 }
 
+/*[clinic input]
+_collections.synchronized
+
+    src: object
+    /
+
+Returns a thread-safe copy of the specified list or dict.
+[clinic start generated code]*/
+
+static PyObject *
+_collections_synchronized(PyObject *module, PyObject *src)
+/*[clinic end generated code: output=30e43f7ece4371fc input=427969464f0fc44c]*/
+{
+    if (PyDict_Check(src)) {
+        PyObject *copy = PyDict_Copy(src);
+        if (!copy) {
+            return NULL;
+        }
+        ((PyDictObject*)copy)->ma_use_mutex = 1;
+        return copy;
+    }
+
+    if (PyList_Check(src)) {
+        return PyErr_Format(
+            PyExc_TypeError,
+            "synchronized NOT IMPLEMENTED %s",
+            Py_TYPE(src)->tp_name);
+    }
+
+    return PyErr_Format(
+        PyExc_TypeError,
+        "synchronized expected dict or list, got %s",
+        Py_TYPE(src)->tp_name);
+}
+
 /* Helper function for namedtuple() ************************************/
 
 typedef struct {
@@ -2500,6 +2535,7 @@ PyDoc_STRVAR(module_doc,
 
 static struct PyMethodDef module_functions[] = {
     _COLLECTIONS__COUNT_ELEMENTS_METHODDEF
+    _COLLECTIONS_SYNCHRONIZED_METHODDEF
     {NULL,       NULL}          /* sentinel */
 };
 

@@ -15,7 +15,7 @@ list, set, and tuple.
 '''
 
 __all__ = ['deque', 'defaultdict', 'namedtuple', 'UserDict', 'UserList',
-            'UserString', 'Counter', 'OrderedDict', 'ChainMap']
+            'UserString', 'Counter', 'OrderedDict', 'ChainMap', 'synchronized']
 
 import _collections_abc
 from operator import itemgetter as _itemgetter, eq as _eq
@@ -35,6 +35,11 @@ else:
 
 try:
     from _collections import defaultdict
+except ImportError:
+    pass
+
+try:
+    from _collections import synchronized
 except ImportError:
     pass
 

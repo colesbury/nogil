@@ -33,6 +33,15 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(_collections_synchronized__doc__,
+"synchronized($module, src, /)\n"
+"--\n"
+"\n"
+"Returns a thread-safe copy of the specified list or dict.");
+
+#define _COLLECTIONS_SYNCHRONIZED_METHODDEF    \
+    {"synchronized", (PyCFunction)_collections_synchronized, METH_O, _collections_synchronized__doc__},
+
 static PyObject *
 tuplegetter_new_impl(PyTypeObject *type, Py_ssize_t index, PyObject *doc);
 
@@ -73,4 +82,4 @@ tuplegetter_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=9d2bfcc9df5faf35 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=2410cb6a78a99465 input=a9049054013a1b77]*/
