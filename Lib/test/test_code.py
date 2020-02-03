@@ -425,7 +425,7 @@ if check_impl_detail(cpython=True) and ctypes is not None:
                     self.f = f
                     self.test = test
                 def run(self):
-                    del self.f
+                    self.f = None
                     gc.collect()
                     self.test.assertEqual(LAST_FREED, 500)
 
