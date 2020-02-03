@@ -1368,7 +1368,7 @@ Py_FinalizeEx(void)
 
     /* Remaining threads (e.g. daemon threads) will automatically exit
        after taking the GIL (in PyEval_RestoreThread()). */
-    runtime->finalizing = tstate; // FIXME: sgross data race
+    _Py_atomic_store_ptr(&runtime->finalizing, tstate);
     runtime->initialized = 0;
     runtime->core_initialized = 0;
 

@@ -256,7 +256,8 @@ exit_thread_if_finalizing(PyThreadState *tstate)
 {
     _PyRuntimeState *runtime = tstate->interp->runtime;
     /* _Py_Finalizing is protected by the GIL */
-    if (runtime->finalizing != NULL && !_Py_CURRENTLY_FINALIZING(runtime, tstate)) {
+    PyThreadState *finalizing = _Py_atomic_load_ptr_relaxed(&runtime->finalizing);
+    if (finalizing && finalizing != tstate) {
         drop_gil(&runtime->ceval, tstate);
         PyThread_exit_thread();
     }
