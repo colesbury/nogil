@@ -208,10 +208,6 @@ class Queue(object):
     def _feed(buffer, notempty, send_bytes, writelock, close, ignore_epipe,
               onerror, queue_sem):
         debug('starting thread to feed data to pipe')
-        nacquire = notempty.acquire
-        nrelease = notempty.release
-        nwait = notempty.wait
-        bpopleft = buffer.popleft
         sentinel = _sentinel
         if sys.platform != 'win32':
             wacquire = writelock.acquire
@@ -221,32 +217,29 @@ class Queue(object):
 
         while 1:
             try:
-                nacquire()
-                try:
+                with notempty:
                     if not buffer:
-                        nwait()
-                finally:
-                    nrelease()
-                try:
-                    while 1:
-                        obj = bpopleft()
-                        if obj is sentinel:
-                            debug('feeder thread got sentinel -- exiting')
-                            close()
-                            return
+                        notempty.wait()
+                    try:
+                        obj = buffer.popleft()
+                    except IndexError:
+                        continue
 
-                        # serialize the data before acquiring the lock
-                        obj = _ForkingPickler.dumps(obj)
-                        if wacquire is None:
-                            send_bytes(obj)
-                        else:
-                            wacquire()
-                            try:
-                                send_bytes(obj)
-                            finally:
-                                wrelease()
-                except IndexError:
-                    pass
+                if obj is sentinel:
+                    debug('feeder thread got sentinel -- exiting')
+                    close()
+                    return
+
+                # serialize the data before acquiring the lock
+                obj = _ForkingPickler.dumps(obj)
+                if wacquire is None:
+                    send_bytes(obj)
+                else:
+                    wacquire()
+                    try:
+                        send_bytes(obj)
+                    finally:
+                        wrelease()
             except Exception as e:
                 if ignore_epipe and getattr(e, 'errno', 0) == errno.EPIPE:
                     return
