@@ -47,6 +47,7 @@ __author__ = 'Brian Quinlan (brian@sweetapp.com)'
 
 import atexit
 import os
+import collections
 from concurrent.futures import _base
 import queue
 from queue import Full
@@ -512,7 +513,6 @@ class BrokenProcessPool(_base.BrokenExecutor):
     while a future was in the running state.
     """
 
-
 class ProcessPoolExecutor(_base.Executor):
     def __init__(self, max_workers=None, mp_context=None,
                  initializer=None, initargs=()):
@@ -527,6 +527,7 @@ class ProcessPoolExecutor(_base.Executor):
             initializer: A callable used to initialize worker processes.
             initargs: A tuple of arguments to pass to the initializer.
         """
+        self.__dict__ = collections.synchronized(self.__dict__)
         _check_system_limits()
 
         if max_workers is None:
