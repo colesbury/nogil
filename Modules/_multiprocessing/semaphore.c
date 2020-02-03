@@ -163,6 +163,7 @@ semlock_release(SemLockObject *self, PyObject *args)
         assert(self->count == 1);
     }
 
+    --self->count;
     if (!ReleaseSemaphore(self->handle, 1, NULL)) {
         if (GetLastError() == ERROR_TOO_MANY_POSTS) {
             PyErr_SetString(PyExc_ValueError, "semaphore or lock "
@@ -173,7 +174,6 @@ semlock_release(SemLockObject *self, PyObject *args)
         }
     }
 
-    --self->count;
     Py_RETURN_NONE;
 }
 
@@ -398,10 +398,10 @@ semlock_release(SemLockObject *self, PyObject *args)
 #endif
     }
 
+    --self->count;
     if (sem_post(self->handle) < 0)
         return PyErr_SetFromErrno(PyExc_OSError);
 
-    --self->count;
     Py_RETURN_NONE;
 }
 
