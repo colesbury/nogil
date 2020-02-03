@@ -1016,8 +1016,8 @@ init_sockobject(PySocketSockObject *s,
     else
 #endif
     {
-        s->sock_timeout = defaulttimeout;
-        if (defaulttimeout >= 0) {
+        s->sock_timeout = _Py_atomic_load_int64_relaxed(&defaulttimeout);
+        if (s->sock_timeout >= 0) {
             if (internal_setblocking(s, 0) == -1) {
                 return -1;
             }
@@ -6873,11 +6873,12 @@ Get host and port for a sockaddr.");
 static PyObject *
 socket_getdefaulttimeout(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    if (defaulttimeout < 0) {
+    _PyTime_t timeout = _Py_atomic_load_int64_relaxed(&defaulttimeout);
+    if (timeout < 0) {
         Py_RETURN_NONE;
     }
     else {
-        double seconds = _PyTime_AsSecondsDouble(defaulttimeout);
+        double seconds = _PyTime_AsSecondsDouble(timeout);
         return PyFloat_FromDouble(seconds);
     }
 }
@@ -6897,7 +6898,7 @@ socket_setdefaulttimeout(PyObject *self, PyObject *arg)
     if (socket_parse_timeout(&timeout, arg) < 0)
         return NULL;
 
-    defaulttimeout = timeout;
+    _Py_atomic_store_int64_relaxed(&defaulttimeout, timeout);
 
     Py_RETURN_NONE;
 }
