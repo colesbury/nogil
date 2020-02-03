@@ -4809,7 +4809,9 @@ _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr,
                  *     a = C()
                  */
                 if (cached->dk_refcnt == 1) {
+                    _PyMutex *mutex = dict_lock((PyDictObject*)dict);
                     CACHED_KEYS(tp) = make_keys_shared(dict);
+                    dict_unlock(mutex);
                 }
                 else {
                     CACHED_KEYS(tp) = NULL;
