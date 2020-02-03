@@ -6,6 +6,7 @@ import unittest
 import unittest.mock
 import queue as pyqueue
 import time
+import _atomic
 import io
 import itertools
 import sys
@@ -1662,6 +1663,18 @@ class _DummyList(object):
         with self._lock:
             return self._lengthbuf[0]
 
+
+class _DummyThreadList(object):
+        def __init__(self):
+            self._value = _atomic.int()
+
+        def append(self, _):
+            self._value.add(1)
+
+        def __len__(self):
+            return self._value.load()
+
+
 def _wait():
     # A crude wait/yield function not relying on synchronization primitives.
     time.sleep(0.01)
@@ -1747,7 +1760,7 @@ class _TestBarrier(BaseTestCase):
 
     def DummyList(self):
         if self.TYPE == 'threads':
-            return []
+            return _DummyThreadList()
         elif self.TYPE == 'manager':
             return self.manager.list()
         else:
