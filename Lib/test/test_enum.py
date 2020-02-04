@@ -2762,25 +2762,29 @@ class TestIntFlag(unittest.TestCase):
             def __hash__(self):
                 return hash(self._value_)
         # have multiple threads competing to complete the composite members
-        seen = set()
-        failed = False
-        def cycle_enum():
-            nonlocal failed
-            try:
-                for i in range(256):
-                    seen.add(TestFlag(i))
-            except Exception:
-                failed = True
-        threads = [
-                threading.Thread(target=cycle_enum)
-                for _ in range(8)
-                ]
+        class CycleEnum(threading.Thread):
+            def __init__(self):
+                super().__init__()
+                self.failed = False
+                self.seen = set()
+
+            def run(self):
+                try:
+                    for i in range(256):
+                        self.seen.add(TestFlag(i))
+                except Exception:
+                    self.failed = True
+
+        threads = [CycleEnum() for _ in range(8)]
         with support.start_threads(threads):
             pass
         # check that only 248 members were created
         self.assertFalse(
-                failed,
+                any(t.failed for t in threads),
                 'at least one thread failed while creating composite members')
+        seen = set()
+        for t in threads:
+            seen |= t.seen
         self.assertEqual(256, len(seen), 'too many composite members created')
 
 
