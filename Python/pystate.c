@@ -262,7 +262,7 @@ park_detached_threads(_PyRuntimeState *runtime)
             int status = _PyThreadState_GetStatus(p);
 
             if (status == _Py_THREAD_DETACHED &&
-                !p->cant_stop_wont_stop &&
+                !_Py_atomic_load_int32_relaxed(&p->cant_stop_wont_stop) &&
                 _Py_atomic_compare_exchange_int32(
                     &p->status,
                     _Py_THREAD_DETACHED,

@@ -95,7 +95,7 @@ struct _ts {
     /* The thread will not stop for GC or other stop-the-world requests.
      * Used for *short* critical sections that to prevent deadlocks between
      * finalizers and stopped threads. */
-    int cant_stop_wont_stop;
+    int32_t cant_stop_wont_stop;
 
     Py_tracefunc c_profilefunc;
     Py_tracefunc c_tracefunc;

@@ -554,7 +554,7 @@ critlock_acquire(critlockobject *self, PyObject *Py_UNUSED(ignored))
      * stop-the-world until after the lock is released. */
     _PyMutex_lock(&self->mutex);
     self->owner = (uintptr_t)tstate;
-    tstate->cant_stop_wont_stop = 1;
+    _Py_atomic_store_int32_relaxed(&tstate->cant_stop_wont_stop, 1);
 
     Py_RETURN_NONE;
 }
@@ -569,7 +569,7 @@ critlock_release(critlockobject *self, PyObject *Py_UNUSED(ignored))
      * the lock is released. */
     self->owner = 0;
     _PyMutex_unlock(&self->mutex);
-    tstate->cant_stop_wont_stop = 0;
+    _Py_atomic_store_int32_relaxed(&tstate->cant_stop_wont_stop, 0);
 
     Py_RETURN_NONE;
 }
