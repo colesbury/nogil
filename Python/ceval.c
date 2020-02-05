@@ -128,6 +128,7 @@ static size_t opcache_global_misses = 0;
         &(ceval)->eval_breaker, \
         GIL_REQUEST | \
         _Py_atomic_load_relaxed(&(ceval)->signals_pending) | \
+        _Py_atomic_load_relaxed(&(ceval)->please_stop) | \
         _Py_atomic_load_relaxed(&(ceval)->pending.calls_to_do) | \
         (ceval)->pending.async_exc)
 
