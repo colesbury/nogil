@@ -4161,12 +4161,12 @@ class _TestFinalize(BaseTestCase):
                 # insert finalizer at random key
                 util.Finalize(self, cb, exitpriority=random.randint(1, 100))
 
-        finish = False
+        finish = _atomic.int(0)
         exc = None
 
         def run_finalizers():
             nonlocal exc
-            while not finish:
+            while not finish.load():
                 time.sleep(random.random() * 1e-1)
                 try:
                     # A GC run will eventually happen during this,
@@ -4178,7 +4178,7 @@ class _TestFinalize(BaseTestCase):
         def make_finalizers():
             nonlocal exc
             d = {}
-            while not finish:
+            while not finish.load:
                 try:
                     # Old Foo's get gradually replaced and later
                     # collected by the GC (because of the cyclic ref)
@@ -4196,7 +4196,7 @@ class _TestFinalize(BaseTestCase):
                        threading.Thread(target=make_finalizers)]
             with test.support.start_threads(threads):
                 time.sleep(4.0)  # Wait a bit to trigger race condition
-                finish = True
+                finish.store(1)
             if exc is not None:
                 raise exc
         finally:
