@@ -1065,7 +1065,7 @@ class SizeofTest(unittest.TestCase):
         # bool objects are not gc tracked
         self.assertEqual(sys.getsizeof(True), vsize('') + self.longdigit)
         # but lists are
-        self.assertEqual(sys.getsizeof([]), vsize('Pn') + gc_header_size)
+        self.assertEqual(sys.getsizeof([]), vsize('PnPc') + gc_header_size)
 
     def test_errors(self):
         class BadSizeof:
@@ -1237,7 +1237,7 @@ class SizeofTest(unittest.TestCase):
         # list
         samples = [[], [1,2,3], ['1', '2', '3']]
         for sample in samples:
-            check(list(sample), vsize('Pn') + len(sample)*self.P)
+            check(list(sample), vsize('PnPc') + len(sample)*self.P)
         # sortwrapper (list)
         # XXX
         # cmpwrapper (list)

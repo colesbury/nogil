@@ -111,6 +111,24 @@ _PyList_DebugMallocStats(FILE *out)
 {
 }
 
+static inline _PyMutex *
+list_lock(PyListObject *op)
+{
+    if (op->use_mutex) {
+        _PyMutex_lock(&op->mutex);
+        return &op->mutex;
+    }
+    return NULL;
+}
+
+static inline void
+list_unlock(_PyMutex *mutex)
+{
+    if (mutex) {
+        _PyMutex_unlock(mutex);
+    }
+}
+
 PyObject *
 PyList_New(Py_ssize_t size)
 {
@@ -134,6 +152,8 @@ PyList_New(Py_ssize_t size)
     }
     Py_SET_SIZE(op, size);
     op->allocated = size;
+    op->mutex.v = 0;
+    op->use_mutex = 0;
     _PyObject_GC_TRACK(op);
     return (PyObject *) op;
 }
@@ -268,20 +288,25 @@ PyList_Insert(PyObject *op, Py_ssize_t where, PyObject *newitem)
 static int
 app1(PyListObject *self, PyObject *v)
 {
+    _PyMutex *mutex = list_lock(self);
     Py_ssize_t n = PyList_GET_SIZE(self);
 
     assert (v != NULL);
     if (n == PY_SSIZE_T_MAX) {
+        list_unlock(mutex);
         PyErr_SetString(PyExc_OverflowError,
             "cannot add more objects to list");
         return -1;
     }
 
-    if (list_resize(self, n+1) < 0)
+    if (list_resize(self, n+1) < 0){
+        list_unlock(mutex);
         return -1;
+    }
 
     Py_INCREF(v);
     PyList_SET_ITEM(self, n, v);
+    list_unlock(mutex);
     return 0;
 }
 
@@ -376,7 +401,14 @@ error:
 static Py_ssize_t
 list_length(PyListObject *a)
 {
-    return Py_SIZE(a);
+    if (_PY_LIKELY(!a->use_mutex)) {
+        return Py_SIZE(a);
+    }
+
+    _PyMutex *mutex = list_lock(a);
+    Py_ssize_t size = Py_SIZE(a);;
+    list_unlock(mutex);
+    return size;
 }
 
 static int

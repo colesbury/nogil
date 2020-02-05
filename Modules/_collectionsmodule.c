@@ -2352,10 +2352,12 @@ _collections_synchronized(PyObject *module, PyObject *src)
     }
 
     if (PyList_Check(src)) {
-        return PyErr_Format(
-            PyExc_TypeError,
-            "synchronized NOT IMPLEMENTED %s",
-            Py_TYPE(src)->tp_name);
+        PyObject *copy = PyList_GetSlice(src, 0, Py_SIZE(src));
+        if (!copy) {
+            return NULL;
+        }
+        ((PyListObject*)copy)->use_mutex = 1;
+        return copy;
     }
 
     return PyErr_Format(

@@ -10,6 +10,9 @@
    Similarly, PyList_GetItem does not increment the returned item's reference
    count.
 */
+#ifndef Py_LIMITED_API
+#include "lock.h"
+#endif
 
 #ifndef Py_LISTOBJECT_H
 #define Py_LISTOBJECT_H

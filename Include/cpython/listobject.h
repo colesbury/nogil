@@ -23,6 +23,10 @@ typedef struct {
      * the list is not yet visible outside the function that builds it.
      */
     Py_ssize_t allocated;
+
+    _PyMutex mutex;
+
+    char use_mutex;
 } PyListObject;
 
 PyAPI_FUNC(PyObject *) _PyList_Extend(PyListObject *, PyObject *);

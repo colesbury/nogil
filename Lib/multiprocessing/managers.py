@@ -16,6 +16,7 @@ __all__ = [ 'BaseManager', 'SyncManager', 'BaseProxy', 'Token',
 #
 
 import sys
+import collections
 import threading
 import signal
 import array
@@ -1192,6 +1193,10 @@ class SyncManager(BaseManager):
     this class.
     '''
 
+def synchronized_list(*args):
+    return collections.synchronized(list(*args))
+
+
 SyncManager.register('Queue', queue.Queue)
 SyncManager.register('JoinableQueue', queue.Queue)
 SyncManager.register('Event', threading.Event, EventProxy)
@@ -1203,7 +1208,7 @@ SyncManager.register('BoundedSemaphore', threading.BoundedSemaphore,
 SyncManager.register('Condition', threading.Condition, ConditionProxy)
 SyncManager.register('Barrier', threading.Barrier, BarrierProxy)
 SyncManager.register('Pool', pool.Pool, PoolProxy)
-SyncManager.register('list', list, ListProxy)
+SyncManager.register('list', synchronized_list, ListProxy)
 SyncManager.register('dict', dict, DictProxy)
 SyncManager.register('Value', Value, ValueProxy)
 SyncManager.register('Array', Array, ArrayProxy)
