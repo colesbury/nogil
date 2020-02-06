@@ -7,6 +7,7 @@
 
 import _imp as imp
 import _atomic
+import collections
 import os
 import importlib
 import sys
@@ -121,7 +122,7 @@ class ThreadedImportTests(unittest.TestCase):
                     del sys.modules[modname]
                 except KeyError:
                     pass
-            errors = []
+            errors = collections.synchronized([])
             done_tasks = _atomic.int(0)
             done.clear()
             t0 = time.monotonic()
