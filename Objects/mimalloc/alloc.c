@@ -391,15 +391,6 @@ void mi_free(void* p) mi_attr_noexcept
   const mi_segment_t* const segment = _mi_ptr_segment(p);
   if (mi_unlikely(segment == NULL)) return;  // checks for (p==NULL)
 
-#if (MI_DEBUG!=0)
-  if (mi_unlikely(!mi_is_in_heap_region(p))) {
-    _mi_warning_message("possibly trying to free a pointer that does not point to a valid heap region: %p\n"
-      "(this may still be a valid very large allocation (over 64MiB))\n", p);
-    if (mi_likely(_mi_ptr_cookie(segment) == segment->cookie)) {
-      _mi_warning_message("(yes, the previous pointer %p was valid after all)\n", p);
-    } 
-  }
-#endif
 #if (MI_DEBUG!=0 || MI_SECURE>=4)
   if (mi_unlikely(_mi_ptr_cookie(segment) != segment->cookie)) {
     _mi_error_message(EINVAL, "trying to free a pointer that does not point to a valid heap space: %p\n", p);
