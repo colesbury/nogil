@@ -340,7 +340,7 @@ struct mi_heap_s {
 // ------------------------------------------------------
 
 #define MI_DEBUG_UNINIT     (0xD0)
-#define MI_DEBUG_FREED      (0xDF)
+#define MI_DEBUG_FREED      (0xDD)
 #define MI_DEBUG_PADDING    (0xDE)
 
 #if (MI_DEBUG)
