@@ -55,6 +55,7 @@ extern mi_stats_t       _mi_stats_main;
 extern const mi_page_t  _mi_page_empty;
 bool       _mi_is_main_thread(void);
 bool       _mi_preloading(void);  // true while the C runtime is not ready
+void       _mi_thread_abandon(mi_tld_t *tld);
 
 // os.c
 size_t     _mi_os_page_size(void);
@@ -115,6 +116,8 @@ uint8_t    _mi_bsr(uintptr_t x);                // bit-scan-right, used on BSD i
 void       _mi_heap_destroy_pages(mi_heap_t* heap);
 void       _mi_heap_collect_abandon(mi_heap_t* heap);
 void       _mi_heap_set_default_direct(mi_heap_t* heap);
+void       _mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
+
 
 // "stats.c"
 void       _mi_stats_done(mi_stats_t* stats);
