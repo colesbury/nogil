@@ -13,6 +13,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // Empty page used to initialize the small free pages array
 const mi_page_t _mi_page_empty = {
   0, false, false, false, false,
+  0,       // tag
   0,       // capacity
   0,       // reserved capacity
   { 0 },   // flags
@@ -92,6 +93,7 @@ const mi_page_t _mi_page_empty = {
     SQNULL(   192), SQNULL(   224), SQNULL(   256), SQNULL(   320), SQNULL(   384), SQNULL(   448), SQNULL(   512), SQNULL(   640), /* 32 */ \
     SQNULL(   768), SQNULL(   896), SQNULL(  1024) /* 35 */ }
 
+static mi_span_queue_t _sq_empty[] = MI_SEGMENT_SPAN_QUEUES_EMPTY;
 
 // --------------------------------------------------------
 // Statically allocate an empty heap as the initial
@@ -115,67 +117,60 @@ mi_decl_cache_align const mi_heap_t _mi_heap_empty = {
   0,                // page count
   MI_BIN_FULL, 0,   // page retired min/max
   NULL,             // next
-  false
-};
-
-#define tld_empty_stats  ((mi_stats_t*)((uint8_t*)&tld_empty + offsetof(mi_tld_t,stats)))
-#define tld_empty_os     ((mi_os_tld_t*)((uint8_t*)&tld_empty + offsetof(mi_tld_t,os)))
-
-mi_decl_cache_align static const mi_tld_t tld_empty = {
-  0,
   false,
-  NULL, NULL,
-  { MI_SEGMENT_SPAN_QUEUES_EMPTY, 0, 0, 0, 0, tld_empty_stats, tld_empty_os }, // segments
-  { 0, tld_empty_stats }, // os
-  { MI_STATS_NULL }       // stats
+  0,
+  false
 };
 
 // the thread-local default heap for allocation
 mi_decl_thread mi_heap_t* _mi_heap_default = (mi_heap_t*)&_mi_heap_empty;
 
-extern mi_heap_t _mi_heap_main;
+#define _mi_heap_main   (_mi_main_heaps[0])
 
-static mi_tld_t tld_main = {
-  0, false,
-  &_mi_heap_main, & _mi_heap_main,
-  { MI_SEGMENT_SPAN_QUEUES_EMPTY, 0, 0, 0, 0, &tld_main.stats, &tld_main.os }, // segments
-  { 0, &tld_main.stats },  // os
-  { MI_STATS_NULL }       // stats
-};
+mi_heap_t _mi_main_heaps[MI_NUM_HEAPS];
 
-mi_heap_t _mi_heap_main = {
-  &tld_main,
-  MI_SMALL_PAGES_EMPTY,
-  MI_PAGE_QUEUES_EMPTY,
-  MI_ATOMIC_VAR_INIT(NULL),
-  0,                // thread id
-  0,                // initial cookie
-  0,                // arena id
-  { 0, 0 },         // the key of the main heap can be fixed (unlike page keys that need to be secure!)
-  { {0x846ca68b}, {0}, 0, true },  // random
-  0,                // page count
-  MI_BIN_FULL, 0,   // page retired min/max
-  NULL,             // next heap
-  false             // can reclaim
-};
+static mi_tld_t tld_main;
 
 bool _mi_process_is_initialized = false;  // set to `true` in `mi_process_init`.
 
 mi_stats_t _mi_stats_main = { MI_STATS_NULL };
 
 
+
+static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
+  if (heap->cookie != 0) return;
+  _mi_memcpy_aligned(heap, &_mi_heap_empty, sizeof(*heap));
+  heap->thread_id = _mi_thread_id();
+  heap->cookie = 1;
+  #if defined(_WIN32) && !defined(MI_SHARED_LIB)
+    _mi_random_init_weak(&heap->random);    // prevent allocation failure during bcrypt dll initialization with static linking
+  #else
+    _mi_random_init(&heap->random);
+  #endif
+  heap->cookie  = _mi_heap_random_next(heap) | 1;
+  heap->keys[0] = _mi_heap_random_next(heap);
+  heap->keys[1] = _mi_heap_random_next(heap);
+  heap->tld = tld;
+  heap->tag = tag;
+}
+
+static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])
+{
+  for (int tag = 0; tag < MI_NUM_HEAPS; tag++) {
+    _mi_heap_init_ex(&heaps[tag], tld, tag);
+    tld->default_heaps[tag] = &heaps[tag];
+  }
+  _mi_memcpy_aligned(&tld->segments.spans, &_sq_empty, sizeof(_sq_empty));
+  tld->heap_backing = &heaps[mi_heap_tag_default];
+  tld->heaps = heaps;
+  tld->segments.stats = &tld->stats;
+  tld->segments.os = &tld->os;
+  tld->os.stats = &tld->stats;
+}
+
 static void mi_heap_main_init(void) {
   if (_mi_heap_main.cookie == 0) {
-    _mi_heap_main.thread_id = _mi_thread_id();
-    _mi_heap_main.cookie = 1;
-    #if defined(_WIN32) && !defined(MI_SHARED_LIB)
-      _mi_random_init_weak(&_mi_heap_main.random);    // prevent allocation failure during bcrypt dll initialization with static linking
-    #else
-      _mi_random_init(&_mi_heap_main.random);
-    #endif
-    _mi_heap_main.cookie  = _mi_heap_random_next(&_mi_heap_main);
-    _mi_heap_main.keys[0] = _mi_heap_random_next(&_mi_heap_main);
-    _mi_heap_main.keys[1] = _mi_heap_random_next(&_mi_heap_main);
+    _mi_thread_init_ex(&tld_main, _mi_main_heaps);
   }
 }
 
@@ -191,7 +186,7 @@ mi_heap_t* _mi_heap_main_get(void) {
 
 // note: in x64 in release build `sizeof(mi_thread_data_t)` is under 4KiB (= OS page size).
 typedef struct mi_thread_data_s {
-  mi_heap_t  heap;  // must come first due to cast in `_mi_heap_done`
+  mi_heap_t  heaps[MI_NUM_HEAPS];  // must come first due to cast in `_mi_heap_done`
   mi_tld_t   tld;
 } mi_thread_data_t;
 
@@ -212,6 +207,7 @@ static mi_thread_data_t* mi_thread_data_alloc(void) {
     if (td != NULL) {
       td = mi_atomic_exchange_ptr_acq_rel(mi_thread_data_t, &td_cache[i], NULL);
       if (td != NULL) {
+        memset(td, 0, sizeof(*td));
         return td;
       }
     }
@@ -273,22 +269,8 @@ static bool _mi_heap_init(void) {
     if (td == NULL) return false;
 
     // OS allocated so already zero initialized
-    mi_tld_t*  tld = &td->tld;
-    mi_heap_t* heap = &td->heap;
-    _mi_memcpy_aligned(tld, &tld_empty, sizeof(*tld));
-    _mi_memcpy_aligned(heap, &_mi_heap_empty, sizeof(*heap));
-    heap->thread_id = _mi_thread_id();
-    _mi_random_init(&heap->random);
-    heap->cookie  = _mi_heap_random_next(heap) | 1;
-    heap->keys[0] = _mi_heap_random_next(heap);
-    heap->keys[1] = _mi_heap_random_next(heap);
-    heap->tld = tld;
-    tld->heap_backing = heap;
-    tld->heaps = heap;
-    tld->segments.stats = &tld->stats;
-    tld->segments.os = &tld->os;
-    tld->os.stats = &tld->stats;
-    _mi_heap_set_default_direct(heap);
+    _mi_thread_init_ex(&td->tld, td->heaps);
+    _mi_heap_set_default_direct(&td->heaps[0]);
   }
   return false;
 }

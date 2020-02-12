@@ -252,6 +252,7 @@ void _mi_page_reclaim(mi_heap_t* heap, mi_page_t* page) {
   mi_assert_internal(_mi_page_segment(page)->kind != MI_SEGMENT_HUGE);
   #endif
   mi_assert_internal(!page->is_reset);
+  mi_assert_internal(page->tag == heap->tag);
   // TODO: push on full queue immediately if it is full?
   mi_page_queue_t* pq = mi_page_queue(heap, mi_page_block_size(page));
   mi_page_queue_push(heap, pq, page);
@@ -672,6 +673,7 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   #else
   page->is_zero = page->is_zero_init;
   #endif
+  page->tag = heap->tag;
 
   mi_assert_internal(page->is_committed);
   mi_assert_internal(!page->is_reset);

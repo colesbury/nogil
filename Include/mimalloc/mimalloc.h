@@ -187,12 +187,22 @@ mi_decl_nodiscard mi_decl_export void* mi_realloc_aligned_at(void* p, size_t new
 struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
 
+typedef enum mi_heap_tag_e {
+  mi_heap_tag_default,
+  mi_heap_tag_obj,
+  mi_heap_tag_gc,
+  mi_heap_tag_list_array,
+  mi_heap_tag_dict_keys,
+  MI_NUM_HEAPS
+} mi_heap_tag_t;
+
 mi_decl_nodiscard mi_decl_export mi_heap_t* mi_heap_new(void);
 mi_decl_export void       mi_heap_delete(mi_heap_t* heap);
 mi_decl_export void       mi_heap_destroy(mi_heap_t* heap);
 mi_decl_export mi_heap_t* mi_heap_set_default(mi_heap_t* heap);
 mi_decl_export mi_heap_t* mi_heap_get_default(void);
 mi_decl_export mi_heap_t* mi_heap_get_backing(void);
+mi_decl_export mi_heap_t* mi_heap_get_tag(mi_heap_tag_t tag);
 mi_decl_export void       mi_heap_collect(mi_heap_t* heap, bool force) mi_attr_noexcept;
 
 mi_decl_nodiscard mi_decl_export mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size) mi_attr_noexcept mi_attr_malloc mi_attr_alloc_size(2);

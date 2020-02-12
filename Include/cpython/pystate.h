@@ -107,6 +107,13 @@ typedef struct _stack_chunk {
     PyObject * data[1]; /* Variable sized */
 } _PyStackChunk;
 
+struct mi_heap_s;
+typedef struct mi_heap_s mi_heap_t;
+
+// must match MI_NUM_HEAPS in mimalloc.h
+#define Py_NUM_HEAPS 5
+
+// The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
 
@@ -118,6 +125,8 @@ struct _ts {
     int status;
 
     uintptr_t eval_breaker;
+
+    mi_heap_t *heaps[Py_NUM_HEAPS];
 
     /* Has been initialized to a safe state.
 

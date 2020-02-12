@@ -200,6 +200,12 @@ mi_heap_t* mi_heap_get_backing(void) {
   return bheap;
 }
 
+mi_heap_t* mi_heap_get_tag(mi_heap_tag_t tag) {
+  mi_assert(tag >= 0 && tag < MI_NUM_HEAPS);
+  mi_heap_t* def = mi_heap_get_default();
+  return def->tld->default_heaps[tag];
+}
+
 mi_decl_nodiscard mi_heap_t* mi_heap_new_in_arena( mi_arena_id_t arena_id ) {
   mi_heap_t* bheap = mi_heap_get_backing();
   mi_heap_t* heap = mi_heap_malloc_tp(bheap, mi_heap_t);  // todo: OS allocate in secure mode?

@@ -1214,6 +1214,16 @@ static mi_segment_t* mi_abandoned_pop(void) {
    Abandon segment/page
 ----------------------------------------------------------- */
 
+extern mi_segment_t* _mi_segment_abandoned(void) {
+  mi_tagged_segment_t ts = mi_atomic_load_acquire(&abandoned);
+  mi_segment_t *segment = mi_tagged_segment_ptr(ts);
+  return segment;
+}
+
+extern mi_segment_t* _mi_segment_abandoned_visited(void) {
+  return mi_atomic_load_ptr_acquire(mi_segment_t, &abandoned_visited);
+}
+
 static void mi_segment_abandon(mi_segment_t* segment, mi_segments_tld_t* tld) {
   mi_assert_internal(segment->used == segment->abandoned);
   mi_assert_internal(segment->used > 0);
@@ -1276,7 +1286,7 @@ static mi_slice_t* mi_slices_start_iterate(mi_segment_t* segment, const mi_slice
 }
 
 // Possibly free pages and check if free space is available
-static bool mi_segment_check_free(mi_segment_t* segment, size_t slices_needed, size_t block_size, mi_segments_tld_t* tld) 
+static bool mi_segment_check_free(mi_segment_t* segment, size_t slices_needed, size_t block_size, int tag, mi_segments_tld_t* tld)
 {
   mi_assert_internal(block_size < MI_HUGE_BLOCK_SIZE);
   mi_assert_internal(mi_segment_is_abandoned(segment));
@@ -1304,7 +1314,7 @@ static bool mi_segment_check_free(mi_segment_t* segment, size_t slices_needed, s
         }
       }
       else {
-        if (page->xblock_size == block_size && mi_page_has_any_available(page)) {
+        if (page->xblock_size == block_size && mi_page_has_any_available(page) && page->tag == tag) {
           // a page has available free blocks of the right size
           has_page = true;
         }
@@ -1319,6 +1329,14 @@ static bool mi_segment_check_free(mi_segment_t* segment, size_t slices_needed, s
     slice = slice + slice->slice_count;
   }
   return has_page;
+}
+
+static mi_heap_t* mi_heap_from_tag(mi_heap_t* base, unsigned int tag)
+{
+  if (tag == base->tag) {
+    return base;
+  }
+  return base->tld->default_heaps[tag];
 }
 
 // Reclaim an abandoned segment; returns NULL if the segment was freed
@@ -1343,6 +1361,7 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
     if (mi_slice_is_used(slice)) {
       // in use: reclaim the page in our heap
       mi_page_t* page = mi_slice_to_page(slice);
+      mi_heap_t* target_heap = mi_heap_from_tag(heap, page->tag);
       mi_assert_internal(!page->is_reset);
       mi_assert_internal(page->is_committed);
       mi_assert_internal(mi_page_thread_free_flag(page)==MI_NEVER_DELAYED_FREE);
@@ -1351,7 +1370,7 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
       _mi_stat_decrease(&tld->stats->pages_abandoned, 1);
       segment->abandoned--;
       // set the heap again and allow delayed free again
-      mi_page_set_heap(page, heap);
+      mi_page_set_heap(page, target_heap);
       _mi_page_use_delayed_free(page, MI_USE_DELAYED_FREE, true); // override never (after heap is set)
       _mi_page_free_collect(page, false); // ensure used count is up to date
       if (mi_page_all_free(page)) {
@@ -1360,8 +1379,9 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
       }
       else {
         // otherwise reclaim it into the heap
-        _mi_page_reclaim(heap, page);
-        if (requested_block_size == page->xblock_size && mi_page_has_any_available(page)) {
+        _mi_page_reclaim(target_heap, page);
+        if (heap == target_heap &&
+            requested_block_size == page->xblock_size && mi_page_has_any_available(page)) {
           if (right_page_reclaimed != NULL) { *right_page_reclaimed = true; }
         }
       }
@@ -1403,7 +1423,7 @@ static mi_segment_t* mi_segment_try_reclaim(mi_heap_t* heap, size_t needed_slice
     // todo: an arena exclusive heap will potentially visit many abandoned unsuitable segments
     // and push them into the visited list and use many tries. Perhaps we can skip non-suitable ones in a better way?
     bool is_suitable = _mi_heap_memid_is_suitable(heap, segment->memid);
-    bool has_page = mi_segment_check_free(segment,needed_slices,block_size,tld); // try to free up pages (due to concurrent frees)
+    bool has_page = mi_segment_check_free(segment,needed_slices,block_size,heap->tag,tld); // try to free up pages (due to concurrent frees)
     if (segment->used == 0) {
       // free the segment (by forced reclaim) to make it available to other threads.
       // note1: we prefer to free a segment as that might lead to reclaiming another
@@ -1440,7 +1460,7 @@ void _mi_abandoned_collect(mi_heap_t* heap, bool force, mi_segments_tld_t* tld)
     mi_abandoned_visited_revisit(); 
   }
   while ((max_tries-- > 0) && ((segment = mi_abandoned_pop()) != NULL)) {
-    mi_segment_check_free(segment,0,0,tld); // try to free up pages (due to concurrent frees)
+    mi_segment_check_free(segment,0,0,heap->tag,tld); // try to free up pages (due to concurrent frees)
     if (segment->used == 0) {
       // free the segment (by forced reclaim) to make it available to other threads.
       // note: we could in principle optimize this by skipping reclaim and directly

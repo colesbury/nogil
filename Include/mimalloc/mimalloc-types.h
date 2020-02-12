@@ -67,7 +67,9 @@ terms of the MIT license. A copy of the license can be found in the file
 // Encoded free lists allow detection of corrupted free lists
 // and can detect buffer overflows, modify after free, and double `free`s.
 #if (MI_SECURE>=3 || MI_DEBUG>=1)
-#define MI_ENCODE_FREELIST  1
+// TODO(sgross): Don't encode free-list because it breaks the constraint that
+// freed blocks do not have the LSB of the first word set.
+//#define MI_ENCODE_FREELIST  1
 #endif
 
 
@@ -277,6 +279,7 @@ typedef struct mi_page_s {
   uint8_t               is_reset : 1;      // `true` if the page memory was reset
   uint8_t               is_committed : 1;  // `true` if the page virtual memory is committed
   uint8_t               is_zero_init : 1;  // `true` if the page was zero initialized
+  uint8_t               tag : 4;           // heap tag (mi_heap_tag_t)
 
   // layout like this to optimize access in `mi_malloc` and `mi_free`
   uint16_t              capacity;          // number of blocks committed, must be the first field, see `segment.c:page_clear`
@@ -454,6 +457,8 @@ struct mi_heap_s {
   size_t                page_retired_max;                    // largest retired index into the `pages` array.
   mi_heap_t*            next;                                // list of heaps per thread
   bool                  no_reclaim;                          // `true` if this heap should not reclaim abandoned pages
+  unsigned char         tag;
+  bool                  visited;                             // used by gcmodule.c
 };
 
 
@@ -601,6 +606,7 @@ struct mi_tld_s {
   bool                recurse;       // true if deferred was called; used to prevent infinite recursion.
   mi_heap_t*          heap_backing;  // backing heap of this thread (cannot be deleted)
   mi_heap_t*          heaps;         // list of heaps in this thread (so we can abandon all when the thread terminates)
+  mi_heap_t*          default_heaps[MI_NUM_HEAPS];
   mi_segments_tld_t   segments;      // segment tld
   mi_os_tld_t         os;            // os tld
   mi_stats_t          stats;         // statistics

@@ -115,6 +115,8 @@ void       _mi_segment_page_free(mi_page_t* page, bool force, mi_segments_tld_t*
 void       _mi_segment_page_abandon(mi_page_t* page, mi_segments_tld_t* tld);
 bool       _mi_segment_try_reclaim_abandoned( mi_heap_t* heap, bool try_all, mi_segments_tld_t* tld);
 void       _mi_segment_thread_collect(mi_segments_tld_t* tld);
+mi_segment_t* _mi_segment_abandoned(void);
+mi_segment_t* _mi_segment_abandoned_visited(void);
 
 #if MI_HUGE_PAGE_ABANDON
 void       _mi_segment_huge_page_free(mi_segment_t* segment, mi_page_t* page, mi_block_t* block);
@@ -438,9 +440,10 @@ static inline bool mi_heap_is_initialized(mi_heap_t* heap) {
 }
 
 static inline uintptr_t _mi_ptr_cookie(const void* p) {
-  extern mi_heap_t _mi_heap_main;
-  mi_assert_internal(_mi_heap_main.cookie != 0);
-  return ((uintptr_t)p ^ _mi_heap_main.cookie);
+  extern mi_heap_t _mi_main_heaps[];
+  mi_heap_t* _mi_heap_main = &_mi_main_heaps[mi_heap_tag_default];
+  mi_assert_internal(_mi_heap_main->cookie != 0);
+  return ((uintptr_t)p ^ _mi_heap_main->cookie);
 }
 
 /* -----------------------------------------------------------
