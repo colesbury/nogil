@@ -225,13 +225,10 @@ static bool _mi_heap_init(void) {
 void mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
 
 // Free the thread local default heap (called from `mi_thread_done`)
-static bool _mi_heap_done(mi_heap_t* heap) {
+bool _mi_heap_done(mi_heap_t* heap) {
   if (!mi_heap_is_initialized(heap)) return true;
 
-  // reset default heap
-  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
-
-  // switch to backing heap
+  // switch to backing heap and free it
   heap = heap->tld->heap_backing;
   if (!mi_heap_is_initialized(heap)) return false;
 
@@ -372,8 +369,11 @@ static void _mi_thread_done(mi_heap_t* heap) {
   if (!_mi_is_main_thread() && mi_heap_is_initialized(heap))  {
     _mi_stat_decrease(&heap->tld->stats.threads, 1);
   }
-  // abandon the thread local heap
-  if (_mi_heap_done(heap)) return; // returns true if already ran
+
+  if (!mi_heap_is_initialized(heap)) return;
+
+  // reset default heap
+  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
 }
 
 void _mi_heap_set_default_direct(mi_heap_t* heap)  {
