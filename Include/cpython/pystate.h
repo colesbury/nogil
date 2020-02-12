@@ -47,6 +47,10 @@ typedef struct _err_stackitem {
 } _PyErr_StackItem;
 
 
+struct mi_heap_s;
+typedef struct mi_heap_s mi_heap_t;
+
+
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
@@ -54,6 +58,10 @@ struct _ts {
     struct _ts *prev;
     struct _ts *next;
     PyInterpreterState *interp;
+
+    mi_heap_t *heap_backing;
+    mi_heap_t *heap_obj;
+    mi_heap_t *heap_gc;
 
     struct _frame *frame;
     int recursion_depth;

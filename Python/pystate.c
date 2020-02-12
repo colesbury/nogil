@@ -10,6 +10,8 @@
 #include "pycore_refcnt.h"
 #include "../Modules/hashtable.h"
 
+#include "mimalloc.h"
+
 /* --------------------------------------------------------------------------
 CAUTION
 
@@ -631,6 +633,10 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->context = NULL;
     tstate->context_ver = 1;
 
+    tstate->heap_backing = NULL;
+    tstate->heap_obj = NULL;
+    tstate->heap_gc = NULL;
+
     tstate->id = ++interp->tstate_next_unique_id;
 
     if (init) {
@@ -664,6 +670,9 @@ void
 _PyThreadState_Init(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
+    tstate->heap_backing = mi_heap_get_backing();
+    tstate->heap_obj = mi_heap_get_obj();
+    tstate->heap_gc = mi_heap_get_gc();
     // printf("_PyThreadState_Init: %p (tid %ld) runtime=%p interp=%p\n", tstate, tstate->fast_thread_id, runtime, tstate->interp);
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -806,11 +815,7 @@ PyThreadState_Clear(PyThreadState *tstate)
         fprintf(stderr,
           "PyThreadState_Clear: warning: thread still has a frame\n");
 
-    if (!tstate->fast_thread_id) {
-        Py_FatalError("no tstate->fast_thread_id");
-    }
     _Py_queue_destroy(tstate);
-    tstate->fast_thread_id = 0;
 
     Py_CLEAR(tstate->frame);
 
@@ -846,6 +851,7 @@ PyThreadState_Clear(PyThreadState *tstate)
     }
 }
 
+bool _mi_heap_done(mi_heap_t* heap);
 
 /* Common code for PyThreadState_Delete() and PyThreadState_DeleteCurrent() */
 static void
@@ -856,6 +862,22 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate == NULL) {
         Py_FatalError("PyThreadState_Delete: NULL tstate");
     }
+
+    if (tstate->fast_thread_id == _Py_ThreadId()) {
+        // NOTE: this may be called from a different thread. This can
+        // happend during shutdown of the interpreter or after forking.
+        // In these cases we don't delete the heap, because it's not
+        // safe to call that function from a different thread.
+        mi_thread_done();
+        if (tstate->heap_backing) {
+            _mi_heap_done(tstate->heap_backing);
+        }
+    }
+
+    tstate->heap_backing = NULL;
+    tstate->heap_obj = NULL;
+    tstate->heap_gc = NULL;
+
     PyInterpreterState *interp = tstate->interp;
     if (interp == NULL) {
         Py_FatalError("PyThreadState_Delete: NULL interp");
