@@ -14,6 +14,7 @@
 #include "pycore_refcnt.h"
 
 #include "parking_lot.h"
+#include "mimalloc.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -36,6 +37,10 @@ to avoid the expense of doing their own locking).
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#if PY_NUM_HEAPS != MI_NUM_HEAPS
+#error "PY_NUM_HEAPS does not match MI_NUM_HEAPS"
 #endif
 
 #define _PyRuntimeGILState_GetThreadState(gilstate) _PyThreadState_GET()
@@ -748,6 +753,9 @@ void
 _PyThreadState_Init(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
+    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
+        tstate->heaps[tag] = mi_heap_get_tag(tag);
+    }
     _PyParkingLot_InitThread();
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -964,6 +972,10 @@ tstate_delete_common(PyThreadState *tstate,
     }
     _Py_qsbr_unregister(tstate_impl->qsbr);
     tstate_impl->qsbr = NULL;
+
+    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
+        tstate->heaps[tag] = NULL;
+    }
 
     _PyRuntimeState *runtime = interp->runtime;
     HEAD_LOCK(runtime);

@@ -45,6 +45,12 @@ typedef struct _err_stackitem {
 } _PyErr_StackItem;
 
 
+struct mi_heap_s;
+typedef struct mi_heap_s mi_heap_t;
+
+// must match MI_NUM_HEAPS in mimalloc.h
+#define Py_NUM_HEAPS 5
+
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
@@ -60,6 +66,9 @@ struct _ts {
 
     /* Borrowed reference to the current frame (it can be NULL) */
     PyFrameObject *frame;
+
+    mi_heap_t *heaps[Py_NUM_HEAPS];
+
     int recursion_depth;
     char overflowed; /* The stack has overflowed. Allow 50 more calls
                         to handle the runtime error. */
