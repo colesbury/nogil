@@ -234,6 +234,7 @@ void _mi_page_reclaim(mi_heap_t* heap, mi_page_t* page) {
   mi_assert_internal(mi_page_thread_free_flag(page) != MI_NEVER_DELAYED_FREE);
   mi_assert_internal(_mi_page_segment(page)->page_kind != MI_PAGE_HUGE);
   mi_assert_internal(!page->is_reset);
+  mi_assert_internal(page->tag == heap->tag);
   // TODO: push on full queue immediately if it is full?
   mi_page_queue_t* pq = mi_page_queue(heap, mi_page_block_size(page));
   mi_page_queue_push(heap, pq, page);
@@ -613,6 +614,7 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   page->keys[1] = _mi_heap_random_next(heap);
   #endif
   page->is_zero = page->is_zero_init;
+  page->tag = heap->tag;
 
   mi_assert_internal(page->capacity == 0);
   mi_assert_internal(page->free == NULL);

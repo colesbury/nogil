@@ -189,6 +189,16 @@ mi_heap_t* mi_heap_get_backing(void) {
   return bheap;
 }
 
+mi_heap_t* mi_heap_get_obj(void) {
+  mi_heap_t* def = mi_heap_get_default();
+  return def->tld->heap_obj;
+}
+
+mi_heap_t* mi_heap_get_gc(void) {
+  mi_heap_t* def = mi_heap_get_default();
+  return def->tld->heap_gc;
+}
+
 mi_heap_t* mi_heap_new(void) {
   mi_heap_t* bheap = mi_heap_get_backing();
   mi_heap_t* heap = mi_heap_malloc_tp(bheap, mi_heap_t);  // todo: OS allocate in secure mode?
@@ -329,7 +339,7 @@ void mi_heap_destroy(mi_heap_t* heap) {
 ----------------------------------------------------------- */
 
 // Tranfer the pages from one heap to the other
-static void mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from) {
+void mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from) {
   mi_assert_internal(heap!=NULL);
   if (from==NULL || from->page_count == 0) return;
 

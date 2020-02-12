@@ -13,6 +13,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // Empty page used to initialize the small free pages array
 const mi_page_t _mi_page_empty = {
   0, false, false, false, false,
+  0,       // tag
   0,       // capacity
   0,       // reserved capacity
   { 0 },   // flags
@@ -98,6 +99,8 @@ const mi_heap_t _mi_heap_empty = {
   { {0}, {0}, 0 },
   0,                // page count
   NULL,             // next
+  false,
+  0,
   false
 };
 
@@ -110,9 +113,15 @@ mi_decl_thread mi_heap_t* _mi_heap_default = (mi_heap_t*)&_mi_heap_empty;
 
 extern mi_heap_t _mi_heap_main;
 
+// Initialized in mi_heap_init
+static mi_heap_t _mi_heap_main_obj;
+static mi_heap_t _mi_heap_main_gc;
+
 static mi_tld_t tld_main = {
   0, false,
   &_mi_heap_main, &_mi_heap_main,
+  &_mi_heap_main_obj,
+  &_mi_heap_main_gc,
   { { NULL, NULL }, {NULL ,NULL}, {NULL ,NULL, 0},
     0, 0, 0, 0, 0, 0, NULL,
     tld_main_stats, tld_main_os
@@ -163,8 +172,21 @@ mi_heap_t* _mi_heap_main_get(void) {
 // note: in x64 in release build `sizeof(mi_thread_data_t)` is under 4KiB (= OS page size).
 typedef struct mi_thread_data_s {
   mi_heap_t  heap;  // must come first due to cast in `_mi_heap_done`
+  mi_heap_t  heap_obj;
+  mi_heap_t  heap_gc;
   mi_tld_t   tld;
 } mi_thread_data_t;
+
+static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
+    memcpy(heap, &_mi_heap_empty, sizeof(*heap));
+    heap->thread_id = _mi_thread_id();
+    _mi_random_init(&heap->random);
+    heap->cookie  = _mi_heap_random_next(heap) | 1;
+    heap->keys[0] = _mi_heap_random_next(heap);
+    heap->keys[1] = _mi_heap_random_next(heap);
+    heap->tld = tld;
+    heap->tag = tag;
+}
 
 // Initialize the thread local default heap, called from `mi_thread_init`
 static bool _mi_heap_init(void) {
@@ -185,23 +207,22 @@ static bool _mi_heap_init(void) {
     }
     // OS allocated so already zero initialized
     mi_tld_t*  tld = &td->tld;
-    mi_heap_t* heap = &td->heap;
-    memcpy(heap, &_mi_heap_empty, sizeof(*heap));
-    heap->thread_id = _mi_thread_id();
-    _mi_random_init(&heap->random);
-    heap->cookie  = _mi_heap_random_next(heap) | 1;
-    heap->keys[0] = _mi_heap_random_next(heap);
-    heap->keys[1] = _mi_heap_random_next(heap);
-    heap->tld = tld;
-    tld->heap_backing = heap;
-    tld->heaps = heap;
+    _mi_heap_init_ex(&td->heap, &td->tld, mi_heap_tag_default);
+    _mi_heap_init_ex(&td->heap_obj, &td->tld, mi_heap_tag_obj);
+    _mi_heap_init_ex(&td->heap_gc, &td->tld, mi_heap_tag_gc);
+    tld->heap_backing = &td->heap;
+    tld->heaps = &td->heap;
+    tld->heap_obj = &td->heap_obj;
+    tld->heap_gc = &td->heap_gc;
     tld->segments.stats = &tld->stats;
     tld->segments.os = &tld->os;
     tld->os.stats = &tld->stats;
-    _mi_heap_set_default_direct(heap);
+    _mi_heap_set_default_direct(&td->heap);
   }
   return false;
 }
+
+void mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
 
 // Free the thread local default heap (called from `mi_thread_done`)
 static bool _mi_heap_done(mi_heap_t* heap) {
@@ -230,6 +251,8 @@ static bool _mi_heap_done(mi_heap_t* heap) {
 
   // collect if not the main thread
   if (heap != &_mi_heap_main) {
+    mi_heap_absorb(heap, heap->tld->heap_obj);
+    mi_heap_absorb(heap, heap->tld->heap_gc);
     _mi_heap_collect_abandon(heap);
   }
 
@@ -461,6 +484,8 @@ void mi_process_init(void) mi_attr_noexcept {
   _mi_verbose_message("process init: 0x%zx\n", _mi_thread_id());
   _mi_os_init();
   mi_heap_main_init();
+  _mi_heap_init_ex(&_mi_heap_main_obj, &tld_main, mi_heap_tag_obj);
+  _mi_heap_init_ex(&_mi_heap_main_gc, &tld_main, mi_heap_tag_gc);
   #if (MI_DEBUG)
   _mi_verbose_message("debug level : %d\n", MI_DEBUG);
   #endif

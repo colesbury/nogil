@@ -178,6 +178,8 @@ mi_decl_export void       mi_heap_destroy(mi_heap_t* heap);
 mi_decl_export mi_heap_t* mi_heap_set_default(mi_heap_t* heap);
 mi_decl_export mi_heap_t* mi_heap_get_default(void);
 mi_decl_export mi_heap_t* mi_heap_get_backing(void);
+mi_decl_export mi_heap_t* mi_heap_get_obj(void);
+mi_decl_export mi_heap_t* mi_heap_get_gc(void);
 mi_decl_export void       mi_heap_collect(mi_heap_t* heap, bool force) mi_attr_noexcept;
 
 mi_decl_nodiscard mi_decl_export mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size) mi_attr_noexcept mi_attr_malloc mi_attr_alloc_size(2);
@@ -227,6 +229,13 @@ mi_decl_nodiscard mi_decl_export void* mi_heap_rezalloc_aligned_at(mi_heap_t* he
 mi_decl_nodiscard mi_decl_export void* mi_heap_recalloc_aligned(mi_heap_t* heap, void* p, size_t newcount, size_t size, size_t alignment) mi_attr_noexcept mi_attr_alloc_size2(3,4) mi_attr_alloc_align(5);
 mi_decl_nodiscard mi_decl_export void* mi_heap_recalloc_aligned_at(mi_heap_t* heap, void* p, size_t newcount, size_t size, size_t alignment, size_t offset) mi_attr_noexcept mi_attr_alloc_size2(3,4);
 
+
+typedef enum mi_heap_tag_e {
+  mi_heap_tag_default,
+  mi_heap_tag_obj,
+  mi_heap_tag_gc,
+  _mi_heap_tag_last
+} mi_heap_tag_t;
 
 // ------------------------------------------------------
 // Analysis

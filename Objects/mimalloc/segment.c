@@ -989,6 +989,16 @@ static mi_segment_t* mi_abandoned_pop(void) {
    Abandon segment/page
 ----------------------------------------------------------- */
 
+extern mi_segment_t* _mi_segment_abandoned(void) {
+  mi_tagged_segment_t ts = mi_atomic_read(&abandoned);
+  mi_segment_t *segment = mi_tagged_segment_ptr(ts);
+  return segment;
+}
+
+extern mi_segment_t* _mi_segment_abandoned_visited(void) {
+  return mi_atomic_read_ptr(mi_segment_t, &abandoned_visited);
+}
+
 static void mi_segment_abandon(mi_segment_t* segment, mi_segments_tld_t* tld) {
   mi_assert_internal(segment->used == segment->abandoned);
   mi_assert_internal(segment->used > 0);
@@ -1066,6 +1076,21 @@ static bool mi_segment_check_free(mi_segment_t* segment, size_t block_size, bool
   return has_page;
 }
 
+static mi_heap_t* mi_heap_from_tag(mi_heap_t* base, unsigned int tag)
+{
+  if (tag == base->tag) {
+    return base;
+  } else if (tag == mi_heap_tag_default) {
+    return base->tld->heap_backing;
+  } else if (tag == mi_heap_tag_obj) {
+    return base->tld->heap_obj;
+  } else if (tag == mi_heap_tag_gc) {
+    return base->tld->heap_gc;
+  } else {
+    _mi_error_message(EINVAL, "unknown page tag: %u\n", tag);
+    return NULL;
+  }
+}
 
 // Reclaim a segment; returns NULL if the segment was freed
 // set `right_page_reclaimed` to `true` if it reclaimed a page of the right `block_size` that was not full.
@@ -1083,6 +1108,7 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
   for (size_t i = 0; i < segment->capacity; i++) {
     mi_page_t* page = &segment->pages[i];
     if (page->segment_in_use) {
+      mi_heap_t* target_heap = mi_heap_from_tag(heap, page->tag);
       mi_assert_internal(!page->is_reset);
       mi_assert_internal(page->is_committed);
       mi_assert_internal(mi_page_not_in_queue(page, tld));
@@ -1092,7 +1118,7 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
       mi_assert(page->next == NULL);
       _mi_stat_decrease(&tld->stats->pages_abandoned, 1);
       // set the heap again and allow heap thread delayed free again.
-      mi_page_set_heap(page, heap);
+      mi_page_set_heap(page, target_heap);
       _mi_page_use_delayed_free(page, MI_USE_DELAYED_FREE, true); // override never (after heap is set)
       // TODO: should we not collect again given that we just collected in `check_free`?
       _mi_page_free_collect(page, false); // ensure used count is up to date
@@ -1102,8 +1128,9 @@ static mi_segment_t* mi_segment_reclaim(mi_segment_t* segment, mi_heap_t* heap, 
       }
       else {
         // otherwise reclaim it into the heap
-        _mi_page_reclaim(heap, page);
-        if (requested_block_size == page->xblock_size && mi_page_has_any_available(page)) {
+        _mi_page_reclaim(target_heap, page);
+        if (heap == target_heap &&
+            requested_block_size == page->xblock_size && mi_page_has_any_available(page)) {
           if (right_page_reclaimed != NULL) { *right_page_reclaimed = true; }
         }
       }
