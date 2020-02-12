@@ -20,17 +20,22 @@ extern void * _PyMem_RawRealloc(void *, void *, size_t);
 extern void _PyMem_RawFree(void *, void *);
 #define PYRAW_ALLOC {NULL, _PyMem_RawMalloc, _PyMem_RawCalloc, _PyMem_RawRealloc, _PyMem_RawFree}
 
-#ifdef WITH_PYMALLOC
+extern void* _PyMem_Malloc(void *, size_t);
+extern void* _PyMem_Calloc(void *, size_t, size_t);
+extern void* _PyMem_Realloc(void *, void *, size_t);
+extern void _PyMem_Free(void *, void *);
+
 extern void* _PyObject_Malloc(void *, size_t);
 extern void* _PyObject_Calloc(void *, size_t, size_t);
-extern void _PyObject_Free(void *, void *);
 extern void* _PyObject_Realloc(void *, void *, size_t);
-#  define PYOBJ_ALLOC {NULL, _PyObject_Malloc, _PyObject_Calloc, _PyObject_Realloc, _PyObject_Free}
-#else
-# define PYOBJ_ALLOC PYRAW_ALLOC
-#endif  // WITH_PYMALLOC
 
-#define PYMEM_ALLOC PYOBJ_ALLOC
+extern void* _PyGC_Malloc(void *, size_t);
+extern void* _PyGC_Calloc(void *, size_t, size_t);
+extern void* _PyGC_Realloc(void *, void *, size_t);
+
+#  define PYMEM_ALLOC {NULL, _PyMem_Malloc, _PyMem_Calloc, _PyMem_Realloc, _PyMem_Free}
+#  define PYOBJ_ALLOC {NULL, _PyObject_Malloc, _PyObject_Calloc, _PyObject_Realloc, _PyMem_Free}
+#  define PYGC_ALLOC {NULL, _PyGC_Malloc, _PyGC_Calloc, _PyGC_Realloc, _PyMem_Free}
 
 extern void* _PyMem_DebugRawMalloc(void *, size_t);
 extern void* _PyMem_DebugRawCalloc(void *, size_t, size_t);
@@ -48,6 +53,8 @@ extern void _PyMem_DebugFree(void *, void *);
     {&(runtime).allocators.debug.mem, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
 #define PYDBGOBJ_ALLOC(runtime) \
     {&(runtime).allocators.debug.obj, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
+#define PYDBGGC_ALLOC(runtime) \
+    {&(runtime).allocators.debug.gc, _PyMem_DebugMalloc, _PyMem_DebugCalloc, _PyMem_DebugRealloc, _PyMem_DebugFree}
 
 extern void * _PyMem_ArenaAlloc(void *, size_t);
 extern void _PyMem_ArenaFree(void *, void *, size_t);
@@ -58,6 +65,7 @@ extern void _PyMem_ArenaFree(void *, void *, size_t);
         PYDBGRAW_ALLOC(runtime), \
         PYDBGMEM_ALLOC(runtime), \
         PYDBGOBJ_ALLOC(runtime), \
+        PYDBGGC_ALLOC(runtime), \
     }
 #else
 # define _pymem_allocators_standard_INIT(runtime) \
@@ -65,6 +73,7 @@ extern void _PyMem_ArenaFree(void *, void *, size_t);
         PYRAW_ALLOC, \
         PYMEM_ALLOC, \
         PYOBJ_ALLOC, \
+        PYGC_ALLOC, \
     }
 #endif
 
@@ -73,6 +82,7 @@ extern void _PyMem_ArenaFree(void *, void *, size_t);
        {'r', PYRAW_ALLOC}, \
        {'m', PYMEM_ALLOC}, \
        {'o', PYOBJ_ALLOC}, \
+       {'g', PYGC_ALLOC}, \
    }
 
 #  define _pymem_allocators_obj_arena_INIT \

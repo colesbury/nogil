@@ -812,8 +812,6 @@ class CmdLineTest(unittest.TestCase):
         tests = [
             (None, default_name),
             ('debug', default_name_debug),
-            ('malloc', 'malloc'),
-            ('malloc_debug', 'malloc_debug'),
         ]
         if pymalloc:
             tests.extend((

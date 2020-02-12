@@ -951,6 +951,10 @@ tracemalloc_start(int max_nframe)
     PyMem_GetAllocator(PYMEM_DOMAIN_OBJ, &allocators.obj);
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &alloc);
 
+    alloc.ctx = &allocators.gc;
+    PyMem_GetAllocator(PYMEM_DOMAIN_GC, &allocators.gc);
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &alloc);
+
     /* everything is ready: start tracing Python memory allocations */
     tracemalloc_config.tracing = 1;
 
@@ -973,6 +977,7 @@ tracemalloc_stop(void)
 #endif
     PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &allocators.mem);
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &allocators.obj);
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &allocators.gc);
 
     tracemalloc_clear_traces();
 
@@ -1718,14 +1723,8 @@ _PyTraceMalloc_NewReference(PyObject *op)
         return -1;
     }
 
-    uintptr_t ptr;
-    PyTypeObject *type = Py_TYPE(op);
-    if (PyType_IS_GC(type)) {
-        ptr = (uintptr_t)((char *)op - sizeof(PyGC_Head));
-    }
-    else {
-        ptr = (uintptr_t)op;
-    }
+    uintptr_t ptr = (uintptr_t)op;
+    ptr -= _PyType_PreHeaderSize(Py_TYPE(op));
 
     int res = -1;
 

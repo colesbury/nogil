@@ -22,11 +22,13 @@ struct _pymem_allocators {
         PyMemAllocatorEx raw;
         PyMemAllocatorEx mem;
         PyMemAllocatorEx obj;
+        PyMemAllocatorEx gc;
     } standard;
     struct {
         debug_alloc_api_t raw;
         debug_alloc_api_t mem;
         debug_alloc_api_t obj;
+        debug_alloc_api_t gc;
     } debug;
     PyObjectArenaAllocator obj_arena;
 };

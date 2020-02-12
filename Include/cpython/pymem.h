@@ -28,7 +28,12 @@ typedef enum {
     PYMEM_DOMAIN_MEM,
 
     /* PyObject_Malloc(), PyObject_Realloc() and PyObject_Free() */
-    PYMEM_DOMAIN_OBJ
+    PYMEM_DOMAIN_OBJ,
+
+    /* PyObject_GC_Malloc(), etc. */
+    PYMEM_DOMAIN_GC,
+
+    PYMEM_DOMAIN_COUNT
 } PyMemAllocatorDomain;
 
 typedef enum {
@@ -77,7 +82,7 @@ PyAPI_FUNC(void) PyMem_GetAllocator(PyMemAllocatorDomain domain,
    PyMem_SetupDebugHooks() function must be called to reinstall the debug hooks
    on top on the new allocator. */
 PyAPI_FUNC(void) PyMem_SetAllocator(PyMemAllocatorDomain domain,
-                                    PyMemAllocatorEx *allocator);
+                                    const PyMemAllocatorEx *allocator);
 
 /* Setup hooks to detect bugs in the following Python memory allocator
    functions:
@@ -96,3 +101,4 @@ PyAPI_FUNC(void) PyMem_SetAllocator(PyMemAllocatorDomain domain,
 
    The function does nothing if Python is not compiled is debug mode. */
 PyAPI_FUNC(void) PyMem_SetupDebugHooks(void);
+PyAPI_FUNC(int) _PyMem_DebugEnabled(void);

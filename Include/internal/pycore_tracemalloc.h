@@ -70,6 +70,7 @@ struct _tracemalloc_runtime_state {
         PyMemAllocatorEx mem;
         PyMemAllocatorEx raw;
         PyMemAllocatorEx obj;
+        PyMemAllocatorEx gc;
     } allocators;
 
 #if defined(TRACE_RAW_MALLOC)

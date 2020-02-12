@@ -60,6 +60,7 @@ static struct {
     PyMemAllocatorEx raw;
     PyMemAllocatorEx mem;
     PyMemAllocatorEx obj;
+    PyMemAllocatorEx gc;
 } FmHook;
 
 static struct {
@@ -133,6 +134,7 @@ fm_setup_hooks(void)
     PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &FmHook.raw);
     PyMem_GetAllocator(PYMEM_DOMAIN_MEM, &FmHook.mem);
     PyMem_GetAllocator(PYMEM_DOMAIN_OBJ, &FmHook.obj);
+    PyMem_GetAllocator(PYMEM_DOMAIN_GC, &FmHook.gc);
 
     alloc.ctx = &FmHook.raw;
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &alloc);
@@ -142,6 +144,9 @@ fm_setup_hooks(void)
 
     alloc.ctx = &FmHook.obj;
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &alloc);
+
+    alloc.ctx = &FmHook.gc;
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &alloc);
 }
 
 static void
@@ -152,6 +157,7 @@ fm_remove_hooks(void)
         PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &FmHook.raw);
         PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &FmHook.mem);
         PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &FmHook.obj);
+        PyMem_SetAllocator(PYMEM_DOMAIN_GC, &FmHook.gc);
     }
 }
 
@@ -268,6 +274,8 @@ test_setallocators(PyMemAllocatorDomain domain)
         case PYMEM_DOMAIN_OBJ:
             PyObject_Free(ptr2);
             break;
+        default:
+            break;
     }
 
     CHECK_CTX("free");
@@ -314,6 +322,8 @@ test_setallocators(PyMemAllocatorDomain domain)
             break;
         case PYMEM_DOMAIN_OBJ:
             PyObject_Free(ptr);
+            break;
+        default:
             break;
     }
 
