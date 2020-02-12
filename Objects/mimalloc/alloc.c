@@ -567,7 +567,7 @@ bool _mi_free_delayed_block(mi_block_t* block) {
   // get segment and page
   const mi_segment_t* const segment = _mi_ptr_segment(block);
   mi_assert_internal(_mi_ptr_cookie(segment) == segment->cookie);
-  mi_assert_internal(_mi_thread_id() == segment->thread_id);
+  // mi_assert_internal(_mi_thread_id() == segment->thread_id);
   mi_page_t* const page = _mi_segment_page_of(segment, block);
 
   // Clear the no-delayed flag so delayed freeing is used again for this page.

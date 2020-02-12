@@ -74,6 +74,7 @@ extern mi_decl_cache_align const mi_page_t  _mi_page_empty;
 bool       _mi_is_main_thread(void);
 size_t     _mi_current_thread_count(void);
 bool       _mi_preloading(void);  // true while the C runtime is not ready
+void       _mi_thread_abandon(mi_tld_t *tld);
 
 // os.c
 size_t     _mi_os_page_size(void);
@@ -159,6 +160,7 @@ void       _mi_heap_collect_abandon(mi_heap_t* heap);
 void       _mi_heap_set_default_direct(mi_heap_t* heap);
 bool       _mi_heap_memid_is_suitable(mi_heap_t* heap, size_t memid);
 void       _mi_heap_destroy_all(void);
+void       _mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
 
 // "stats.c"
 void       _mi_stats_done(mi_stats_t* stats);

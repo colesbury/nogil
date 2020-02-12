@@ -600,6 +600,12 @@ typedef struct mi_segments_tld_s {
   mi_os_tld_t*        os;           // points to os stats
 } mi_segments_tld_t;
 
+enum mi_tld_status_e {
+  MI_THREAD_ALIVE       = 0,
+  MI_THREAD_ABANDONED   = 1,
+  MI_THREAD_DEAD        = 2
+};
+
 // Thread local data
 struct mi_tld_s {
   unsigned long long  heartbeat;     // monotonic heartbeat count
@@ -610,6 +616,8 @@ struct mi_tld_s {
   mi_segments_tld_t   segments;      // segment tld
   mi_os_tld_t         os;            // os tld
   mi_stats_t          stats;         // statistics
+  _Atomic(uintptr_t)  refcount;      // used by pystate.c
+  _Atomic(uintptr_t)  status;        // used by pystate.c
 };
 
 #endif

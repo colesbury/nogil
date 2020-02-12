@@ -126,7 +126,8 @@ static void mi_heap_collect_ex(mi_heap_t* heap, mi_collect_t collect)
     #else
       collect >= MI_FORCE
     #endif
-      && _mi_is_main_thread() && mi_heap_is_backing(heap) && !heap->no_reclaim;
+      && _mi_is_main_thread() && mi_heap_is_backing(heap) && !heap->no_reclaim &&
+      heap->thread_id == _mi_thread_id();
 
   if (force_main) {
     // the main thread is abandoned (end-of-program), try to reclaim all abandoned segments.
@@ -373,7 +374,7 @@ void _mi_heap_destroy_all(void) {
 ----------------------------------------------------------- */
 
 // Transfer the pages from one heap to the other
-static void mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from) {
+void _mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from) {
   mi_assert_internal(heap!=NULL);
   if (from==NULL || from->page_count == 0) return;
 
@@ -416,7 +417,7 @@ void mi_heap_delete(mi_heap_t* heap)
 
   if (!mi_heap_is_backing(heap)) {
     // tranfer still used pages to the backing heap
-    mi_heap_absorb(heap->tld->heap_backing, heap);
+    _mi_heap_absorb(heap->tld->heap_backing, heap);
   }
   else {
     // the backing heap abandons its pages

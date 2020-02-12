@@ -275,19 +275,24 @@ static bool _mi_heap_init(void) {
   return false;
 }
 
-// Free the thread local default heap (called from `mi_thread_done`)
-static bool _mi_heap_done(mi_heap_t* heap) {
-  if (!mi_heap_is_initialized(heap)) return true;
+static void _mi_tld_destroy(mi_tld_t *tld);
 
-  // reset default heap
-  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
+void _mi_thread_abandon(mi_tld_t *tld) {
+  uintptr_t refcount = mi_atomic_decrement_acq_rel(&tld->refcount) - 1;
+  if (refcount != 0) {
+    return;
+  }
 
-  // switch to backing heap
-  heap = heap->tld->heap_backing;
-  if (!mi_heap_is_initialized(heap)) return false;
+  mi_heap_t *heap = tld->heap_backing;
+  mi_assert_internal(mi_heap_is_initialized(heap));
+
+  if (heap == &_mi_heap_main && heap->thread_id == _mi_thread_id()) {
+    mi_assert_internal(tld->status == 0);
+    return;
+  }
 
   // delete all non-backing heaps in this thread
-  mi_heap_t* curr = heap->tld->heaps;
+  mi_heap_t* curr = tld->heaps;
   while (curr != NULL) {
     mi_heap_t* next = curr->next; // save `next` as `curr` will be freed
     if (curr != heap) {
@@ -299,15 +304,31 @@ static bool _mi_heap_done(mi_heap_t* heap) {
   mi_assert_internal(heap->tld->heaps == heap && heap->next == NULL);
   mi_assert_internal(mi_heap_is_backing(heap));
 
-  // collect if not the main thread
-  if (heap != &_mi_heap_main) {
-    _mi_heap_collect_abandon(heap);
+  for (int tag = 0; tag < MI_NUM_HEAPS; tag++) {
+    if (tag != mi_heap_tag_default) {
+      _mi_heap_absorb(heap, heap->tld->default_heaps[tag]);
+    }
   }
+  _mi_heap_collect_abandon(heap);
 
   // merge stats
   _mi_stats_done(&heap->tld->stats);
 
-  // free if not the main thread
+  uintptr_t status;
+  do {
+    status = mi_atomic_load_relaxed(&tld->status);
+    if (status != MI_THREAD_ALIVE) {
+      _mi_tld_destroy(tld);
+      break;
+    }
+  } while (!mi_atomic_cas_strong_acq_rel(&tld->status, &status, MI_THREAD_ABANDONED));
+
+  // reset default heap
+  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
+}
+
+static void _mi_tld_destroy(mi_tld_t *tld) {
+  mi_heap_t *heap = tld->heap_backing;
   if (heap != &_mi_heap_main) {
     // the following assertion does not always hold for huge segments as those are always treated
     // as abondened: one may allocate it in one thread, but deallocate in another in which case
@@ -324,7 +345,6 @@ static bool _mi_heap_done(mi_heap_t* heap) {
     mi_assert_internal(heap->tld->heap_backing == &_mi_heap_main);
     #endif
   }
-  return false;
 }
 
 
@@ -434,8 +454,20 @@ static void _mi_thread_done(mi_heap_t* heap) {
   // check thread-id as on Windows shutdown with FLS the main (exit) thread may call this on thread-local heaps...
   if (heap->thread_id != _mi_thread_id()) return;
 
-  // abandon the thread local heap
-  if (_mi_heap_done(heap)) return;  // returns true if already ran
+  if (!mi_heap_is_initialized(heap)) return;
+
+  // reset default heap
+  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
+
+  mi_tld_t *tld = heap->tld;
+  uintptr_t status;
+  do {
+    status = mi_atomic_load_relaxed(&tld->status);
+    if (status != MI_THREAD_ALIVE) {
+      _mi_tld_destroy(tld);
+      break;
+    }
+  } while (!mi_atomic_cas_strong_acq_rel(&tld->status, &status, MI_THREAD_DEAD));
 }
 
 void _mi_heap_set_default_direct(mi_heap_t* heap)  {
