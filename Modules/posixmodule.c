@@ -588,11 +588,21 @@ PyOS_AfterFork_Child(void)
 
     _PyGILState_Reinit(runtime);
     _PyEval_ReInitThreads(runtime);
+
+    // re-creates runtime->interpreters.mutex
+    _PyRuntimeState_ReInitThreads(runtime);
     _PyImport_ReInitLock();
     _PySignal_AfterFork();
     _Py_queue_after_fork();
-    _PyRuntimeState_ReInitThreads(runtime);
+
+    PyThreadState *tstate = PyThreadState_GET();
+    PyThreadState *garbage = _PyThreadState_UnlinkExcept(runtime, tstate, 1);
+
     _PyInterpreterState_DeleteExceptMain(runtime);
+
+    // Now that we're in a good state we can delete the dead thread states.
+    // This may call arbitrary Python code from destructors.
+    _PyThreadState_DeleteGarbage(garbage);
 
     run_at_forkers(_PyInterpreterState_GET()->after_forkers_child, 0);
 }

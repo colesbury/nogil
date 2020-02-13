@@ -46,6 +46,7 @@ static PyObject *
 raiseTestError(const char* test_name, const char* msg)
 {
     PyErr_Format(TestError, "%s: %s", test_name, msg);
+
     return NULL;
 }
 
@@ -4030,6 +4031,7 @@ static struct {
     PyMemAllocatorEx raw;
     PyMemAllocatorEx mem;
     PyMemAllocatorEx obj;
+    PyMemAllocatorEx gc;
 } FmHook;
 
 static struct {
@@ -4103,6 +4105,7 @@ fm_setup_hooks(void)
     PyMem_GetAllocator(PYMEM_DOMAIN_RAW, &FmHook.raw);
     PyMem_GetAllocator(PYMEM_DOMAIN_MEM, &FmHook.mem);
     PyMem_GetAllocator(PYMEM_DOMAIN_OBJ, &FmHook.obj);
+    PyMem_GetAllocator(PYMEM_DOMAIN_GC, &FmHook.gc);
 
     alloc.ctx = &FmHook.raw;
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &alloc);
@@ -4112,6 +4115,9 @@ fm_setup_hooks(void)
 
     alloc.ctx = &FmHook.obj;
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &alloc);
+
+    alloc.ctx = &FmHook.gc;
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &alloc);
 }
 
 static void
@@ -4122,6 +4128,7 @@ fm_remove_hooks(void)
         PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &FmHook.raw);
         PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &FmHook.mem);
         PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &FmHook.obj);
+        PyMem_SetAllocator(PYMEM_DOMAIN_GC, &FmHook.gc);
     }
 }
 

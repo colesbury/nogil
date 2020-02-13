@@ -343,9 +343,6 @@ _PyEval_ReInitThreads(_PyRuntimeState *runtime)
     if (_PyThread_at_fork_reinit(&pending->lock) < 0) {
         Py_FatalError("Can't initialize threads for pending calls");
     }
-
-    /* Destroy all threads except the current one */
-    _PyThreadState_DeleteExcept(runtime, tstate);
 }
 #endif
 

@@ -15,6 +15,7 @@
 
 #include "parking_lot.h"
 #include "mimalloc.h"
+#include "mimalloc-internal.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -69,6 +70,7 @@ _PyRuntimeState_Init_impl(_PyRuntimeState *runtime)
     runtime->open_code_userdata = open_code_userdata;
     runtime->audit_hook_head = audit_hook_head;
 
+    _PyGC_ResetHeap();
     _PyEval_InitRuntimeState(&runtime->ceval);
 
     PyPreConfig_InitPythonConfig(&runtime->preconfig);
@@ -753,8 +755,10 @@ void
 _PyThreadState_Init(PyThreadState *tstate)
 {
     tstate->fast_thread_id = _Py_ThreadId();
+    mi_tld_t *tld = mi_heap_get_default()->tld;
+    mi_atomic_add_acq_rel(&tld->refcount, 1);
     for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
-        tstate->heaps[tag] = mi_heap_get_tag(tag);
+        tstate->heaps[tag] = &tld->heaps[tag];
     }
     _PyParkingLot_InitThread();
     _Py_queue_create(tstate);
@@ -973,6 +977,10 @@ tstate_delete_common(PyThreadState *tstate,
     _Py_qsbr_unregister(tstate_impl->qsbr);
     tstate_impl->qsbr = NULL;
 
+    if (tstate->heaps[0] != NULL) {
+        _mi_thread_abandon(tstate->heaps[0]->tld);
+    }
+
     for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
         tstate->heaps[tag] = NULL;
     }
@@ -1042,46 +1050,63 @@ PyThreadState_DeleteCurrent(void)
 
 
 /*
- * Delete all thread states except the one passed as argument.
+ * Detaches all thread states except the one passed as argument.
  * Note that, if there is a current thread state, it *must* be the one
  * passed as argument.  Also, this won't touch any other interpreters
  * than the current one, since we don't know which thread state should
  * be kept in those other interpreters.
  */
-void
-_PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
+PyThreadState *
+_PyThreadState_UnlinkExcept(_PyRuntimeState *runtime, PyThreadState *tstate, int already_dead)
 {
     PyInterpreterState *interp = tstate->interp;
-
     HEAD_LOCK(runtime);
     /* Remove all thread states, except tstate, from the linked list of
        thread states.  This will allow calling PyThreadState_Clear()
        without holding the lock. */
-    PyThreadState *list = interp->tstate_head;
-    if (list == tstate) {
-        list = tstate->next;
-    }
-    if (tstate->prev) {
+    PyThreadState *garbage = interp->tstate_head;
+    if (garbage == tstate)
+        garbage = tstate->next;
+    if (tstate->prev)
         tstate->prev->next = tstate->next;
-    }
-    if (tstate->next) {
+    if (tstate->next)
         tstate->next->prev = tstate->prev;
-    }
     tstate->prev = tstate->next = NULL;
     interp->tstate_head = tstate;
+    interp->num_threads = 1;
     HEAD_UNLOCK(runtime);
 
-    /* Clear and deallocate all stale thread states.  Even if this
-       executes Python code, we should be safe since it executes
-       in the current thread, not one of the stale threads. */
-    PyThreadState *p, *next;
-    for (p = list; p; p = next) {
+    for (PyThreadState *p = garbage; p; p = p->next) {
+        if (p->heaps[0] != NULL) {
+            mi_tld_t *tld = p->heaps[0]->tld;
+            if (already_dead) {
+                assert(tld->status == 0);
+                tld->status = MI_THREAD_DEAD;
+            }
+            _mi_thread_abandon(tld);
+        }
+    }
+
+    return garbage;
+}
+
+void
+_PyThreadState_DeleteGarbage(PyThreadState *garbage)
+{
+    PyThreadState *next;
+    for (PyThreadState *p = garbage; p; p = next) {
         next = p->next;
         PyThreadState_Clear(p);
         PyMem_RawFree(p);
     }
 }
 
+void
+_PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
+{
+    PyThreadState *garbage = _PyThreadState_UnlinkExcept(runtime, tstate, 0);
+    _PyThreadState_DeleteGarbage(garbage);
+}
 
 PyThreadState *
 _PyThreadState_UncheckedGet(void)

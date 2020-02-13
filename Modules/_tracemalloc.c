@@ -31,6 +31,7 @@ static struct {
     PyMemAllocatorEx mem;
     PyMemAllocatorEx raw;
     PyMemAllocatorEx obj;
+    PyMemAllocatorEx gc;
 } allocators;
 
 
@@ -1008,6 +1009,10 @@ tracemalloc_start(int max_nframe)
     PyMem_GetAllocator(PYMEM_DOMAIN_OBJ, &allocators.obj);
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &alloc);
 
+    alloc.ctx = &allocators.gc;
+    PyMem_GetAllocator(PYMEM_DOMAIN_GC, &allocators.gc);
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &alloc);
+
     /* everything is ready: start tracing Python memory allocations */
     _Py_tracemalloc_config.tracing = 1;
 
@@ -1030,6 +1035,7 @@ tracemalloc_stop(void)
 #endif
     PyMem_SetAllocator(PYMEM_DOMAIN_MEM, &allocators.mem);
     PyMem_SetAllocator(PYMEM_DOMAIN_OBJ, &allocators.obj);
+    PyMem_SetAllocator(PYMEM_DOMAIN_GC, &allocators.gc);
 
     tracemalloc_clear_traces();
 
