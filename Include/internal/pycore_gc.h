@@ -10,19 +10,22 @@ extern "C" {
 
 /* GC information is stored BEFORE the object structure. */
 typedef struct {
+    // Pointer to previous object in the list.
+    // Lowest three bits are used for flags documented later.
+    uintptr_t _gc_prev;
+
     // Pointer to next object in the list.
     // 0 means the object is not tracked
     uintptr_t _gc_next;
-
-    // Pointer to previous object in the list.
-    // Lowest two bits are used for flags documented later.
-    uintptr_t _gc_prev;
 } PyGC_Head;
 
 #define _Py_AS_GC(o) ((PyGC_Head *)(o)-1)
 
+#define _PyGC_TRACKED(g) \
+    (((g)->_gc_prev & _PyGC_PREV_MASK_TRACKED) != 0)
+
 /* True if the object is currently tracked by the GC. */
-#define _PyObject_GC_IS_TRACKED(o) (_Py_AS_GC(o)->_gc_next != 0)
+#define _PyObject_GC_IS_TRACKED(o) _PyGC_TRACKED(_Py_AS_GC(o))
 
 /* True if the object may be tracked by the GC in the future, or already is.
    This can be useful to implement some optimizations. */
@@ -32,20 +35,22 @@ typedef struct {
 
 
 /* Bit flags for _gc_prev */
-/* Bit 0 is set when tp_finalize is called */
-#define _PyGC_PREV_MASK_FINALIZED  (1)
-/* Bit 1 is set when the object is in generation which is GCed currently. */
-#define _PyGC_PREV_MASK_COLLECTING (2)
-/* The (N-2) most significant bits contain the real address. */
-#define _PyGC_PREV_SHIFT           (2)
-#define _PyGC_PREV_MASK            (((uintptr_t) -1) << _PyGC_PREV_SHIFT)
+/* Bit 0 is set if the object is tracked by the GC */
+#define _PyGC_PREV_MASK_TRACKED     (1)
+/* Bit 1 is set when tp_finalize is called */
+#define _PyGC_PREV_MASK_FINALIZED   (2)
+/* Bit 2 is set when the object is not currently reachable */
+#define _PyGC_PREV_MASK_UNREACHABLE (4)
+/* The (N-3) most significant bits contain the real address. */
+#define _PyGC_PREV_SHIFT            (3)
+#define _PyGC_PREV_MASK             (((uintptr_t) -1) << _PyGC_PREV_SHIFT)
 
 // Lowest bit of _gc_next is used for flags only in GC.
 // But it is always 0 for normal code.
 #define _PyGCHead_NEXT(g)        ((PyGC_Head*)(g)->_gc_next)
 #define _PyGCHead_SET_NEXT(g, p) ((g)->_gc_next = (uintptr_t)(p))
 
-// Lowest two bits of _gc_prev is used for _PyGC_PREV_MASK_* flags.
+// Lowest three bits of _gc_prev is used for _PyGC_PREV_MASK_* flags.
 #define _PyGCHead_PREV(g) ((PyGC_Head*)((g)->_gc_prev & _PyGC_PREV_MASK))
 #define _PyGCHead_SET_PREV(g, p) do { \
     assert(((uintptr_t)p & ~_PyGC_PREV_MASK) == 0); \
@@ -136,8 +141,6 @@ struct _gc_runtime_state {
 
     int enabled;
     int debug;
-    /* linked lists of container objects */
-    PyGC_Head head;
     /* a permanent generation which won't be collected */
     struct gc_generation_stats stats;
     /* true if we are currently running the collector */
@@ -169,12 +172,29 @@ struct _gc_runtime_state {
 };
 
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);
+PyAPI_FUNC(void) _PyGC_ResetHeap(void);
+PyAPI_FUNC(Py_ssize_t) _PyGC_Collect(PyThreadState *);
 
 static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
 {
     Py_ssize_t live = _Py_atomic_load_ssize_relaxed(&gcstate->gc_live);
     return !gcstate->collecting && gcstate->enabled && live >= gcstate->gc_threshold;
+}
+
+/* Remove `node` from the gc list it's currently in. */
+static inline void
+gc_list_remove(PyGC_Head *node)
+{
+    PyGC_Head *prev = _PyGCHead_PREV(node);
+    PyGC_Head *next = _PyGCHead_NEXT(node);
+
+    _PyGCHead_SET_NEXT(prev, next);
+    _PyGCHead_SET_PREV(next, prev);
+
+    // NOTE: clears _PyGC_PREV_MASK_UNREACHABLE
+    node->_gc_next = 0;
+    node->_gc_prev &= (_PyGC_PREV_MASK_TRACKED | _PyGC_PREV_MASK_FINALIZED);
 }
 
 // Functions to clear types free lists
