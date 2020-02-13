@@ -109,6 +109,8 @@ struct _gc_runtime_state {
 };
 
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);
+PyAPI_FUNC(void) _PyGC_ResetHeap(void);
+PyAPI_FUNC(Py_ssize_t) _PyGC_Collect(PyThreadState *);
 
 
 /* Set the memory allocator of the specified domain to the default.

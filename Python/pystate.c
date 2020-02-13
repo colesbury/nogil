@@ -62,6 +62,7 @@ _PyRuntimeState_Init_impl(_PyRuntimeState *runtime)
     runtime->open_code_userdata = open_code_userdata;
     runtime->audit_hook_head = audit_hook_head;
 
+    _PyGC_ResetHeap();
     _PyEval_Initialize(&runtime->ceval);
 
     PyPreConfig_InitPythonConfig(&runtime->preconfig);

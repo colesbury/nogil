@@ -2,6 +2,7 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
+#include "pycore_gc.h"
 
 #include <stdbool.h>
 #include "mimalloc.h"
@@ -609,6 +610,121 @@ void PyObject_Free(void *ptr) {
     }
     return _PyObject_Free(NULL, ptr);
 }
+
+static PyObject *
+_PyObject_GC_Alloc(int use_calloc, size_t basicsize)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
+    if (basicsize > PY_SSIZE_T_MAX - sizeof(PyGC_Head)) {
+        return _PyErr_NoMemory(tstate);
+    }
+    size_t size = sizeof(PyGC_Head) + basicsize;
+
+    PyMemAllocatorEx *a = &allocators[PYMEM_DOMAIN_GC];
+    PyGC_Head *g;
+    if (use_calloc) {
+        g = (PyGC_Head *)a->calloc(a->ctx, 1, size);
+    }
+    else {
+        g = (PyGC_Head *)a->malloc(a->ctx, size);
+    }
+    if (g == NULL) {
+        return _PyErr_NoMemory(tstate);
+    }
+    assert(((uintptr_t)g & 3) == 0);  // g must be aligned 4bytes boundary
+
+    g->_gc_next = 0;
+    g->_gc_prev = 0;
+    gcstate->generations[0].count++; /* number of allocated GC objects */
+    if (gcstate->generations[0].count > gcstate->generations[0].threshold &&
+        gcstate->enabled &&
+        gcstate->generations[0].threshold &&
+        !gcstate->collecting &&
+        !_PyErr_Occurred(tstate))
+    {
+        gcstate->collecting = 1;
+        _PyGC_Collect(tstate);
+        gcstate->collecting = 0;
+    }
+    PyObject *op = _Py_FROM_GC(g);
+    return op;
+}
+
+PyObject *
+_PyObject_GC_Malloc(size_t basicsize)
+{
+    return _PyObject_GC_Alloc(0, basicsize);
+}
+
+PyObject *
+_PyObject_GC_Calloc(size_t basicsize)
+{
+    return _PyObject_GC_Alloc(1, basicsize);
+}
+
+PyObject *
+_PyObject_GC_New(PyTypeObject *tp)
+{
+    PyObject *op = _PyObject_GC_Malloc(_PyObject_SIZE(tp));
+    if (op != NULL)
+        op = PyObject_INIT(op, tp);
+    return op;
+}
+
+PyVarObject *
+_PyObject_GC_NewVar(PyTypeObject *tp, Py_ssize_t nitems)
+{
+    size_t size;
+    PyVarObject *op;
+
+    if (nitems < 0) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    size = _PyObject_VAR_SIZE(tp, nitems);
+    op = (PyVarObject *) _PyObject_GC_Malloc(size);
+    if (op != NULL)
+        op = PyObject_INIT_VAR(op, tp, nitems);
+    return op;
+}
+
+PyVarObject *
+_PyObject_GC_Resize(PyVarObject *op, Py_ssize_t nitems)
+{
+    const size_t basicsize = _PyObject_VAR_SIZE(Py_TYPE(op), nitems);
+    _PyObject_ASSERT((PyObject *)op, !_PyObject_GC_IS_TRACKED(op));
+    if (basicsize > PY_SSIZE_T_MAX - sizeof(PyGC_Head)) {
+        return (PyVarObject *)PyErr_NoMemory();
+    }
+
+    PyGC_Head *g = _Py_AS_GC(op);
+    PyMemAllocatorEx *a = &allocators[PYMEM_DOMAIN_GC];
+    g = (PyGC_Head *)a->realloc(a->ctx, g, sizeof(PyGC_Head) + basicsize);
+    if (g == NULL)
+        return (PyVarObject *)PyErr_NoMemory();
+    op = (PyVarObject *) _Py_FROM_GC(g);
+    Py_SIZE(op) = nitems;
+    return op;
+}
+
+void
+PyObject_GC_Del(void *op)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
+    PyGC_Head *g = _Py_AS_GC(op);
+    if (_PY_UNLIKELY(g->_gc_next != 0)) {
+        assert(_PyThreadState_GET()->interp->gc.collecting);
+        gc_list_remove(g);
+    }
+    if (gcstate->generations[0].count > 0) {
+        gcstate->generations[0].count--;
+    }
+    PyMemAllocatorEx *a = &allocators[PYMEM_DOMAIN_GC];
+    a->free(a->ctx, g);
+}
+
 
 #ifdef WITH_PYMALLOC
 

@@ -77,34 +77,30 @@ PyAPI_FUNC(Py_ssize_t) _PyGC_CollectIfEnabled(void);
 
 /* GC information is stored BEFORE the object structure. */
 typedef struct {
+    // Pointer to previous object in the list.
+    // Lowest two bits are used for flags documented later.
+    _Alignas(16) uintptr_t _gc_prev;
+
     // Pointer to next object in the list.
     // 0 means the object is not tracked
     uintptr_t _gc_next;
-
-    // Pointer to previous object in the list.
-    // Lowest two bits are used for flags documented later.
-    uintptr_t _gc_prev;
 } PyGC_Head;
 
 #define _Py_AS_GC(o) ((PyGC_Head *)(o)-1)
+#define _Py_FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
 
-/* True if the object is currently tracked by the GC. */
-#define _PyObject_GC_IS_TRACKED(o) (_Py_AS_GC(o)->_gc_next != 0)
-
-/* True if the object may be tracked by the GC in the future, or already is.
-   This can be useful to implement some optimizations. */
-#define _PyObject_GC_MAY_BE_TRACKED(obj) \
-    (PyObject_IS_GC(obj) && \
-        (!PyTuple_CheckExact(obj) || _PyObject_GC_IS_TRACKED(obj)))
-
+/* See also private _PyObject_GC_IS_TRACKED() macro. */
+// TODO: should this be part of the public C-API and move to object.h?
+PyAPI_FUNC(int) PyObject_GC_IsTracked(void *);
+#define _PyObject_GC_IS_TRACKED(o) PyObject_GC_IsTracked(o)
 
 /* Bit flags for _gc_prev */
 /* Bit 0 is set when tp_finalize is called */
-#define _PyGC_PREV_MASK_FINALIZED  (1)
+// #define _PyGC_PREV_MASK_FINALIZED  (1)
 /* Bit 1 is set when the object is in generation which is GCed currently. */
-#define _PyGC_PREV_MASK_COLLECTING (2)
+// #define _PyGC_PREV_MASK_COLLECTING (2)
 /* The (N-2) most significant bits contain the real address. */
-#define _PyGC_PREV_SHIFT           (2)
+#define _PyGC_PREV_SHIFT           (4)
 #define _PyGC_PREV_MASK            (((uintptr_t) -1) << _PyGC_PREV_SHIFT)
 
 // Lowest bit of _gc_next is used for flags only in GC.
@@ -119,16 +115,6 @@ typedef struct {
     (g)->_gc_prev = ((g)->_gc_prev & ~_PyGC_PREV_MASK) \
         | ((uintptr_t)(p)); \
     } while (0)
-
-#define _PyGCHead_FINALIZED(g) \
-    (((g)->_gc_prev & _PyGC_PREV_MASK_FINALIZED) != 0)
-#define _PyGCHead_SET_FINALIZED(g) \
-    ((g)->_gc_prev |= _PyGC_PREV_MASK_FINALIZED)
-
-#define _PyGC_FINALIZED(o) \
-    _PyGCHead_FINALIZED(_Py_AS_GC(o))
-#define _PyGC_SET_FINALIZED(o) \
-    _PyGCHead_SET_FINALIZED(_Py_AS_GC(o))
 
 
 PyAPI_FUNC(PyObject *) _PyObject_GC_Malloc(size_t size);
