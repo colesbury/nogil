@@ -534,9 +534,6 @@ _PyEval_ReInitThreads(PyThreadState *tstate)
     if (_PyThread_at_fork_reinit(&pending->lock) < 0) {
         return _PyStatus_ERR("Can't reinitialize pending calls lock");
     }
-
-    /* Destroy all threads except the current one */
-    _PyThreadState_DeleteExcept(runtime, tstate);
     return _PyStatus_OK();
 }
 #endif

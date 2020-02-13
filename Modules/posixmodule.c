@@ -624,6 +624,8 @@ PyOS_AfterFork_Child(void)
         goto fatal_error;
     }
 
+    PyThreadState *garbage = _PyThreadState_UnlinkExcept(runtime, tstate, 1);
+
     status = _PyInterpreterState_DeleteExceptMain(runtime);
     if (_PyStatus_EXCEPTION(status)) {
         goto fatal_error;
@@ -634,6 +636,10 @@ PyOS_AfterFork_Child(void)
     if (_PyStatus_EXCEPTION(status)) {
         goto fatal_error;
     }
+
+    // Now that we're in a good state we can delete the dead thread states.
+    // This may call arbitrary Python code from destructors.
+    _PyThreadState_DeleteGarbage(garbage);
 
     run_at_forkers(tstate->interp->after_forkers_child, 0);
     return;

@@ -376,6 +376,10 @@ void _mi_page_unfull(mi_page_t* page) {
   if (!mi_page_is_in_full(page)) return;
 
   mi_heap_t* heap = mi_page_heap(page);
+  if (page->tag == mi_heap_tag_gc) {
+    PyThreadState *tstate = _PyThreadState_GET();
+    mi_atomic_addi64_relaxed(&tstate->interp->gc.gc_live, -page->capacity);
+  }
   mi_page_queue_t* pqfull = &heap->pages[MI_BIN_FULL];
   mi_page_set_in_full(page, false); // to get the right queue
   mi_page_queue_t* pq = mi_heap_page_queue_of(heap, page);
@@ -391,6 +395,11 @@ static void mi_page_to_full(mi_page_t* page, mi_page_queue_t* pq) {
   if (mi_page_is_in_full(page)) return;
   mi_page_queue_enqueue_from(&mi_page_heap(page)->pages[MI_BIN_FULL], pq, page);
   _mi_page_free_collect(page,false);  // try to collect right away in case another thread freed just before MI_USE_DELAYED_FREE was set
+
+  if (page->tag == mi_heap_tag_gc) {
+    PyThreadState *tstate = _PyThreadState_GET();
+    mi_atomic_addi64_relaxed(&tstate->interp->gc.gc_live, page->capacity);
+  }
 }
 
 

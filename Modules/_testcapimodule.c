@@ -56,6 +56,7 @@ static PyObject *
 raiseTestError(const char* test_name, const char* msg)
 {
     PyErr_Format(TestError, "%s: %s", test_name, msg);
+
     return NULL;
 }
 

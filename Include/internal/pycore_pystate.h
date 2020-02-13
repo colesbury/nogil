@@ -159,6 +159,11 @@ PyAPI_FUNC(void) _PyThreadState_Init(
 PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
     _PyRuntimeState *runtime,
     PyThreadState *tstate);
+PyAPI_FUNC(PyThreadState *) _PyThreadState_UnlinkExcept(
+    _PyRuntimeState *runtime,
+    PyThreadState *tstate,
+    int already_dead);
+PyAPI_FUNC(void) _PyThreadState_DeleteGarbage(PyThreadState *garbage);
 
 static inline void
 _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)

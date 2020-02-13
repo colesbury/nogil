@@ -140,18 +140,7 @@ static inline void _PyObject_GC_TRACK(
                           filename, lineno, __func__);
 
     PyGC_Head *gc = _Py_AS_GC(op);
-    _PyObject_ASSERT_FROM(op,
-                          (gc->_gc_prev & _PyGC_PREV_MASK_COLLECTING) == 0,
-                          "object is in generation which is garbage collected",
-                          filename, lineno, __func__);
-
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    PyGC_Head *head = &interp->gc.head;
-    PyGC_Head *last = (PyGC_Head*)(head->_gc_prev);
-    _PyGCHead_SET_NEXT(last, gc);
-    _PyGCHead_SET_PREV(gc, last);
-    _PyGCHead_SET_NEXT(gc, head);
-    head->_gc_prev = (uintptr_t)gc;
+    gc->_gc_prev |= _PyGC_PREV_MASK_TRACKED;
 }
 
 /* Tell the GC to stop tracking this object.
@@ -176,11 +165,16 @@ static inline void _PyObject_GC_UNTRACK(
                           filename, lineno, __func__);
 
     PyGC_Head *gc = _Py_AS_GC(op);
-    PyGC_Head *prev = _PyGCHead_PREV(gc);
-    PyGC_Head *next = _PyGCHead_NEXT(gc);
-    _PyGCHead_SET_NEXT(prev, next);
-    _PyGCHead_SET_PREV(next, prev);
-    gc->_gc_next = 0;
+    if (gc->_gc_next != 0) {
+        PyGC_Head *prev = _PyGCHead_PREV(gc);
+        PyGC_Head *next = _PyGCHead_NEXT(gc);
+
+        _PyGCHead_SET_NEXT(prev, next);
+        _PyGCHead_SET_PREV(next, prev);
+
+        gc->_gc_next = 0;
+    }
+
     gc->_gc_prev &= _PyGC_PREV_MASK_FINALIZED;
 }
 

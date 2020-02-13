@@ -463,7 +463,7 @@ Customize Memory Allocators
    Get the memory block allocator of the specified domain.
 
 
-.. c:function:: void PyMem_SetAllocator(PyMemAllocatorDomain domain, PyMemAllocatorEx *allocator)
+.. c:function:: void PyMem_SetAllocator(PyMemAllocatorDomain domain, const PyMemAllocatorEx *allocator)
 
    Set the memory block allocator of the specified domain.
 

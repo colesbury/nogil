@@ -12,13 +12,13 @@ extern "C" {
 
 /* GC information is stored BEFORE the object structure. */
 typedef struct {
+    // Pointer to previous object in the list.
+    // Lowest three bits are used for flags documented later.
+    uintptr_t _gc_prev;
+
     // Pointer to next object in the list.
     // 0 means the object is not tracked
     uintptr_t _gc_next;
-
-    // Pointer to previous object in the list.
-    // Lowest two bits are used for flags documented later.
-    uintptr_t _gc_prev;
 } PyGC_Head;
 
 typedef struct {
@@ -26,19 +26,29 @@ typedef struct {
     PyObject *_dict_or_values;
     PyObject *_weakref;
 } _PyGC_Preheader_UNUSED;
+#define _PyGC_Head_UNUSED _PyGC_Preheader_UNUSED
 
 #define PyGC_Head_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
+
+/* Bit 0 is set if the object is tracked by the GC */
+#define _PyGC_PREV_MASK_TRACKED     (1)
+/* Bit 1 is set when tp_finalize is called */
+#define _PyGC_PREV_MASK_FINALIZED   (2)
+/* Bit 2 is set when the object is not currently reachable */
+#define _PyGC_PREV_MASK_UNREACHABLE (4)
+/* The (N-3) most significant bits contain the real address. */
+#define _PyGC_PREV_SHIFT            (3)
+#define _PyGC_PREV_MASK             (((uintptr_t) -1) << _PyGC_PREV_SHIFT)
 
 static inline PyGC_Head* _Py_AS_GC(PyObject *op) {
     char *mem = _Py_STATIC_CAST(char*, op);
     return _Py_STATIC_CAST(PyGC_Head*, mem + PyGC_Head_OFFSET);
 }
-#define _PyGC_Head_UNUSED _PyGC_Preheader_UNUSED
 
 /* True if the object is currently tracked by the GC. */
 static inline int _PyObject_GC_IS_TRACKED(PyObject *op) {
     PyGC_Head *gc = _Py_AS_GC(op);
-    return (gc->_gc_next != 0);
+    return (gc->_gc_prev & _PyGC_PREV_MASK_TRACKED) != 0;
 }
 #define _PyObject_GC_IS_TRACKED(op) _PyObject_GC_IS_TRACKED(_Py_CAST(PyObject*, op))
 
@@ -53,16 +63,6 @@ static inline int _PyObject_GC_MAY_BE_TRACKED(PyObject *obj) {
     }
     return 1;
 }
-
-
-/* Bit flags for _gc_prev */
-/* Bit 0 is set when tp_finalize is called */
-#define _PyGC_PREV_MASK_FINALIZED  (1)
-/* Bit 1 is set when the object is in generation which is GCed currently. */
-#define _PyGC_PREV_MASK_COLLECTING (2)
-/* The (N-2) most significant bits contain the real address. */
-#define _PyGC_PREV_SHIFT           (2)
-#define _PyGC_PREV_MASK            (((uintptr_t) -1) << _PyGC_PREV_SHIFT)
 
 // Lowest bit of _gc_next is used for flags only in GC.
 // But it is always 0 for normal code.
@@ -175,8 +175,6 @@ struct _gc_runtime_state {
     /* Is automatic collection enabled? */
     int enabled;
     int debug;
-    /* linked lists of container objects */
-    PyGC_Head head;
     /* a permanent generation which won't be collected */
     struct gc_generation_stats stats;
     /* true if we are currently running the collector */
@@ -211,12 +209,16 @@ struct _gc_runtime_state {
 extern void _PyGC_InitState(struct _gc_runtime_state *);
 
 extern Py_ssize_t _PyGC_CollectNoFail(PyThreadState *tstate);
+extern void _PyGC_ResetHeap(void);
 
 static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
 {
     Py_ssize_t live = _Py_atomic_load_ssize_relaxed(&gcstate->gc_live);
-    return live >= gcstate->gc_threshold && gcstate->enabled && gcstate->gc_threshold && !gcstate->collecting;
+    return (live >= gcstate->gc_threshold &&
+            gcstate->enabled &&
+            gcstate->gc_threshold &&
+            !gcstate->collecting);
 }
 
 // Functions to clear types free lists

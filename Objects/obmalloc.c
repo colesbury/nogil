@@ -910,32 +910,24 @@ bumpserialno(void)
 #  define PYMEM_DEBUG_EXTRA_BYTES 3 * SST
 #endif
 
-/* Read sizeof(size_t) bytes at p as a big-endian size_t. */
-static size_t
-read_size_t(const void *p)
-{
-    const uint8_t *q = (const uint8_t *)p;
-    size_t result = *q++;
-    int i;
-
-    for (i = SST; --i > 0; ++q)
-        result = (result << 8) | *q;
-    return result;
-}
-
-/* Write n as a big-endian size_t, MSB at address p, LSB at
- * p + sizeof(size_t) - 1.
+/* Write the size of a block to p. The size is stored
+ * as (n<<1)|1 so that the LSB of the first words of an
+ * allocated block is always set.
  */
 static void
-write_size_t(void *p, size_t n)
+write_size_prefix(void *p, size_t n)
 {
-    uint8_t *q = (uint8_t *)p + SST - 1;
-    int i;
+    size_t v = (n << 1)|1;
+    memcpy(p, &v, sizeof(v));
+}
 
-    for (i = SST; --i >= 0; --q) {
-        *q = (uint8_t)(n & 0xff);
-        n >>= 8;
-    }
+/* Reads the size prefix. */
+static size_t
+read_size_prefix(const void *p)
+{
+    size_t value;
+    memcpy(&value, p, sizeof(value));
+    return value >> 1;
 }
 
 /* Let S = sizeof(size_t).  The debug malloc asks for 4 * S extra bytes and
@@ -1009,7 +1001,7 @@ _PyMem_DebugRawAlloc(int use_calloc, void *ctx, size_t nbytes)
 #endif
 
     /* at p, write size (SST bytes), id (1 byte), pad (SST-1 bytes) */
-    write_size_t(p, nbytes);
+    write_size_prefix(p, nbytes);
     p[SST] = (uint8_t)api->api_id;
     memset(p + SST + 1, PYMEM_FORBIDDENBYTE, SST-1);
 
@@ -1021,7 +1013,7 @@ _PyMem_DebugRawAlloc(int use_calloc, void *ctx, size_t nbytes)
     tail = data + nbytes;
     memset(tail, PYMEM_FORBIDDENBYTE, SST);
 #ifdef PYMEM_DEBUG_SERIALNO
-    write_size_t(tail + SST, serialno);
+    write_size_prefix(tail + SST, serialno);
 #endif
 
     return data;
@@ -1061,7 +1053,7 @@ _PyMem_DebugRawFree(void *ctx, void *p)
     size_t nbytes;
 
     _PyMem_DebugCheckAddress(__func__, api->api_id, p);
-    nbytes = read_size_t(q);
+    nbytes = read_size_prefix(q);
     nbytes += PYMEM_DEBUG_EXTRA_BYTES;
     memset(q, PYMEM_DEADBYTE, nbytes);
     api->alloc.free(api->alloc.ctx, q);
@@ -1089,7 +1081,7 @@ _PyMem_DebugRawRealloc(void *ctx, void *p, size_t nbytes)
 
     data = (uint8_t *)p;
     head = data - 2*SST;
-    original_nbytes = read_size_t(head);
+    original_nbytes = read_size_prefix(head);
     if (nbytes > (size_t)PY_SSIZE_T_MAX - PYMEM_DEBUG_EXTRA_BYTES) {
         /* integer overflow: can't represent total as a Py_ssize_t */
         return NULL;
@@ -1098,7 +1090,7 @@ _PyMem_DebugRawRealloc(void *ctx, void *p, size_t nbytes)
 
     tail = data + original_nbytes;
 #ifdef PYMEM_DEBUG_SERIALNO
-    size_t block_serialno = read_size_t(tail + SST);
+    size_t block_serialno = read_size_prefix(tail + SST);
 #endif
     /* Mark the header, the trailer, ERASED_SIZE bytes at the begin and
        ERASED_SIZE bytes at the end as dead and save the copy of erased bytes.
@@ -1132,14 +1124,14 @@ _PyMem_DebugRawRealloc(void *ctx, void *p, size_t nbytes)
     }
     data = head + 2*SST;
 
-    write_size_t(head, nbytes);
+    write_size_prefix(head, nbytes);
     head[SST] = (uint8_t)api->api_id;
     memset(head + SST + 1, PYMEM_FORBIDDENBYTE, SST-1);
 
     tail = data + nbytes;
     memset(tail, PYMEM_FORBIDDENBYTE, SST);
 #ifdef PYMEM_DEBUG_SERIALNO
-    write_size_t(tail + SST, block_serialno);
+    write_size_prefix(tail + SST, block_serialno);
 #endif
 
     /* Restore saved bytes. */
@@ -1245,7 +1237,7 @@ _PyMem_DebugCheckAddress(const char *func, char api, const void *p)
         }
     }
 
-    nbytes = read_size_t(q - 2*SST);
+    nbytes = read_size_prefix(q - 2*SST);
     tail = q + nbytes;
     for (i = 0; i < SST; ++i) {
         if (tail[i] != PYMEM_FORBIDDENBYTE) {
@@ -1274,7 +1266,7 @@ _PyObject_DebugDumpAddress(const void *p)
     id = (char)q[-SST];
     fprintf(stderr, " API '%c'\n", id);
 
-    nbytes = read_size_t(q - 2*SST);
+    nbytes = read_size_prefix(q - 2*SST);
     fprintf(stderr, "    %zu bytes originally requested\n", nbytes);
 
     /* In case this is nuts, check the leading pad bytes first. */
@@ -1330,7 +1322,7 @@ _PyObject_DebugDumpAddress(const void *p)
     }
 
 #ifdef PYMEM_DEBUG_SERIALNO
-    size_t serial = read_size_t(tail + SST);
+    size_t serial = read_size_prefix(tail + SST);
     fprintf(stderr,
             "    The block was made by call #%zu to debug malloc/realloc.\n",
             serial);
