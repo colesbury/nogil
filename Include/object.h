@@ -114,8 +114,7 @@ typedef struct _typeobject PyTypeObject;
 #define PyObject_VAR_HEAD      PyVarObject ob_base;
 #define Py_INVALID_SIZE (Py_ssize_t)-1
 
-#define _PyObject_ThreadId(ob) (_PyObject_CAST(ob)->ob_tid)
-
+#define _PyObject_ThreadId(ob) (_Py_atomic_load_uintptr_relaxed(&_PyObject_CAST(ob)->ob_tid))
 
 /* Nothing is actually declared to be a PyObject, but every pointer to
  * a Python object can be cast to a PyObject*.  This is inheritance built
@@ -443,6 +442,24 @@ _Py_ThreadId(void)
 #endif
 }
 
+static inline int
+_Py_ThreadLocal(PyObject *op)
+{
+    uintptr_t *ob_tid = &op->ob_tid;
+#if defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__)
+    uintptr_t tmp;
+    int out;
+    __asm__ ("mov    %%fs:0, %[tmp]\n\t"
+             "cmp    %[tmp], %[ob_tid]"
+        : [tmp] "=&r"(tmp), "=@ccz" (out)
+        : [ob_tid] "m" (*ob_tid)
+        : );
+    return out;
+#else
+    return _Py_atomic_load_uintptr_relaxed(ob_tid) == _Py_ThreadId();
+#endif
+}
+
 #define _Py_REF_LOCAL_SHIFT     2
 #define _Py_REF_IMMORTAL_MASK   0x1
 
@@ -485,8 +502,7 @@ _Py_INCREF(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    uintptr_t owner_tid = _PyObject_ThreadId(op);
-    if (_PY_LIKELY(owner_tid == _Py_ThreadId())) {
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
     }
@@ -507,8 +523,7 @@ _Py_TryIncref(PyObject *op) {
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    uintptr_t owner_tid = _PyObject_ThreadId(op);
-    if (owner_tid == _Py_ThreadId()) {
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
         return 1;
@@ -534,8 +549,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
 #ifdef Py_REF_DEBUG
     _Py_RefTotal--;
 #endif
-    uintptr_t owner_tid = _PyObject_ThreadId(op);
-    if (_PY_LIKELY(owner_tid == _Py_ThreadId())) {
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
 #ifdef Py_REF_DEBUG
         if (local == 0) {
             _Py_NegativeRefcount(filename, lineno, op);

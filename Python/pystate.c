@@ -1200,8 +1200,8 @@ _PyThreadState_DeleteCurrent(_PyRuntimeState *runtime)
     if (tstate == NULL)
         Py_FatalError(
             "PyThreadState_DeleteCurrent: no current tstate");
+    _PyRuntimeState_SetThreadState(runtime, NULL);
     tstate_delete_common(tstate, gilstate);
-    _PyRuntimeState_SetThreadState(&_PyRuntime, NULL);
     PyEval_ReleaseLock();
 }
 

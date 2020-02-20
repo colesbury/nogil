@@ -15,7 +15,7 @@ _Py_RefcntQueue_Push(PyThreadState *tstate, PyObject *ob)
     PyObject **object_queue = &tstate->object_queue;
     for (;;) {
         PyObject *head = _Py_atomic_load_ptr_relaxed(object_queue);
-        ob->ob_tid = (uintptr_t)head;
+        _Py_atomic_store_uintptr_relaxed(&ob->ob_tid, (uintptr_t)head);
         if (_Py_atomic_compare_exchange_ptr(object_queue, head, ob)) {
             return;
         }
