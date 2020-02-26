@@ -161,15 +161,6 @@ struct _is {
             int atbol;
         } listnode;
     } parser;
-
-#if _PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS > 0
-    /* Small integers are preallocated in this array so that they
-       can be shared.
-       The integers that are preallocated are those in the range
-       -_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (not inclusive).
-    */
-    PyLongObject* small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
-#endif
 };
 
 PyAPI_FUNC(struct _is*) _PyInterpreterState_LookUpID(PY_INT64_T);

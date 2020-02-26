@@ -32,6 +32,13 @@ PyObject *_PyLong_Zero = NULL;
 PyObject *_PyLong_One = NULL;
 
 #if NSMALLNEGINTS + NSMALLPOSINTS > 0
+/* Small integers are preallocated in this array so that they
+   can be shared.
+   The integers that are preallocated are those in the range
+   -NSMALLNEGINTS (inclusive) to NSMALLPOSINTS (not inclusive).
+*/
+static PyLongObject small_ints[NSMALLNEGINTS + NSMALLPOSINTS];
+
 #define IS_SMALL_INT(ival) (-NSMALLNEGINTS <= (ival) && (ival) < NSMALLPOSINTS)
 #define IS_SMALL_UINT(ival) ((ival) < NSMALLPOSINTS)
 
@@ -39,10 +46,7 @@ static PyObject *
 get_small_int(sdigit ival)
 {
     assert(IS_SMALL_INT(ival));
-    PyThreadState *tstate = _PyThreadState_GET();
-    PyObject *v = (PyObject*)tstate->interp->small_ints[ival + NSMALLNEGINTS];
-    Py_INCREF(v);
-    return v;
+    return (PyObject*)&small_ints[ival + NSMALLNEGINTS];
 }
 
 static PyLongObject *
@@ -5745,15 +5749,13 @@ _PyLong_Init(PyThreadState *tstate)
         sdigit ival = (sdigit)i - NSMALLNEGINTS;
         int size = (ival < 0) ? -1 : ((ival == 0) ? 0 : 1);
 
-        PyLongObject *v = _PyLong_New(1);
-        if (!v) {
-            return -1;
-        }
-
+        PyLongObject *v = &small_ints[i];
         Py_SET_SIZE(v, size);
         v->ob_digit[0] = (digit)abs(ival);
-
-        tstate->interp->small_ints[i] = v;
+        ((PyObject*)v)->ob_ref_local = 1;
+        ((PyObject*)v)->ob_ref_shared = 0;
+        ((PyObject*)v)->ob_tid = 0x0;
+        Py_SET_TYPE(v, &PyLong_Type);
     }
 #endif
 
@@ -5767,7 +5769,6 @@ _PyLong_Init(PyThreadState *tstate)
         if (_PyLong_One == NULL) {
             return 0;
         }
-
         /* initialize int_info */
         if (Int_InfoType.tp_name == NULL) {
             if (PyStructSequence_InitType2(&Int_InfoType, &int_info_desc) < 0) {
@@ -5786,10 +5787,4 @@ _PyLong_Fini(PyThreadState *tstate)
         Py_CLEAR(_PyLong_One);
         Py_CLEAR(_PyLong_Zero);
     }
-
-#if NSMALLNEGINTS + NSMALLPOSINTS > 0
-    for (Py_ssize_t i = 0; i < NSMALLNEGINTS + NSMALLPOSINTS; i++) {
-        Py_CLEAR(tstate->interp->small_ints[i]);
-    }
-#endif
 }
