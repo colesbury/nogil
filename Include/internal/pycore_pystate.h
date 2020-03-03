@@ -16,6 +16,14 @@ typedef enum {
     _Py_THREAD_GC,
 } _Py_thread_status;
 
+enum {
+    EVAL_PLEASE_STOP = 1U << 0,
+    EVAL_PENDING_SIGNALS = 1U << 1,
+    EVAL_PENDING_CALLS = 1U << 2,
+    EVAL_DROP_GIL = 1U << 3,
+    EVAL_ASYNC_EXC = 1U << 4
+};
+
 /* Check if the current thread is the main thread.
    Use _Py_IsMainInterpreter() to check if it's the main interpreter. */
 static inline int
@@ -140,6 +148,8 @@ PyAPI_FUNC(void) _PyThreadState_Init(
 PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
     _PyRuntimeState *runtime,
     PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit);
+PyAPI_FUNC(void) _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit);
 
 PyAPI_FUNC(PyThreadState *) _PyThreadState_Swap(
     struct _gilstate_runtime_state *gilstate,

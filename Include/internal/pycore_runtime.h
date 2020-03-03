@@ -87,6 +87,7 @@ typedef struct pyruntimestate {
     } xidregistry;
 
     unsigned long main_thread;
+    PyThreadState *main_tstate;
 
 #define NEXITFUNCS 32
     void (*exitfuncs[NEXITFUNCS])(void);
