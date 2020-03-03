@@ -117,6 +117,8 @@ struct _ts {
     /* thread status (attached, detached, gc) */
     int status;
 
+    uintptr_t eval_breaker;
+
     /* Has been initialized to a safe state.
 
        In order to be effective, this must be set to 0 during or right

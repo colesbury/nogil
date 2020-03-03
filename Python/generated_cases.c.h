@@ -9,8 +9,8 @@
         TARGET(RESUME) {
             assert(tstate->cframe == &cframe);
             assert(frame == cframe.current_frame);
-            if (_Py_atomic_load_relaxed_int32(eval_breaker) && oparg < 2) {
-                goto handle_eval_breaker;
+            if (oparg < 2) {
+                CHECK_EVAL_BREAKER();
             }
             DISPATCH();
         }

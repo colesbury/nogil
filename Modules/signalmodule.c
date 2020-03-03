@@ -276,8 +276,9 @@ trip_signal(int sig_num)
     /* Signals are always handled by the main interpreter */
     PyInterpreterState *interp = _PyInterpreterState_Main();
 
-    /* Notify ceval.c */
-    _PyEval_SignalReceived(interp);
+    /* Notify main thread */
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _PyThreadState_Signal(runtime->main_tstate, EVAL_PENDING_SIGNALS);
 
     /* And then write to the wakeup fd *after* setting all the globals and
        doing the _PyEval_SignalReceived. We used to write to the wakeup fd
@@ -1764,9 +1765,8 @@ PyErr_CheckSignals(void)
        Python code to ensure signals are handled. Checking for the GC here
        allows long running native code to clean cycles created using the C-API
        even if it doesn't run the evaluation loop */
-    struct _ceval_state *interp_ceval_state = &tstate->interp->ceval;
-    if (_Py_atomic_load_relaxed(&interp_ceval_state->gc_scheduled)) {
-        _Py_atomic_store_relaxed(&interp_ceval_state->gc_scheduled, 0);
+    if (_PyThreadState_IsSignalled(tstate, EVAL_GC)) {
+        _PyThreadState_Unsignal(tstate, EVAL_GC);
         _Py_RunGC(tstate);
     }
 

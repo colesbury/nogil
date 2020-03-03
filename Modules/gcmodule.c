@@ -2258,10 +2258,9 @@ _Py_ScheduleGC(PyInterpreterState *interp)
     if (gcstate->collecting == 1) {
         return;
     }
-    struct _ceval_state *ceval = &interp->ceval;
-    if (!_Py_atomic_load_relaxed(&ceval->gc_scheduled)) {
-        _Py_atomic_store_relaxed(&ceval->gc_scheduled, 1);
-        _Py_atomic_store_relaxed(&ceval->eval_breaker, 1);
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (!_PyThreadState_IsSignalled(tstate, EVAL_GC)) {
+        _PyThreadState_Signal(tstate, EVAL_GC);
     }
 }
 
