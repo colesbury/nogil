@@ -256,8 +256,9 @@ trip_signal(int sig_num)
     /* Signals are always handled by the main interpreter */
     PyInterpreterState *interp = _PyRuntime.interpreters.main;
 
-    /* Notify ceval.c */
-    _PyEval_SignalReceived(interp);
+    /* Notify main thread */
+    _PyRuntimeState *runtime = &_PyRuntime;
+    _PyThreadState_Signal(runtime->main_tstate, EVAL_PENDING_SIGNALS);
 
     /* And then write to the wakeup fd *after* setting all the globals and
        doing the _PyEval_SignalReceived. We used to write to the wakeup fd

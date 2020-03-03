@@ -95,6 +95,7 @@ static void _gil_initialize(struct _gil_runtime_state *gil)
     _Py_atomic_int uninitialized = {-1};
     gil->locked = uninitialized;
     gil->interval = DEFAULT_INTERVAL;
+    gil->holder = NULL;
 }
 
 static int gil_created(struct _gil_runtime_state *gil)
@@ -114,6 +115,7 @@ static void create_gil(struct _gil_runtime_state *gil)
         COND_INIT(gil->switch_cond);
 #endif
         _Py_atomic_store_relaxed(&gil->last_holder, 0);
+        gil->holder = NULL;
     }
     _Py_ANNOTATE_RWLOCK_CREATE(&gil->locked);
     _Py_atomic_store_explicit(&gil->locked, 0, _Py_memory_order_release);
@@ -167,17 +169,18 @@ drop_gil(struct _ceval_runtime_state *ceval, struct _ceval_state *ceval2,
     MUTEX_LOCK(gil->mutex);
     _Py_ANNOTATE_RWLOCK_RELEASED(&gil->locked, /*is_write=*/1);
     _Py_atomic_store_relaxed(&gil->locked, 0);
+    gil->holder = NULL;
     COND_SIGNAL(gil->cond);
     MUTEX_UNLOCK(gil->mutex);
 
 #ifdef FORCE_SWITCHING
-    if (_Py_atomic_load_relaxed(&ceval2->gil_drop_request) && tstate != NULL) {
+    if (tstate != NULL && (_Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker) & EVAL_DROP_GIL)) {
         MUTEX_LOCK(gil->switch_mutex);
         /* Not switched yet => wait */
         if (((PyThreadState*)_Py_atomic_load_relaxed(&gil->last_holder)) == tstate)
         {
-            assert(is_tstate_valid(tstate));
-            RESET_GIL_DROP_REQUEST(tstate->interp);
+            _PyThreadState_Unsignal(tstate, EVAL_DROP_GIL);
+            // FIXME(sgross): RESET_GIL_DROP_REQUEST?
             /* NOTE: if COND_WAIT does not atomically start waiting when
                releasing the mutex, another thread can run through, take
                the GIL and drop it again, and reset the condition
@@ -268,7 +271,8 @@ take_gil(PyThreadState *tstate)
             }
             assert(is_tstate_valid(tstate));
 
-            SET_GIL_DROP_REQUEST(interp);
+            assert(gil->holder);
+            _PyThreadState_Signal(gil->holder, EVAL_DROP_GIL);
         }
     }
 
@@ -281,6 +285,7 @@ _ready:
     /* We now hold the GIL */
     _Py_atomic_store_relaxed(&gil->locked, 1);
     _Py_ANNOTATE_RWLOCK_ACQUIRED(&gil->locked, /*is_write=*/1);
+    gil->holder = tstate;
 
     if (tstate != (PyThreadState*)_Py_atomic_load_relaxed(&gil->last_holder)) {
         _Py_atomic_store_relaxed(&gil->last_holder, (uintptr_t)tstate);
@@ -306,21 +311,11 @@ _ready:
     }
     assert(is_tstate_valid(tstate));
 
-    if (_Py_atomic_load_relaxed(&ceval2->gil_drop_request)) {
-        RESET_GIL_DROP_REQUEST(interp);
-    }
-    else {
-        /* bpo-40010: eval_breaker should be recomputed to be set to 1 if there
-           is a pending signal: signal received by another thread which cannot
-           handle signals.
-
-           Note: RESET_GIL_DROP_REQUEST() calls COMPUTE_EVAL_BREAKER(). */
-        COMPUTE_EVAL_BREAKER(interp, ceval, ceval2);
-    }
+    _PyThreadState_Unsignal(tstate, EVAL_DROP_GIL);
 
     /* Don't access tstate if the thread must exit */
-    if (tstate->async_exc != NULL) {
-        _PyEval_SignalAsyncExc(tstate);
+    if (_Py_atomic_load_ptr_relaxed(&tstate->async_exc) != NULL) {
+        _PyThreadState_Signal(tstate, EVAL_ASYNC_EXC);
     }
 
     MUTEX_UNLOCK(gil->mutex);

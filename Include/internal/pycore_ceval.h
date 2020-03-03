@@ -18,12 +18,10 @@ extern void _Py_FinishPendingCalls(PyThreadState *tstate);
 extern void _PyEval_InitRuntimeState(struct _ceval_runtime_state *);
 extern int _PyEval_InitState(struct _ceval_state *ceval);
 extern void _PyEval_FiniState(struct _ceval_state *ceval);
-PyAPI_FUNC(void) _PyEval_SignalReceived(PyInterpreterState *interp);
 PyAPI_FUNC(int) _PyEval_AddPendingCall(
     PyInterpreterState *interp,
     int (*func)(void *),
     void *arg);
-PyAPI_FUNC(void) _PyEval_SignalAsyncExc(PyThreadState *tstate);
 #ifdef HAVE_FORK
 extern void _PyEval_ReInitThreads(struct pyruntimestate *runtime);
 #endif

@@ -56,6 +56,8 @@ struct _ts {
     /* thread status (attached, detached, gc) */
     int32_t status;
 
+    uintptr_t eval_breaker;
+
     /* Borrowed reference to the current frame (it can be NULL) */
     PyFrameObject *frame;
     int recursion_depth;
