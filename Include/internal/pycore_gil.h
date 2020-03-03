@@ -28,6 +28,8 @@ struct _gil_runtime_state {
     /* Last PyThreadState holding / having held the GIL. This helps us
        know whether anyone else was scheduled after we dropped the GIL. */
     _Py_atomic_address last_holder;
+    /* Current PyThreadState holding the GIL. Protected by mutex. */
+    PyThreadState *holder;
     /* Whether the GIL is already taken (-1 if uninitialized). This is
        atomic because it can be read without any lock taken in ceval.c. */
     _Py_atomic_int locked;

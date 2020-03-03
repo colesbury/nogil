@@ -207,6 +207,31 @@ _PyThreadState_Detach(PyThreadState *tstate)
     _Py_atomic_store_int32(&tstate->status, _Py_THREAD_DETACHED);
 }
 
+void
+_PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
+{
+    // TODO: use atomic bitwise instructions when available
+    for (;;) {
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t newv = v | bit;
+        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+            break;
+        }
+    }
+}
+
+void
+_PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit)
+{
+    for (;;) {
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t newv = v & ~bit;
+        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+            break;
+        }
+    }
+}
+
 PyStatus
 _PyInterpreterState_Enable(_PyRuntimeState *runtime)
 {
@@ -616,6 +641,7 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->interp = interp;
 
     tstate->status = _Py_THREAD_DETACHED;
+    tstate->eval_breaker = 0;
     tstate->frame = NULL;
     tstate->recursion_depth = 0;
     tstate->overflowed = 0;
@@ -1163,13 +1189,12 @@ PyThreadState_SetAsyncExc(unsigned long id, PyObject *exc)
          * deadlock, we need to release head_mutex before
          * the decref.
          */
-        PyObject *old_exc = tstate->async_exc;
         Py_XINCREF(exc);
-        tstate->async_exc = exc;
+        PyObject *old_exc = _Py_atomic_exchange_ptr(&tstate->async_exc, exc);
         HEAD_UNLOCK(runtime);
 
         Py_XDECREF(old_exc);
-        _PyEval_SignalAsyncExc(tstate);
+        _PyThreadState_Signal(tstate, EVAL_ASYNC_EXC);
         return 1;
     }
     HEAD_UNLOCK(runtime);
