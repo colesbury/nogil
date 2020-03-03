@@ -133,7 +133,15 @@ retry:
 
     PyThreadState *value = NULL;
     if (!_Py_HASHTABLE_POP(ht, tid, value)) {
-        Py_FatalError("_Py_queue_destroy: missing thread object queue");
+        // Py_FatalError("_Py_queue_destroy: missing thread object queue");
+        // FIXME(sgross): just ignore for now. There's a race where a new thread
+        // can be created and added to the interpreter's thread-list before it's
+        // initialized in the threads start method. The thread only adds itself
+        // to the refcnt hashtable later on. In between the two, another thread
+        // may fork, which leaves the PyThreadState in the interpreter but without
+        // the corresponding entry in this hashtable.
+        pthread_rwlock_unlock(&interp->object_queues_lk);
+        return;
     }
     assert(value == tstate);
 
