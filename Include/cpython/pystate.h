@@ -74,6 +74,8 @@ struct _ts {
     /* thread status */
     int32_t status;
 
+    uintptr_t eval_breaker;
+
     mi_heap_t *heap_backing;
     mi_heap_t *heap_obj;
     mi_heap_t *heap_gc;

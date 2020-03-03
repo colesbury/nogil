@@ -23,6 +23,13 @@ typedef enum {
     _Py_THREAD_GC,
 } _Py_thread_status;
 
+enum {
+    EVAL_PLEASE_STOP = 1U << 0,
+    EVAL_PENDING_SIGNALS = 1U << 1,
+    EVAL_PENDING_CALLS = 1U << 2,
+    EVAL_DROP_GIL = 1U << 3,
+    EVAL_ASYNC_EXC = 1U << 4
+};
 
 /* ceval state */
 
@@ -52,16 +59,7 @@ struct _ceval_runtime_state {
        c_tracefunc.  This speeds up the if statement in
        PyEval_EvalFrameEx() after fast_next_opcode. */
     int tracing_possible;
-    /* This single variable consolidates all requests to break out of
-       the fast path in the eval loop. */
-    _Py_atomic_int eval_breaker;
-    /* Request for dropping the GIL */
-    _Py_atomic_int gil_drop_request;
     struct _pending_calls pending;
-    /* Request for checking signals. */
-    _Py_atomic_int signals_pending;
-    /* Request to stop all threads (e.g. for GC). */
-    _Py_atomic_int please_stop;
     /* Enable the GIL */
     int use_gil;
     struct _gil_runtime_state gil;
@@ -261,6 +259,7 @@ typedef struct pyruntimestate {
     } xidregistry;
 
     unsigned long main_thread;
+    PyThreadState *main_tstate;
 
 #define NEXITFUNCS 32
     void (*exitfuncs[NEXITFUNCS])(void);
@@ -389,6 +388,8 @@ PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
 PyAPI_FUNC(int) _PyThreadState_GetStatus(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_GC_Park(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_GC_Stop(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit);
+PyAPI_FUNC(void) _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit);
 
 PyAPI_FUNC(PyThreadState *) _PyThreadState_Swap(
     struct _gilstate_runtime_state *gilstate,

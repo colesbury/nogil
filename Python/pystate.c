@@ -187,8 +187,11 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
     struct _gc_runtime_state *gc = &tstate->interp->gc;
 
     HEAD_LOCK(runtime);
+    if (!runtime->stop_the_world) {
+        HEAD_UNLOCK(runtime);
+        return;
+    }
     assert(tstate->status == _Py_THREAD_ATTACHED);
-    assert(runtime->stop_the_world);
     tstate->status = _Py_THREAD_GC;
     gc->gc_thread_countdown--;
     assert(gc->gc_thread_countdown >= 0);
@@ -252,7 +255,7 @@ assert_all_stopped(_PyRuntimeState *runtime)
 }
 
 static int
-park_detached_threads(_PyRuntimeState *runtime)
+park_detached_threads(_PyRuntimeState *runtime, PyThreadState *this_tstate)
 {
     int num_parked = 0;
 
@@ -269,6 +272,9 @@ park_detached_threads(_PyRuntimeState *runtime)
                     _Py_THREAD_GC)) {
 
                 num_parked++;
+            }
+            else if (status == _Py_THREAD_ATTACHED && p != this_tstate) {
+                _PyThreadState_Signal(p, EVAL_PLEASE_STOP);
             }
         }
     }
@@ -292,8 +298,6 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     }
 
     runtime->stop_the_world = 1;
-
-    _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 1);
     gc->gc_thread_countdown = 0;
 
     PyInterpreterState *head = runtime->interpreters.head;
@@ -312,7 +316,7 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     gc->gc_thread_countdown--;
 
     /* Switch threads that are detached to the GC stopped state */
-    int parked = park_detached_threads(runtime);
+    int parked = park_detached_threads(runtime, this_tstate);
     gc->gc_thread_countdown -= parked;
 
     assert(gc->gc_thread_countdown >= 0);
@@ -323,11 +327,7 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     /* We're done if we successfully transitioned all other threads to
      * _Py_THREAD_GC (or if we are the only thread). */
     while (!stopped_all_threads) {
-        /* Otherwise we need to wait until the remaining threads stop themselves.
-         * Ask nicely. Set ceval.eval_breaker to trigger this soon. */
-        _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 1);
-        _PyEval_ComputeEvalBreaker();
-
+        /* Otherwise we need to wait until the remaining threads stop themselves. */
         int64_t wait_ns = 1000*1000;
         if (_PyRawEvent_TimedWait(&gc->gc_stop_event, this_tstate, wait_ns)) {
             assert(gc->gc_thread_countdown == 0);
@@ -336,16 +336,14 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
             break;
         }
 
+        /* Ask nicely: park_detached_threads sets eval_breaker to trigger this soon. */
         HEAD_LOCK(runtime);
-        int num_detached = park_detached_threads(runtime);
+        int num_detached = park_detached_threads(runtime, this_tstate);
         gc->gc_thread_countdown -= num_detached;
         assert(gc->gc_thread_countdown >= 0);
         stopped_all_threads = (num_detached > 0) && (gc->gc_thread_countdown == 0);
         HEAD_UNLOCK(runtime);
     }
-
-    _Py_atomic_store_relaxed(&runtime->ceval.please_stop, 0);
-    _PyEval_ComputeEvalBreaker();
 }
 
 void
@@ -371,6 +369,31 @@ _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime)
         }
     }
     HEAD_UNLOCK(runtime);
+}
+
+void
+_PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
+{
+    // TODO: use atomic bitwise instructions when available
+    for (;;) {
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t newv = v | bit;
+        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+            break;
+        }
+    }
+}
+
+void
+_PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit)
+{
+    for (;;) {
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t newv = v & ~bit;
+        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+            break;
+        }
+    }
 }
 
 intptr_t
@@ -1199,7 +1222,8 @@ bool _mi_heap_done(mi_heap_t* heap);
 /* Common code for PyThreadState_Delete() and PyThreadState_DeleteCurrent() */
 static void
 tstate_delete_common(PyThreadState *tstate,
-                     struct _gilstate_runtime_state *gilstate)
+                     struct _gilstate_runtime_state *gilstate,
+                     int is_current)
 {
     _PyRuntimeState *runtime = tstate->interp->runtime;
     if (tstate == NULL) {
@@ -1257,8 +1281,16 @@ tstate_delete_common(PyThreadState *tstate,
         _PyEventRC_Decref(join_event);
     }
 
+    if (is_current) {
+        /* Current thread state can't be set to NULL until after join_event
+         * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls. */
+        _PyRuntimeState_SetThreadState(runtime, NULL);
 
-   if (tstate->heap_obj->thread_id == _Py_ThreadId()) {
+        /* Drop the GIL if we hold it */
+        PyEval_ReleaseLock();
+    }
+
+    if (tstate->heap_obj->thread_id == _Py_ThreadId()) {
         // NOTE: this may be called from a different thread. This can
         // happend during shutdown of the interpreter or after forking.
         // In these cases we don't delete the heap, because it's not
@@ -1296,7 +1328,7 @@ _PyThreadState_Delete(PyThreadState *tstate, int check_current)
             Py_FatalError("PyThreadState_Delete: tstate is still current");
         }
     }
-    tstate_delete_common(tstate, gilstate);
+    tstate_delete_common(tstate, gilstate, 0);
 }
 
 
@@ -1315,12 +1347,7 @@ _PyThreadState_DeleteCurrent(_PyRuntimeState *runtime)
     if (tstate == NULL)
         Py_FatalError(
             "PyThreadState_DeleteCurrent: no current tstate");
-    tstate_delete_common(tstate, gilstate);
-
-    /* Current thread state can't be set to NULL until after tstate_delete_common
-     * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls. */
-    _PyRuntimeState_SetThreadState(runtime, NULL);
-    PyEval_ReleaseLock();
+    tstate_delete_common(tstate, gilstate, 1);
 }
 
 void
@@ -1504,12 +1531,11 @@ PyThreadState_SetAsyncExc(unsigned long id, PyObject *exc)
              * deadlock, we need to release head_mutex before
              * the decref.
              */
-            PyObject *old_exc = p->async_exc;
             Py_XINCREF(exc);
-            p->async_exc = exc;
+            PyObject *old_exc = _Py_atomic_exchange_ptr(&p->async_exc, exc);
             HEAD_UNLOCK(runtime);
             Py_XDECREF(old_exc);
-            _PyEval_SignalAsyncExc(&runtime->ceval);
+            _PyThreadState_Signal(p, EVAL_ASYNC_EXC);
             return 1;
         }
     }

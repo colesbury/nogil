@@ -259,10 +259,10 @@ trip_signal(int sig_num)
        cleared in PyErr_CheckSignals() before .tripped. */
     _Py_atomic_store(&is_tripped, 1);
 
-    /* Notify ceval.c */
+    /* Notify main thread */
     _PyRuntimeState *runtime = &_PyRuntime;
+    _PyThreadState_Signal(runtime->main_tstate, EVAL_PENDING_SIGNALS);
     PyThreadState *tstate = _PyRuntimeState_GetThreadState(runtime);
-    _PyEval_SignalReceived(&runtime->ceval);
 
     /* And then write to the wakeup fd *after* setting all the globals and
        doing the _PyEval_SignalReceived. We used to write to the wakeup fd

@@ -539,6 +539,7 @@ pycore_create_interpreter(_PyRuntimeState *runtime,
     if (tstate == NULL) {
         return _PyStatus_ERR("can't make first thread");
     }
+    runtime->main_tstate = tstate;
     (void) PyThreadState_Swap(tstate);
 
     /* We can't call _PyEval_FiniThreads() in Py_FinalizeEx because
