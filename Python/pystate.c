@@ -192,6 +192,7 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
         return;
     }
     assert(tstate->status == _Py_THREAD_ATTACHED);
+    _Py_qsbr_offline(tstate->qsbr);
     tstate->status = _Py_THREAD_GC;
     gc->gc_thread_countdown--;
     assert(gc->gc_thread_countdown >= 0);
@@ -201,6 +202,20 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
     HEAD_UNLOCK(runtime);
 
     _PyThreadState_GC_Park(tstate);
+}
+
+static int
+_PyThreadState_Attach(PyThreadState *tstate)
+{
+    if (_Py_atomic_compare_exchange_int32(
+            &tstate->status,
+            _Py_THREAD_DETACHED,
+            _Py_THREAD_ATTACHED)) {
+        /* online for QSBR too */
+        _Py_qsbr_online(tstate->qsbr);
+        return 1;
+    }
+    return 0;
 }
 
 void
@@ -227,10 +242,7 @@ _PyThreadState_GC_Park(PyThreadState *tstate)
         _PyParkingLot_ParkInt32(&tstate->status, _Py_THREAD_GC);
 
         /* Once we're back in DETACHED we can re-attach  */
-        if (_Py_atomic_compare_exchange_int32(
-                &tstate->status,
-                _Py_THREAD_DETACHED,
-                _Py_THREAD_ATTACHED)) {
+        if (_PyThreadState_Attach(tstate)) {
             /* We gucci */
             return;
         }
@@ -925,6 +937,12 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->id = ++interp->tstate_next_unique_id;
 
+    tstate->qsbr = _Py_qsbr_register(&_PyRuntime.qsbr, tstate);
+    if (!tstate->qsbr) {
+        PyMem_RawFree(tstate);
+        return NULL;
+    }
+
     if (init) {
         tstate->join_event = _PyEventRC_New();
         if (!tstate->join_event) {
@@ -987,7 +1005,6 @@ _PyThreadState_Init(PyThreadState *tstate)
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
-
 
 PyObject*
 PyState_FindModule(struct PyModuleDef* module)
@@ -1209,6 +1226,11 @@ tstate_delete_common(PyThreadState *tstate,
     assert(is_current ? tstate->status == _Py_THREAD_ATTACHED
                       : tstate->status != _Py_THREAD_ATTACHED);
 
+    if (is_current) {
+        _Py_qsbr_offline(tstate->qsbr);
+        _Py_qsbr_unregister(tstate->qsbr);
+    }
+
     // Abandon heaps. After this point we must not allocate any Python objects.
     mi_heap_t *heap_gc = tstate->heaps[mi_heap_tag_gc];
     if (heap_gc->gcstate == &tstate->interp->gc) {
@@ -1289,6 +1311,10 @@ tstate_delete_common(PyThreadState *tstate,
 
         // Drop the GIL if we hold it
         PyEval_ReleaseLock();
+    }
+    else {
+        /* TODO(sgross): not sure about this... */
+        _Py_qsbr_unregister_other(tstate->qsbr);
     }
 
     if (gilstate->autoInterpreterState &&
@@ -1416,15 +1442,14 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
 
         if (status == _Py_THREAD_ATTACHED) {
             _Py_atomic_store_int32(&oldts->status, _Py_THREAD_DETACHED);
+
+            // FIXME: what if we're in GC state?
+            _Py_qsbr_offline(oldts->qsbr);
         }
     }
 
     if (newts) {
-        int attached = _Py_atomic_compare_exchange_int32(
-            &newts->status,
-            _Py_THREAD_DETACHED,
-            _Py_THREAD_ATTACHED);
-
+        int attached = _PyThreadState_Attach(newts);
         if (!attached) {
             assert(_Py_atomic_load_int32(&newts->status) == _Py_THREAD_GC);
 

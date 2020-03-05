@@ -53,6 +53,36 @@ extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t siz
   return block;
 }
 
+void* mi_heap_malloc_array(mi_heap_t* heap, size_t wsize, size_t *usable)
+{
+#if !defined(MI_PADDING) && 0
+  // FIXME: this is broken when pages_free_direct points to an empty page.
+  if (mi_likely(wsize <= MI_SMALL_WSIZE_MAX)) {
+    mi_assert(heap!=NULL);
+    mi_assert(heap->thread_id == 0 || heap->thread_id == _mi_thread_id()); // heaps are thread local
+    mi_page_t* page = heap->pages_free_direct[wsize];
+    size_t size = page->xblock_size;
+    *usable = size / sizeof(void*);
+    void* p = _mi_page_malloc(heap, page, size);
+    #if MI_STAT>1
+    if (p != NULL) {
+      if (!mi_heap_is_initialized(heap)) { heap = mi_get_default_heap(); }
+      mi_heap_stat_increase(heap, malloc, mi_usable_size(p));
+    }
+    #endif
+    return p;
+  }
+#endif
+
+  if (wsize > PTRDIFF_MAX/sizeof(void*)) {
+    return NULL;
+  }
+
+  size_t size = mi_good_size(wsize * sizeof(void*) + MI_PADDING_SIZE);
+  *usable = (size - MI_PADDING_SIZE) / sizeof(void*);
+  return mi_heap_malloc(heap, size - MI_PADDING_SIZE);
+}
+
 // allocate a small block
 extern inline mi_decl_restrict void* mi_heap_malloc_small(mi_heap_t* heap, size_t size) mi_attr_noexcept {
   mi_assert(heap!=NULL);

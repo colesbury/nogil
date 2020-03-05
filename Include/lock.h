@@ -82,6 +82,15 @@ _PyRawMutex_lock(_PyRawMutex *m)
     _PyRawMutex_lock_slow(m);
 }
 
+static inline int
+_PyRawMutex_trylock(_PyRawMutex *m)
+{
+    if (_Py_atomic_compare_exchange_uintptr(&m->v, UNLOCKED, LOCKED)) {
+        return 1;
+    }
+    return 0;
+}
+
 static inline void
 _PyRawMutex_unlock(_PyRawMutex *m)
 {

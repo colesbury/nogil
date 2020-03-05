@@ -947,6 +947,24 @@ sys_is_finalizing(PyObject *module, PyObject *Py_UNUSED(ignored))
     return sys_is_finalizing_impl(module);
 }
 
+PyDoc_STRVAR(sys__qsbr_epoch__doc__,
+"_qsbr_epoch($module, /)\n"
+"--\n"
+"\n"
+"Current QSBR epoch counter.");
+
+#define SYS__QSBR_EPOCH_METHODDEF    \
+    {"_qsbr_epoch", (PyCFunction)sys__qsbr_epoch, METH_NOARGS, sys__qsbr_epoch__doc__},
+
+static PyObject *
+sys__qsbr_epoch_impl(PyObject *module);
+
+static PyObject *
+sys__qsbr_epoch(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return sys__qsbr_epoch_impl(module);
+}
+
 #if defined(ANDROID_API_LEVEL)
 
 PyDoc_STRVAR(sys_getandroidapilevel__doc__,
@@ -996,4 +1014,4 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=027aa6f8961fef9a input=a9049054013a1b77]*/
+/*[clinic end generated code: output=2473e46bb3dd4ebd input=a9049054013a1b77]*/

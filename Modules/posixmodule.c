@@ -496,6 +496,8 @@ PyOS_AfterFork_Child(void)
 
     PyThreadState *garbage = _PyThreadState_UnlinkExceptCurrent(runtime);
 
+    PyThreadState *tstate = PyThreadState_GET();
+    _Py_qsbr_after_fork(&runtime->qsbr, tstate->qsbr);
     _PyImport_ReInitLock();
     _PySignal_AfterFork();
     _PyInterpreterState_DeleteExceptMain(runtime);  // DANGER! this is almost certainly fragile/broken

@@ -59,6 +59,9 @@ typedef struct PyThreadStateOS PyThreadStateOS;
 struct Waiter;
 typedef struct _PyEventRC _PyEventRC;
 
+// Forward declared from pycore_qsbr.h
+struct qsbr;
+
 // must match MI_NUM_HEAPS in mimalloc.h
 #define Py_NUM_HEAPS 5
 
@@ -136,6 +139,8 @@ struct _ts {
     _PyEventRC *join_event;
     int daemon;
     int from_threading_module;
+
+    struct qsbr *qsbr;
 
     /* Version counters
      */

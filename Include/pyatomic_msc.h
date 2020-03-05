@@ -228,3 +228,9 @@ _Py_atomic_store_ptr(volatile void *address, void *value)
 {
     _InterlockedExchangePointer((volatile PVOID*)address, (PVOID)value);
 }
+
+static inline void
+_Py_atomic_thread_fence(void)
+{
+    __faststorefence();
+}

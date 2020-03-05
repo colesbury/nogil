@@ -151,6 +151,9 @@ _Py_atomic_store_uintptr_relaxed(volatile uintptr_t *address, uintptr_t value);
 static inline void
 _Py_atomic_store_ptr_relaxed(volatile void *address, void *value);
 
+static inline void
+_Py_atomic_thread_fence(void);
+
 
 #if defined(HAVE_STD_ATOMIC) || defined(HAVE_BUILTIN_ATOMIC)
 #define Py_ATOMIC_STD_H

@@ -72,6 +72,7 @@ list_resize(PyListObject *self, Py_ssize_t newsize)
         PyErr_NoMemory();
         return -1;
     }
+
     self->ob_item = items;
     Py_SET_SIZE(self, newsize);
     self->allocated = new_allocated;

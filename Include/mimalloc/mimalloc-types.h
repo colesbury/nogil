@@ -11,6 +11,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #include <stddef.h>   // ptrdiff_t
 #include <stdint.h>   // uintptr_t, uint16_t, etc
 #include <mimalloc-atomic.h>  // _Atomic
+#include "pycore_llist.h"
 
 // Minimal alignment necessary. On most platforms 16 bytes are needed
 // due to SSE registers for example. This must be at least `MI_INTPTR_SIZE`
@@ -222,8 +223,9 @@ typedef struct mi_page_s {
   #ifdef MI_ENCODE_FREELIST
   uintptr_t             keys[2];           // two random keys to encode the free lists (see `_mi_block_next`)
   #endif
-  uint32_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
-  uint32_t              xblock_size;       // size available in each block (always `>0`) 
+  _Atomic(uint8_t)      use_qsbr;
+  uint16_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
+  uint32_t              xblock_size;       // size available in each block (always `>0`)
 
   mi_block_t*           local_free;        // list of deferred free blocks by this thread (migrates to `free`)
   volatile _Atomic(mi_thread_free_t) xthread_free;   // list of deferred free blocks freed by other threads
@@ -231,6 +233,8 @@ typedef struct mi_page_s {
   
   struct mi_page_s*     next;              // next page owned by this thread with the same `block_size`
   struct mi_page_s*     prev;              // previous page owned by this thread with the same `block_size`
+  struct llist_node     qsbr_node;
+  uintptr_t             qsbr_epoch;
 } mi_page_t;
 
 
@@ -480,6 +484,7 @@ struct mi_tld_s {
   mi_heap_t*          heaps;         // list of heaps in this thread (so we can abandon all when the thread terminates)
   mi_heap_t*          default_heaps[MI_NUM_HEAPS];
   mi_segments_tld_t   segments;      // segment tld
+  struct llist_node   page_list;     // free pages
   mi_os_tld_t         os;            // os tld
   mi_stats_t          stats;         // statistics
 };

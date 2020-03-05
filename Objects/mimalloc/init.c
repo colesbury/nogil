@@ -23,6 +23,7 @@ const mi_page_t _mi_page_empty = {
   #if MI_ENCODE_FREELIST
   { 0, 0 },
   #endif
+  ATOMIC_VAR_INIT(0), // use_qsbr
   0,       // used
   0,       // xblock_size
   NULL,    // local_free
@@ -101,7 +102,8 @@ const mi_heap_t _mi_heap_empty = {
   NULL,             // next
   false,
   0,
-  false
+  false,
+  NULL
 };
 
 // the thread-local default heap for allocation
@@ -150,6 +152,7 @@ static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])
   tld->segments.stats = &tld->stats;
   tld->segments.os = &tld->os;
   tld->os.stats = &tld->stats;
+  llist_init(&tld->page_list);
 }
 
 static void mi_heap_main_init(void) {

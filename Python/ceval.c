@@ -19,6 +19,7 @@
 #include "pycore_pylifecycle.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
+#include "pycore_qsbr.h"
 
 #include "code.h"
 #include "dictobject.h"
@@ -660,6 +661,11 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
         if (err != 0) {
             return err;
         }
+    }
+
+    if ((b & EVAL_QSBR) != 0) {
+        _PyThreadState_Unsignal(tstate, EVAL_QSBR);
+        _Py_qsbr_quiescent_state(tstate);
     }
 
     if ((b & EVAL_DROP_GIL) != 0) {

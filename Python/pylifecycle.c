@@ -16,6 +16,7 @@
 #include "pycore_pylifecycle.h"
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
+#include "pycore_qsbr.h"
 #include "pycore_traceback.h"
 #include "grammar.h"
 #include "node.h"
@@ -516,6 +517,12 @@ pycore_init_runtime(_PyRuntimeState *runtime,
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
+
+    status = _Py_qsbr_init(&runtime->qsbr);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
     return _PyStatus_OK();
 }
 

@@ -25,6 +25,7 @@ Data members:
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
+#include "pycore_qsbr.h"
 #include "pythread.h"
 #include "pydtrace.h"
 
@@ -1907,6 +1908,57 @@ sys_is_finalizing_impl(PyObject *module)
     return PyBool_FromLong(_Py_IsFinalizing());
 }
 
+/*[clinic input]
+sys._qsbr_epoch
+
+Current QSBR epoch counter.
+[clinic start generated code]*/
+
+static PyObject *
+sys__qsbr_epoch_impl(PyObject *module)
+/*[clinic end generated code: output=b429cdff802e1b20 input=9851ded9326e6273]*/
+{
+    PyObject *obj = NULL;
+    PyObject *rd_seq = NULL;
+    PyObject *wr_seq = NULL;
+    PyObject *t_seq = NULL;
+
+    obj = PyDict_New();
+    if (!obj) {
+        goto error;
+    }
+
+    rd_seq = PyLong_FromUnsignedLongLong(
+        (unsigned long long)_Py_atomic_load_uint64(&_PyRuntime.qsbr.s_rd_seq));
+    if (!rd_seq || PyDict_SetItemString(obj, "rd_seq", rd_seq) < 0) {
+        goto error;
+    }
+
+    wr_seq = PyLong_FromUnsignedLongLong(
+        (unsigned long long)_Py_atomic_load_uint64(&_PyRuntime.qsbr.s_wr));
+    if (!wr_seq || PyDict_SetItemString(obj, "wr_seq", wr_seq) < 0) {
+        goto error;
+    }
+
+    t_seq = PyLong_FromUnsignedLongLong(
+        (unsigned long long)_Py_atomic_load_uint64(&PyThreadState_GET()->qsbr->t_seq));
+    if (!t_seq || PyDict_SetItemString(obj, "t_seq", t_seq) < 0) {
+        goto error;
+    }
+
+    Py_DECREF(rd_seq);
+    Py_DECREF(wr_seq);
+    Py_DECREF(t_seq);
+    return obj;
+
+error:
+    Py_XDECREF(obj);
+    Py_XDECREF(rd_seq);
+    Py_XDECREF(wr_seq);
+    Py_XDECREF(t_seq);
+    return NULL;
+}
+
 #ifdef ANDROID_API_LEVEL
 /*[clinic input]
 sys.getandroidapilevel
@@ -1995,6 +2047,7 @@ static PyMethodDef sys_methods[] = {
     SYS__ENABLELEGACYWINDOWSFSENCODING_METHODDEF
     SYS_INTERN_METHODDEF
     SYS_IS_FINALIZING_METHODDEF
+    SYS__QSBR_EPOCH_METHODDEF
     SYS_MDEBUG_METHODDEF
     SYS_SETSWITCHINTERVAL_METHODDEF
     SYS_GETSWITCHINTERVAL_METHODDEF

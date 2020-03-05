@@ -531,6 +531,21 @@ PyMem_Free(void *ptr)
     a->free(a->ctx, ptr);
 }
 
+PyObject **
+PyMem_ArrayMalloc(size_t size, size_t *usable)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    mi_heap_t *heap = tstate->heaps[mi_heap_tag_list_array];
+    return mi_heap_malloc_array(heap, size, usable);
+}
+
+
+void
+PyMem_ArrayFree(void* ptr)
+{
+    mi_free(ptr);
+}
+
 
 wchar_t*
 _PyMem_RawWcsdup(const wchar_t *str)

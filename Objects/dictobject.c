@@ -1267,6 +1267,7 @@ dictresize(PyDictObject *mp, Py_ssize_t minsize)
 #ifdef Py_REF_DEBUG
         _Py_DecRefTotal();
 #endif
+        _mi_ptr_use_qsbr(oldkeys);
         PyObject_FREE(oldkeys);
     }
 

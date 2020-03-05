@@ -12,6 +12,8 @@ extern "C" {
 #include "pycore_llist.h"
 #include "pycore_pymem.h"     /* struct _gc_runtime_state */
 #include "pycore_warnings.h"  /* struct _warnings_runtime_state */
+#include "pycore_llist.h"
+#include "pycore_qsbr.h"
 #include "lock.h"
 
 /* Forward declaration */
@@ -30,7 +32,8 @@ enum {
     EVAL_PENDING_CALLS = 1U << 2,
     EVAL_DROP_GIL = 1U << 3,
     EVAL_ASYNC_EXC = 1U << 4,
-    EVAL_EXPLICIT_MERGE = 1U << 5
+    EVAL_EXPLICIT_MERGE = 1U << 5,
+    EVAL_QSBR = 1U << 6
 };
 
 /* ceval state */
@@ -254,6 +257,8 @@ typedef struct pyruntimestate {
         PyThread_type_lock mutex;
         struct _xidregitem *head;
     } xidregistry;
+
+    struct qsbr_shared qsbr;
 
     unsigned long main_thread;
     PyThreadState *main_tstate;
