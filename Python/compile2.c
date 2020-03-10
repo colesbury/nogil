@@ -271,7 +271,6 @@ static void compiler_visit_stmt(struct compiler *, stmt_ty);
 static void compiler_visit_expr(struct compiler *, expr_ty);
 static void compiler_augassign(struct compiler *, stmt_ty);
 static void compiler_annassign(struct compiler *, stmt_ty);
-static void compiler_slice(struct compiler *, slice_ty);
 static void compiler_assign_reg(struct compiler *c, expr_ty target, Py_ssize_t value, bool preserve);
 static void compiler_assign_acc(struct compiler *c, expr_ty target);
 
@@ -1304,18 +1303,6 @@ expr_to_any_reg(struct compiler *c, expr_ty e)
         reg = reserve_regs(c, 1);
         emit1(c, STORE_FAST, reg);
     }
-    return reg;
-}
-
-static Py_ssize_t
-slice_to_any_reg(struct compiler *c, slice_ty s)
-{
-    if (s->kind == Index_kind) {
-        return expr_to_any_reg(c, s->v.Index.value);
-    }
-    compiler_slice(c, s);
-    Py_ssize_t reg = reserve_regs(c, 1);
-    emit1(c, STORE_FAST, reg);
     return reg;
 }
 
@@ -3286,7 +3273,7 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg, bool preserve
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = slice_to_any_reg(c, t->v.Subscript.slice);
+        Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
         emit1(c, LOAD_FAST, reg);
         emit2(c, STORE_SUBSCR, container, sub);
         clear_reg(c, sub);
@@ -3384,7 +3371,7 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = slice_to_any_reg(c, t->v.Subscript.slice);
+        Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
         compiler_visit_expr(c, value);
         emit2(c, STORE_SUBSCR, container, sub);
         clear_reg(c, sub);
@@ -3446,7 +3433,7 @@ compiler_delete_expr(struct compiler *c, expr_ty t)
         break;
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        compiler_slice(c, t->v.Subscript.slice);
+        compiler_visit_expr(c, t->v.Subscript.slice);
         emit1(c, DELETE_SUBSCR, container);
         clear_reg(c, container);
         break;
@@ -3998,14 +3985,11 @@ check_subscripter(struct compiler *c, expr_ty e)
 }
 
 static void
-check_index(struct compiler *c, expr_ty e, slice_ty s)
+check_index(struct compiler *c, expr_ty e, expr_ty s)
 {
     PyObject *v;
 
-    if (s->kind != Index_kind) {
-        return;
-    }
-    PyTypeObject *index_type = infer_type(s->v.Index.value);
+    PyTypeObject *index_type = infer_type(s);
     if (index_type == NULL
         || PyType_FastSubclass(index_type, Py_TPFLAGS_LONG_SUBCLASS)
         || index_type == &PySlice_Type) {
@@ -4843,6 +4827,18 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
     free_regs_above(c, with_reg);
 }
 
+static PyObject *
+expr_as_const(expr_ty e)
+{
+    if (e == NULL) {
+        return Py_None;
+    }
+    if (e->kind == Constant_kind) {
+        return e->v.Constant.value;
+    }
+    return NULL;
+}
+
 static void
 compiler_visit_expr1(struct compiler *c, expr_ty e)
 {
@@ -4932,9 +4928,30 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         check_index(c, e->v.Subscript.value, e->v.Subscript.slice);
 
         Py_ssize_t reg = expr_to_any_reg(c, e->v.Subscript.value);
-        compiler_slice(c, e->v.Subscript.slice);
+        compiler_visit_expr(c, e->v.Subscript.slice);
         emit1(c, BINARY_SUBSCR, reg);
         clear_reg(c, reg);
+        break;
+    }
+    case Slice_kind: {
+        PyObject *lower = expr_as_const(e->v.Slice.lower);
+        PyObject *upper = expr_as_const(e->v.Slice.upper);
+        PyObject *step = expr_as_const(e->v.Slice.step);
+        if (lower && upper && step) {
+            PyObject *slice = PySlice_New(lower, upper, step);
+            if (slice == NULL) {
+                COMPILER_ERROR(c);
+            }
+            emit1(c, LOAD_CONST, compiler_new_const(c, slice));
+            break;
+        }
+
+        Py_ssize_t base = c->unit->next_register;
+        expr_to_reg(c, e->v.Slice.lower, base + 0);
+        expr_to_reg(c, e->v.Slice.upper, base + 1);
+        expr_to_reg(c, e->v.Slice.step,  base + 2);
+        emit1(c, BUILD_SLICE, base);
+        c->unit->next_register = base;
         break;
     }
     case Name_kind:
@@ -5015,7 +5032,7 @@ compiler_augassign(struct compiler *c, stmt_ty s)
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, e->v.Subscript.value);
-        Py_ssize_t sub = slice_to_any_reg(c, e->v.Subscript.slice);
+        Py_ssize_t sub = expr_to_any_reg(c, e->v.Subscript.slice);
         emit1(c, LOAD_FAST, sub);
         emit1(c, BINARY_SUBSCR, container);
         Py_ssize_t tmp = reserve_regs(c, 1);
@@ -5064,62 +5081,32 @@ check_annotation(struct compiler *c, stmt_ty s)
 }
 
 static void
-check_ann_slice(struct compiler *c, slice_ty sl)
-{
-    switch(sl->kind) {
-    case Index_kind:
-        check_ann_expr(c, sl->v.Index.value);
-        break;
-    case Slice_kind:
-        if (sl->v.Slice.lower) {
-            check_ann_expr(c, sl->v.Slice.lower);
-        }
-        if (sl->v.Slice.upper) {
-            check_ann_expr(c, sl->v.Slice.upper);
-        }
-        if (sl->v.Slice.step) {
-            check_ann_expr(c, sl->v.Slice.step);
-        }
-        break;
-    default:
-        PyErr_SetString(PyExc_SystemError,
-                        "unexpected slice kind");
-        COMPILER_ERROR(c);
-    }
-}
-
-static void
-check_ann_subscr(struct compiler *c, slice_ty sl)
+check_ann_subscr(struct compiler *c, expr_ty e)
 {
     /* We check that everything in a subscript is defined at runtime. */
-    Py_ssize_t i, n;
-
-    switch (sl->kind) {
-    case Index_kind:
+    switch (e->kind) {
     case Slice_kind:
-        check_ann_slice(c, sl);
-        break;
-    case ExtSlice_kind:
-        n = asdl_seq_LEN(sl->v.ExtSlice.dims);
-        for (i = 0; i < n; i++) {
-            slice_ty subsl = (slice_ty)asdl_seq_GET(sl->v.ExtSlice.dims, i);
-            switch (subsl->kind) {
-            case Index_kind:
-            case Slice_kind:
-                check_ann_slice(c, subsl);
-                break;
-            case ExtSlice_kind:
-            default:
-                PyErr_SetString(PyExc_SystemError,
-                                "extended slice invalid in nested slice");
-                COMPILER_ERROR(c);
-            }
+        if (e->v.Slice.lower) {
+            check_ann_expr(c, e->v.Slice.lower);
         }
-        break;
+        if (e->v.Slice.upper) {
+            check_ann_expr(c, e->v.Slice.upper);
+        }
+        if (e->v.Slice.step) {
+            check_ann_expr(c, e->v.Slice.step);
+        }
+        return;
+    case Tuple_kind: {
+        /* extended slice */
+        asdl_seq *elts = e->v.Tuple.elts;
+        Py_ssize_t i, n = asdl_seq_LEN(elts);
+        for (i = 0; i < n; i++) {
+            check_ann_subscr(c, asdl_seq_GET(elts, i));
+        }
+        return;
+    }
     default:
-        PyErr_Format(PyExc_SystemError,
-                     "invalid subscript kind %d", sl->kind);
-        COMPILER_ERROR(c);
+        return check_ann_expr(c, e);
     }
 }
 
@@ -5284,60 +5271,6 @@ compiler_warn(struct compiler *c, const char *format, ...)
 //     ADDOP(c, op);
 //     return 1;
 // }
-
-static PyObject *
-expr_as_const(expr_ty e)
-{
-    if (e == NULL) {
-        return Py_None;
-    }
-    if (e->kind == Constant_kind) {
-        return e->v.Constant.value;
-    }
-    return NULL;
-}
-
-static void
-compiler_slice(struct compiler *c, slice_ty s)
-{
-    if (s->kind == Index_kind) {
-        compiler_visit_expr(c, s->v.Index.value);
-        return;
-    }
-    if (s->kind == ExtSlice_kind) {
-        Py_ssize_t base = c->unit->next_register;
-        Py_ssize_t i, n = asdl_seq_LEN(s->v.ExtSlice.dims);
-        for (i = 0; i < n; i++) {
-            slice_ty sub = (slice_ty)asdl_seq_GET(s->v.ExtSlice.dims, i);
-            compiler_slice(c, sub);
-            emit1(c, STORE_FAST, reserve_regs(c, 1));
-        }
-        assert(n > 0);
-        emit2(c, BUILD_TUPLE, base, n);
-        c->unit->next_register = base;
-        return;
-    }
-
-    PyObject *lower, *upper, *step;
-    lower = expr_as_const(s->v.Slice.lower);
-    upper = expr_as_const(s->v.Slice.upper);
-    step = expr_as_const(s->v.Slice.step);
-    if (lower && upper && step) {
-        PyObject *slice = PySlice_New(lower, upper, step);
-        if (slice == NULL) {
-            COMPILER_ERROR(c);
-        }
-        emit1(c, LOAD_CONST, compiler_new_const(c, slice));
-        return;
-    }
-
-    Py_ssize_t base = c->unit->next_register;
-    expr_to_reg(c, s->v.Slice.lower, base + 0);
-    expr_to_reg(c, s->v.Slice.upper, base + 1);
-    expr_to_reg(c, s->v.Slice.step,  base + 2);
-    emit1(c, BUILD_SLICE, base);
-    c->unit->next_register = base;
-}
 
 /* End of the compiler section, beginning of the assembler section */
 
