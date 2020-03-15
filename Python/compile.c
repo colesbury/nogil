@@ -3689,10 +3689,10 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         case AugStore:
             break;
         case Del: op = DELETE_DEREF; break;
-        case Param:
         default:
-            PyErr_SetString(PyExc_SystemError,
-                            "param invalid for deref variable");
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         ctx);
             return 0;
         }
         break;
@@ -3706,10 +3706,10 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         case AugLoad:
         case AugStore:
             break;
-        case Param:
         default:
-            PyErr_SetString(PyExc_SystemError,
-                            "param invalid for local variable");
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         ctx);
             return 0;
         }
         ADDOP_N(c, op, mangled, varnames);
@@ -3724,10 +3724,10 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         case AugLoad:
         case AugStore:
             break;
-        case Param:
         default:
-            PyErr_SetString(PyExc_SystemError,
-                            "param invalid for global variable");
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         ctx);
             return 0;
         }
         break;
@@ -3741,10 +3741,10 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         case AugLoad:
         case AugStore:
             break;
-        case Param:
         default:
-            PyErr_SetString(PyExc_SystemError,
-                            "param invalid for name variable");
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         ctx);
             return 0;
         }
         break;
@@ -5138,10 +5138,10 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         case Del:
             ADDOP_NAME(c, DELETE_ATTR, e->v.Attribute.attr, names);
             break;
-        case Param:
         default:
-            PyErr_SetString(PyExc_SystemError,
-                            "param invalid in attribute expression");
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         e->v.Attribute.ctx);
             return 0;
         }
         break;
@@ -5439,9 +5439,10 @@ compiler_subscript(struct compiler *c, expr_ty e)
         case AugStore:/* fall through to Store */
         case Store:   op = STORE_SUBSCR; break;
         case Del:     op = DELETE_SUBSCR; break;
-        case Param:
-            PyErr_SetString(PyExc_SystemError,
-                "param invalid in subscript expression");
+        default:
+            PyErr_Format(PyExc_SystemError,
+                         "expr_context kind %d should not be possible",
+                         ctx);
             return 0;
     }
     if (ctx == AugStore) {
