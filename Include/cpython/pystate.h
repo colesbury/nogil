@@ -59,6 +59,8 @@ typedef struct PyThreadStateOS PyThreadStateOS;
 struct Waiter;
 typedef struct _PyEventRC _PyEventRC;
 
+// must match MI_NUM_HEAPS in mimalloc.h
+#define Py_NUM_HEAPS 5
 
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
@@ -78,9 +80,7 @@ struct _ts {
 
     uintptr_t eval_breaker;
 
-    mi_heap_t *heap_backing;
-    mi_heap_t *heap_obj;
-    mi_heap_t *heap_gc;
+    mi_heap_t *heaps[Py_NUM_HEAPS];
 
     struct _frame *frame;
     int recursion_depth;

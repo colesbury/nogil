@@ -359,9 +359,10 @@ static inline bool mi_heap_is_initialized(mi_heap_t* heap) {
 }
 
 static inline uintptr_t _mi_ptr_cookie(const void* p) {
-  extern mi_heap_t _mi_heap_main;
-  mi_assert_internal(_mi_heap_main.cookie != 0);
-  return ((uintptr_t)p ^ _mi_heap_main.cookie);
+  extern mi_heap_t _mi_main_heaps[];
+  mi_heap_t* _mi_heap_main = &_mi_main_heaps[mi_heap_tag_default];
+  mi_assert_internal(_mi_heap_main->cookie != 0);
+  return ((uintptr_t)p ^ _mi_heap_main->cookie);
 }
 
 /* -----------------------------------------------------------

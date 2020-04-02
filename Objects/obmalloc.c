@@ -732,8 +732,8 @@ _Py_GetAllocatedBlocks(void)
     Py_ssize_t allocated_blocks = 0;
 
     PyThreadState *tstate = _PyThreadState_GET();
-    mi_heap_visit_blocks(tstate->heap_obj, 0, visit_blocks, &allocated_blocks);
-    mi_heap_visit_blocks(tstate->heap_gc, 0, visit_blocks, &allocated_blocks);
+    mi_heap_visit_blocks(tstate->heaps[mi_heap_tag_obj], 0, visit_blocks, &allocated_blocks);
+    mi_heap_visit_blocks(tstate->heaps[mi_heap_tag_gc], 0, visit_blocks, &allocated_blocks);
 
     return allocated_blocks;
 }
@@ -751,21 +751,21 @@ static inline void *
 _PyObject_Malloc(void *ctx, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_malloc(tstate->heap_obj, nbytes);
+    return mi_heap_malloc(tstate->heaps[mi_heap_tag_obj], nbytes);
 }
 
 static inline void *
 _PyObject_Calloc(void *ctx, size_t nelem, size_t elsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_calloc(tstate->heap_obj, nelem, elsize);
+    return mi_heap_calloc(tstate->heaps[mi_heap_tag_obj], nelem, elsize);
 }
 
 static inline void *
 _PyObject_Realloc(void *ctx, void *ptr, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_realloc(tstate->heap_obj, ptr, nbytes);
+    return mi_heap_realloc(tstate->heaps[mi_heap_tag_obj], ptr, nbytes);
 }
 
 static inline void
@@ -778,21 +778,21 @@ static inline void *
 _GC_Malloc(void *ctx, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_malloc(tstate->heap_gc, nbytes);
+    return mi_heap_malloc(tstate->heaps[mi_heap_tag_gc], nbytes);
 }
 
 static inline void *
 _GC_Calloc(void *ctx, size_t nelem, size_t elsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_calloc(tstate->heap_gc, nelem, elsize);
+    return mi_heap_calloc(tstate->heaps[mi_heap_tag_gc], nelem, elsize);
 }
 
 static inline void *
 _GC_Realloc(void *ctx, void *ptr, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_realloc(tstate->heap_gc, ptr, nbytes);
+    return mi_heap_realloc(tstate->heaps[mi_heap_tag_gc], ptr, nbytes);
 }
 
 #else   /* ! WITH_PYMALLOC */

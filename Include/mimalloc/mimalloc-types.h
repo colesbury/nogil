@@ -478,8 +478,7 @@ struct mi_tld_s {
   bool                recurse;       // true if deferred was called; used to prevent infinite recursion.
   mi_heap_t*          heap_backing;  // backing heap of this thread (cannot be deleted)
   mi_heap_t*          heaps;         // list of heaps in this thread (so we can abandon all when the thread terminates)
-  mi_heap_t*          heap_obj;
-  mi_heap_t*          heap_gc;
+  mi_heap_t*          default_heaps[MI_NUM_HEAPS];
   mi_segments_tld_t   segments;      // segment tld
   mi_os_tld_t         os;            // os tld
   mi_stats_t          stats;         // statistics

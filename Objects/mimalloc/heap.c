@@ -189,14 +189,10 @@ mi_heap_t* mi_heap_get_backing(void) {
   return bheap;
 }
 
-mi_heap_t* mi_heap_get_obj(void) {
+mi_heap_t* mi_heap_get_tag(mi_heap_tag_t tag) {
+  mi_assert(tag >= 0 && tag < MI_NUM_HEAPS);
   mi_heap_t* def = mi_heap_get_default();
-  return def->tld->heap_obj;
-}
-
-mi_heap_t* mi_heap_get_gc(void) {
-  mi_heap_t* def = mi_heap_get_default();
-  return def->tld->heap_gc;
+  return def->tld->default_heaps[tag];
 }
 
 mi_heap_t* mi_heap_new(void) {

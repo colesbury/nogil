@@ -1080,16 +1080,8 @@ static mi_heap_t* mi_heap_from_tag(mi_heap_t* base, unsigned int tag)
 {
   if (tag == base->tag) {
     return base;
-  } else if (tag == mi_heap_tag_default) {
-    return base->tld->heap_backing;
-  } else if (tag == mi_heap_tag_obj) {
-    return base->tld->heap_obj;
-  } else if (tag == mi_heap_tag_gc) {
-    return base->tld->heap_gc;
-  } else {
-    _mi_error_message(EINVAL, "unknown page tag: %u\n", tag);
-    return NULL;
   }
+  return base->tld->default_heaps[tag];
 }
 
 // Reclaim a segment; returns NULL if the segment was freed

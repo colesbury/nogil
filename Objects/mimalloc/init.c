@@ -110,52 +110,51 @@ mi_decl_thread mi_heap_t* _mi_heap_default = (mi_heap_t*)&_mi_heap_empty;
 
 #define tld_main_stats  ((mi_stats_t*)((uint8_t*)&tld_main + offsetof(mi_tld_t,stats)))
 #define tld_main_os     ((mi_os_tld_t*)((uint8_t*)&tld_main + offsetof(mi_tld_t,os)))
+#define _mi_heap_main   (_mi_main_heaps[0])
 
-extern mi_heap_t _mi_heap_main;
+mi_heap_t _mi_main_heaps[MI_NUM_HEAPS];
 
-// Initialized in mi_heap_init
-static mi_heap_t _mi_heap_main_obj;
-static mi_heap_t _mi_heap_main_gc;
-
-static mi_tld_t tld_main = {
-  0, false,
-  &_mi_heap_main, &_mi_heap_main,
-  &_mi_heap_main_obj,
-  &_mi_heap_main_gc,
-  { { NULL, NULL }, {NULL ,NULL}, {NULL ,NULL, 0},
-    0, 0, 0, 0, 0, 0, NULL,
-    tld_main_stats, tld_main_os
-  }, // segments
-  { 0, tld_main_stats },  // os
-  { MI_STATS_NULL }       // stats
-};
-
-mi_heap_t _mi_heap_main = {
-  &tld_main,
-  MI_SMALL_PAGES_EMPTY,
-  MI_PAGE_QUEUES_EMPTY,
-  ATOMIC_VAR_INIT(NULL),
-  0,                // thread id
-  0,                // initial cookie
-  { 0, 0 },         // the key of the main heap can be fixed (unlike page keys that need to be secure!)
-  { {0x846ca68b}, {0}, 0 },  // random
-  0,                // page count
-  NULL,             // next heap
-  false             // can reclaim
-};
+static mi_tld_t tld_main;
 
 bool _mi_process_is_initialized = false;  // set to `true` in `mi_process_init`.
 
 mi_stats_t _mi_stats_main = { MI_STATS_NULL };
 
 
+
+static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
+  if (heap->cookie != 0) return;
+  memcpy(heap, &_mi_heap_empty, sizeof(*heap));
+  heap->thread_id = _mi_thread_id();
+  if (heap == &_mi_heap_main) {
+    heap->cookie = _os_random_weak((uintptr_t)&_mi_heap_init_ex);
+  }
+  _mi_random_init(&heap->random);
+  if (heap != &_mi_heap_main) {
+    heap->cookie  = _mi_heap_random_next(heap) | 1;
+  }
+  heap->keys[0] = _mi_heap_random_next(heap);
+  heap->keys[1] = _mi_heap_random_next(heap);
+  heap->tld = tld;
+  heap->tag = tag;
+}
+
+static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])
+{
+  for (int tag = 0; tag < MI_NUM_HEAPS; tag++) {
+    _mi_heap_init_ex(&heaps[tag], tld, tag);
+    tld->default_heaps[tag] = &heaps[tag];
+  }
+  tld->heap_backing = &heaps[mi_heap_tag_default];
+  tld->heaps = &heaps[mi_heap_tag_default];
+  tld->segments.stats = &tld->stats;
+  tld->segments.os = &tld->os;
+  tld->os.stats = &tld->stats;
+}
+
 static void mi_heap_main_init(void) {
   if (_mi_heap_main.cookie == 0) {
-    _mi_heap_main.thread_id = _mi_thread_id();
-    _mi_heap_main.cookie = _os_random_weak((uintptr_t)&mi_heap_main_init);
-    _mi_random_init(&_mi_heap_main.random);
-    _mi_heap_main.keys[0] = _mi_heap_random_next(&_mi_heap_main);
-    _mi_heap_main.keys[1] = _mi_heap_random_next(&_mi_heap_main);
+    _mi_thread_init_ex(&tld_main, _mi_main_heaps);
   }
 }
 
@@ -171,22 +170,9 @@ mi_heap_t* _mi_heap_main_get(void) {
 
 // note: in x64 in release build `sizeof(mi_thread_data_t)` is under 4KiB (= OS page size).
 typedef struct mi_thread_data_s {
-  mi_heap_t  heap;  // must come first due to cast in `_mi_heap_done`
-  mi_heap_t  heap_obj;
-  mi_heap_t  heap_gc;
+  mi_heap_t  heaps[MI_NUM_HEAPS];  // must come first due to cast in `_mi_heap_done`
   mi_tld_t   tld;
 } mi_thread_data_t;
-
-static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
-    memcpy(heap, &_mi_heap_empty, sizeof(*heap));
-    heap->thread_id = _mi_thread_id();
-    _mi_random_init(&heap->random);
-    heap->cookie  = _mi_heap_random_next(heap) | 1;
-    heap->keys[0] = _mi_heap_random_next(heap);
-    heap->keys[1] = _mi_heap_random_next(heap);
-    heap->tld = tld;
-    heap->tag = tag;
-}
 
 // Initialize the thread local default heap, called from `mi_thread_init`
 static bool _mi_heap_init(void) {
@@ -206,18 +192,8 @@ static bool _mi_heap_init(void) {
       return false;
     }
     // OS allocated so already zero initialized
-    mi_tld_t*  tld = &td->tld;
-    _mi_heap_init_ex(&td->heap, &td->tld, mi_heap_tag_default);
-    _mi_heap_init_ex(&td->heap_obj, &td->tld, mi_heap_tag_obj);
-    _mi_heap_init_ex(&td->heap_gc, &td->tld, mi_heap_tag_gc);
-    tld->heap_backing = &td->heap;
-    tld->heaps = &td->heap;
-    tld->heap_obj = &td->heap_obj;
-    tld->heap_gc = &td->heap_gc;
-    tld->segments.stats = &tld->stats;
-    tld->segments.os = &tld->os;
-    tld->os.stats = &tld->stats;
-    _mi_heap_set_default_direct(&td->heap);
+    _mi_thread_init_ex(&td->tld, td->heaps);
+    _mi_heap_set_default_direct(&td->heaps[0]);
   }
   return false;
 }
@@ -248,8 +224,11 @@ bool _mi_heap_done(mi_heap_t* heap) {
 
   // collect if not the main thread
   if (heap != &_mi_heap_main) {
-    mi_heap_absorb(heap, heap->tld->heap_obj);
-    mi_heap_absorb(heap, heap->tld->heap_gc);
+    for (int tag = 0; tag < MI_NUM_HEAPS; tag++) {
+      if (tag != mi_heap_tag_default) {
+        mi_heap_absorb(heap, heap->tld->default_heaps[tag]);
+      }
+    }
     _mi_heap_collect_abandon(heap);
   }
 
@@ -484,8 +463,6 @@ void mi_process_init(void) mi_attr_noexcept {
   _mi_verbose_message("process init: 0x%zx\n", _mi_thread_id());
   _mi_os_init();
   mi_heap_main_init();
-  _mi_heap_init_ex(&_mi_heap_main_obj, &tld_main, mi_heap_tag_obj);
-  _mi_heap_init_ex(&_mi_heap_main_gc, &tld_main, mi_heap_tag_gc);
   #if (MI_DEBUG)
   _mi_verbose_message("debug level : %d\n", MI_DEBUG);
   #endif

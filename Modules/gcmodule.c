@@ -460,7 +460,7 @@ visit_heap(gc_visit_fn* visitor, void *arg)
     PyInterpreterState *head = _PyRuntime.interpreters.head;
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
-            mi_heap_t *heap = p->heap_gc;
+            mi_heap_t *heap = p->heaps[mi_heap_tag_gc];
             if (!heap || heap->visited || heap->page_count == 0) {
                 continue;
             }
@@ -495,7 +495,7 @@ visit_heap(gc_visit_fn* visitor, void *arg)
 end:
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
-            mi_heap_t *heap = p->heap_gc;
+            mi_heap_t *heap = p->heaps[mi_heap_tag_gc];
             if (heap) {
                 heap->visited = false;
             }

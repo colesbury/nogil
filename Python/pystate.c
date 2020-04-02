@@ -919,9 +919,9 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->context = NULL;
     tstate->context_ver = 1;
 
-    tstate->heap_backing = NULL;
-    tstate->heap_obj = NULL;
-    tstate->heap_gc = NULL;
+    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
+        tstate->heaps[tag] = NULL;
+    }
 
     tstate->id = ++interp->tstate_next_unique_id;
 
@@ -971,16 +971,18 @@ _PyThreadState_Prealloc(PyInterpreterState *interp)
 void
 _PyThreadState_Init(PyThreadState *tstate)
 {
+    assert(Py_NUM_HEAPS == MI_NUM_HEAPS);
     tstate->fast_thread_id = _Py_ThreadId();
-    tstate->heap_backing = mi_heap_get_backing();
-    tstate->heap_obj = mi_heap_get_obj();
-    tstate->heap_gc = mi_heap_get_gc();
+    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
+        tstate->heaps[tag] = mi_heap_get_tag(tag);
+    }
+    mi_heap_t *heap_gc = tstate->heaps[mi_heap_tag_gc];
+    if (!heap_gc->gcstate) {
+        heap_gc->gcstate = &tstate->interp->gc;
+    }
     tstate->waiter = _PyParkingLot_InitThread();
     if (!tstate->waiter) {
         Py_FatalError("Failed to initialize thread waiter data");
-    }
-    if (!tstate->heap_gc->gcstate) {
-        tstate->heap_gc->gcstate = &tstate->interp->gc;
     }
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -1208,10 +1210,11 @@ tstate_delete_common(PyThreadState *tstate,
                       : tstate->status != _Py_THREAD_ATTACHED);
 
     // Abandon heaps. After this point we must not allocate any Python objects.
-    if (tstate->heap_gc->gcstate == &tstate->interp->gc) {
-        tstate->heap_gc->gcstate = NULL;
+    mi_heap_t *heap_gc = tstate->heaps[mi_heap_tag_gc];
+    if (heap_gc->gcstate == &tstate->interp->gc) {
+        heap_gc->gcstate = NULL;
     }
-    if (tstate->heap_obj->thread_id == _Py_ThreadId() &&
+    if (tstate->heaps[0]->thread_id == _Py_ThreadId() &&
         _Py_IsMainInterpreter(tstate)) {
         // NOTE: this may be called from a different thread. This can
         // happend during shutdown of the interpreter or after forking.
@@ -1223,14 +1226,14 @@ tstate_delete_common(PyThreadState *tstate,
         // that shares the main thread gets destroyed. That will set pages_free_direct
         // to NULL and break mi_malloc calls.
         mi_thread_done();
-        if (tstate->heap_backing) {
-            _mi_heap_done(tstate->heap_backing);
+        if (tstate->heaps[mi_heap_tag_default]) {
+            _mi_heap_done(tstate->heaps[mi_heap_tag_default]);
         }
     }
 
-    tstate->heap_backing = NULL;
-    tstate->heap_obj = NULL;
-    tstate->heap_gc = NULL;
+    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
+        tstate->heaps[tag] = NULL;
+    }
 
     _PyEventRC *join_event;
     HEAD_LOCK(runtime);
