@@ -400,6 +400,7 @@ OBJECT_OBJS=	\
 		Objects/descrobject.o \
 		Objects/enumobject.o \
 		Objects/exceptions.o \
+		Objects/genericaliasobject.o \
 		Objects/genobject.o \
 		Objects/genobject2.o \
 		Objects/fileobject.o \

@@ -121,6 +121,7 @@
 #include "genobject.h"
 #include "genobject2.h"
 #include "descrobject.h"
+#include "genericaliasobject.h"
 #include "warnings.h"
 #include "weakrefobject.h"
 #include "structseq.h"
