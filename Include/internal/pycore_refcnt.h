@@ -15,6 +15,7 @@ void _Py_queue_object(PyObject *ob);
 void _Py_queue_process(PyThreadState *tstate);
 void _Py_queue_create(PyThreadState *tstate);
 void _Py_queue_destroy(PyThreadState *tstate);
+void _Py_queue_after_fork(PyThreadState *tstate);
 
 #ifdef __cplusplus
 }

@@ -418,7 +418,7 @@ PyAPI_FUNC(void) _Py_NO_INLINE _Py_IncRefShared(PyObject *);
 PyAPI_FUNC(void) _Py_NO_INLINE _Py_DecRefShared(PyObject *);
 PyAPI_FUNC(int) _Py_TryIncRefShared(PyObject *);
 PyAPI_FUNC(void) _Py_MergeZeroRefcount(PyObject *);
-void _Py_ExplicitMergeRefcount(PyObject *);
+Py_ssize_t _Py_ExplicitMergeRefcount(PyObject *);
 
 static inline uintptr_t
 _Py_ThreadId(void)

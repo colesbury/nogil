@@ -2216,27 +2216,29 @@ _Py_Dealloc(PyObject *op)
 void
 _Py_MergeZeroRefcount(PyObject *op)
 {
+    assert(_Py_atomic_load_uint32_relaxed(&op->ob_ref_local) == 0);
+
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
+
     Py_ssize_t refcount;
-    int queued, merged;
-    int ok;
+    for (;;) {
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
 
-    assert(!_Py_REF_IS_IMMORTAL(op->ob_ref_local));
-
-    do {
-        uint32_t shared;
-        shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        int queued, merged;
         _PyRef_UnpackShared(shared, &refcount, &queued, &merged);
+
+        // The object can't have negative shared reference count
+        // at this point because that would imply a negative total reference
+        // count (since the local refcount is zero).
+        assert(refcount >= 0);
         assert(!merged);
 
         if (queued) {
-            /* Note that the object can't have negative shared reference count
-            * at this point because that would imply a negative total reference
-            * count (since the local refcount is zero). However, it may still
-            * be queued, if the shared reference count was temporarily negative
-            * and hasn't been proceessed yet. We need to fix this case, because
-            * currently the queue points to garbage objects. FIXME(sgross).
-            */
-            Py_FatalError("UH OH OBJECT IS QUEUED");
+            // Note that the object may still  be queued, if the shared reference
+            // count was temporarily negative and hasn't been proceessed yet.
+            // We don't want to merge it yet because that might result in the
+            // object being freed while it's still in the queue.
+            break;
         }
 
         if (refcount == 0 &&
@@ -2253,21 +2255,22 @@ _Py_MergeZeroRefcount(PyObject *op)
             return;
         }
 
-        ok = _Py_atomic_compare_exchange_uint32(
+        int ok = _Py_atomic_compare_exchange_uint32(
             &op->ob_ref_shared,
             shared,
             shared | _Py_REF_MERGED_MASK);
-    } while (!ok);
 
-    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
-    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
+        if (ok) {
+            break;
+        }
+    }
 
     if (refcount == 0) {
         _Py_Dealloc(op);
     }
 }
 
-void
+Py_ssize_t
 _Py_ExplicitMergeRefcount(PyObject *op)
 {
     uint32_t old_shared;
@@ -2283,7 +2286,8 @@ _Py_ExplicitMergeRefcount(PyObject *op)
         _PyRef_UnpackShared(old_shared, &refcount, &queued, &merged);
 
         if (merged) {
-            return;
+            assert(refcount > 0);
+            return refcount;
         }
 
         // TODO(sgross): implementation defined behavior!
@@ -2304,10 +2308,7 @@ _Py_ExplicitMergeRefcount(PyObject *op)
 
     _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
     _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
-
-    if (refcount == 0) {
-        _Py_Dealloc(op);
-    }
+    return refcount;
 }
 
 void
@@ -2375,7 +2376,10 @@ _Py_DecRefShared(PyObject *op)
     if (_Py_REF_IS_QUEUED(new_shared) != _Py_REF_IS_QUEUED(old_shared)) {
         PyThreadState *tstate = _PyThreadState_GET();
         if (tstate->interp->gc.collecting) {
-            _Py_ExplicitMergeRefcount(op);
+            Py_ssize_t refcount = _Py_ExplicitMergeRefcount(op);
+            if (refcount == 0) {
+                _Py_Dealloc(op);
+            }
         }
         else {
             _Py_queue_object(op);

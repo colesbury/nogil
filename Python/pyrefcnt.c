@@ -2,148 +2,134 @@
 
 #include "Python.h"
 #include "pycore_pystate.h"
-#include "condvar.h"
-#include "pyatomic.h"
-#include "../Modules/hashtable.h"
+#include "lock.h"
 
-// TODO (sgross): abstract pthread
 // TODO: not efficient
 
-static void
-_Py_RefcntQueue_Push(PyThreadState *tstate, PyObject *ob)
+typedef struct {
+    _PyMutex mutex;
+    struct llist_node threads;
+} Bucket;
+
+struct brc_queued_object {
+    PyObject *object;
+    struct brc_queued_object* next;
+};
+
+#define NUM_BUCKETS 251
+
+static Bucket buckets[NUM_BUCKETS];
+
+static struct _PyBrcState *
+find_brc_state(Bucket *bucket, uintptr_t thread_id)
 {
-    PyObject **object_queue = &tstate->object_queue;
-    for (;;) {
-        PyObject *head = _Py_atomic_load_ptr_relaxed(object_queue);
-        _Py_atomic_store_uintptr_relaxed(&ob->ob_tid, (uintptr_t)head);
-        if (_Py_atomic_compare_exchange_ptr(object_queue, head, ob)) {
-            return;
+    struct llist_node *node;
+    llist_for_each(node, &bucket->threads) {
+        struct _PyBrcState *brc = llist_data(node, struct _PyBrcState, node);
+        if (brc->thread_id == thread_id) {
+            return brc;
         }
     }
+    return NULL;
 }
 
 void
 _Py_queue_object(PyObject *ob)
 {
-    uint64_t ob_tid = _PyObject_ThreadId(ob);
-    PyThreadState *tstate = PyThreadState_GET();
-    if (!tstate) {
-        // We can end up in a during runtime finalization where there's no active
-        // thread state. For example, release_sentinel in _threadmodule.c calls
-        // Py_DECREF without an active thread state. For now, assume that no locking
-        // is needed, since all threads should be dead. (This is probably not true)
-        assert(_PyRuntime.finalizing);
-        _Py_ExplicitMergeRefcount(ob);
+    uintptr_t tid = _PyObject_ThreadId(ob);
+    Bucket *bucket = &buckets[tid % NUM_BUCKETS];
+
+    _PyMutex_lock(&bucket->mutex);
+    struct _PyBrcState *brc = find_brc_state(bucket, tid);
+    if (!brc) {
+        // If we didn't find the owning thread then it must have already exited.
+        // It's safe (and necessary) to merge the refcount.
+        Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob);
+        _PyMutex_unlock(&bucket->mutex);
+        if (refcount == 0) {
+            _Py_Dealloc(ob);
+        }
         return;
     }
 
-    PyInterpreterState *interp = tstate->interp;
-    assert(interp);
-
-    _Py_hashtable_t *ht = interp->object_queues;
-    if (!ht) {
-        // We can end up in a during runtime finalization where there's no active
-        // thread state. For example, release_sentinel in _threadmodule.c calls
-        // Py_DECREF without an active thread state. For now, assume that no locking
-        // is needed, since all threads should be dead. (This is probably not true)
-        assert(_PyRuntime.finalizing);
-        _Py_ExplicitMergeRefcount(ob);
+    struct brc_queued_object *entry = PyMem_RawMalloc(sizeof(struct brc_queued_object));
+    if (!entry) {
+        // TODO(sgross): we can probably catch these later on in garbage collection.
+        _PyMutex_unlock(&bucket->mutex);
+        fprintf(stderr, "error: unable to allocate entry for brc_queued_object\n");
         return;
     }
-
-    int err;
-    if ((err = pthread_rwlock_rdlock(&interp->object_queues_lk)) != 0) {
-        Py_FatalError("_Py_queue_object: unable to lock");
-        return;
-    }
-
-    PyThreadState *target_tstate = NULL;
-    _Py_hashtable_entry_t *entry = _Py_HASHTABLE_GET_ENTRY(ht, ob_tid);
-    if (entry) {
-        _Py_HASHTABLE_ENTRY_READ_DATA(ht, entry, target_tstate);
-    }
-
-    if (target_tstate) {
-        _Py_RefcntQueue_Push(target_tstate, ob);
-    }
-
-    pthread_rwlock_unlock(&interp->object_queues_lk);
-
-    if (!target_tstate) {
-        _Py_ExplicitMergeRefcount(ob);
-    }
-
+    entry->object = ob;
+    entry->next = brc->queue;
+    brc->queue = entry;
+    _PyMutex_unlock(&bucket->mutex);
 }
 
-void
-_Py_queue_process(PyThreadState *tstate)
+static void
+_Py_queue_merge_objects(struct brc_queued_object* head)
 {
-    assert(tstate);
-
-    PyObject *head = _Py_atomic_exchange_ptr(&tstate->object_queue, NULL);
+    struct brc_queued_object* next;
     while (head) {
-        PyObject *next = (PyObject *)head->ob_tid;
-        _Py_ExplicitMergeRefcount(head);
+        next = head->next;
+        PyObject *ob = head->object;
+        Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob);
+        if (refcount == 0) {
+            _Py_Dealloc(ob);
+        }
+        PyMem_RawFree(head);
         head = next;
     }
 }
 
 void
+_Py_queue_process(PyThreadState *tstate)
+{
+    uintptr_t tid = tstate->fast_thread_id;
+    struct _PyBrcState *brc = &tstate->os->brc;
+    Bucket *bucket = &buckets[tid % NUM_BUCKETS];
+
+    struct brc_queued_object* head;
+
+    _PyMutex_lock(&bucket->mutex);
+    head = brc->queue;
+    brc->queue = NULL;
+    _PyMutex_unlock(&bucket->mutex);
+
+    _Py_queue_merge_objects(head);
+}
+
+void
 _Py_queue_create(PyThreadState *tstate)
 {
-    PyInterpreterState *interp = tstate->interp;
-    assert(interp);
+    uintptr_t tid = tstate->fast_thread_id;
+    struct _PyBrcState *brc = &tstate->os->brc;
+    Bucket *bucket = &buckets[tid % NUM_BUCKETS];
 
-    if (pthread_rwlock_wrlock(&interp->object_queues_lk) != 0) {
-        Py_FatalError("_Py_queue_create: unable to lock");
-        return;
+    brc->queue = NULL;
+    brc->thread_id = tid;
+
+    _PyMutex_lock(&bucket->mutex);
+    if (bucket->threads.next == NULL) {
+        llist_init(&bucket->threads);
     }
-
-    _Py_hashtable_t *ht = interp->object_queues;
-    uintptr_t tid = _Py_ThreadId();
-    // printf("creating queue for %ld\n", tid);
-    if (_Py_HASHTABLE_SET(ht, tid, tstate) != 0) {
-        Py_FatalError("unable to set thread object queue");
-    }
-
-    pthread_rwlock_unlock(&interp->object_queues_lk);
+    llist_insert_tail(&bucket->threads, &brc->node);
+    _PyMutex_unlock(&bucket->mutex);
 }
 
 void
 _Py_queue_destroy(PyThreadState *tstate)
 {
-    PyInterpreterState *interp = tstate->interp;
-    assert(interp);
+    uintptr_t tid = tstate->fast_thread_id;
+    struct _PyBrcState *brc = &tstate->os->brc;
+    Bucket *bucket = &buckets[tid % NUM_BUCKETS];
 
-    _Py_hashtable_t *ht = interp->object_queues;
-    uint64_t tid = tstate->fast_thread_id;
+    struct brc_queued_object* queue;
 
-retry:
-    _Py_queue_process(tstate);
+    _PyMutex_lock(&bucket->mutex);
+    llist_remove(&brc->node);
+    queue = brc->queue;
+    brc->queue = NULL;
+    _PyMutex_unlock(&bucket->mutex);
 
-    if (pthread_rwlock_wrlock(&interp->object_queues_lk) != 0) {
-        Py_FatalError("_Py_queue_destroy: unable to lock");
-        return;
-    }
-
-    if (tstate->object_queue) {
-        pthread_rwlock_unlock(&interp->object_queues_lk);
-        goto retry;
-    }
-
-    PyThreadState *value = NULL;
-    if (!_Py_HASHTABLE_POP(ht, tid, value)) {
-        // Py_FatalError("_Py_queue_destroy: missing thread object queue");
-        // FIXME(sgross): just ignore for now. There's a race where a new thread
-        // can be created and added to the interpreter's thread-list before it's
-        // initialized in the threads start method. The thread only adds itself
-        // to the refcnt hashtable later on. In between the two, another thread
-        // may fork, which leaves the PyThreadState in the interpreter but without
-        // the corresponding entry in this hashtable.
-        pthread_rwlock_unlock(&interp->object_queues_lk);
-        return;
-    }
-    assert(value == tstate);
-
-    pthread_rwlock_unlock(&interp->object_queues_lk);
+    _Py_queue_merge_objects(queue);
 }

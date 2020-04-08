@@ -457,22 +457,6 @@ PyInterpreterState_New(void)
     _PyRuntimeState *runtime = &_PyRuntime;
     interp->runtime = runtime;
 
-
-    interp->object_queues =
-        _Py_hashtable_new(sizeof(uint64_t), sizeof(void*),
-                          _Py_hashtable_hash_ptr,
-                          _Py_hashtable_compare_direct);
-    if (!interp->object_queues) {
-        PyMem_RawFree(interp);
-        return NULL;
-    }
-
-    if (pthread_rwlock_init(&interp->object_queues_lk, NULL) != 0) {
-        _Py_hashtable_destroy(interp->object_queues);
-        PyMem_RawFree(interp);
-        return NULL;
-    }
-
     _PyGC_InitState(&interp->gc);
     PyConfig_InitPythonConfig(&interp->config);
 
@@ -552,11 +536,6 @@ PyInterpreterState_Clear(PyInterpreterState *interp)
     Py_CLEAR(interp->after_forkers_parent);
     Py_CLEAR(interp->after_forkers_child);
 #endif
-
-    _Py_hashtable_destroy(interp->object_queues);
-    interp->object_queues = NULL;
-
-    pthread_rwlock_destroy(&interp->object_queues_lk);
 
     if (runtime->finalizing == NULL) {
         _PyWarnings_Fini(interp);

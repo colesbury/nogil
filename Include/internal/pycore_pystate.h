@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #include "pycore_gil.h"       /* struct _gil_runtime_state  */
+#include "pycore_llist.h"
 #include "pycore_pymem.h"     /* struct _gc_runtime_state */
 #include "pycore_warnings.h"  /* struct _warnings_runtime_state */
 #include "lock.h"
@@ -126,9 +127,6 @@ struct _is {
 #endif
 
     PyObject *dict;  /* Stores per-interpreter state */
-
-    struct _Py_hashtable_t *object_queues;
-    pthread_rwlock_t object_queues_lk;
 
     PyObject *builtins_copy;
     PyObject *import_func;
@@ -364,6 +362,8 @@ struct PyThreadStateWaiter {
     int64_t time_to_be_fair;
 };
 
+struct brc_queued_object;
+
 struct PyThreadStateOS {
     struct PyThreadStateWaiter waiter;
 
@@ -372,6 +372,12 @@ struct PyThreadStateOS {
     PyMUTEX_T waiter_mutex;
     PyCOND_T waiter_cond;
     int waiter_counter;
+
+    struct _PyBrcState {
+        struct llist_node node;
+        uintptr_t thread_id;
+        struct brc_queued_object *queue;
+    } brc;
 
     /* DEBUG info */
     PyThreadState *last_notifier;
