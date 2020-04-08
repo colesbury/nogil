@@ -985,7 +985,9 @@ _PyThreadState_Init(PyThreadState *tstate)
     tstate->heap_backing = mi_heap_get_backing();
     tstate->heap_obj = mi_heap_get_obj();
     tstate->heap_gc = mi_heap_get_gc();
-    tstate->heap_gc->gcstate = &tstate->interp->gc;
+    if (!tstate->heap_gc->gcstate) {
+        tstate->heap_gc->gcstate = &tstate->interp->gc;
+    }
     // printf("_PyThreadState_Init: %p (tid %ld) runtime=%p interp=%p\n", tstate, tstate->fast_thread_id, runtime, tstate->interp);
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -1281,27 +1283,36 @@ tstate_delete_common(PyThreadState *tstate,
         _PyEventRC_Decref(join_event);
     }
 
-    if (is_current) {
-        /* Current thread state can't be set to NULL until after join_event
-         * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls. */
-        _PyRuntimeState_SetThreadState(runtime, NULL);
-
-        /* Drop the GIL if we hold it */
-        PyEval_ReleaseLock();
+    if (tstate->heap_gc->gcstate == &tstate->interp->gc) {
+        tstate->heap_gc->gcstate = NULL;
     }
 
-    if (tstate->heap_obj->thread_id == _Py_ThreadId()) {
+    if (tstate->heap_obj->thread_id == _Py_ThreadId() &&
+        _Py_IsMainInterpreter(tstate)) {
         // NOTE: this may be called from a different thread. This can
         // happend during shutdown of the interpreter or after forking.
         // In these cases we don't delete the heap, because it's not
         // safe to call that function from a different thread.
+        // FIXME(sgross): the interpeter check isn't great. Threads that
+        // are only in subinterpreters will leak. It's trying to avoid
+        // the problem where the main heap gets reset after a sub-interpreter
+        // that shares the main thread gets destroyed. That will set pages_free_direct
+        // to NULL and break mi_malloc calls.
         mi_thread_done();
-        if (tstate->heap_gc) {
-            tstate->heap_gc->gcstate = NULL;
-        }
         if (tstate->heap_backing) {
             _mi_heap_done(tstate->heap_backing);
         }
+    }
+
+    if (is_current) {
+        /* Current thread state can't be set to NULL until after join_event
+         * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls.
+         * We also can't release it before mi_heap_done because then GC may proceed
+         * while abandoning is taking place. */
+        _PyRuntimeState_SetThreadState(runtime, NULL);
+
+        /* Drop the GIL if we hold it */
+        PyEval_ReleaseLock();
     }
 
     tstate->heap_backing = NULL;
