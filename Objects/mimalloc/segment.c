@@ -1041,7 +1041,7 @@ void _mi_segment_page_abandon(mi_page_t* page, mi_segments_tld_t* tld) {
 ----------------------------------------------------------- */
 
 // Possibly clear pages and check if free space is available
-static bool mi_segment_check_free(mi_segment_t* segment, size_t block_size, bool* all_pages_free)
+static bool mi_segment_check_free(mi_segment_t* segment, size_t block_size, int tag, bool* all_pages_free)
 {
   mi_assert_internal(block_size < MI_HUGE_BLOCK_SIZE);
   bool has_page = false;
@@ -1059,7 +1059,7 @@ static bool mi_segment_check_free(mi_segment_t* segment, size_t block_size, bool
         pages_used_empty++;
         has_page = true;
       }
-      else if (page->xblock_size == block_size && mi_page_has_any_available(page)) {
+      else if (page->xblock_size == block_size && mi_page_has_any_available(page) && page->tag == tag) {
         // a page has available free blocks of the right size
         has_page = true;
       }
@@ -1170,7 +1170,7 @@ static mi_segment_t* mi_segment_try_reclaim(mi_heap_t* heap, size_t block_size, 
   while ((max_tries-- > 0) && ((segment = mi_abandoned_pop()) != NULL)) {
     segment->abandoned_visits++;
     bool all_pages_free;
-    bool has_page = mi_segment_check_free(segment,block_size,&all_pages_free); // try to free up pages (due to concurrent frees)
+    bool has_page = mi_segment_check_free(segment,block_size,heap->tag,&all_pages_free); // try to free up pages (due to concurrent frees)
     if (all_pages_free) {
       // free the segment (by forced reclaim) to make it available to other threads.
       // note1: we prefer to free a segment as that might lead to reclaiming another
