@@ -311,9 +311,6 @@ _PyEval_ReInitThreads(_PyRuntimeState *runtime)
     if (pending->lock == NULL) {
         Py_FatalError("Can't initialize threads for pending calls");
     }
-
-    /* Destroy all threads except the current one */
-    _PyThreadState_DeleteExcept(runtime, current_tstate);
 }
 
 PyThreadState *

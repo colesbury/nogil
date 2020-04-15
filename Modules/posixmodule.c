@@ -461,13 +461,14 @@ PyOS_BeforeFork(void)
      * It's not so much taht thi */
     _PyMutex_lock(&runtime->stoptheworld_mutex);
     _PyRuntimeState_StopTheWorld(runtime);
+    PyThread_acquire_lock(runtime->interpreters.mutex, WAIT_LOCK);
 }
 
 void
 PyOS_AfterFork_Parent(void)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
-
+    PyThread_release_lock(runtime->interpreters.mutex);
     _PyRuntimeState_StartTheWorld(runtime);
     _PyMutex_unlock(&runtime->stoptheworld_mutex);
 
@@ -481,20 +482,29 @@ void
 PyOS_AfterFork_Child(void)
 {
     _PyRuntimeState *runtime = &_PyRuntime;
+
+    // Clears the parking lot. Any waiting threads are dead. This must be
+    // called before releasing any locks that use the parking lot so that
+    // unlocking the locks doesn't try to wake up dead threads.
+    _PyParkingLot_AfterFork();
+
     _PyGILState_Reinit(runtime);
     _PyEval_ReInitThreads(runtime);
 
-    /* Clears the parking lot. Any waiting threads are dead. This must be
-     * called before _PyImport_ReInitLock so that unlocking the import
-     * lock doesn't try to wak up dead threads. */
-    _PyParkingLot_AfterFork();
+    // re-creates runtime->interpreters.mutex
+    _PyRuntimeState_ReInitThreads(runtime);
+
+    PyThreadState *garbage = _PyThreadState_UnlinkExceptCurrent(runtime);
 
     _PyImport_ReInitLock();
     _PySignal_AfterFork();
-    _PyRuntimeState_ReInitThreads(runtime);
-    _PyInterpreterState_DeleteExceptMain(runtime);
+    _PyInterpreterState_DeleteExceptMain(runtime);  // DANGER! this is almost certainly fragile/broken
     _PyRuntimeState_StartTheWorld(runtime);
     _PyMutex_unlock(&runtime->stoptheworld_mutex);
+
+    // Now that we're in a good state we can delete the dead thread states.
+    // This may call arbitrary Python code from destructors.
+    _PyThreadState_DeleteGarbage(garbage);
 
     run_at_forkers(_PyInterpreterState_Get()->after_forkers_child, 0);
 }

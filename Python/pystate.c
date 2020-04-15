@@ -1346,24 +1346,16 @@ PyThreadState_DeleteCurrent(void)
     _PyThreadState_DeleteCurrent(&_PyRuntime);
 }
 
-
-/*
- * Delete all thread states except the one passed as argument.
- * Note that, if there is a current thread state, it *must* be the one
- * passed as argument.  Also, this won't touch any other interpreters
- * than the current one, since we don't know which thread state should
- * be kept in those other interpreters.
- */
-void
-_PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
+PyThreadState *
+_PyThreadState_UnlinkExceptCurrent(_PyRuntimeState *runtime)
 {
+    PyThreadState *tstate = _PyThreadState_GET();
     PyInterpreterState *interp = tstate->interp;
-    PyThreadState *p, *next, *garbage;
     HEAD_LOCK(runtime);
     /* Remove all thread states, except tstate, from the linked list of
        thread states.  This will allow calling PyThreadState_Clear()
        without holding the lock. */
-    garbage = interp->tstate_head;
+    PyThreadState *garbage = interp->tstate_head;
     if (garbage == tstate)
         garbage = tstate->next;
     if (tstate->prev)
@@ -1374,16 +1366,19 @@ _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
     interp->tstate_head = tstate;
     interp->num_threads = 1;
     HEAD_UNLOCK(runtime);
-    /* Clear and deallocate all stale thread states.  Even if this
-       executes Python code, we should be safe since it executes
-       in the current thread, not one of the stale threads. */
-    for (p = garbage; p; p = next) {
+    return garbage;
+}
+
+void
+_PyThreadState_DeleteGarbage(PyThreadState *garbage)
+{
+    PyThreadState *next;
+    for (PyThreadState *p = garbage; p; p = next) {
         next = p->next;
         PyThreadState_Clear(p);
         PyMem_RawFree(p);
     }
 }
-
 
 PyThreadState *
 _PyThreadState_UncheckedGet(void)

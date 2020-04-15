@@ -388,9 +388,9 @@ struct PyThreadStateOS {
 
 PyAPI_FUNC(void) _PyThreadState_Init(
     PyThreadState *tstate);
-PyAPI_FUNC(void) _PyThreadState_DeleteExcept(
-    _PyRuntimeState *runtime,
-    PyThreadState *tstate);
+PyAPI_FUNC(PyThreadState *) _PyThreadState_UnlinkExceptCurrent(
+    _PyRuntimeState *runtime);
+PyAPI_FUNC(void) _PyThreadState_DeleteGarbage(PyThreadState *garbage);
 PyAPI_FUNC(int) _PyThreadState_GetStatus(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_GC_Park(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_GC_Stop(PyThreadState *tstate);
