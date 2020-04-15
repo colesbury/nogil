@@ -21,7 +21,7 @@ extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t siz
   mi_assert_internal(page->xblock_size==0||mi_page_block_size(page) >= size);
   mi_block_t* block = page->free;
   if (mi_unlikely(block == NULL)) {
-    return _mi_malloc_generic(heap, size); 
+    return _mi_malloc_generic(heap, size);
   }
   mi_assert_internal(block != NULL && _mi_ptr_page(block) == page);
   // pop from the free list
@@ -78,9 +78,9 @@ void* mi_heap_malloc_array(mi_heap_t* heap, size_t wsize, size_t *usable)
     return NULL;
   }
 
-  size_t size = mi_good_size(wsize * sizeof(void*) + MI_PADDING_SIZE);
-  *usable = (size - MI_PADDING_SIZE) / sizeof(void*);
-  return mi_heap_malloc(heap, size - MI_PADDING_SIZE);
+  size_t size = mi_good_size(wsize * sizeof(void*));
+  *usable = size / sizeof(void*);
+  return mi_heap_malloc(heap, size);
 }
 
 // allocate a small block

@@ -1235,7 +1235,7 @@ class SizeofTest(unittest.TestCase):
         import re
         check(re.finditer('',''), size('2P'))
         # list
-        samples = [[], [1,2,3], ['1', '2', '3']]
+        samples = [[], [1,2,3,4], ['1', '2', '3', '4']]
         for sample in samples:
             check(list(sample), vsize('PnPc') + len(sample)*self.P)
         # sortwrapper (list)
