@@ -131,10 +131,14 @@ _Py_queue_destroy(PyThreadState *tstate)
     struct brc_queued_object* queue;
 
     _PyMutex_lock(&bucket->mutex);
-    llist_remove(&brc->node);
+    if (brc->node.next) {
+        llist_remove(&brc->node);
+    }
     queue = brc->queue;
     brc->queue = NULL;
     _PyMutex_unlock(&bucket->mutex);
 
-    _Py_queue_merge_objects(queue);
+    if (queue) {
+        _Py_queue_merge_objects(queue);
+    }
 }
