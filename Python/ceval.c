@@ -2406,6 +2406,7 @@ main_loop:
                 }
 
                 name = GETITEM(names, oparg);
+                // TOOD: maybe don't INCREF or prefer INCREF_STACK ??
                 v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
                                        (PyDictObject *)f->f_builtins,
                                        name);
@@ -2438,11 +2439,12 @@ main_loop:
                 }
 
                 if (opcode == LOAD_GLOBAL_FOR_CALL) {
-                    Py_INCREF_STACK(v);
+                    if (_PyObject_IS_DEFERRED_RC(v)) {
+                        Py_DECREF(v);
+                    }
                     *f->f_callabletop++ = v;
                 }
                 else {
-                    Py_INCREF(v);
                     PUSH(v);
                 }
             }
@@ -2847,6 +2849,7 @@ main_loop:
 
         case TARGET(LOAD_ATTR): {
             PyObject *name = GETITEM(names, oparg);
+            assert(PyUnicode_CheckExact(name));
             PyObject *owner = TOP();
             PyObject *res = PyObject_GetAttr(owner, name);
             Py_DECREF(owner);

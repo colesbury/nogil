@@ -311,6 +311,19 @@ _Py_atomic_store_ptr(volatile void *address, void *value)
     atomic_store((volatile _Atomic(void*)*)address, value);
 }
 
+static inline void
+_Py_atomic_store_uint8(volatile uint8_t *address, uint8_t value)
+{
+    MI_USING_STD
+    atomic_store_explicit((volatile _Atomic(uint8_t)*)address, value, memory_order_relaxed);
+}
+
+static inline void
+_Py_atomic_store_ssize(volatile Py_ssize_t *address, Py_ssize_t value)
+{
+    MI_USING_STD
+    atomic_store_explicit((volatile _Atomic(Py_ssize_t)*)address, value, memory_order_relaxed);
+}
 
 static inline void
 _Py_atomic_store_int32_relaxed(volatile int32_t *address, int32_t value)

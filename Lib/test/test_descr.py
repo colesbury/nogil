@@ -5396,6 +5396,7 @@ class PicklingTests(unittest.TestCase):
 class SharedKeyTests(unittest.TestCase):
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
     def test_subclasses(self):
         # Verify that subclasses can share keys (per PEP 412)
         class A:
@@ -5405,16 +5406,22 @@ class SharedKeyTests(unittest.TestCase):
 
         a, b = A(), B()
         self.assertEqual(sys.getsizeof(vars(a)), sys.getsizeof(vars(b)))
-        self.assertLess(sys.getsizeof(vars(a)), sys.getsizeof({"a":1}))
-        # Initial hash table can contain at most 5 elements.
-        # Set 6 attributes to cause internal resizing.
+
+        # The first instance serves as a blueprint
         a.x, a.y, a.z, a.w, a.v, a.u = range(6)
-        self.assertNotEqual(sys.getsizeof(vars(a)), sys.getsizeof(vars(b)))
-        a2 = A()
-        self.assertEqual(sys.getsizeof(vars(a)), sys.getsizeof(vars(a2)))
-        self.assertLess(sys.getsizeof(vars(a)), sys.getsizeof({"a":1}))
         b.u, b.v, b.w, b.t, b.s, b.r = range(6)
+        self.assertGreater(sys.getsizeof(vars(a)), sys.getsizeof({"a":1}))
+        self.assertGreater(sys.getsizeof(vars(b)), sys.getsizeof({"a":1}))
+
+        # Subsequent instances have space allocated for value in each dict
+        a, b = A(), B()
+        a.x, a.y, a.z, a.w, a.v, a.u = range(6)
+        b.u, b.v, b.w, b.t, b.s, b.r = range(6)
+        self.assertTrue(_testcapi.dict_hassplittable(vars(a)))
+        self.assertTrue(_testcapi.dict_hassplittable(vars(b)))
+        self.assertLess(sys.getsizeof(vars(a)), sys.getsizeof({"a":1}))
         self.assertLess(sys.getsizeof(vars(b)), sys.getsizeof({"a":1}))
+        self.assertEqual(sys.getsizeof(vars(a)), sys.getsizeof(vars(b)))
 
 
 class DebugHelperMeta(type):

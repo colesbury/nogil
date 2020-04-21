@@ -140,7 +140,8 @@ class WeakValueDictionary(_collections_abc.MutableMapping):
     def __delitem__(self, key):
         if self._pending_removals:
             self._commit_removals()
-        del self.data[key]
+        with _IterationGuard(self):
+            del self.data[key]
 
     def __len__(self):
         if self._pending_removals:
@@ -380,7 +381,8 @@ class WeakKeyDictionary(_collections_abc.MutableMapping):
 
     def __delitem__(self, key):
         self._dirty_len = True
-        del self.data[ref(key)]
+        with _IterationGuard(self):
+            del self.data[ref(key)]
 
     def __getitem__(self, key):
         return self.data[ref(key)]

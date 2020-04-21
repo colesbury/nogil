@@ -23,16 +23,12 @@ typedef struct {
 
     PyDictKeysObject *ma_keys;
 
-    /* If ma_values is NULL, the table is "combined": keys and values
-       are stored in ma_keys.
-
-       If ma_values is not NULL, the table is splitted:
-       keys are stored in ma_keys and values are stored in ma_values */
-    PyObject **ma_values;
-
     _PyMutex ma_mutex;
 
     char ma_use_mutex;
+
+    // For prototype dicts
+    PyHeapTypeObject *ma_type_ref;
 } PyDictObject;
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,
@@ -64,7 +60,7 @@ PyAPI_FUNC(Py_ssize_t) _PyDict_SizeOf(PyDictObject *);
 PyAPI_FUNC(PyObject *) _PyDict_Pop(PyObject *, PyObject *, PyObject *);
 PyObject *_PyDict_Pop_KnownHash(PyObject *, PyObject *, Py_hash_t, PyObject *);
 PyObject *_PyDict_FromKeys(PyObject *, PyObject *, PyObject *);
-#define _PyDict_HasSplitTable(d) ((d)->ma_values != NULL)
+PyAPI_FUNC(int) _PyDict_HasSplitTable(PyDictObject *mp);
 
 PyAPI_FUNC(int) PyDict_ClearFreeList(void);
 

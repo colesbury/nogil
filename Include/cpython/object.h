@@ -273,6 +273,8 @@ struct _typeobject {
     vectorcallfunc tp_vectorcall;
 };
 
+struct _dictkeysobject;
+
 /* The *real* layout of a type object when allocated on the heap */
 typedef struct _heaptypeobject {
     /* Note: there's a dependency on the order of these members
@@ -288,7 +290,9 @@ typedef struct _heaptypeobject {
                                       see add_operators() in typeobject.c . */
     PyBufferProcs as_buffer;
     PyObject *ht_name, *ht_slots, *ht_qualname;
+    _PyMutex ht_mutex;
     struct _dictkeysobject *ht_cached_keys;
+    PyObject *ht_cached_dict; /* unowned reference; cleared in dict_dealloc */
     /* here are optional user slots, followed by the members. */
 } PyHeapTypeObject;
 

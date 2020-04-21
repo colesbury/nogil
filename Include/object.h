@@ -921,6 +921,7 @@ times.
 
 #ifndef Py_LIMITED_API
 #  define Py_CPYTHON_OBJECT_H
+#  include  "lock.h"
 #  include  "cpython/object.h"
 #  undef Py_CPYTHON_OBJECT_H
 #endif

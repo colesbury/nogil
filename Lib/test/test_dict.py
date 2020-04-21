@@ -922,6 +922,9 @@ class DictTest(unittest.TestCase):
         class C:
             pass
 
+        a = C()
+        a.x, a.y, a.z = 1, 2, 3
+
         dicts = []
         for i in range(n):
             a = C()
@@ -1020,6 +1023,9 @@ class DictTest(unittest.TestCase):
 
         class C:
             pass
+        a = C()
+        a.a = 1
+
         a = C()
 
         a.a = 1
