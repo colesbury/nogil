@@ -420,14 +420,6 @@ EXPORTS
   PyNumber_ToBase=python39.PyNumber_ToBase
   PyNumber_TrueDivide=python39.PyNumber_TrueDivide
   PyNumber_Xor=python39.PyNumber_Xor
-  PyODictItems_Type=python39.PyODictItems_Type DATA
-  PyODictIter_Type=python39.PyODictIter_Type DATA
-  PyODictKeys_Type=python39.PyODictKeys_Type DATA
-  PyODictValues_Type=python39.PyODictValues_Type DATA
-  PyODict_DelItem=python39.PyODict_DelItem
-  PyODict_New=python39.PyODict_New
-  PyODict_SetItem=python39.PyODict_SetItem
-  PyODict_Type=python39.PyODict_Type DATA
   PyOS_AfterFork=python39.PyOS_AfterFork
   PyOS_CheckStack=python39.PyOS_CheckStack
   PyOS_FSPath=python39.PyOS_FSPath
