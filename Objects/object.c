@@ -1807,11 +1807,6 @@ _PyTypes_Init(void)
     INIT_TYPE(&PyDictRevIterKey_Type, "reversed dict keys");
     INIT_TYPE(&PyDictRevIterValue_Type, "reversed dict values");
     INIT_TYPE(&PyDictRevIterItem_Type, "reversed dict items");
-    INIT_TYPE(&PyODict_Type, "OrderedDict");
-    INIT_TYPE(&PyODictKeys_Type, "odict_keys");
-    INIT_TYPE(&PyODictItems_Type, "odict_items");
-    INIT_TYPE(&PyODictValues_Type, "odict_values");
-    INIT_TYPE(&PyODictIter_Type, "odict_keyiterator");
     INIT_TYPE(&PySet_Type, "set");
     INIT_TYPE(&PyUnicode_Type, "str");
     INIT_TYPE(&PySlice_Type, "slice");
