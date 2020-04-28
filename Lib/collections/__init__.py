@@ -193,13 +193,6 @@ class OrderedDict(dict):
         return new
 
 
-try:
-    from _collections import OrderedDict
-except ImportError:
-    # Leave the pure Python version in place.
-    pass
-
-
 ################################################################################
 ### namedtuple
 ################################################################################

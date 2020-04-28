@@ -2549,7 +2549,6 @@ collections_exec(PyObject *module) {
     PyTypeObject *typelist[] = {
         &deque_type,
         &defdict_type,
-        &PyODict_Type,
         &dequeiter_type,
         &dequereviter_type,
         &tuplegetter_type

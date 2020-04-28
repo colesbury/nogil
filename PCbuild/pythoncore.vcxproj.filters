@@ -1367,9 +1367,6 @@
     <ClCompile Include="..\PC\invalid_parameter_handler.c">
       <Filter>PC</Filter>
     </ClCompile>
-    <ClCompile Include="..\Objects\odictobject.c">
-      <Filter>Objects</Filter>
-    </ClCompile>
     <ClCompile Include="..\Modules\_contextvarsmodule.c">
       <Filter>Modules</Filter>
     </ClCompile>
