@@ -156,13 +156,6 @@ class OrderedDict(dict):
         return dict.__eq__(self, other)
 
 
-try:
-    from _collections import OrderedDict
-except ImportError:
-    # Leave the pure Python version in place.
-    pass
-
-
 ################################################################################
 ### namedtuple
 ################################################################################
