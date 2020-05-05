@@ -310,7 +310,7 @@ PyAPI_FUNC(int) _Py_IsMainInterpreter(PyThreadState* tstate);
 
 /* Variable and macro for in-line access to current thread
    and interpreter state */
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(Py_ENABLE_SHARED)
 __attribute__((tls_model("local-exec")))
 #endif
 extern Py_DECL_THREAD PyThreadState *_Py_current_tstate;
