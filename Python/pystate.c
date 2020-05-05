@@ -8,9 +8,9 @@
 #include "pycore_pystate.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_refcnt.h"
-#include "Python/condvar.h"
+#include "condvar.h"
 #include "../Modules/hashtable.h"
-#include "../Objects/parking_lot.h"
+#include "parking_lot.h"
 
 #include "mimalloc.h"
 #include "mimalloc-internal.h"

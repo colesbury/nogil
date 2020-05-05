@@ -2,7 +2,7 @@
 #include "structmember.h" /* offsetof */
 #include "pythread.h"
 #include "lock.h"
-#include "Objects/parking_lot.h"
+#include "parking_lot.h"
 
 /*[clinic input]
 module _queue

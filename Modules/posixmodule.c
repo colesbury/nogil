@@ -40,7 +40,7 @@
 #include "pycore_pystate.h"   /* _PyRuntime */
 #include "pythread.h"
 #include "structmember.h"
-#include "Objects/parking_lot.h"
+#include "parking_lot.h"
 #ifndef MS_WINDOWS
 #  include "posixmodule.h"
 #else
