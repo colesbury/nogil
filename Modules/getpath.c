@@ -1284,7 +1284,7 @@ calculate_read_pyenv(PyCalculatePath *calculate)
 static PyStatus
 calculate_zip_path(PyCalculatePath *calculate)
 {
-    const wchar_t *lib_python = L"lib/python000.zip";
+    const wchar_t *lib_python = L"lib/python00.zip";
 
     if (calculate->prefix_found > 0) {
         /* Use the reduced prefix returned by Py_GetPrefix()
@@ -1309,9 +1309,8 @@ calculate_zip_path(PyCalculatePath *calculate)
 
     /* Replace "00" with version */
     size_t len = wcslen(calculate->zip_path);
-    calculate->zip_path[len - 7] = VERSION[0];
-    calculate->zip_path[len - 6] = VERSION[2];
-    calculate->zip_path[len - 5] = VERSION[3];
+    calculate->zip_path[len - 6] = VERSION[0];
+    calculate->zip_path[len - 5] = VERSION[2];
 
     return _PyStatus_OK();
 }
