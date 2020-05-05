@@ -339,10 +339,12 @@ PYTHON_OBJS=	\
 		Python/import.o \
 		Python/importdl.o \
 		Python/initconfig.o \
+		Python/lock.o \
 		Python/marshal.o \
 		Python/modsupport.o \
 		Python/mysnprintf.o \
 		Python/mystrtoul.o \
+		Python/parking_lot.o \
 		Python/pathconfig.o \
 		Python/peephole.o \
 		Python/preconfig.o \
@@ -353,7 +355,7 @@ PYTHON_OBJS=	\
 		Python/pylifecycle.o \
 		Python/pymath.o \
 		Python/pystate.o \
-    Python/pyrefcnt.o \
+		Python/pyrefcnt.o \
 		Python/pythonrun.o \
 		Python/pytime.o \
 		Python/bootstrap_hash.o \
@@ -400,7 +402,6 @@ OBJECT_OBJS=	\
 		Objects/funcobject.o \
 		Objects/interpreteridobject.o \
 		Objects/iterobject.o \
-		Objects/lock.o \
 		Objects/listobject.o \
 		Objects/longobject.o \
 		Objects/dictobject.o \
@@ -410,7 +411,6 @@ OBJECT_OBJS=	\
 		Objects/namespaceobject.o \
 		Objects/object.o \
 		Objects/obmalloc.o \
-		Objects/parking_lot.o \
 		Objects/picklebufobject.o \
 		Objects/rangeobject.o \
 		Objects/setobject.o \

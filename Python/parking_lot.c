@@ -1,7 +1,7 @@
 #include "Python.h"
 
 #include "pycore_pystate.h"
-#include "Python/condvar.h"
+#include "condvar.h"
 
 #include "parking_lot.h"
 #include "pyatomic.h"
