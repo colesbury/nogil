@@ -49,7 +49,7 @@ OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include "ucnhash.h"
 #include "bytes_methods.h"
 #include "stringlib/eq.h"
-#include "Python/condvar.h"
+#include "lock.h"
 
 #ifdef MS_WINDOWS
 #include <windows.h>
@@ -206,7 +206,7 @@ extern "C" {
    count of a string is:  s->ob_refcnt + (s->state ? 2 : 0)
    FIXME(sgross): make sure these are deallocated properly
 */
-PyMUTEX_T interned_mutex;
+_PyMutex interned_mutex;
 PyObject *interned;
 
 typedef struct {
@@ -1885,9 +1885,9 @@ unicode_dealloc(PyObject *unicode)
 
         // FIXME(sgross): is this safe? can DelItem trigger a GC or
         // other functions here?
-        PyMUTEX_LOCK(&interned_mutex);
+        _PyMutex_lock(&interned_mutex);
         err = PyDict_DelItem(interned, unicode);
-        PyMUTEX_UNLOCK(&interned_mutex);
+        _PyMutex_unlock(&interned_mutex);
 
         if (err != 0)
             _PyErr_WriteUnraisableMsg("deletion of interned string failed",
@@ -15277,10 +15277,6 @@ _PyUnicode_InitIntern(void)
         return _PyStatus_OK();
     }
 
-    if (PyMUTEX_INIT(&interned_mutex) != 0) {
-        return _PyStatus_ERR("Can't initialize mutex for interned strings");
-    }
-
     interned = PyDict_New();
     if (!interned) {
         return _PyStatus_ERR("Can't initialize dictionary for interned strings");
@@ -15379,9 +15375,9 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
 
     Py_ALLOW_RECURSION
-    PyMUTEX_LOCK(&interned_mutex);
+    _PyMutex_lock(&interned_mutex);
     t = PyDict_SetDefault(interned, s, s);
-    PyMUTEX_UNLOCK(&interned_mutex);
+    _PyMutex_unlock(&interned_mutex);
     Py_END_ALLOW_RECURSION
     if (t == NULL) {
         PyErr_Clear();
