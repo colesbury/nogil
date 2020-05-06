@@ -140,6 +140,8 @@ AC_DEFINE(__BSD_VISIBLE, 1, [Define on FreeBSD to activate all library features]
 # them.
 AC_DEFINE(_DARWIN_C_SOURCE, 1, [Define on Darwin to activate all library features])
 
+# This fork always builds with GIL disabled
+AC_DEFINE(Py_NOGIL, 1, [Define if you want to build an interpreter without the GIL.])
 
 define_xopen_source=yes
 
@@ -1238,18 +1240,6 @@ then
   Py_DEBUG='true'
   ABIFLAGS="${ABIFLAGS}d"
 else AC_MSG_RESULT(no); Py_DEBUG='false'
-fi],
-[AC_MSG_RESULT(no)])
-
-# Check for --with-nogil
-AC_MSG_CHECKING(for --with-nogil)
-AC_ARG_WITH(nogil, AS_HELP_STRING([--with-nogil], [build with Py_NOGIL defined]),
-[
-if test "$withval" != no
-then
-  AC_DEFINE(Py_NOGIL, 1, [Define if you want to build an interpreter without the GIL.])
-  AC_MSG_RESULT(yes);
-else AC_MSG_RESULT(no);
 fi],
 [AC_MSG_RESULT(no)])
 
