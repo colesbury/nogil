@@ -1346,6 +1346,7 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs, PyObject *fkwa
         tstate->join_event = event;
     }
     tstate->daemon = daemon;
+    tstate->from_threading_module = true;
     Py_INCREF(func);
     Py_INCREF(args);
     Py_XINCREF(keyw);

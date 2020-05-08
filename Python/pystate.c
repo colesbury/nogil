@@ -820,7 +820,7 @@ _PyInterpreterState_WaitForThreads(PyInterpreterState *interp)
             if (p == tstate) {
                 continue;
             }
-            if (p->join_event && !p->daemon) {
+            if (p->join_event && !p->daemon && p->from_threading_module) {
                 join_event = p->join_event;
                 _PyEventRC_Incref(join_event);
                 break;

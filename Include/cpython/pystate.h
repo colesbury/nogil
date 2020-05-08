@@ -133,6 +133,7 @@ struct _ts {
 
     _PyEventRC *join_event;
     int daemon;
+    int from_threading_module;
 
     /* Version counters
      */
