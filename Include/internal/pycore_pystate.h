@@ -61,8 +61,6 @@ struct _ceval_runtime_state {
        PyEval_EvalFrameEx() after fast_next_opcode. */
     int tracing_possible;
     struct _pending_calls pending;
-    /* Enable the GIL */
-    int use_gil;
     struct _gil_runtime_state gil;
 };
 
