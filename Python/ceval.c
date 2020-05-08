@@ -192,7 +192,7 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
 static inline void
 exit_thread_if_finalizing(PyThreadState *tstate)
 {
-    _PyRuntimeState *runtime = tstate->interp->runtime;
+    _PyRuntimeState *runtime = &_PyRuntime;
     /* _Py_Finalizing is protected by the GIL */
     PyThreadState *finalizing = _Py_atomic_load_ptr_relaxed(&runtime->finalizing);
     if (finalizing && finalizing != tstate) {
@@ -332,7 +332,7 @@ PyEval_RestoreThread(PyThreadState *tstate)
 {
     assert(tstate != NULL);
 
-    _PyRuntimeState *runtime = tstate->interp->runtime;
+    _PyRuntimeState *runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     assert(gil_created(&ceval->gil));
 
