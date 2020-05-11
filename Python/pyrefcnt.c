@@ -62,6 +62,11 @@ _Py_queue_object(PyObject *ob)
     entry->object = ob;
     entry->next = brc->queue;
     brc->queue = entry;
+
+    // Notify owning thread
+    PyThreadStateOS *os = llist_data(brc, PyThreadStateOS, brc);
+    _PyThreadState_Signal(os->tstate, EVAL_EXPLICIT_MERGE);
+
     _PyMutex_unlock(&bucket->mutex);
 }
 

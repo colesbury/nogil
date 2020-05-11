@@ -14,6 +14,7 @@
 #include "pycore_ceval.h"
 #include "pycore_code.h"
 #include "pycore_object.h"
+#include "pycore_refcnt.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_pystate.h"
@@ -649,6 +650,11 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
             _PyThreadState_Unsignal(tstate, EVAL_PLEASE_STOP);
             _PyThreadState_GC_Stop(tstate);
         }
+    }
+
+    if ((b & EVAL_EXPLICIT_MERGE) != 0) {
+        _PyThreadState_Unsignal(tstate, EVAL_EXPLICIT_MERGE);
+        _Py_queue_process(tstate);
     }
 
     if ((b & EVAL_PENDING_SIGNALS) != 0) {

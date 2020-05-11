@@ -29,7 +29,8 @@ enum {
     EVAL_PENDING_SIGNALS = 1U << 1,
     EVAL_PENDING_CALLS = 1U << 2,
     EVAL_DROP_GIL = 1U << 3,
-    EVAL_ASYNC_EXC = 1U << 4
+    EVAL_ASYNC_EXC = 1U << 4,
+    EVAL_EXPLICIT_MERGE = 1U << 5
 };
 
 /* ceval state */
