@@ -214,18 +214,21 @@ take_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)
     assert(tstate != NULL);
 
     if (tstate_must_exit(tstate)) {
+        // Instead of triggering a pthread_exit we just deadlock the current
+        // thread to match Python 3.8 behavior.
+        PyMUTEX_T mutex;
+        MUTEX_INIT(mutex);
+        MUTEX_LOCK(mutex);
+        MUTEX_LOCK(mutex);
         /* bpo-39877: If Py_Finalize() has been called and tstate is not the
            thread which called Py_Finalize(), exit immediately the thread.
            This code path can be reached by a daemon thread after Py_Finalize()
            completes. In this case, tstate is a dangling pointer: points to
            PyThreadState freed memory. */
-        PyThread_exit_thread();
+        // PyThread_exit_thread();
     }
     if (!gil->enabled) {
         return;
-    }
-    if (tstate == NULL) {
-        Py_FatalError("take_gil: NULL tstate");
     }
 
     MUTEX_LOCK(gil->mutex);
