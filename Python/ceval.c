@@ -190,18 +190,6 @@ _PyEval_FiniThreads(struct _ceval_runtime_state *ceval)
     memset(&init_threads_once_flag, 0, sizeof(init_threads_once_flag));
 }
 
-static inline void
-exit_thread_if_finalizing(PyThreadState *tstate)
-{
-    _PyRuntimeState *runtime = &_PyRuntime;
-    /* _Py_Finalizing is protected by the GIL */
-    PyThreadState *finalizing = _Py_atomic_load_ptr_relaxed(&runtime->finalizing);
-    if (finalizing && finalizing != tstate) {
-        drop_gil(&runtime->ceval, tstate);
-        PyThread_exit_thread();
-    }
-}
-
 void
 _PyEval_Fini(void)
 {
@@ -241,7 +229,6 @@ PyEval_AcquireLock(void)
         Py_FatalError("PyEval_AcquireLock: current thread state is NULL");
     }
     take_gil(ceval, tstate);
-    exit_thread_if_finalizing(tstate);
 }
 
 void
@@ -337,10 +324,7 @@ PyEval_RestoreThread(PyThreadState *tstate)
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     assert(gil_created(&ceval->gil));
 
-    int err = errno;
     take_gil(ceval, tstate);
-    exit_thread_if_finalizing(tstate);
-    errno = err;
 
     _PyThreadState_Swap(&runtime->gilstate, tstate);
 
@@ -686,9 +670,6 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
         /* Other threads may run now */
 
         take_gil(ceval, tstate);
-
-        /* Check if we should make a quick exit. */
-        exit_thread_if_finalizing(tstate);
 
         if (_PyThreadState_Swap(&runtime->gilstate, tstate) != NULL) {
             Py_FatalError("ceval: orphan tstate");
