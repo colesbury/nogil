@@ -1333,22 +1333,6 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
             goto done;
     }
 
-    descr = _PyType_Lookup(tp, name);
-
-    f = NULL;
-    if (descr != NULL) {
-        Py_INCREF(descr);
-        f = Py_TYPE(descr)->tp_descr_get;
-        if (f != NULL && PyDescr_IsData(descr)) {
-            res = f(descr, obj, (PyObject *)Py_TYPE(obj));
-            if (res == NULL && suppress &&
-                    PyErr_ExceptionMatches(PyExc_AttributeError)) {
-                PyErr_Clear();
-            }
-            goto done;
-        }
-    }
-
     if (dict == NULL) {
         /* Inline _PyObject_GetDictPtr */
         dictoffset = tp->tp_dictoffset;
@@ -1387,6 +1371,22 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
                     goto done;
                 }
             }
+        }
+    }
+
+    descr = _PyType_Lookup(tp, name);
+
+    f = NULL;
+    if (descr != NULL) {
+        Py_INCREF(descr);
+        f = Py_TYPE(descr)->tp_descr_get;
+        if (f != NULL && PyDescr_IsData(descr)) {
+            res = f(descr, obj, (PyObject *)Py_TYPE(obj));
+            if (res == NULL && suppress &&
+                    PyErr_ExceptionMatches(PyExc_AttributeError)) {
+                PyErr_Clear();
+            }
+            goto done;
         }
     }
 
