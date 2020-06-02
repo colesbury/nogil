@@ -81,11 +81,11 @@
 #if defined(PYMALLOC_DEBUG) && !defined(WITH_PYMALLOC)
 #error "PYMALLOC_DEBUG requires WITH_PYMALLOC"
 #endif
+#include "object.h"
 #include "pymath.h"
 #include "pytime.h"
 #include "pymem.h"
 
-#include "object.h"
 #include "objimpl.h"
 #include "typeslots.h"
 #include "pyhash.h"

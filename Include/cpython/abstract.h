@@ -37,12 +37,21 @@ PyAPI_FUNC(PyObject *) _PyStack_AsDict(
    40 bytes on the stack. */
 #define _PY_FASTCALL_SMALL_STACK 5
 
-PyAPI_FUNC(PyObject *) _Py_CheckFunctionResult(
+PyAPI_FUNC(PyObject *) _Py_CheckFunctionResultImpl(
     PyThreadState *tstate,
     PyObject *callable,
     PyObject *result,
     const char *where);
 
+static inline PyObject *
+_Py_CheckFunctionResult(PyThreadState *tstate, PyObject *callable, PyObject *result, const char *where)
+{
+  if (_PY_UNLIKELY(result == NULL || tstate->curexc_type)) {
+    _Py_CheckFunctionResultImpl(tstate, callable, result, where);
+    return NULL;
+  }
+  return result;
+}
 /* === Vectorcall protocol (PEP 590) ============================= */
 
 /* Call callable using tp_call. Arguments are like PyObject_Vectorcall()

@@ -30,7 +30,7 @@ null_error(PyThreadState *tstate)
 
 
 PyObject*
-_Py_CheckFunctionResult(PyThreadState *tstate, PyObject *callable,
+_Py_CheckFunctionResultImpl(PyThreadState *tstate, PyObject *callable,
                         PyObject *result, const char *where)
 {
     assert((callable != NULL) ^ (where != NULL));
