@@ -2325,8 +2325,8 @@ _Py_Dealloc(PyObject *op)
     (*dealloc)(op);
 }
 
-void
-_Py_MergeZeroRefcount(PyObject *op)
+static void
+_Py_MergeZeroRefcountMt(PyObject *op)
 {
     assert((op->ob_ref_local & ~_Py_REF_DEFERRED_MASK) == 0);
 
@@ -2383,6 +2383,20 @@ _Py_MergeZeroRefcount(PyObject *op)
     _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
     if (refcount == 0) {
         _Py_Dealloc(op);
+    }
+}
+
+void
+_Py_MergeZeroRefcount(PyObject *op)
+{
+    assert((op->ob_ref_local & ~_Py_REF_DEFERRED_MASK) == 0);
+    if (_PY_LIKELY(_PyRuntime.ceval.gil.enabled && op->ob_ref_shared == 0)) {
+        op->ob_tid = 0;
+        op->ob_ref_shared = _Py_REF_MERGED_MASK;
+        _Py_Dealloc(op);
+    }
+    else {
+        _Py_MergeZeroRefcountMt(op);
     }
 }
 
