@@ -90,26 +90,58 @@ valid_index(Py_ssize_t i, Py_ssize_t limit)
     return (size_t) i < (size_t) limit;
 }
 
-static PyObject *
+static _Py_NO_INLINE PyObject *
+list_item_locked(PyListObject *self, Py_ssize_t idx, PyObject *dead)
+{
+    Py_XDECREF(dead);
+
+    _PyMutex_lock(&self->mutex);
+    Py_ssize_t size = Py_SIZE(self);
+    if (!valid_index(idx, size)) {
+        _PyMutex_unlock(&self->mutex);
+        return NULL;
+    }
+    PyObject *item = self->ob_item[idx];
+    Py_INCREF(item);
+    return item;
+}
+
+static _Py_NO_INLINE PyObject *
+list_item_slow(PyListObject *self, Py_ssize_t idx, PyObject **ob_item, PyObject *item)
+{
+  if (!_Py_TryIncRefShared(item)) {
+      return list_item_locked(self, idx, NULL);
+  }
+  if (_PY_UNLIKELY(item != _Py_atomic_load_ptr(&ob_item[idx]))) {
+      return list_item_locked(self, idx, item);
+  }
+  if (_PY_UNLIKELY(ob_item != _Py_atomic_load_ptr(&self->ob_item))) {
+      return list_item_locked(self, idx, item);
+  }
+  return item;
+}
+
+static inline PyObject *
 list_item_safe(PyListObject *self, Py_ssize_t idx)
 {
-    Py_ssize_t size;
-
-retry:
-    size = Py_SIZE(self); // acquire?
+    Py_ssize_t size = _Py_atomic_load_ssize(&Py_SIZE(self));
     if (!valid_index(idx, size)) {
         return NULL;
     }
-    PyObject **ob_item = _Py_atomic_load_ptr_relaxed(&self->ob_item);
-    PyObject *item = _Py_atomic_load_ptr_relaxed(&ob_item[idx]);
-    if (!item || !_Py_TryIncref(item)) {
-        // retry???
-        goto retry;
+
+    PyObject **ob_item = _Py_atomic_load_ptr(&self->ob_item);
+    PyObject *item = _Py_atomic_load_ptr(&ob_item[idx]);
+    if (_PY_UNLIKELY(!item)) {
+        return list_item_locked(self, idx, NULL);
     }
-    if (item != _Py_atomic_load_ptr_relaxed(&ob_item[idx])) {
-        Py_DECREF(item); // unsafe! may call arbitrary code??
-        // retry???
-        goto retry;
+    if (_PY_UNLIKELY(!_Py_TryIncrefFast(item))) {
+        return list_item_slow(self, idx, ob_item, item);
+    }
+    if (_PY_UNLIKELY(item != _Py_atomic_load_ptr(&ob_item[idx]))) {
+        return list_item_locked(self, idx, item);
+    }
+    if (_PY_UNLIKELY(ob_item != _Py_atomic_load_ptr(&self->ob_item))) {
+        return list_item_locked(self, idx, item);
     }
     return item;
 }
@@ -2886,8 +2918,21 @@ static PySequenceMethods list_as_sequence = {
     (ssizeargfunc)list_inplace_repeat,          /* sq_inplace_repeat */
 };
 
+static _Py_NO_INLINE PyObject *
+list_subscript_slow(PyListObject* self, PyObject* item);
+
 static PyObject *
 list_subscript(PyListObject* self, PyObject* item)
+{
+    if (PyLong_CheckExact(item) && (Py_SIZE(item) == 1 || Py_SIZE(item) == 0)) {
+        Py_ssize_t idx = ((PyLongObject *)item)->ob_digit[0];
+        return list_item(self, idx);
+    }
+    return list_subscript_slow(self, item);
+}
+
+static PyObject *
+list_subscript_slow(PyListObject* self, PyObject* item)
 {
     if (PyIndex_Check(item)) {
         Py_ssize_t i;

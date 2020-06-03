@@ -565,6 +565,24 @@ _Py_TryIncref(PyObject *op) {
 
 #define _Py_TRY_INCREF(op) _Py_TryIncref(_PyObject_CAST(op))
 
+static inline int
+_Py_TryIncrefFast(PyObject *op) {
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_Py_REF_IS_IMMORTAL(local)) {
+        return 1;
+    }
+
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        local += (1 << _Py_REF_LOCAL_SHIFT);
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#ifdef Py_REF_DEBUG
+        _Py_IncRefTotal();
+#endif
+        return 1;
+    }
+    return 0;
+}
+
 _Py_ALWAYS_INLINE static inline void _Py_DECREF(
 #ifdef Py_REF_DEBUG
     const char *filename, int lineno,

@@ -204,6 +204,13 @@ _Py_atomic_load_ptr(const volatile void *address)
     return atomic_load((const volatile _Atomic(void*)*)address);
 }
 
+static inline Py_ssize_t
+_Py_atomic_load_ssize(const volatile Py_ssize_t *address)
+{
+    MI_USING_STD
+    return atomic_load((const volatile _Atomic(Py_ssize_t)*)address);
+}
+
 
 static inline int32_t
 _Py_atomic_load_int32_relaxed(const volatile int32_t *address)

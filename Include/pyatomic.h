@@ -85,6 +85,9 @@ _Py_atomic_load_uintptr(const volatile uintptr_t *address);
 static inline void *
 _Py_atomic_load_ptr(const volatile void *address);
 
+static inline Py_ssize_t
+_Py_atomic_load_ssize(const volatile Py_ssize_t *address);
+
 
 static inline int32_t
 _Py_atomic_load_int32_relaxed(const volatile int32_t *address);
