@@ -4913,6 +4913,13 @@ add_methods(PyTypeObject *type, PyMethodDef *meth)
         if (descr == NULL)
             return -1;
 
+        if (!PyType_HasFeature(type, Py_TPFLAGS_HEAPTYPE)) {
+            // make descriptors immortal if type is immortal
+            assert(_PyObject_IS_IMMORTAL((PyObject *)type));
+            descr->ob_tid = 0;
+            descr->ob_ref_local = _Py_REF_IMMORTAL_MASK;
+        }
+
         if (isdescr) {
             name = PyDescr_NAME(descr);
         }
