@@ -676,15 +676,16 @@ class PyDictObjectPtr(PyObjectPtr):
         analogous to dict.iteritems()
         '''
         keys = self.field('ma_keys')
-        if hasattr(self, 'ma_values'):
+        try:
             values = self.field('ma_values')
             if long(values) == 0:
                 values = None
-        elif keys['dk_type'] == self.DK_SPLIT:
-            tp = gdb.lookup_type('PyDictObjectWithValues').pointer()
-            values = self._gdbval.cast(tp).dereference()['dv_values']
-        else:
-            values = None
+        except RuntimeError:
+            if keys['dk_type'] == self.DK_SPLIT:
+                tp = gdb.lookup_type('PyDictObjectWithValues').pointer()
+                values = self._gdbval.cast(tp).dereference()['dv_values']
+            else:
+                values = None
         entries, nentries = self._get_entries(keys)
         for i in safe_range(nentries):
             ep = entries[i]
@@ -729,10 +730,12 @@ class PyDictObjectPtr(PyObjectPtr):
 
     def _get_entries(self, keys):
         dk_nentries = int(keys['dk_nentries'])
-        if hasattr(keys, 'dk_entries'):
+        try:
             # <= Python 3.5
             return keys['dk_entries'], int(keys['dk_size'])
-        if hasattr(keys, 'dk_size'):
+        except RuntimeError:
+            pass
+        try:
             # <= Python 3.9
             dk_size = int(keys['dk_size'])
             if dk_size <= 0xFF:
@@ -743,7 +746,7 @@ class PyDictObjectPtr(PyObjectPtr):
                 offset = 4 * dk_size
             else:
                 offset = 8 * dk_size
-        else:
+        except RuntimeError:
             # >= Python 3.10
             dk_ix_size = int(keys['dk_ix_size'])
             dk_size = 2 ** int(keys['dk_size_shift'])
