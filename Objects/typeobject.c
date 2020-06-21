@@ -4918,6 +4918,7 @@ add_methods(PyTypeObject *type, PyMethodDef *meth)
             assert(_PyObject_IS_IMMORTAL((PyObject *)type));
             descr->ob_tid = 0;
             descr->ob_ref_local = _Py_REF_IMMORTAL_MASK;
+            _PyObject_GC_UNTRACK(descr);
         }
 
         if (isdescr) {
