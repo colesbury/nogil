@@ -44,12 +44,12 @@ static inline void _PyObject_GC_TRACK_impl(const char *filename, int lineno,
                           filename, lineno, "_PyObject_GC_TRACK");
 
     PyThreadState *tstate = _PyThreadState_GET();
-    PyGC_Head *generation0 = tstate->interp->gc.generation0;
-    PyGC_Head *last = (PyGC_Head*)(generation0->_gc_prev);
+    PyGC_Head *head = &tstate->interp->gc.head;
+    PyGC_Head *last = (PyGC_Head*)(head->_gc_prev);
     _PyGCHead_SET_NEXT(last, gc);
     _PyGCHead_SET_PREV(gc, last);
-    _PyGCHead_SET_NEXT(gc, generation0);
-    generation0->_gc_prev = (uintptr_t)gc;
+    _PyGCHead_SET_NEXT(gc, head);
+    head->_gc_prev = (uintptr_t)gc;
 }
 
 #define _PyObject_GC_TRACK(op) \
