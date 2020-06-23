@@ -129,29 +129,22 @@ gc_decref(PyGC_Head *g)
                 DEBUG_UNCOLLECTABLE | \
                 DEBUG_SAVEALL
 
-#define GEN_HEAD(gcstate, n) (&(gcstate)->generations[n].head)
+
+static inline void gc_list_init(PyGC_Head *list);
 
 void
 _PyGC_InitState(GCState *gcstate)
 {
     gcstate->enabled = 1; /* automatic collection enabled? */
+    gcstate->gc_threshold = 7000;
+    gcstate->gc_scale = 100;
 
-#define _GEN_HEAD(n) GEN_HEAD(gcstate, n)
-    struct gc_generation generations[NUM_GENERATIONS] = {
-        /* PyGC_Head,                                    threshold,    count */
-        {{(uintptr_t)_GEN_HEAD(0), (uintptr_t)_GEN_HEAD(0)},   700,        0},
-        {{(uintptr_t)_GEN_HEAD(1), (uintptr_t)_GEN_HEAD(1)},   10,         0},
-        {{(uintptr_t)_GEN_HEAD(2), (uintptr_t)_GEN_HEAD(2)},   10,         0},
-    };
-    for (int i = 0; i < NUM_GENERATIONS; i++) {
-        gcstate->generations[i] = generations[i];
-    };
-    gcstate->generation0 = GEN_HEAD(gcstate, 0);
-    struct gc_generation permanent_generation = {
-          {(uintptr_t)&gcstate->permanent_generation.head,
-           (uintptr_t)&gcstate->permanent_generation.head}, 0, 0
-    };
-    gcstate->permanent_generation = permanent_generation;
+    const char* scale_str = _Py_GetEnv(1, "PYTHONGC");
+    if (scale_str) {
+        (void)_Py_str_to_int(scale_str, &gcstate->gc_scale);
+    }
+
+    gc_list_init(&gcstate->head);
 }
 
 
@@ -1056,42 +1049,6 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
     }
 }
 
-/* Clear all free lists
- * All free lists are cleared during the collection of the highest generation.
- * Allocated items in the free list may keep a pymalloc arena occupied.
- * Clearing the free lists may give back memory to the OS earlier.
- */
-static void
-clear_freelists(void)
-{
-    _PyFrame_ClearFreeList();
-    _PyTuple_ClearFreeList();
-    _PyFloat_ClearFreeList();
-    _PyList_ClearFreeList();
-    _PyDict_ClearFreeList();
-    _PyAsyncGen_ClearFreeLists();
-    _PyContext_ClearFreeList();
-}
-
-// Show stats for objects in each generations
-static void
-show_stats_each_generations(GCState *gcstate)
-{
-    char buf[100];
-    size_t pos = 0;
-
-    for (int i = 0; i < NUM_GENERATIONS && pos < sizeof(buf); i++) {
-        pos += PyOS_snprintf(buf+pos, sizeof(buf)-pos,
-                             " %"PY_FORMAT_SIZE_T"d",
-                             gc_list_size(GEN_HEAD(gcstate, i)));
-    }
-
-    PySys_FormatStderr(
-        "gc: objects in each generation:%s\n"
-        "gc: objects in permanent generation: %zd\n",
-        buf, gc_list_size(&gcstate->permanent_generation.head));
-}
-
 /* Deduce which objects among "base" are unreachable from outside the list
    and move them to 'unreachable'. The process consist in the following steps:
 
@@ -1203,13 +1160,23 @@ handle_resurrected_objects(PyGC_Head *unreachable, PyGC_Head* still_unreachable,
     gc_list_merge(resurrected, old_generation);
 }
 
+static void
+update_gc_threshold(GCState *gcstate)
+{
+    Py_ssize_t live = gcstate->gc_live;
+    Py_ssize_t threshold = live + (live * gcstate->gc_scale) / 100;
+    if (threshold < 7000) {
+        threshold = 7000;
+    }
+    gcstate->gc_threshold = threshold;
+}
+
 /* This is the main function.  Read this to understand how the
  * collection process works. */
 static Py_ssize_t
 collect(PyThreadState *tstate, int generation,
         Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable, int nofail)
 {
-    int i;
     Py_ssize_t m = 0; /* # objects collected */
     Py_ssize_t n = 0; /* # unreachable objects that couldn't be collected */
     PyGC_Head *young; /* the generation we are examining */
@@ -1221,53 +1188,30 @@ collect(PyThreadState *tstate, int generation,
     GCState *gcstate = &tstate->interp->gc;
 
     if (gcstate->debug & DEBUG_STATS) {
-        PySys_WriteStderr("gc: collecting generation %d...\n", generation);
-        show_stats_each_generations(gcstate);
+        PySys_WriteStderr("gc: collecting heap...\n");
+        PySys_FormatStderr(
+            "gc: tracked objects: %"PY_FORMAT_SIZE_T"d\n",
+            gc_list_size(&gcstate->head));
         t1 = _PyTime_GetMonotonicClock();
     }
 
     if (PyDTrace_GC_START_ENABLED())
         PyDTrace_GC_START(generation);
 
-    /* update collection and allocation counters */
-    if (generation+1 < NUM_GENERATIONS)
-        gcstate->generations[generation+1].count += 1;
-    for (i = 0; i <= generation; i++)
-        gcstate->generations[i].count = 0;
-
     /* explicitly merge refcnts all queued objects */
     merge_queued_objects();
 
-    /* merge younger generations with one we are currently collecting */
-    for (i = 0; i < generation; i++) {
-        gc_list_merge(GEN_HEAD(gcstate, i), GEN_HEAD(gcstate, generation));
-    }
-
     /* handy references */
-    young = GEN_HEAD(gcstate, generation);
-    if (generation < NUM_GENERATIONS-1)
-        old = GEN_HEAD(gcstate, generation+1);
-    else
-        old = young;
+    young = old = &gcstate->head;
     validate_list(old, collecting_clear_unreachable_clear);
 
     deduce_unreachable(young, &unreachable);
 
     untrack_tuples(young);
-    /* Move reachable objects to next generation. */
-    if (young != old) {
-        if (generation == NUM_GENERATIONS - 2) {
-            gcstate->long_lived_pending += gc_list_size(young);
-        }
-        gc_list_merge(young, old);
-    }
-    else {
-        /* We only un-track dicts in full collections, to avoid quadratic
-           dict build-up. See issue #14775. */
-        untrack_dicts(young);
-        gcstate->long_lived_pending = 0;
-        gcstate->long_lived_total = gc_list_size(young);
-    }
+    untrack_dicts(young);
+
+    gcstate->long_lived_pending = 0;
+    gcstate->long_lived_total = gc_list_size(young);
 
     /* All objects in unreachable are trash, but objects reachable from
      * legacy finalizers (e.g. tp_del) can't safely be deleted.
@@ -1336,12 +1280,6 @@ collect(PyThreadState *tstate, int generation,
     handle_legacy_finalizers(tstate, gcstate, &finalizers, old);
     validate_list(old, collecting_clear_unreachable_clear);
 
-    /* Clear free list only during the collection of the highest
-     * generation */
-    if (generation == NUM_GENERATIONS-1) {
-        clear_freelists();
-    }
-
     if (_PyErr_Occurred(tstate)) {
         if (nofail) {
             _PyErr_Clear(tstate);
@@ -1359,10 +1297,12 @@ collect(PyThreadState *tstate, int generation,
         *n_uncollectable = n;
     }
 
-    struct gc_generation_stats *stats = &gcstate->generation_stats[generation];
+    struct gc_generation_stats *stats = &gcstate->stats;
     stats->collections++;
     stats->collected += m;
     stats->uncollectable += n;
+
+    update_gc_threshold(gcstate);
 
     if (PyDTrace_GC_DONE_ENABLED()) {
         PyDTrace_GC_DONE(n + m);
@@ -1377,8 +1317,7 @@ collect(PyThreadState *tstate, int generation,
  */
 static void
 invoke_gc_callback(PyThreadState *tstate, const char *phase,
-                   int generation, Py_ssize_t collected,
-                   Py_ssize_t uncollectable)
+                   Py_ssize_t collected, Py_ssize_t uncollectable)
 {
     assert(!_PyErr_Occurred(tstate));
 
@@ -1393,7 +1332,7 @@ invoke_gc_callback(PyThreadState *tstate, const char *phase,
     PyObject *info = NULL;
     if (PyList_GET_SIZE(gcstate->callbacks) != 0) {
         info = Py_BuildValue("{sisnsn}",
-            "generation", generation,
+            "generation", 0,    // what value maximizes compatiblity?
             "collected", collected,
             "uncollectable", uncollectable);
         if (info == NULL) {
@@ -1425,68 +1364,11 @@ collect_with_callback(PyThreadState *tstate, int generation)
 {
     assert(!_PyErr_Occurred(tstate));
     Py_ssize_t result, collected, uncollectable;
-    invoke_gc_callback(tstate, "start", generation, 0, 0);
+    invoke_gc_callback(tstate, "start", 0, 0);
     result = collect(tstate, generation, &collected, &uncollectable, 0);
-    invoke_gc_callback(tstate, "stop", generation, collected, uncollectable);
+    invoke_gc_callback(tstate, "stop", collected, uncollectable);
     assert(!_PyErr_Occurred(tstate));
     return result;
-}
-
-static Py_ssize_t
-collect_generations(PyThreadState *tstate)
-{
-    GCState *gcstate = &tstate->interp->gc;
-
-    /* Find the oldest generation (highest numbered) where the count
-     * exceeds the threshold.  Objects in the that generation and
-     * generations younger than it will be collected. */
-    Py_ssize_t n = 0;
-    for (int i = NUM_GENERATIONS-1; i >= 0; i--) {
-        if (gcstate->generations[i].count > gcstate->generations[i].threshold) {
-            /* Avoid quadratic performance degradation in number
-               of tracked objects (see also issue #4074):
-
-               To limit the cost of garbage collection, there are two strategies;
-                 - make each collection faster, e.g. by scanning fewer objects
-                 - do less collections
-               This heuristic is about the latter strategy.
-
-               In addition to the various configurable thresholds, we only trigger a
-               full collection if the ratio
-
-                long_lived_pending / long_lived_total
-
-               is above a given value (hardwired to 25%).
-
-               The reason is that, while "non-full" collections (i.e., collections of
-               the young and middle generations) will always examine roughly the same
-               number of objects -- determined by the aforementioned thresholds --,
-               the cost of a full collection is proportional to the total number of
-               long-lived objects, which is virtually unbounded.
-
-               Indeed, it has been remarked that doing a full collection every
-               <constant number> of object creations entails a dramatic performance
-               degradation in workloads which consist in creating and storing lots of
-               long-lived objects (e.g. building a large list of GC-tracked objects would
-               show quadratic performance, instead of linear as expected: see issue #4074).
-
-               Using the above ratio, instead, yields amortized linear performance in
-               the total number of objects (the effect of which can be summarized
-               thusly: "each full garbage collection is more and more costly as the
-               number of objects grows, but we do fewer and fewer of them").
-
-               This heuristic was suggested by Martin von Löwis on python-dev in
-               June 2008. His original analysis and proposal can be found at:
-               http://mail.python.org/pipermail/python-dev/2008-June/080579.html
-            */
-            if (i == NUM_GENERATIONS - 1
-                && gcstate->long_lived_pending < gcstate->long_lived_total / 4)
-                continue;
-            n = collect_with_callback(tstate, i);
-            break;
-        }
-    }
-    return n;
 }
 
 #include "clinic/gcmodule.c.h"
@@ -1558,7 +1440,7 @@ gc_collect_impl(PyObject *module, int generation)
 {
     PyThreadState *tstate = _PyThreadState_GET();
 
-    if (generation < 0 || generation >= NUM_GENERATIONS) {
+    if (generation < 0 || generation >= 3) {
         _PyErr_SetString(tstate, PyExc_ValueError, "invalid generation");
         return -1;
     }
@@ -1631,15 +1513,16 @@ gc_set_threshold(PyObject *self, PyObject *args)
 {
     PyThreadState *tstate = _PyThreadState_GET();
     GCState *gcstate = &tstate->interp->gc;
+    int threshold0, threshold1, threshold2;
+
     if (!PyArg_ParseTuple(args, "i|ii:set_threshold",
-                          &gcstate->generations[0].threshold,
-                          &gcstate->generations[1].threshold,
-                          &gcstate->generations[2].threshold))
+                          &threshold0,
+                          &threshold1,
+                          &threshold2))
         return NULL;
-    for (int i = 3; i < NUM_GENERATIONS; i++) {
-        /* generations higher than 2 get the same threshold */
-        gcstate->generations[i].threshold = gcstate->generations[2].threshold;
-    }
+
+    // FIXME: does setting threshold0 to zero actually disable collection ???
+    gcstate->gc_threshold = threshold0;
     Py_RETURN_NONE;
 }
 
@@ -1656,9 +1539,9 @@ gc_get_threshold_impl(PyObject *module)
     PyThreadState *tstate = _PyThreadState_GET();
     GCState *gcstate = &tstate->interp->gc;
     return Py_BuildValue("(iii)",
-                         gcstate->generations[0].threshold,
-                         gcstate->generations[1].threshold,
-                         gcstate->generations[2].threshold);
+                         gcstate->gc_threshold,
+                         0,
+                         0);
 }
 
 /*[clinic input]
@@ -1673,10 +1556,8 @@ gc_get_count_impl(PyObject *module)
 {
     PyThreadState *tstate = _PyThreadState_GET();
     GCState *gcstate = &tstate->interp->gc;
-    return Py_BuildValue("(iii)",
-                         gcstate->generations[0].count,
-                         gcstate->generations[1].count,
-                         gcstate->generations[2].count);
+    int64_t gc_live = _Py_atomic_load_ssize(&gcstate->gc_live);
+    return Py_BuildValue("(iii)", gc_live, 0, 0);
 }
 
 static int
@@ -1716,7 +1597,6 @@ static PyObject *
 gc_get_referrers(PyObject *self, PyObject *args)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    int i;
 
     if (PySys_Audit("gc.get_referrers", "(O)", args) < 0) {
         return NULL;
@@ -1728,11 +1608,9 @@ gc_get_referrers(PyObject *self, PyObject *args)
     }
 
     GCState *gcstate = &tstate->interp->gc;
-    for (i = 0; i < NUM_GENERATIONS; i++) {
-        if (!(gc_referrers_for(args, GEN_HEAD(gcstate, i), result))) {
-            Py_DECREF(result);
-            return NULL;
-        }
+    if (!(gc_referrers_for(args, &gcstate->head, result))) {
+        Py_DECREF(result);
+        return NULL;
     }
     return result;
 }
@@ -1793,7 +1671,6 @@ gc_get_objects_impl(PyObject *module, Py_ssize_t generation)
 /*[clinic end generated code: output=48b35fea4ba6cb0e input=ef7da9df9806754c]*/
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    int i;
     PyObject* result;
     GCState *gcstate = &tstate->interp->gc;
 
@@ -1821,20 +1698,12 @@ gc_get_objects_impl(PyObject *module, Py_ssize_t generation)
                              "generation parameter cannot be negative");
             goto error;
         }
-
-        if (append_objects(result, GEN_HEAD(gcstate, generation))) {
-            goto error;
-        }
-
-        return result;
     }
 
-    /* If generation is not passed or None, get all objects from all generations */
-    for (i = 0; i < NUM_GENERATIONS; i++) {
-        if (append_objects(result, GEN_HEAD(gcstate, i))) {
-            goto error;
-        }
+    if (append_objects(result, &gcstate->head)) {
+        goto error;
     }
+
     return result;
 
 error:
@@ -1852,37 +1721,30 @@ static PyObject *
 gc_get_stats_impl(PyObject *module)
 /*[clinic end generated code: output=a8ab1d8a5d26f3ab input=1ef4ed9d17b1a470]*/
 {
-    int i;
-    struct gc_generation_stats stats[NUM_GENERATIONS], *st;
+    struct gc_generation_stats stats;
+    PyObject *result, *dict;
     PyThreadState *tstate = _PyThreadState_GET();
 
     /* To get consistent values despite allocations while constructing
        the result list, we use a snapshot of the running stats. */
-    GCState *gcstate = &tstate->interp->gc;
-    for (i = 0; i < NUM_GENERATIONS; i++) {
-        stats[i] = gcstate->generation_stats[i];
-    }
+    stats = tstate->interp->gc.stats;
 
-    PyObject *result = PyList_New(0);
+    result = PyList_New(0);
     if (result == NULL)
         return NULL;
 
-    for (i = 0; i < NUM_GENERATIONS; i++) {
-        PyObject *dict;
-        st = &stats[i];
-        dict = Py_BuildValue("{snsnsn}",
-                             "collections", st->collections,
-                             "collected", st->collected,
-                             "uncollectable", st->uncollectable
-                            );
-        if (dict == NULL)
-            goto error;
-        if (PyList_Append(result, dict)) {
-            Py_DECREF(dict);
-            goto error;
-        }
+    dict = Py_BuildValue("{snsnsn}",
+                         "collections", stats.collections,
+                         "collected", stats.collected,
+                         "uncollectable", stats.uncollectable
+                        );
+    if (dict == NULL)
+        goto error;
+    if (PyList_Append(result, dict)) {
         Py_DECREF(dict);
+        goto error;
     }
+    Py_DECREF(dict);
     return result;
 
 error:
@@ -1949,12 +1811,9 @@ static PyObject *
 gc_freeze_impl(PyObject *module)
 /*[clinic end generated code: output=502159d9cdc4c139 input=b602b16ac5febbe5]*/
 {
-    PyThreadState *tstate = _PyThreadState_GET();
-    GCState *gcstate = &tstate->interp->gc;
-    for (int i = 0; i < NUM_GENERATIONS; ++i) {
-        gc_list_merge(GEN_HEAD(gcstate, i), &gcstate->permanent_generation.head);
-        gcstate->generations[i].count = 0;
-    }
+
+    // we only have a single generation, so this doesn't do anything
+    // TODO: untrack objects?
     Py_RETURN_NONE;
 }
 
@@ -1970,10 +1829,7 @@ static PyObject *
 gc_unfreeze_impl(PyObject *module)
 /*[clinic end generated code: output=1c15f2043b25e169 input=2dd52b170f4cef6c]*/
 {
-    PyThreadState *tstate = _PyThreadState_GET();
-    GCState *gcstate = &tstate->interp->gc;
-    gc_list_merge(&gcstate->permanent_generation.head,
-                  GEN_HEAD(gcstate, NUM_GENERATIONS-1));
+    // we only have a single generation, so this doesn't do anything
     Py_RETURN_NONE;
 }
 
@@ -1987,9 +1843,7 @@ static Py_ssize_t
 gc_get_freeze_count_impl(PyObject *module)
 /*[clinic end generated code: output=61cbd9f43aa032e1 input=45ffbc65cfe2a6ed]*/
 {
-    PyThreadState *tstate = _PyThreadState_GET();
-    GCState *gcstate = &tstate->interp->gc;
-    return gc_list_size(&gcstate->permanent_generation.head);
+    return 0;
 }
 
 
@@ -2193,35 +2047,12 @@ _PyGC_DumpShutdownStats(PyThreadState *tstate)
 }
 
 
-static void
-gc_fini_untrack(PyGC_Head *list)
-{
-    PyGC_Head *gc;
-    for (gc = GC_NEXT(list); gc != list; gc = GC_NEXT(list)) {
-        PyObject *op = FROM_GC(gc);
-        _PyObject_GC_UNTRACK(op);
-    }
-}
-
-
 void
 _PyGC_Fini(PyThreadState *tstate)
 {
     GCState *gcstate = &tstate->interp->gc;
     Py_CLEAR(gcstate->garbage);
     Py_CLEAR(gcstate->callbacks);
-
-    if (!_Py_IsMainInterpreter(tstate)) {
-        // bpo-46070: Explicitly untrack all objects currently tracked by the
-        // GC. Otherwise, if an object is used later by another interpreter,
-        // calling PyObject_GC_UnTrack() on the object crashs if the previous
-        // or the next object of the PyGC_Head structure became a dangling
-        // pointer.
-        for (int i = 0; i < NUM_GENERATIONS; i++) {
-            PyGC_Head *gen = GEN_HEAD(gcstate, i);
-            gc_fini_untrack(gen);
-        }
-    }
 }
 
 /* for debugging */
@@ -2286,6 +2117,22 @@ PyObject_IS_GC(PyObject *obj)
     return _PyObject_IS_GC(obj);
 }
 
+Py_ssize_t
+_PyGC_Collect(PyThreadState *tstate)
+{
+    Py_ssize_t n;
+    GCState *gcstate = &tstate->interp->gc;
+    if (gcstate->collecting || tstate->cant_stop_wont_stop) {
+        return 0;
+    }
+
+    gcstate->collecting = 1;
+    n = collect_with_callback(tstate, 0);
+    gcstate->collecting = 0;
+
+    return n;
+}
+
 static PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
@@ -2310,18 +2157,12 @@ _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 
     g->_gc_next = 0;
     g->_gc_prev = 0;
-    gcstate->generations[0].count++; /* number of allocated GC objects */
-    if (gcstate->generations[0].count > gcstate->generations[0].threshold &&
-        gcstate->enabled &&
-        gcstate->generations[0].threshold &&
-        !gcstate->collecting &&
-        !tstate->cant_stop_wont_stop &&
-        !_PyErr_Occurred(tstate))
-    {
-        gcstate->collecting = 1;
-        collect_generations(tstate);
-        gcstate->collecting = 0;
+
+    gcstate->gc_live++;
+    if (_PyGC_ShouldCollect(gcstate)) {
+        _PyGC_Collect(tstate);
     }
+
     PyObject *op = FROM_GC(g);
     return op;
 }
@@ -2391,9 +2232,7 @@ PyObject_GC_Del(void *op)
     }
     PyThreadState *tstate = _PyThreadState_GET();
     GCState *gcstate = &tstate->interp->gc;
-    if (gcstate->generations[0].count > 0) {
-        gcstate->generations[0].count--;
-    }
+    gcstate->gc_live--;
     PyObject_FREE(g);
 }
 
