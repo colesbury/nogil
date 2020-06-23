@@ -359,7 +359,7 @@ def test_gc():
 
     sys.addaudithook(hook)
 
-    gc.get_objects(generation=1)
+    gc.get_objects()
 
     x = object()
     y = [x]
