@@ -289,47 +289,24 @@ class GCTests(unittest.TestCase):
         gc.disable()
         gc.set_threshold(*thresholds)
 
-    # The following two tests are fragile:
-    # They precisely count the number of allocations,
-    # which is highly implementation-dependent.
-    # For example, disposed tuples are not freed, but reused.
-    # To minimize variations, though, we first store the get_count() results
-    # and check them at the end.
+    # The following test is implementation-dependent because it
+    # counts the number of allocations.
     @refcount_test
-    @unittest.skip('samisdumb: gc changes')
     def test_get_count(self):
         gc.collect()
         a, b, c = gc.get_count()
-        x = []
+        # Note: get_count() isn't precise. To enable faster allocations,
+        # it is only updated when mimalloc "pages" become full or are no
+        # longer full.
+        tmp = []
+        for _ in range(2048):
+            tmp.append([''])
         d, e, f = gc.get_count()
         self.assertEqual((b, c), (0, 0))
         self.assertEqual((e, f), (0, 0))
-        # This is less fragile than asserting that a equals 0.
-        self.assertLess(a, 5)
-        # Between the two calls to get_count(), at least one object was
-        # created (the list).
+        # Between the two calls to get_count(), enough objects were
+        # created to increase the count.
         self.assertGreater(d, a)
-
-    @refcount_test
-    def test_collect_generations(self):
-        gc.collect()
-        # This object will "trickle" into generation N + 1 after
-        # each call to collect(N)
-        x = []
-        gc.collect(0)
-        # x is now in gen 1
-        a, b, c = gc.get_count()
-        gc.collect(1)
-        # x is now in gen 2
-        d, e, f = gc.get_count()
-        gc.collect(2)
-        # x is now in gen 3
-        g, h, i = gc.get_count()
-        # We don't check a, d, g since their exact values depends on
-        # internal implementation details of the interpreter.
-        self.assertEqual((b, c), (1, 0))
-        self.assertEqual((e, f), (0, 1))
-        self.assertEqual((h, i), (0, 0))
 
     def test_trashcan(self):
         class Ouch:
@@ -771,20 +748,16 @@ class GCTests(unittest.TestCase):
             self.addCleanup(gc.enable)
             gc.disable()
         old = gc.get_stats()
-        gc.collect(0)
+        gc.collect()
         new = gc.get_stats()
-        self.assertEqual(new[0]["collections"], old[0]["collections"] + 1)
-        self.assertEqual(new[1]["collections"], old[1]["collections"])
-        self.assertEqual(new[2]["collections"], old[2]["collections"])
-        gc.collect(2)
-        new = gc.get_stats()
-        self.assertEqual(new[0]["collections"], old[0]["collections"] + 1)
+        self.assertEqual(new[0]["collections"], old[0]["collections"])
         self.assertEqual(new[1]["collections"], old[1]["collections"])
         self.assertEqual(new[2]["collections"], old[2]["collections"] + 1)
 
     def test_freeze(self):
+        # freeze no longer does anything, so count is always zero :(
         gc.freeze()
-        self.assertGreater(gc.get_freeze_count(), 0)
+        self.assertEqual(gc.get_freeze_count(), 0)
         gc.unfreeze()
         self.assertEqual(gc.get_freeze_count(), 0)
 
@@ -793,52 +766,17 @@ class GCTests(unittest.TestCase):
         l = []
         l.append(l)
         self.assertTrue(
-                any(l is element for element in gc.get_objects(generation=0))
+                any(l is element for element in gc.get_objects())
         )
-        self.assertFalse(
-                any(l is element for element in  gc.get_objects(generation=1))
-        )
-        self.assertFalse(
-                any(l is element for element in gc.get_objects(generation=2))
-        )
-        gc.collect(generation=0)
-        self.assertFalse(
-                any(l is element for element in gc.get_objects(generation=0))
-        )
+        gc.collect()
         self.assertTrue(
-                any(l is element for element in  gc.get_objects(generation=1))
-        )
-        self.assertFalse(
-                any(l is element for element in gc.get_objects(generation=2))
-        )
-        gc.collect(generation=1)
-        self.assertFalse(
-                any(l is element for element in gc.get_objects(generation=0))
-        )
-        self.assertFalse(
-                any(l is element for element in  gc.get_objects(generation=1))
-        )
-        self.assertTrue(
-                any(l is element for element in gc.get_objects(generation=2))
-        )
-        gc.collect(generation=2)
-        self.assertFalse(
-                any(l is element for element in gc.get_objects(generation=0))
-        )
-        self.assertFalse(
-                any(l is element for element in  gc.get_objects(generation=1))
-        )
-        self.assertTrue(
-                any(l is element for element in gc.get_objects(generation=2))
+                any(l is element for element in gc.get_objects())
         )
         del l
         gc.collect()
 
     def test_get_objects_arguments(self):
-        gc.collect()
-        self.assertEqual(len(gc.get_objects()),
-                         len(gc.get_objects(generation=None)))
-
+        self.assertGreater(len(gc.get_objects()), 0)
         self.assertRaises(ValueError, gc.get_objects, 1000)
         self.assertRaises(ValueError, gc.get_objects, -1000)
         self.assertRaises(TypeError, gc.get_objects, "1")
@@ -1372,4 +1310,5 @@ def test_main():
             gc.disable()
 
 if __name__ == "__main__":
-    test_main()
+    unittest.main()
+    # test_main()

@@ -40,18 +40,18 @@ extern "C" {
         (!PyTuple_CheckExact(obj) || _PyObject_GC_IS_TRACKED(obj)))
 
 
-#define GC_GENERATION_SHIFT  (0)
+#define GC_TRACKED_SHIFT     (0)
 #define GC_UNREACHABLE_SHIFT (2)
 #define GC_FINALIZED_SHIFT   (3)
 
-#define GC_GENERATION_MASK   (3<<GC_GENERATION_SHIFT)   // 3
+#define GC_TRACKED_MASK      (1<<GC_TRACKED_SHIFT)   // 3
 #define GC_UNREACHABLE_MASK  (1<<GC_UNREACHABLE_SHIFT)  // 4
 #define GC_FINALIZED_MASK    (1<<GC_FINALIZED_SHIFT)    // 8
 
 static inline int
-GC_BITS_GENERATION(PyGC_Head *gc)
+GC_BITS_IS_TRACKED(PyGC_Head *gc)
 {
-    return (gc->_gc_prev & GC_GENERATION_MASK) >> GC_GENERATION_SHIFT;
+    return (gc->_gc_prev & GC_TRACKED_MASK) >> GC_TRACKED_SHIFT;
 }
 
 static inline int
@@ -81,7 +81,7 @@ GC_BITS_SET(PyGC_Head *gc, uintptr_t mask)
 static inline int
 _PyObject_GC_IS_TRACKED_impl(PyGC_Head *gc)
 {
-    return GC_BITS_GENERATION(gc) != 0;
+    return GC_BITS_IS_TRACKED(gc) != 0;
 }
 
 static inline int
@@ -116,13 +116,8 @@ _PyObject_GC_TRACK_impl(const char *filename, int lineno, PyObject *op)
 
     PyGC_Head *gc = _Py_AS_GC(op);
 
-    gc->_gc_prev |= (1 << GC_GENERATION_SHIFT);
-    assert(GC_BITS_GENERATION(gc) == 1);
-
-    // _PyObject_ASSERT_FROM(op,
-    //                       !GC_BITS_IS_COLLECTING(*bits),
-    //                       "object is in generation which is garbage collected",
-    //                       filename, lineno, "_PyObject_GC_TRACK");
+    gc->_gc_prev |= (1 << GC_TRACKED_SHIFT);
+    assert(GC_BITS_IS_TRACKED(gc) == 1);
 }
 
 static inline int
@@ -158,7 +153,7 @@ _PyObject_GC_UNTRACK_impl(const char *filename, int lineno, PyObject *op)
     }
     assert(_PyGCHead_PREV(gc) == NULL);
     gc->_gc_prev &= GC_FINALIZED_MASK;
-    assert(GC_BITS_GENERATION(gc) == 0);
+    assert(GC_BITS_IS_TRACKED(gc) == 0);
 }
 
 #ifdef __cplusplus

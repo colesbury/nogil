@@ -95,17 +95,6 @@ struct _gc_runtime_state {
     PyObject *garbage;
     /* a list of callbacks to be invoked when collection is performed */
     PyObject *callbacks;
-    /* This is the number of objects that survived the last full
-       collection. It approximates the number of long lived objects
-       tracked by the GC.
-
-       (by "full collection", we mean a collection of the oldest
-       generation). */
-    Py_ssize_t long_lived_total;
-    /* This is the number of objects that survived all "non-full"
-       collections, and are awaiting to undergo a full collection for
-       the first time. */
-    Py_ssize_t long_lived_pending;
 
     int64_t gc_live;
 
