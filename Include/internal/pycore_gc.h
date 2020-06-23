@@ -68,7 +68,7 @@ typedef struct {
 
 /* If we change this, we need to change the default value in the
    signature of gc.collect. */
-#define NUM_GENERATIONS 3
+#define NUM_GENERATIONS 1
 /*
    NOTE: about untracking of mutable objects.
 
@@ -137,17 +137,24 @@ struct _gc_runtime_state {
     int enabled;
     int debug;
     /* linked lists of container objects */
-    struct gc_generation generations[NUM_GENERATIONS];
-    PyGC_Head *generation0;
+    PyGC_Head head;
     /* a permanent generation which won't be collected */
-    struct gc_generation permanent_generation;
-    struct gc_generation_stats generation_stats[NUM_GENERATIONS];
+    struct gc_generation_stats stats;
     /* true if we are currently running the collector */
     int collecting;
     /* list of uncollectable objects */
     PyObject *garbage;
     /* a list of callbacks to be invoked when collection is performed */
     PyObject *callbacks;
+    /* the number of live GC objects */
+    Py_ssize_t gc_live;
+    /* the threshold at which to trigger a collection */
+    Py_ssize_t gc_threshold;
+    /* The ratio used to compute gc_threshold:
+            gc_threshold = (1 + gc_scale/100) * gc_live
+       A value of 100 means to collect every time the number of live
+       objects doubles. */
+    int gc_scale;
     /* This is the number of objects that survived the last full
        collection. It approximates the number of long lived objects
        tracked by the GC.
@@ -163,6 +170,12 @@ struct _gc_runtime_state {
 
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);
 
+static inline int
+_PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
+{
+    Py_ssize_t live = _Py_atomic_load_ssize_relaxed(&gcstate->gc_live);
+    return !gcstate->collecting && gcstate->enabled && live >= gcstate->gc_threshold;
+}
 
 // Functions to clear types free lists
 extern void _PyFrame_ClearFreeList(void);
