@@ -52,7 +52,10 @@ PyModuleDef_Init(struct PyModuleDef* def)
     if (PyType_Ready(&PyModuleDef_Type) < 0)
          return NULL;
     if (def->m_base.m_index == 0) {
-        assert(_PyObject_IS_IMMORTAL((PyObject*) def));
+        if (!_PyObject_IS_IMMORTAL((PyObject*) def)) {
+            // e.g. pybind11 modules
+            Py_SET_REFCNT(def, 1);
+        }
         Py_SET_TYPE(def, &PyModuleDef_Type);
         def->m_base.m_index =
             (Py_ssize_t)_Py_atomic_add_intptr(&max_module_number, 1) + 1;

@@ -53,15 +53,21 @@ _PyObject_CheckConsistency(PyObject *op, int check_content)
 void
 _Py_IncRefTotal(void)
 {
-    _PyThreadState_GET()->thread_ref_total++;
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (tstate) {
+        tstate->thread_ref_total++;
+    }
 }
 
 void
 _Py_DecRefTotal(void)
 {
-    _PyThreadState_GET()->thread_ref_total--;
+    // some programs incorrectly decref global PyObjects at exit
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (tstate) {
+        tstate->thread_ref_total--;
+    }
 }
-
 
 Py_ssize_t
 _Py_GetRefTotal(void)
