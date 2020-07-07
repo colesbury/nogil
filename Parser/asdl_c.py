@@ -922,7 +922,7 @@ static int add_ast_fields(void)
 
 """, 0, reflow=False)
 
-        self.emit("static int init_types(void)",0)
+        self.emit("static int init_types_inner(void)",0)
         self.emit("{", 0)
         self.emit("PyObject *m;", 1)
         self.emit("if (PyState_FindModule(&_astmodule) == NULL) {", 1)
@@ -941,6 +941,26 @@ static int add_ast_fields(void)
         self.emit("state->initialized = 1;", 1)
         self.emit("return 1;", 1);
         self.emit("}", 0)
+
+        self.emit("""
+static int
+init_types(void)
+{
+    static _PyOnceFlag once;
+    if (!_PyBeginOnce(&once)) {
+        return 1;
+    }
+
+    int ok = init_types_inner();
+    if (!ok) {
+        _PyEndOnceFailed(&once);
+        return 0;
+    }
+
+    _PyEndOnce(&once);
+    return 1;
+}
+""", 0, reflow=False)
 
     def visitProduct(self, prod, name):
         if prod.fields:

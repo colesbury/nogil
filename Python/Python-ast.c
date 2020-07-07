@@ -1856,6 +1856,7 @@ init_types(void)
     return 1;
 }
 
+
 static int obj2ast_mod(PyObject* obj, mod_ty* out, PyArena* arena);
 static int obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena);
 static int obj2ast_expr(PyObject* obj, expr_ty* out, PyArena* arena);
