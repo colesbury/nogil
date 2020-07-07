@@ -12,6 +12,7 @@ extern "C" {
 
 struct ast_state {
     int initialized;
+    _PyOnceFlag once;
     int recursion_depth;
     int recursion_limit;
     PyObject *AST_type;

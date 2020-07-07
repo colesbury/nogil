@@ -1467,6 +1467,7 @@ class ChainOfVisitors:
 def generate_ast_state(module_state, f):
     f.write('struct ast_state {\n')
     f.write('    int initialized;\n')
+    f.write('    _PyOnceFlag once;\n')
     f.write('    int recursion_depth;\n')
     f.write('    int recursion_limit;\n')
     for s in module_state:
@@ -1544,8 +1545,12 @@ def generate_module_def(mod, metadata, f, internal_h):
         {
             PyInterpreterState *interp = _PyInterpreterState_GET();
             struct ast_state *state = &interp->ast;
-            if (!init_types(state)) {
-                return NULL;
+            if (_PyBeginOnce(&state->once)) {
+                if (!init_types(state)) {
+                    _PyEndOnceFailed(&state->once);
+                    return NULL;
+                }
+                _PyEndOnce(&state->once);
             }
             return state;
         }

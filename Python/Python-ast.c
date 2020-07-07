@@ -17,8 +17,12 @@ get_ast_state(void)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
     struct ast_state *state = &interp->ast;
-    if (!init_types(state)) {
-        return NULL;
+    if (_PyBeginOnce(&state->once)) {
+        if (!init_types(state)) {
+            _PyEndOnceFailed(&state->once);
+            return NULL;
+        }
+        _PyEndOnce(&state->once);
     }
     return state;
 }
