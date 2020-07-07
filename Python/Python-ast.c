@@ -1199,7 +1199,7 @@ static int add_ast_fields(astmodulestate *state)
 }
 
 
-static int init_types(astmodulestate *state)
+static int init_types_inner(astmodulestate *state)
 {
     if (state->initialized) return 1;
     if (init_identifiers(state) < 0) return 0;
@@ -1877,6 +1877,25 @@ static int init_types(astmodulestate *state)
     state->initialized = 1;
     return 1;
 }
+
+static int
+init_types(astmodulestate *state)
+{
+    static _PyOnceFlag once;
+    if (!_PyBeginOnce(&once)) {
+        return 1;
+    }
+
+    int ok = init_types_inner(state);
+    if (!ok) {
+        _PyEndOnceFailed(&once);
+        return 0;
+    }
+
+    _PyEndOnce(&once);
+    return 1;
+}
+
 
 static int obj2ast_mod(astmodulestate *state, PyObject* obj, mod_ty* out,
                        PyArena* arena);
