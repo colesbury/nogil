@@ -1674,8 +1674,8 @@ getrefcount().
 [clinic start generated code]*/
 
 static PyObject *
-sys_getfullrefcount_impl(PyObject *module, PyObject *object)
-/*[clinic end generated code: output=5fd477f2264b85b2 input=bf474efd50a21535]*/
+sys_getfullrefcount(PyObject *module, PyObject *object)
+/*[clinic end generated code: output=2f39a7bf08762090 input=ef418950716349aa]*/
 {
     PyObject *res = PyDict_New();
     if (!res) {
@@ -1708,7 +1708,7 @@ sys_getfullrefcount_impl(PyObject *module, PyObject *object)
 }
 
 /*[clinic input]
-sys.mergerefcount -> Py_ssize_t
+sys.mergerefcount -> object
 
     object:  object
     /
@@ -1721,8 +1721,8 @@ getrefcount().
 [clinic start generated code]*/
 
 static PyObject *
-sys_mergerefcount_impl(PyObject *module, PyObject *object)
-/*[clinic end generated code: output=5fd477f2264b85b2 input=bf474efd50a21535]*/
+sys_mergerefcount(PyObject *module, PyObject *object)
+/*[clinic end generated code: output=fcf63cbbf05c295d input=db12481f016621a8]*/
 {
     if (_PyObject_ThreadId(object) == _Py_ThreadId()) {
         _Py_ExplicitMergeRefcount(object);

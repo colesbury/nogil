@@ -699,27 +699,6 @@ exit:
     return return_value;
 }
 
-PyDoc_STRVAR(sys_mergerefcount__doc__,
-"mergerefcount($module, object, /)\n"
-"--\n"
-"\n"
-"Merges the local and shared reference counts of an object.\n"
-"\n"
-"TODO.");
-
-#define SYS_MERGEREFCOUNT_METHODDEF    \
-    {"mergerefcount", (PyCFunction)sys_mergerefcount, METH_O, sys_mergerefcount__doc__},
-
-static PyObject *
-sys_mergerefcount_impl(PyObject *module, PyObject *object);
-
-static PyObject *
-sys_mergerefcount(PyObject *module, PyObject *object)
-{
-    return sys_mergerefcount_impl(module, object);
-}
-
-
 PyDoc_STRVAR(sys_getfullrefcount__doc__,
 "getfullrefcount($module, object, /)\n"
 "--\n"
@@ -728,20 +707,23 @@ PyDoc_STRVAR(sys_getfullrefcount__doc__,
 "\n"
 "The count returned is generally one higher than you might expect,\n"
 "because it includes the (temporary) reference as an argument to\n"
-"getfullrefcount().");
+"getrefcount().");
 
 #define SYS_GETFULLREFCOUNT_METHODDEF    \
     {"getfullrefcount", (PyCFunction)sys_getfullrefcount, METH_O, sys_getfullrefcount__doc__},
 
-static PyObject *
-sys_getfullrefcount_impl(PyObject *module, PyObject *object);
+PyDoc_STRVAR(sys_mergerefcount__doc__,
+"mergerefcount($module, object, /)\n"
+"--\n"
+"\n"
+"Return the reference count of object.\n"
+"\n"
+"The count returned is generally one higher than you might expect,\n"
+"because it includes the (temporary) reference as an argument to\n"
+"getrefcount().");
 
-static PyObject *
-sys_getfullrefcount(PyObject *module, PyObject *object)
-{
-    return sys_getfullrefcount_impl(module, object);
-}
-
+#define SYS_MERGEREFCOUNT_METHODDEF    \
+    {"mergerefcount", (PyCFunction)sys_mergerefcount, METH_O, sys_mergerefcount__doc__},
 
 #if defined(Py_REF_DEBUG)
 
@@ -1014,4 +996,4 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=b5599e78e6e12d2b input=a9049054013a1b77]*/
+/*[clinic end generated code: output=027aa6f8961fef9a input=a9049054013a1b77]*/
