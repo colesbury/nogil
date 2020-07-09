@@ -2100,17 +2100,6 @@ gc_get_referents(PyObject *self, PyObject *args)
     return result;
 }
 
-/*[clinic input]
-gc.get_objects
-    generation: Py_ssize_t(accept={int, NoneType}, c_default="-1") = None
-        Generation to extract the objects from.
-
-Return a list of objects tracked by the collector (excluding the list returned).
-
-If generation is not None, return only the objects tracked by the collector
-that are in that generation.
-[clinic start generated code]*/
-
 struct gc_get_objects_arg {
     PyObject *py_list;
     Py_ssize_t generation;
@@ -2136,6 +2125,17 @@ gc_get_objects_visitor(PyGC_Head *gc, void *void_arg)
     }
     return 0;
 }
+
+/*[clinic input]
+gc.get_objects
+    generation: Py_ssize_t(accept={int, NoneType}, c_default="-1") = None
+        Generation to extract the objects from.
+
+Return a list of objects tracked by the collector (excluding the list returned).
+
+If generation is not None, return only the objects tracked by the collector
+that are in that generation.
+[clinic start generated code]*/
 
 static PyObject *
 gc_get_objects_impl(PyObject *module, Py_ssize_t generation)
