@@ -204,6 +204,19 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
 }
 
 void
+_PyThreadState_Shutdown(PyThreadState *tstate)
+{
+    // Instead of triggering a pthread_exit we just deadlock the current
+    // thread to match Python 3.8 behavior.
+    assert(_PyRuntime.ceval.gil.holder != tstate && "_PyThreadState_Shutdown called with GIL held");
+
+    PyMUTEX_T mutex;
+    PyMUTEX_INIT(&mutex);
+    PyMUTEX_LOCK(&mutex);
+    PyMUTEX_LOCK(&mutex);
+}
+
+void
 _PyThreadState_GC_Park(PyThreadState *tstate)
 {
     assert(!tstate->cant_stop_wont_stop);
@@ -211,12 +224,6 @@ _PyThreadState_GC_Park(PyThreadState *tstate)
 
     int count = 0;
     for (;;) {
-        // FIXME: this is just exit_thread_if_finalizing from ceval.c
-        if (runtime->finalizing != NULL && !_Py_CURRENTLY_FINALIZING(runtime, tstate)) {
-            _PyEval_DropGIL(tstate);
-            PyThread_exit_thread();
-        }
-
         /* Wait until we're switched out of GC to DETACHED. */
         _PyParkingLot_ParkInt32(&tstate->status, _Py_THREAD_GC);
 

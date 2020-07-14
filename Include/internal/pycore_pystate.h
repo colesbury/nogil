@@ -326,6 +326,17 @@ _PyRuntimeState_SetThreadState(_PyRuntimeState *runtime, PyThreadState *tstate)
     _Py_current_tstate = tstate;
 }
 
+PyAPI_FUNC(void) _PyThreadState_Shutdown(PyThreadState *tstate);
+
+static inline void
+_PyThreadState_CheckForShutdown(PyThreadState *tstate)
+{
+    PyThreadState *finalizing = _Py_atomic_load_ptr_relaxed(&_PyRuntime.finalizing);
+    if (finalizing != NULL && finalizing != tstate) {
+        _PyThreadState_Shutdown(tstate);
+    }
+}
+
 
 /* Get the current Python thread state.
 
