@@ -360,14 +360,19 @@ static Py_ssize_t
 _Py_GC_REFCNT(PyObject *op)
 {
     Py_ssize_t local, shared;
-    int immortal;
+    int immortal, queued, merged;
 
     _PyRef_UnpackLocal(op->ob_ref_local, &local, &immortal);
-    _PyRef_UnpackShared(op->ob_ref_shared, &shared, NULL, NULL);
+    _PyRef_UnpackShared(op->ob_ref_shared, &shared, &queued, &merged);
 
     assert(!immortal);
+    assert(local + shared >= 0);
 
-    return local + shared;
+    // Add one if object needs to have its reference counts merged.
+    // We don't want to free objects in the refcount queue!
+    Py_ssize_t extra = (queued && !merged);
+
+    return local + shared + extra;
 }
 
 static void
