@@ -80,6 +80,11 @@ static PyObject * special_lookup(PyThreadState *, PyObject *, _Py_Identifier *);
 static int check_args_iterable(PyThreadState *, PyObject *func, PyObject *vararg);
 static void format_kwargs_error(PyThreadState *, PyObject *func, PyObject *kwargs);
 static void format_awaitable_error(PyThreadState *, PyTypeObject *, int, int);
+static PyObject *
+trace_call_function(PyThreadState *tstate,
+                    PyObject *func,
+                    PyObject **args, Py_ssize_t nargs,
+                    PyObject *kwnames);
 
 #define NAME_ERROR_MSG \
     "name '%.200s' is not defined"
@@ -3327,10 +3332,21 @@ main_loop:
 
         case TARGET(CALL_FUNCTION): {
             PREDICTED(CALL_FUNCTION);
-            PyObject **sp, *res;
-            sp = stack_pointer;
-            res = call_function(tstate, &sp, oparg, NULL);
-            stack_pointer = sp;
+            PyObject *res, *func;
+            func = PEEK(oparg + 1);
+            PyObject **stack = stack_pointer - oparg;
+            if (_PY_UNLIKELY(tstate->use_tracing)) {
+                res = trace_call_function(tstate, func, stack, oparg, NULL);
+            }
+            else {
+                res = _PyObject_VectorcallTstate(tstate, func, stack, oparg | PY_VECTORCALL_ARGUMENTS_OFFSET, NULL);
+            }
+            assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
+            /* Clear the stack of the arguments object. */
+            while (stack_pointer >= stack) {
+                PyObject *w = POP();
+                Py_DECREF(w);
+            }
             PUSH(res);
             if (res == NULL) {
                 goto error;
