@@ -734,12 +734,14 @@ frame_sizeof(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 {
     Py_ssize_t res, extras, ncells, nfrees;
 
+    res = sizeof(PyFrameObject);
     ncells = PyTuple_GET_SIZE(f->f_code->co_cellvars);
     nfrees = PyTuple_GET_SIZE(f->f_code->co_freevars);
     extras = f->f_code->co_stacksize + f->f_code->co_nlocals +
              ncells + nfrees;
     /* subtract one as it is already included in PyFrameObject */
-    res = sizeof(PyFrameObject) + (extras-1) * sizeof(PyObject *);
+    res += (extras-1) * sizeof(PyObject *);
+    res += f->f_code->co_maxfblocks * sizeof(PyTryBlock);
 
     return PyLong_FromSsize_t(res);
 }
@@ -858,8 +860,11 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         Py_ssize_t extras, ncells, nfrees;
         ncells = PyTuple_GET_SIZE(code->co_cellvars);
         nfrees = PyTuple_GET_SIZE(code->co_freevars);
-        extras = code->co_stacksize + code->co_nlocals + ncells +
-            nfrees;
+        extras = code->co_nlocals +
+                 code->co_stacksize +
+                 ncells + nfrees;
+        // PyTryBlock...
+        extras += code->co_maxfblocks * sizeof(PyTryBlock) / sizeof(PyObject *);
         f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
         if (f == NULL) {
             Py_DECREF(builtins);
@@ -871,6 +876,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         f->f_valuestack = f->f_localsplus + extras;
         for (i=0; i<extras; i++)
             f->f_localsplus[i] = NULL;
+        f->f_blockstack = (PyTryBlock *)(f->f_valuestack + code->co_stacksize);
         f->f_locals = NULL;
         f->f_trace = NULL;
     }
@@ -930,6 +936,9 @@ PyFrame_BlockSetup(PyFrameObject *f, int type, int handler, int level)
     PyTryBlock *b;
     if (f->f_iblock >= CO_MAXBLOCKS)
         Py_FatalError("XXX block stack overflow");
+    if (f->f_iblock >= f->f_code->co_maxfblocks) {
+        Py_FatalError("XXX co_maxfblocks stack overflow");
+    }
     b = &f->f_blockstack[f->f_iblock++];
     b->b_type = type;
     b->b_level = level;

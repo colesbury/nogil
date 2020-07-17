@@ -20,6 +20,12 @@ struct _PyOpcache {
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
 
+PyCodeObject *
+PyCode_NewInternal(
+        int, int, int, int, int, int, int, PyObject *, PyObject *,
+        PyObject *, PyObject *, PyObject *, PyObject *,
+        PyObject *, PyObject *, int, PyObject *);
+
 
 #ifdef __cplusplus
 }

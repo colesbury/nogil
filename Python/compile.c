@@ -24,6 +24,7 @@
 #include "Python.h"
 
 #include "pycore_pystate.h"   /* _PyInterpreterState_GET_UNSAFE() */
+#include "pycore_code.h"
 #include "Python-ast.h"
 #include "ast.h"
 #include "code.h"
@@ -1141,6 +1142,110 @@ int
 PyCompile_OpcodeStackEffect(int opcode, int oparg)
 {
     return stack_effect(opcode, oparg, -1);
+}
+
+struct BlockEffect {
+    signed block_stack : 2;
+    unsigned jabs : 1;
+    unsigned jrel : 1;
+    unsigned uncond_jmp : 1;
+};
+
+int
+PyCompile_BlockDepth(PyObject *bytecode)
+{
+    assert(PyBytes_Check(bytecode));
+    Py_ssize_t size = Py_SIZE(bytecode) / sizeof(_Py_CODEUNIT);
+    _Py_CODEUNIT *code = (_Py_CODEUNIT *)PyBytes_AS_STRING(bytecode);
+
+    static struct BlockEffect block_effect[256];
+
+    // initialize table of callable stack effects
+    static _PyOnceFlag once;
+    if (_PyBeginOnce(&once)) {
+        // These opcodes push onto the block stack
+        block_effect[SETUP_FINALLY].block_stack = 1;
+        block_effect[SETUP_ASYNC_WITH].block_stack = 1;
+        block_effect[SETUP_WITH].block_stack = 1;
+
+        // These opcodes pop from the block stack
+        block_effect[POP_EXCEPT].block_stack = -1;
+        block_effect[POP_BLOCK].block_stack = -1;
+        block_effect[END_ASYNC_FOR].block_stack = -1;
+
+        // These opcodes may jump to an absolute address
+        block_effect[POP_JUMP_IF_FALSE].jabs = 1;
+        block_effect[POP_JUMP_IF_TRUE].jabs = 1;
+        block_effect[JUMP_IF_FALSE_OR_POP].jabs = 1;
+        block_effect[JUMP_IF_TRUE_OR_POP].jabs = 1;
+        block_effect[JUMP_ABSOLUTE].jabs = 1;
+        block_effect[JUMP_IF_NOT_EXC_MATCH].jabs = 1;
+
+        // These opcodes may jump to a relative address
+        block_effect[JUMP_FORWARD].jrel = 1;
+        block_effect[FOR_ITER].jrel = 1;
+        block_effect[SETUP_FINALLY].jrel = 1;
+        block_effect[SETUP_ASYNC_WITH].jrel = 1;
+        block_effect[SETUP_WITH].jrel = 1;
+
+        // These opcodes unconditionally jump or return; i.e.
+        // the subsequent opcode is not directly reached from here.
+        block_effect[JUMP_ABSOLUTE].uncond_jmp = 1;
+        block_effect[JUMP_FORWARD].uncond_jmp = 1;
+        block_effect[RETURN_VALUE].uncond_jmp = 1;
+        block_effect[RAISE_VARARGS].uncond_jmp = 1;
+        block_effect[RERAISE].uncond_jmp = 1;
+
+        _PyEndOnce(&once);
+    }
+
+    int *entry_depth = (int *)PyMem_RawMalloc(size * sizeof(int));
+    if (!entry_depth) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    memset(entry_depth, 0, size * sizeof(int));
+
+    int curdepth = 0;
+    int maxdepth = 0;
+    for (Py_ssize_t i = 0; i < size; i++) {
+        int opcode = _Py_OPCODE(code[i]);
+        int oparg = _Py_OPARG(code[i]);
+        while (opcode == EXTENDED_ARG) {
+            i++;
+            opcode = _Py_OPCODE(code[i]);
+            oparg = (oparg << 8) | _Py_OPARG(code[i]);
+        }
+
+        if (entry_depth[i] > curdepth) {
+            curdepth = entry_depth[i];
+        }
+
+        struct BlockEffect effect = block_effect[opcode];
+        curdepth += effect.block_stack;
+
+        // assert(curdepth >= 0);
+        if (curdepth > maxdepth) {
+            maxdepth = curdepth;
+        }
+
+        if (effect.jabs | effect.jrel) {
+            int target = oparg / sizeof(_Py_CODEUNIT);
+            if (effect.jrel) {
+                // relative jumps are relative to next instruction
+                target += i + 1;
+            }
+            if (curdepth > entry_depth[target]) {
+                entry_depth[target] = curdepth;
+            }
+        }
+        if (effect.uncond_jmp) {
+            curdepth = 0;
+        }
+    }
+
+    PyMem_RawFree(entry_depth);
+    return maxdepth;
 }
 
 /* Add an opcode with no argument.
@@ -5969,7 +6074,8 @@ makecode(struct compiler *c, struct assembler *a)
     Py_ssize_t nlocals;
     int nlocals_int;
     int flags;
-    int posorkeywordargcount, posonlyargcount, kwonlyargcount, maxdepth;
+    int posorkeywordargcount, posonlyargcount, kwonlyargcount;
+    int maxdepth, maxfblocks;
 
     consts = consts_dict_keys_inorder(c->u->u_consts);
     names = dict_keys_inorder(c->u->u_names, 0);
@@ -6020,11 +6126,15 @@ makecode(struct compiler *c, struct assembler *a)
     if (maxdepth < 0) {
         goto error;
     }
-    co = PyCode_NewWithPosOnlyArgs(posonlyargcount+posorkeywordargcount,
-                                   posonlyargcount, kwonlyargcount, nlocals_int,
-                                   maxdepth, flags, bytecode, consts, names,
-                                   varnames, freevars, cellvars, c->c_filename,
-                                   c->u->u_name, c->u->u_firstlineno, a->a_lnotab);
+    maxfblocks = PyCompile_BlockDepth(bytecode);
+    if (maxfblocks < 0) {
+        goto error;
+    }
+    co = PyCode_NewInternal(posonlyargcount+posorkeywordargcount,
+                            posonlyargcount, kwonlyargcount, nlocals_int,
+                            maxdepth, maxfblocks, flags, bytecode, consts, names,
+                            varnames, freevars, cellvars, c->c_filename,
+                            c->u->u_name, c->u->u_firstlineno, a->a_lnotab);
  error:
     Py_XDECREF(consts);
     Py_XDECREF(names);

@@ -120,6 +120,25 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
                           PyObject *filename, PyObject *name, int firstlineno,
                           PyObject *lnotab)
 {
+    int maxfblocks = PyCompile_BlockDepth(code);
+    if (maxfblocks < 0) {
+        return NULL;
+    }
+    return PyCode_NewInternal(argcount, posonlyargcount, kwonlyargcount, nlocals,
+                              stacksize, maxfblocks,
+                              flags, code, consts, names,
+                              varnames, freevars, cellvars, filename,
+                              name, firstlineno, lnotab);
+}
+
+PyCodeObject *
+PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
+                   int nlocals, int stacksize, int maxfblocks, int flags,
+                   PyObject *code, PyObject *consts, PyObject *names,
+                   PyObject *varnames, PyObject *freevars, PyObject *cellvars,
+                   PyObject *filename, PyObject *name, int firstlineno,
+                   PyObject *lnotab)
+{
     PyCodeObject *co;
     Py_ssize_t *cell2arg = NULL;
     Py_ssize_t i, n_cellvars, n_varnames, total_args;
@@ -230,6 +249,7 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_kwonlyargcount = kwonlyargcount;
     co->co_nlocals = nlocals;
     co->co_stacksize = stacksize;
+    co->co_maxfblocks = maxfblocks;
     co->co_flags = flags;
     Py_INCREF(code);
     co->co_code = code;
@@ -376,7 +396,8 @@ static PyMemberDef code_memberlist[] = {
     {"co_posonlyargcount",      T_INT,  OFF(co_posonlyargcount), READONLY},
     {"co_kwonlyargcount",       T_INT,  OFF(co_kwonlyargcount),  READONLY},
     {"co_nlocals",      T_INT,          OFF(co_nlocals),         READONLY},
-    {"co_stacksize",T_INT,              OFF(co_stacksize),       READONLY},
+    {"co_stacksize",    T_INT,          OFF(co_stacksize),       READONLY},
+    {"co_maxfblocks",   T_INT,          OFF(co_maxfblocks),      READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_code",         T_OBJECT,       OFF(co_code),            READONLY},
     {"co_consts",       T_OBJECT,       OFF(co_consts),          READONLY},
