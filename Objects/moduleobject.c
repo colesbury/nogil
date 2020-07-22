@@ -2,6 +2,7 @@
 /* Module object implementation */
 
 #include "Python.h"
+#include "pycore_object.h"
 #include "pycore_pystate.h"
 #include "structmember.h"
 #include "pyatomic.h"
@@ -124,6 +125,7 @@ PyModule_NewObject(PyObject *name)
     m->md_dict = PyDict_New();
     if (module_init_dict(m, m->md_dict, name, NULL) != 0)
         goto fail;
+    _PyObject_SET_DEFERRED_RC(m->md_dict);
     PyObject_GC_Track(m);
     return (PyObject *)m;
 

@@ -225,7 +225,7 @@ class GCTests(unittest.TestCase):
         exec("def f(): pass\n", d)
         gc.collect()
         del d
-        self.assertEqual(gc.collect(), 2)
+        self.assertEqual(gc.collect(), 3)
 
     @refcount_test
     def test_frame(self):

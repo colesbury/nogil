@@ -619,6 +619,8 @@ static void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
     PyObject **p, **valuestack;
+    int retains_code;
+    PyObject *builtins, *globals;
     PyCodeObject *co;
 
     if (_PyObject_GC_IS_TRACKED(f))
@@ -635,20 +637,38 @@ frame_dealloc(PyFrameObject *f)
         for (p = valuestack; p < f->f_stacktop; p++)
             Py_XDECREF(*p);
     }
+    if (f->f_callabletop != NULL) {
+        for (p = f->f_callablestack; p < f->f_callabletop; p++) {
+            if (p) {
+                Py_DECREF_STACK(p);
+            }
+        }
+    }
 
-    Py_XDECREF(f->f_back);
-    Py_DECREF(f->f_builtins);
-    Py_DECREF(f->f_globals);
+    Py_XDECREF(f->f_back);;
     Py_CLEAR(f->f_locals);
     Py_CLEAR(f->f_trace);
-
+    retains_code = f->f_retains_code;
+    builtins = f->f_builtins;
+    globals = f->f_globals;
     co = f->f_code;
+
     if (_PyObject_ThreadId(co) == _Py_ThreadId() && co->co_zombieframe == NULL)
         co->co_zombieframe = f;
     else
         PyObject_GC_Del(f);
 
-    Py_DECREF(co);
+    if (retains_code) {
+        Py_DECREF(builtins);
+        Py_DECREF(globals);
+        Py_DECREF(co);
+    }
+    else {
+        Py_DECREF_STACK(builtins);
+        Py_DECREF_STACK(globals);
+        Py_DECREF_STACK(co);
+    }
+
     Py_TRASHCAN_SAFE_END(f)
 }
 
@@ -658,8 +678,8 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
     PyObject **fastlocals, **p;
     Py_ssize_t i, slots;
 
+    assert(f->f_retains_code);
     Py_VISIT(f->f_back);
-    Py_VISIT(f->f_code);
     Py_VISIT(f->f_builtins);
     Py_VISIT(f->f_globals);
     Py_VISIT(f->f_locals);
@@ -676,6 +696,8 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
         for (p = f->f_valuestack; p < f->f_stacktop; p++)
             Py_VISIT(*p);
     }
+    // FIXME: callable stack ??
+
     return 0;
 }
 
@@ -737,8 +759,10 @@ frame_sizeof(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
     res = sizeof(PyFrameObject);
     ncells = PyTuple_GET_SIZE(f->f_code->co_cellvars);
     nfrees = PyTuple_GET_SIZE(f->f_code->co_freevars);
-    extras = f->f_code->co_stacksize + f->f_code->co_nlocals +
-             ncells + nfrees;
+    extras = f->f_code->co_nlocals +
+             f->f_code->co_stacksize +
+             f->f_code->co_callablesize +
+             ncells + nfrees + 1;
     /* subtract one as it is already included in PyFrameObject */
     res += (extras-1) * sizeof(PyObject *);
     res += f->f_code->co_maxfblocks * sizeof(PyTryBlock);
@@ -803,6 +827,35 @@ PyTypeObject PyFrame_Type = {
 
 _Py_IDENTIFIER(__builtins__);
 
+static PyObject *
+builtins_from_globals(PyObject *globals)
+{
+    PyObject *builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
+    if (!builtins) {
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+        /* No builtins! Make up a minimal one
+           Give them 'None', at least. */
+        builtins = PyDict_New();
+        if (!builtins) {
+            return NULL;
+        }
+        if (PyDict_SetItemString(builtins, "None", Py_None) < 0) {
+            Py_DECREF(builtins);
+            return NULL;
+        }
+        _PyObject_SET_DEFERRED_RC(builtins);
+        Py_DECREF(builtins);
+        return builtins;
+    }
+    if (PyModule_Check(builtins)) {
+        builtins = PyModule_GetDict(builtins);
+    }
+    Py_INCREF_STACK(builtins);
+    return builtins;
+}
+
 PyFrameObject* _Py_HOT_FUNCTION
 _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
                      PyObject *globals, PyObject *locals)
@@ -819,37 +872,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         return NULL;
     }
 #endif
-    if (back == NULL || back->f_globals != globals) {
-        builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
-        if (builtins) {
-            if (PyModule_Check(builtins)) {
-                builtins = PyModule_GetDict(builtins);
-                assert(builtins != NULL);
-            }
-        }
-        if (builtins == NULL) {
-            if (PyErr_Occurred()) {
-                return NULL;
-            }
-            /* No builtins!              Make up a minimal one
-               Give them 'None', at least. */
-            builtins = PyDict_New();
-            if (builtins == NULL ||
-                PyDict_SetItemString(
-                    builtins, "None", Py_None) < 0)
-                return NULL;
-        }
-        else
-            Py_INCREF(builtins);
 
-    }
-    else {
-        /* If we share the globals, we share the builtins.
-           Save a lookup and a call. */
-        builtins = back->f_builtins;
-        assert(builtins != NULL);
-        Py_INCREF(builtins);
-    }
     if (_PyObject_ThreadId(code) == _Py_ThreadId() && code->co_zombieframe != NULL) {
         f = code->co_zombieframe;
         code->co_zombieframe = NULL;
@@ -862,30 +885,48 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         nfrees = PyTuple_GET_SIZE(code->co_freevars);
         extras = code->co_nlocals +
                  code->co_stacksize +
-                 ncells + nfrees;
+                 code->co_callablesize +
+                 ncells + nfrees + 1;
         // PyTryBlock...
         extras += code->co_maxfblocks * sizeof(PyTryBlock) / sizeof(PyObject *);
         f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
         if (f == NULL) {
-            Py_DECREF(builtins);
             return NULL;
         }
 
         f->f_code = code;
-        extras = code->co_nlocals + ncells + nfrees;
+        extras = code->co_nlocals + ncells + nfrees + 1;
         f->f_valuestack = f->f_localsplus + extras;
+        f->f_callablestack = f->f_valuestack + code->co_stacksize;
         for (i=0; i<extras; i++)
             f->f_localsplus[i] = NULL;
-        f->f_blockstack = (PyTryBlock *)(f->f_valuestack + code->co_stacksize);
+        f->f_blockstack = (PyTryBlock *)(f->f_callablestack + code->co_callablesize);
         f->f_locals = NULL;
         f->f_trace = NULL;
     }
+
+    if (back && back->f_globals == globals) {
+        /* If we share the globals, we share the builtins.
+           Save a lookup and a call. */
+        builtins = back->f_builtins;
+        assert(builtins != NULL);
+        Py_INCREF_STACK(builtins);
+    }
+    else {
+        builtins = builtins_from_globals(globals);
+        if (!builtins) {
+            PyObject_GC_Del(f);
+            return NULL;
+        }
+    }
+
     f->f_stacktop = f->f_valuestack;
+    f->f_callabletop = f->f_callablestack;
     f->f_builtins = builtins;
     Py_XINCREF(back);
     f->f_back = back;
-    Py_INCREF(code);
-    Py_INCREF(globals);
+    Py_INCREF_STACK(code);
+    Py_INCREF_STACK(globals);
     f->f_globals = globals;
     /* Most functions have CO_NEWLOCALS and CO_OPTIMIZED set. */
     if ((code->co_flags & (CO_NEWLOCALS | CO_OPTIMIZED)) ==
@@ -910,6 +951,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
     f->f_lineno = code->co_firstlineno;
     f->f_iblock = 0;
     f->f_executing = 0;
+    f->f_retains_code = 0;
     f->f_gen = NULL;
     f->f_trace_opcodes = 0;
     f->f_trace_lines = 1;
@@ -922,8 +964,10 @@ PyFrame_New(PyThreadState *tstate, PyCodeObject *code,
             PyObject *globals, PyObject *locals)
 {
     PyFrameObject *f = _PyFrame_New_NoTrack(tstate, code, globals, locals);
-    if (f)
+    if (f) {
+        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
+    }
     return f;
 }
 
@@ -942,7 +986,56 @@ PyFrame_BlockSetup(PyFrameObject *f, int type, int handler, int level)
     b = &f->f_blockstack[f->f_iblock++];
     b->b_type = type;
     b->b_level = level;
+    b->b_callablelevel = f->f_callabletop - f->f_callablestack;
     b->b_handler = handler;
+}
+
+static void
+frame_unwind_value_stack(PyFrameObject *f, int level, PyObject ***pp_stack)
+{
+    PyObject **sp = *pp_stack;
+    assert(sp - f->f_valuestack >= level);
+    while ((sp - f->f_valuestack) > level) {
+        Py_XDECREF(sp[-1]);
+        --sp;
+    }
+    *pp_stack = sp;
+}
+
+static void
+frame_unwind_callable_stack(PyFrameObject *f, int level)
+{
+    assert(f->f_callabletop - f->f_callablestack >= level);
+    while ((f->f_callabletop - f->f_callablestack) > level) {
+        PyObject *value = f->f_callabletop[-1];
+        if (value) {
+            Py_DECREF_STACK(value);
+        }
+        --f->f_callabletop;
+    }
+}
+
+void
+PyFrame_BlockUnwind(PyFrameObject *f, PyTryBlock *b, PyObject ***pp_stack)
+{
+    frame_unwind_value_stack(f, b->b_level, pp_stack);
+    frame_unwind_callable_stack(f, b->b_callablelevel);
+}
+
+void
+PyFrame_BlockUnwindExceptHandler(PyFrameObject *f, PyTryBlock *b, PyObject ***pp_stack)
+{
+    frame_unwind_value_stack(f, b->b_level + 3, pp_stack);
+    frame_unwind_callable_stack(f, b->b_callablelevel);
+
+    PyObject **sp = *pp_stack;
+
+    PyThreadState *tstate = _PyThreadState_GET();
+    _PyErr_StackItem *exc_info = tstate->exc_info;
+    Py_XSETREF(exc_info->exc_type, sp[-1]);
+    Py_XSETREF(exc_info->exc_value, sp[-2]);
+    Py_XSETREF(exc_info->exc_traceback, sp[-3]);
+    *pp_stack -= 3;
 }
 
 PyTryBlock *
@@ -1165,6 +1258,61 @@ PyFrame_LocalsToFast(PyFrameObject *f, int clear)
     }
     PyErr_Restore(error_type, error_value, error_traceback);
 }
+
+void
+PyFrame_Retain(PyFrameObject *top)
+{
+    for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
+        if (f->f_retains_code & 1) {
+            return;
+        }
+        f->f_retains_code |= 1;
+        if (_PyObject_IS_DEFERRED_RC((PyObject *)f->f_code)) {
+            Py_INCREF(f->f_code);
+        }
+        if (_PyObject_IS_DEFERRED_RC(f->f_globals)) {
+            Py_INCREF(f->f_globals);
+        }
+        if (_PyObject_IS_DEFERRED_RC(f->f_builtins)) {
+            Py_INCREF(f->f_builtins);
+        }
+    }
+}
+
+void
+PyFrame_RetainForGC(PyFrameObject *top)
+{
+    for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
+        // TODO: the frame might not be marked as executing if we are currently
+        // running the tracefunc for that thread. This logic could be simplified
+        // if we mark the frame as executing *before* running the tracefunc. That
+        // would maintain an invariant that f_executing <=> frame on the stack.
+        f->f_retains_code |= 2;
+        Py_INCREF(f->f_code);
+        Py_INCREF(f->f_globals);
+        Py_INCREF(f->f_builtins);
+        PyObject **top = f->f_callabletop;
+        for (PyObject **p = f->f_callablestack; p != top; p++) {
+            Py_INCREF(*p);
+        }
+    }
+}
+
+void
+PyFrame_UnretainForGC(PyFrameObject *top)
+{
+    for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
+        f->f_retains_code &= ~2;
+        Py_DECREF(f->f_code);
+        Py_DECREF(f->f_globals);
+        Py_DECREF(f->f_builtins);
+        PyObject **top = f->f_callabletop;
+        for (PyObject **p = f->f_callablestack; p != top; p++) {
+            Py_DECREF(*p);
+        }
+    }
+}
+
 
 /* Clear out the free list */
 int

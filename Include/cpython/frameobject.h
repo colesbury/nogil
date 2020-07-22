@@ -12,6 +12,7 @@ typedef struct {
     int b_type;                 /* what kind of block this is */
     int b_handler;              /* where to jump to find handler */
     int b_level;                /* value stack level to pop to */
+    int b_callablelevel;        /* callable stack level to pop to */
 } PyTryBlock;
 
 typedef struct _frame {
@@ -26,9 +27,12 @@ typedef struct _frame {
        Frame evaluation usually NULLs it, but a frame that yields sets it
        to the current stack top. */
     PyObject **f_stacktop;
+    PyObject **f_callablestack;    /* points after the last local */
+    /* Next free slot in f_valuestack.  Frame creation sets to f_valuestack.
+       Frame evaluation usually NULLs it, but a frame that yields sets it
+       to the current stack top. */
+    PyObject **f_callabletop;
     PyObject *f_trace;          /* Trace function */
-    char f_trace_lines;         /* Emit per-line trace events? */
-    char f_trace_opcodes;       /* Emit per-opcode trace events? */
 
     /* Borrowed reference to a generator, or NULL */
     PyObject *f_gen;
@@ -41,7 +45,10 @@ typedef struct _frame {
        bytecode index. */
     int f_lineno;               /* Current line number */
     int f_iblock;               /* index in f_blockstack */
+    char f_trace_lines;         /* Emit per-line trace events? */
+    char f_trace_opcodes;       /* Emit per-opcode trace events? */
     char f_executing;           /* whether the frame is still executing */
+    char f_retains_code;        /* Use deferred ref counting for builtins, globals, code */
     PyTryBlock *f_blockstack;
     PyObject *f_localsplus[1];  /* locals+stack, dynamically sized */
 } PyFrameObject;
@@ -67,6 +74,8 @@ PyFrameObject* _PyFrame_New_NoTrack(PyThreadState *, PyCodeObject *,
 
 PyAPI_FUNC(void) PyFrame_BlockSetup(PyFrameObject *, int, int, int);
 PyAPI_FUNC(PyTryBlock *) PyFrame_BlockPop(PyFrameObject *);
+PyAPI_FUNC(void) PyFrame_BlockUnwind(PyFrameObject *f, PyTryBlock *b, PyObject ***sp);
+PyAPI_FUNC(void) PyFrame_BlockUnwindExceptHandler(PyFrameObject *f, PyTryBlock *b, PyObject ***sp);
 
 /* Conversions between "fast locals" and locals in dictionary */
 
@@ -74,6 +83,10 @@ PyAPI_FUNC(void) PyFrame_LocalsToFast(PyFrameObject *, int);
 
 PyAPI_FUNC(int) PyFrame_FastToLocalsWithError(PyFrameObject *f);
 PyAPI_FUNC(void) PyFrame_FastToLocals(PyFrameObject *);
+
+PyAPI_FUNC(void) PyFrame_Retain(PyFrameObject *);
+PyAPI_FUNC(void) PyFrame_RetainForGC(PyFrameObject *);
+PyAPI_FUNC(void) PyFrame_UnretainForGC(PyFrameObject *);
 
 PyAPI_FUNC(int) PyFrame_ClearFreeList(void);
 

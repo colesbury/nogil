@@ -1,5 +1,6 @@
 import unittest
 import weakref
+import gc
 
 from test.support import check_syntax_error, cpython_only
 
@@ -422,6 +423,7 @@ class ScopeTests(unittest.TestCase):
         for i in range(100):
             f1()
 
+        gc.collect()
         self.assertEqual(Foo.count, 0)
 
     def testClassAndGlobal(self):

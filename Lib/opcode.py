@@ -65,6 +65,7 @@ def_op('NOP', 9)
 def_op('UNARY_POSITIVE', 10)
 def_op('UNARY_NEGATIVE', 11)
 def_op('UNARY_NOT', 12)
+def_op('DEFER_REFCOUNT', 13)
 
 def_op('UNARY_INVERT', 15)
 
@@ -213,5 +214,9 @@ def_op('LIST_EXTEND', 162)
 def_op('SET_UPDATE', 163)
 def_op('DICT_MERGE', 164)
 def_op('DICT_UPDATE', 165)
+
+name_op('LOAD_GLOBAL_FOR_CALL', 166)     # Index in name list
+def_op('LOAD_FAST_FOR_CALL', 167)     # Index in name list
+haslocal.append(167)
 
 del def_op, name_op, jrel_op, jabs_op

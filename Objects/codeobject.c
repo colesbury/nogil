@@ -5,6 +5,8 @@
 #include "opcode.h"
 #include "structmember.h"
 #include "pycore_code.h"
+#include "pycore_object.h"
+#include "pycore_gc.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 #include "clinic/codeobject.c.h"
@@ -120,12 +122,16 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
                           PyObject *filename, PyObject *name, int firstlineno,
                           PyObject *lnotab)
 {
+    int callablesize = PyCompile_CallableStackSize(code);
+    if (callablesize < 0) {
+        return NULL;
+    }
     int maxfblocks = PyCompile_BlockDepth(code);
     if (maxfblocks < 0) {
         return NULL;
     }
     return PyCode_NewInternal(argcount, posonlyargcount, kwonlyargcount, nlocals,
-                              stacksize, maxfblocks,
+                              stacksize, callablesize, maxfblocks,
                               flags, code, consts, names,
                               varnames, freevars, cellvars, filename,
                               name, firstlineno, lnotab);
@@ -133,7 +139,7 @@ PyCode_NewWithPosOnlyArgs(int argcount, int posonlyargcount, int kwonlyargcount,
 
 PyCodeObject *
 PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
-                   int nlocals, int stacksize, int maxfblocks, int flags,
+                   int nlocals, int stacksize, int callablesize, int maxfblocks, int flags,
                    PyObject *code, PyObject *consts, PyObject *names,
                    PyObject *varnames, PyObject *freevars, PyObject *cellvars,
                    PyObject *filename, PyObject *name, int firstlineno,
@@ -238,17 +244,19 @@ PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
             cell2arg = NULL;
         }
     }
-    co = PyObject_NEW(PyCodeObject, &PyCode_Type);
+    co = PyObject_GC_New(PyCodeObject, &PyCode_Type);
     if (co == NULL) {
         if (cell2arg)
             PyMem_FREE(cell2arg);
         return NULL;
     }
+    _PyObject_SET_DEFERRED_RC((PyObject *)co);
     co->co_argcount = argcount;
     co->co_posonlyargcount = posonlyargcount;
     co->co_kwonlyargcount = kwonlyargcount;
     co->co_nlocals = nlocals;
     co->co_stacksize = stacksize;
+    co->co_callablesize = callablesize;
     co->co_maxfblocks = maxfblocks;
     co->co_flags = flags;
     Py_INCREF(code);
@@ -279,6 +287,8 @@ PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
     co->co_opcache = NULL;
     co->co_opcache_flag = 0;
     co->co_opcache_size = 0;
+
+    PyObject_GC_Track(co);
     return co;
 }
 
@@ -313,7 +323,7 @@ _PyCode_InitOpcache(PyCodeObject *co)
         i++;  // 'i' is now aligned to (next_instr - first_instr)
 
         // TODO: LOAD_METHOD, LOAD_ATTR
-        if (opcode == LOAD_GLOBAL) {
+        if (opcode == LOAD_GLOBAL || opcode == LOAD_GLOBAL_FOR_CALL) {
             opts++;
             co->co_opcache_map[i] = (unsigned char)opts;
             if (opts > 254) {
@@ -397,6 +407,7 @@ static PyMemberDef code_memberlist[] = {
     {"co_kwonlyargcount",       T_INT,  OFF(co_kwonlyargcount),  READONLY},
     {"co_nlocals",      T_INT,          OFF(co_nlocals),         READONLY},
     {"co_stacksize",    T_INT,          OFF(co_stacksize),       READONLY},
+    {"co_callablesize", T_INT,          OFF(co_callablesize),    READONLY},
     {"co_maxfblocks",   T_INT,          OFF(co_maxfblocks),      READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_code",         T_OBJECT,       OFF(co_code),            READONLY},
@@ -460,6 +471,12 @@ PyDoc_STRVAR(code_doc,
       firstlineno, lnotab[, freevars[, cellvars]])\n\
 \n\
 Create a code object.  Not for the faint of heart.");
+
+static int
+code_traverse(PyCodeObject *co, visitproc visit, void *arg)
+{
+    return 0;
+}
 
 static PyObject *
 code_new(PyTypeObject *type, PyObject *args, PyObject *kw)
@@ -565,6 +582,7 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kw)
 static void
 code_dealloc(PyCodeObject *co)
 {
+    PyObject_GC_UnTrack(co);
     if (co->co_opcache != NULL) {
         PyMem_FREE(co->co_opcache);
     }
@@ -604,7 +622,7 @@ code_dealloc(PyCodeObject *co)
         PyObject_GC_Del(co->co_zombieframe);
     if (co->co_weakreflist != NULL)
         PyObject_ClearWeakRefs((PyObject*)co);
-    PyObject_DEL(co);
+    PyObject_GC_Del(co);
 }
 
 static PyObject *
@@ -974,9 +992,9 @@ PyTypeObject PyCode_Type = {
     PyObject_GenericGetAttr,            /* tp_getattro */
     0,                                  /* tp_setattro */
     0,                                  /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                 /* tp_flags */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC, /* tp_flags */
     code_doc,                           /* tp_doc */
-    0,                                  /* tp_traverse */
+    (traverseproc)code_traverse,        /* tp_traverse */
     0,                                  /* tp_clear */
     code_richcompare,                   /* tp_richcompare */
     offsetof(PyCodeObject, co_weakreflist),     /* tp_weaklistoffset */

@@ -11,6 +11,7 @@
 #include "condvar.h"
 #include "../Modules/hashtable.h"
 #include "parking_lot.h"
+#include "frameobject.h"
 
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
@@ -219,7 +220,6 @@ void
 _PyThreadState_GC_Park(PyThreadState *tstate)
 {
     assert(!tstate->cant_stop_wont_stop);
-    _PyRuntimeState *runtime = &_PyRuntime;
 
     int count = 0;
     for (;;) {
@@ -883,6 +883,7 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->overflowed = 0;
     tstate->recursion_critical = 0;
     tstate->stackcheck_counter = 0;
+    tstate->use_deferred_rc = 1;
     tstate->tracing = 0;
     tstate->use_tracing = 0;
     tstate->gilstate_counter = 0;
@@ -1588,6 +1589,7 @@ _PyThread_CurrentFrames(void)
             struct _frame *frame = t->frame;
             if (frame == NULL)
                 continue;
+            PyFrame_Retain(frame);
             id = PyLong_FromUnsignedLong(t->thread_id);
             if (id == NULL)
                 goto Fail;

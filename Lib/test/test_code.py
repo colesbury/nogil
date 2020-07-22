@@ -131,6 +131,7 @@ import threading
 import unittest
 import weakref
 import opcode
+import gc
 try:
     import ctypes
 except ImportError:
@@ -334,10 +335,13 @@ class CodeWeakRefTest(unittest.TestCase):
         # f is now the last reference to the function, and through it, the code
         # object.  While we hold it, check that we can create a weakref and
         # deref it.  Then delete it, and check that the callback gets called and
-        # the reference dies.
+        # the reference dies. We need a gc call because code objects now use
+        # deferred reference counting to avoid contention on reference counts
+        # when accessed by multiple threads.
         coderef = weakref.ref(f.__code__, callback)
         self.assertTrue(bool(coderef()))
         del f
+        gc.collect()
         self.assertFalse(bool(coderef()))
         self.assertTrue(self.called)
 
@@ -396,6 +400,7 @@ if check_impl_detail(cpython=True) and ctypes is not None:
 
             SetExtra(f.__code__, FREE_INDEX, ctypes.c_voidp(100))
             del f
+            gc.collect()
             self.assertEqual(LAST_FREED, 100)
 
         def test_get_set(self):

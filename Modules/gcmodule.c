@@ -582,9 +582,19 @@ validate_list(PyGC_Head *head, enum flagstates flags)
 }
 
 static int
+valid_refcount(PyObject *op)
+{
+    Py_ssize_t rc = _Py_GC_REFCNT(op);
+    return rc > 0 || (rc == 0 && _PyObject_IS_DEFERRED_RC(op));
+}
+
+static int
 validate_refcount_visitor(PyGC_Head* gc, void *arg)
 {
-    assert(_Py_GC_REFCNT(FROM_GC(gc)) > 0);
+    _PyObject_ASSERT_WITH_MSG(
+        FROM_GC(gc),
+        valid_refcount(FROM_GC(gc)),
+        "invalid refcount");
     return 0;
 }
 
@@ -602,11 +612,12 @@ struct validate_tracked_args {
 static int
 validate_tracked_visitor(PyGC_Head* gc, void *void_arg)
 {
+    PyObject *op = FROM_GC(gc);
     struct validate_tracked_args *arg = (struct validate_tracked_args*)void_arg;
     assert((gc->_gc_prev & arg->mask) == arg->expected);
     assert(gc->_gc_next == 0);
     assert(_PyGCHead_PREV(gc) == NULL);
-    assert(_Py_GC_REFCNT(FROM_GC(gc)) > 0);
+    _PyObject_ASSERT_WITH_MSG(op, valid_refcount(op), "invalid refcount");
     return 0;
 }
 
@@ -667,6 +678,46 @@ count_generation(int generation)
     return args.size;
 }
 
+static int
+add_deferred_reference_counts(void)
+{
+    // Add deferred reference counts for stack frames, including
+    // pointed-to PyCodeObject, globals, builtins, and function objects
+    // on the stack.
+    PyInterpreterState *head = _PyRuntime.interpreters.head;
+    for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
+        for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+            PyFrame_RetainForGC(p->frame);
+        }
+    }
+
+    // Now that we've added the deferred reference counts, any decrement to
+    // zero should immediately free that object, even if the object usually
+    // uses deferred reference counting.
+    PyThreadState *this_thread = PyThreadState_GET();
+    int prev = this_thread->use_deferred_rc;
+    this_thread->use_deferred_rc = 0;
+    return prev;
+}
+
+static void
+remove_deferred_reference_counts(int prev_use_deferred_rc)
+{
+    // Start using deferred reference counting again. This must start before
+    // the reference decrements in PyFrame_UnretainForGC because stack objects
+    // might reach zero again.
+    PyThreadState *this_thread = PyThreadState_GET();
+    this_thread->use_deferred_rc = prev_use_deferred_rc;
+    assert(prev_use_deferred_rc > 0);
+
+    PyInterpreterState *head = _PyRuntime.interpreters.head;
+    for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
+        for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+            PyFrame_UnretainForGC(p->frame);
+        }
+    }
+}
+
 struct update_refs_args {
     PyGC_Head *list;
     Py_ssize_t size;
@@ -679,14 +730,9 @@ update_refs_visitor(PyGC_Head *gc, void *void_arg)
     PyGC_Head *list = args->list;
     assert(GC_BITS_IS_TRACKED(gc) > 0);
 
-    gc->_gc_prev &= (GC_TRACKED_MASK | GC_FINALIZED_MASK);
-    gc_reset_refs(gc, _Py_GC_REFCNT(FROM_GC(gc)));
-
-    PyGC_Head *prev = (PyGC_Head *)list->_gc_prev;
-    prev->_gc_next = (uintptr_t)gc;
-    gc->_gc_next = (uintptr_t)list;
-    list->_gc_prev = (uintptr_t)gc;
-    /* Python's cyclic gc should never see an incoming refcount
+    Py_ssize_t refcount = _Py_GC_REFCNT(FROM_GC(gc));
+    /* THIS IS NO LONGER TRUE:
+     * Python's cyclic gc should never see an incoming refcount
      * of 0:  if something decref'ed to 0, it should have been
      * deallocated immediately at that time.
      * Possible cause (if the assert triggers):  a tp_dealloc
@@ -704,7 +750,14 @@ update_refs_visitor(PyGC_Head *gc, void *void_arg)
      * so serious that maybe this should be a release-build
      * check instead of an assert?
      */
-    _PyObject_ASSERT(FROM_GC(gc), gc_get_refs(gc) != 0);
+    _PyObject_ASSERT(FROM_GC(gc), refcount >= 0);
+
+    gc_reset_refs(gc, refcount);
+
+    PyGC_Head *prev = (PyGC_Head *)list->_gc_prev;
+    prev->_gc_next = (uintptr_t)gc;
+    gc->_gc_next = (uintptr_t)list;
+    list->_gc_prev = (uintptr_t)gc;
     args->size++;
     return 0;
 }
@@ -720,6 +773,75 @@ update_refs(PyGC_Head *young)
     args.size = 0;
     visit_heap(update_refs_visitor, &args);
     return args.size;
+}
+
+struct find_refs_args {
+    PyObject *target;
+    PyObject *parent;
+};
+
+static int
+visit_refs(PyObject *op, void *void_arg)
+{
+    struct find_refs_args *args = (struct find_refs_args *)void_arg;
+    if (op == args->target) {
+        PyObject *parent = args->parent;
+        printf("reference from %p (%s) to %p (%s)\n", parent, parent->ob_type->tp_name, op, op->ob_type->tp_name);
+    }
+    return 0;
+}
+
+
+static int
+find_refs_visitor(PyGC_Head *gc, void *void_arg)
+{
+    struct find_refs_args *args = (struct find_refs_args *)void_arg;
+    traverseproc traverse;
+    PyObject *op = FROM_GC(gc);
+    args->parent = op;
+    traverse = Py_TYPE(op)->tp_traverse;
+    (void) traverse(op,
+                    (visitproc)visit_refs,
+                    args);
+    return 0;
+}
+
+void
+find_refs(PyObject *op)
+{
+    struct find_refs_args args;
+    args.target = op;
+    visit_heap(find_refs_visitor, &args);
+}
+
+struct find_dead_objects_args {
+    PyGC_Head *dead;
+};
+
+static int
+find_dead_objects_visitor(PyGC_Head *gc, void *void_arg)
+{
+    struct find_dead_objects_args *args = (struct find_dead_objects_args *)void_arg;
+    PyGC_Head *dead = args->dead;
+    assert(GC_BITS_IS_TRACKED(gc) > 0);
+
+    Py_ssize_t refcount = _Py_GC_REFCNT(FROM_GC(gc));
+    if (refcount == 0) {
+        _PyObject_ASSERT(FROM_GC(gc), _PyObject_IS_DEFERRED_RC(FROM_GC(gc)));
+        gc_list_append(gc, dead);
+    }
+    return 0;
+}
+
+/* Set all gc_refs = ob_refcnt.  After this, gc_refs is > 0 and
+ * GC_COLLECTING_MASK bit is set for all objects in containers.
+ */
+static void
+find_dead_objects(PyGC_Head *dead)
+{
+    struct find_dead_objects_args args;
+    args.dead = dead;
+    visit_heap(find_dead_objects_visitor, &args);
 }
 
 /* A traversal callback for subtract_refs. */
@@ -945,6 +1067,26 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
     }
     // young->_gc_prev must be last element remained in the list.
     young->_gc_prev = (uintptr_t)prev;
+}
+
+static Py_ssize_t
+clear_dead_objects(PyGC_Head *head)
+{
+    Py_ssize_t n = 0;
+    for (;;) {
+        PyGC_Head *gc = GC_NEXT(head);
+        if (gc == head) {
+            break;
+        }
+
+        PyObject *op = FROM_GC(gc);
+        assert(_PyObject_IS_DEFERRED_RC(op));
+        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op));
+        op->ob_ref_local &= ~_Py_REF_DEFERRED_MASK;
+        _Py_Dealloc(op);
+        n++;
+    }
+    return n;
 }
 
 static void
@@ -1312,7 +1454,7 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
 
     for (PyGC_Head *gc = GC_NEXT(collectable); gc != collectable; gc = GC_NEXT(gc)) {
         PyObject *op = FROM_GC(gc);
-        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) > 0,
+        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) >= 0,
                         "refcount is too small");
     }
 
@@ -1320,7 +1462,7 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
         PyGC_Head *gc = GC_NEXT(collectable);
         PyObject *op = FROM_GC(gc);
 
-        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) > 0,
+        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) >= 0,
                                   "refcount is too small");
 
         if (gcstate->debug & DEBUG_SAVEALL) {
@@ -1462,7 +1604,7 @@ handle_resurrected_objects(PyGC_Head *unreachable, PyGC_Head* still_unreachable)
     for (gc = GC_NEXT(unreachable); gc != unreachable; gc = GC_NEXT(gc)) {
         Py_ssize_t refcnt = _Py_GC_REFCNT(FROM_GC(gc));
         gc_set_refs(gc, refcnt);
-        _PyObject_ASSERT(FROM_GC(gc), refcnt > 0);
+        _PyObject_ASSERT(FROM_GC(gc), refcnt >= 0);
     }
 
     subtract_refs_unreachable(unreachable);
@@ -1505,9 +1647,10 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
 {
     Py_ssize_t n_collected = 0; /* # objects collected */
     Py_ssize_t n_uncollectable = 0; /* # unreachable objects that couldn't be collected */
-    PyGC_Head young; /* the generation we are examining */
-    PyGC_Head unreachable; /* non-problematic unreachable trash */
-    PyGC_Head finalizers;  /* objects with, & reachable from, __del__ */
+    PyGC_Head young;        /* the generation we are examining */
+    PyGC_Head dead;         /* dead objects with zero refcoutn */
+    PyGC_Head unreachable;  /* non-problematic unreachable trash */
+    PyGC_Head finalizers;   /* objects with, & reachable from, __del__ */
     PyGC_Head *gc;
     _PyTime_t t1 = 0;   /* initialize to prevent a compiler warning */
     GCState *gcstate = &tstate->interp->gc;
@@ -1555,6 +1698,11 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
     validate_tracked_heap(GC_UNREACHABLE_MASK, 0);
 
     gc_list_init(&young);
+    gc_list_init(&dead);
+
+    int prev_use_deferred_rc = add_deferred_reference_counts();
+    find_dead_objects(&dead);
+    clear_dead_objects(&dead);
 
     update_refs(&young);
     subtract_refs(&young);
@@ -1651,6 +1799,11 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
     stats->uncollectable += n_uncollectable;
 
     update_gc_threshold(gcstate);
+
+    // Remove the increments we added at the beginning of GC. This
+    // must be after gcstate->collecting is set to zero to avoid
+    // erroneously freeing objects on the stack.
+    remove_deferred_reference_counts(prev_use_deferred_rc);
 
     if (PyDTrace_GC_DONE_ENABLED()) {
         PyDTrace_GC_DONE(n_collected + n_uncollectable);

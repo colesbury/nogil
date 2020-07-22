@@ -74,6 +74,7 @@ struct _ts {
 
     /* thread status */
     int32_t status;
+    int use_deferred_rc;
 
     uintptr_t eval_breaker;
 

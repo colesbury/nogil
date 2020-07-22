@@ -26,6 +26,13 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
     if (op == NULL)
         return NULL;
 
+    PyCodeObject *co = (PyCodeObject *)code;
+    if ((co->co_flags & (CO_NOFREE|CO_NESTED)) == CO_NOFREE) {
+        // Defer the reference count for functions that have no free
+        // variables.
+        _PyObject_SET_DEFERRED_RC((PyObject *)op);
+    }
+
     op->func_weakreflist = NULL;
     Py_INCREF(code);
     op->func_code = code;

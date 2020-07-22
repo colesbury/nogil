@@ -462,6 +462,7 @@ _Py_ThreadLocal(PyObject *op)
 
 #define _Py_REF_LOCAL_SHIFT     2
 #define _Py_REF_IMMORTAL_MASK   0x1
+#define _Py_REF_DEFERRED_MASK   0x2
 
 #define _Py_REF_SHARED_SHIFT    2
 #define _Py_REF_QUEUED_MASK     0x2
@@ -477,6 +478,13 @@ static inline int
 _PyObject_IS_IMMORTAL(PyObject *op)
 {
     return _Py_REF_IS_IMMORTAL(op->ob_ref_local);
+}
+
+static inline int
+_PyObject_IS_DEFERRED_RC(PyObject *op)
+{
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    return (local & _Py_REF_DEFERRED_MASK) != 0;
 }
 
 static inline int
@@ -512,6 +520,28 @@ _Py_INCREF(PyObject *op)
 }
 
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
+
+_Py_ALWAYS_INLINE static inline void
+_Py_INCREF_STACK(PyObject *op)
+{
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if ((local & 0x3) != 0) {
+        return;
+    }
+
+#ifdef Py_REF_DEBUG
+    _Py_IncRefTotal();
+#endif
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        local += (1 << _Py_REF_LOCAL_SHIFT);
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+    }
+    else {
+        _Py_IncRefShared(op);
+    }
+}
+
+#define Py_INCREF_STACK(op) _Py_INCREF_STACK(_PyObject_CAST(op))
 
 static inline int
 _Py_TryIncref(PyObject *op) {
@@ -558,7 +588,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
         local -= (1 << _Py_REF_LOCAL_SHIFT);
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
 
-        if (_PY_UNLIKELY(local == 0)) {
+        if (_PY_UNLIKELY(local < 4)) {
             _Py_MergeZeroRefcount(op);
         }
     }
@@ -571,6 +601,44 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
 #  define Py_DECREF(op) _Py_DECREF(__FILE__, __LINE__, _PyObject_CAST(op))
 #else
 #  define Py_DECREF(op) _Py_DECREF(_PyObject_CAST(op))
+#endif
+
+_Py_ALWAYS_INLINE static inline void _Py_DECREF_STACK(
+#ifdef Py_REF_DEBUG
+    const char *filename, int lineno,
+#endif
+    PyObject *op)
+{
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if ((local & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0) {
+        return;
+    }
+
+#ifdef Py_REF_DEBUG
+    _Py_DecRefTotal();
+#endif
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+#ifdef Py_REF_DEBUG
+        if (local == 0) {
+            _Py_NegativeRefcount(filename, lineno, op);
+        }
+#endif
+        local -= (1 << _Py_REF_LOCAL_SHIFT);
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+
+        if (_PY_UNLIKELY(local < 4)) {
+            _Py_MergeZeroRefcount(op);
+        }
+    }
+    else {
+        _Py_DecRefShared(op);
+    }
+}
+
+#ifdef Py_REF_DEBUG
+#  define Py_DECREF_STACK(op) _Py_DECREF_STACK(__FILE__, __LINE__, _PyObject_CAST(op))
+#else
+#  define Py_DECREF_STACK(op) _Py_DECREF_STACK(_PyObject_CAST(op))
 #endif
 
 

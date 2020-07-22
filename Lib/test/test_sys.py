@@ -1209,9 +1209,9 @@ class SizeofTest(unittest.TestCase):
         ncells = len(x.f_code.co_cellvars)
         nfrees = len(x.f_code.co_freevars)
         nblocks = x.f_code.co_maxfblocks
-        extras = x.f_code.co_stacksize + x.f_code.co_nlocals +\
+        extras = x.f_code.co_stacksize + 1 + +x.f_code.co_callablesize + x.f_code.co_nlocals +\
                   ncells + nfrees - 1
-        check(x, vsize('8P2cP3ic' + '2P' + extras*'P' + nblocks*'3i'))
+        check(x, vsize('11P3i4c' + '2P' + extras*'P' + nblocks*'4i'))
         # function
         def func(): pass
         check(func, size('13P'))

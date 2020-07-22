@@ -25,6 +25,14 @@ extern void _Py_PrintReferences(FILE *);
 extern void _Py_PrintReferenceAddresses(FILE *);
 #endif
 
+static inline void
+_PyObject_SET_DEFERRED_RC(PyObject *op)
+{
+	assert(_Py_ThreadLocal(op) && "non thread-safe call to _PyObject_SET_DEFERRED_RC");
+	op->ob_ref_local |= _Py_REF_DEFERRED_MASK;
+}
+
+
 #ifdef __cplusplus
 }
 #endif

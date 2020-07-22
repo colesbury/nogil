@@ -43,7 +43,8 @@ _Py_IDENTIFIER(__name__);
 
 /* Forward declarations */
 Py_LOCAL_INLINE(PyObject *) call_function(
-    PyThreadState *tstate, PyObject ***pp_stack,
+    PyThreadState *tstate, PyObject *func,
+    PyObject ***pp_stack,
     Py_ssize_t oparg, PyObject *kwnames);
 static PyObject * do_call_core(
     PyThreadState *tstate, PyObject *func,
@@ -997,34 +998,6 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
                                      GETLOCAL(i) = value; \
                                      Py_XDECREF(tmp); } while (0)
 
-
-#define UNWIND_BLOCK(b) \
-    while (STACK_LEVEL() > (b)->b_level) { \
-        PyObject *v = POP(); \
-        Py_XDECREF(v); \
-    }
-
-#define UNWIND_EXCEPT_HANDLER(b) \
-    do { \
-        PyObject *type, *value, *traceback; \
-        _PyErr_StackItem *exc_info; \
-        assert(STACK_LEVEL() >= (b)->b_level + 3); \
-        while (STACK_LEVEL() > (b)->b_level + 3) { \
-            value = POP(); \
-            Py_XDECREF(value); \
-        } \
-        exc_info = tstate->exc_info; \
-        type = exc_info->exc_type; \
-        value = exc_info->exc_value; \
-        traceback = exc_info->exc_traceback; \
-        exc_info->exc_type = POP(); \
-        exc_info->exc_value = POP(); \
-        exc_info->exc_traceback = POP(); \
-        Py_XDECREF(type); \
-        Py_XDECREF(value); \
-        Py_XDECREF(traceback); \
-    } while(0)
-
     /* macros for opcode cache */
 #define OPCACHE_CHECK() \
     do { \
@@ -1072,6 +1045,7 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
         return NULL;
     }
 
+    tstate->use_deferred_rc++;
     tstate->frame = f;
 
     if (tstate->use_tracing) {
@@ -1142,6 +1116,17 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
         assert(f->f_lasti % sizeof(_Py_CODEUNIT) == 0);
         next_instr += f->f_lasti / sizeof(_Py_CODEUNIT) + 1;
     }
+
+    if (f->f_callabletop != f->f_callablestack) {
+        PyObject **top = f->f_callabletop;
+        for (PyObject **p = f->f_callablestack; p != top; p++) {
+            PyObject *val = *p;
+            if (_PyObject_IS_DEFERRED_RC(val)) {
+                Py_DECREF(val);
+            }
+        }
+    }
+
     stack_pointer = f->f_stacktop;
     assert(stack_pointer != NULL);
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
@@ -1303,6 +1288,19 @@ main_loop:
             FAST_DISPATCH();
         }
 
+        case TARGET(LOAD_FAST_FOR_CALL): {
+            PyObject *value = GETLOCAL(oparg);
+            if (value == NULL) {
+                format_exc_check_arg(tstate, PyExc_UnboundLocalError,
+                                     UNBOUNDLOCAL_ERROR_MSG,
+                                     PyTuple_GetItem(co->co_varnames, oparg));
+                goto error;
+            }
+            Py_INCREF_STACK(value);
+            *f->f_callabletop++ = value;
+            FAST_DISPATCH();
+        }
+
         case TARGET(LOAD_CONST): {
             PREDICTED(LOAD_CONST);
             PyObject *value = GETITEM(consts, oparg);
@@ -1369,6 +1367,15 @@ main_loop:
             STACK_GROW(2);
             SET_TOP(top);
             SET_SECOND(second);
+            FAST_DISPATCH();
+        }
+
+        case TARGET(DEFER_REFCOUNT): {
+            PyObject *top = POP();
+            if (_PyObject_IS_DEFERRED_RC(top)) {
+                Py_DECREF(top);
+            }
+            *f->f_callabletop++ = top;
             FAST_DISPATCH();
         }
 
@@ -2108,7 +2115,9 @@ main_loop:
                 PyTryBlock *b = PyFrame_BlockPop(f);
                 assert(b->b_type == EXCEPT_HANDLER);
                 Py_DECREF(exc);
-                UNWIND_EXCEPT_HANDLER(b);
+                PyObject **sp = stack_pointer;
+                PyFrame_BlockUnwindExceptHandler(f, b, &sp);
+                stack_pointer = sp;
                 Py_DECREF(POP());
                 JUMPBY(oparg);
                 FAST_DISPATCH();
@@ -2359,6 +2368,7 @@ main_loop:
             DISPATCH();
         }
 
+        case TARGET(LOAD_GLOBAL_FOR_CALL):
         case TARGET(LOAD_GLOBAL): {
             PyObject *name;
             PyObject *v;
@@ -2377,8 +2387,14 @@ main_loop:
                         PyObject *ptr = lg->ptr;
                         OPCACHE_STAT_GLOBAL_HIT();
                         assert(ptr != NULL);
-                        Py_INCREF(ptr);
-                        PUSH(ptr);
+                        if (opcode == LOAD_GLOBAL_FOR_CALL) {
+                            Py_INCREF_STACK(ptr);
+                            *f->f_callabletop++ = ptr;
+                        }
+                        else {
+                            Py_INCREF(ptr);
+                            PUSH(ptr);
+                        }
                         DISPATCH();
                     }
                 }
@@ -2415,7 +2431,14 @@ main_loop:
                     lg->ptr = v; /* borrowed */
                 }
 
-                Py_INCREF(v);
+                if (opcode == LOAD_GLOBAL_FOR_CALL) {
+                    Py_INCREF_STACK(v);
+                    *f->f_callabletop++ = v;
+                }
+                else {
+                    Py_INCREF(v);
+                    PUSH(v);
+                }
             }
             else {
                 /* Slow-path if globals or builtins is not a dict */
@@ -2440,8 +2463,16 @@ main_loop:
                         goto error;
                     }
                 }
+                if (opcode == LOAD_GLOBAL_FOR_CALL) {
+                    if (_PyObject_IS_DEFERRED_RC(v)) {
+                        Py_DECREF(v);
+                    }
+                    *f->f_callabletop++ = v;
+                }
+                else {
+                    PUSH(v);
+                }
             }
-            PUSH(v);
             DISPATCH();
         }
 
@@ -2781,7 +2812,8 @@ main_loop:
             PyObject *dict = PEEK(oparg);
 
             if (_PyDict_MergeEx(dict, update, 2) < 0) {
-                format_kwargs_error(tstate, PEEK(2 + oparg), update);
+                PyObject *func = f->f_callabletop[-1];
+                format_kwargs_error(tstate, func, update);
                 Py_DECREF(update);
                 goto error;
             }
@@ -3286,7 +3318,6 @@ main_loop:
             PyObject **sp, *res, *meth;
 
             sp = stack_pointer;
-
             meth = PEEK(oparg + 2);
             if (meth == NULL) {
                 /* `meth` is NULL when LOAD_METHOD thinks that it's not
@@ -3303,8 +3334,10 @@ main_loop:
                    `callable` will be POPed by call_function.
                    NULL will will be POPed manually later.
                 */
-                res = call_function(tstate, &sp, oparg, NULL);
+                meth = PEEK(oparg + 1);
+                res = call_function(tstate, meth, &sp, oparg, NULL);
                 stack_pointer = sp;
+                (void)POP(); /* POP the callable. */
                 (void)POP(); /* POP the NULL. */
             }
             else {
@@ -3320,10 +3353,12 @@ main_loop:
                   We'll be passing `oparg + 1` to call_function, to
                   make it accept the `self` as a first argument.
                 */
-                res = call_function(tstate, &sp, oparg + 1, NULL);
+                res = call_function(tstate, meth, &sp, oparg + 1, NULL);
                 stack_pointer = sp;
+                (void)POP(); /* POP the method. */
             }
 
+            Py_DECREF(meth);
             PUSH(res);
             if (res == NULL)
                 goto error;
@@ -3333,7 +3368,7 @@ main_loop:
         case TARGET(CALL_FUNCTION): {
             PREDICTED(CALL_FUNCTION);
             PyObject *res, *func;
-            func = PEEK(oparg + 1);
+            func = f->f_callabletop[-1];
             PyObject **stack = stack_pointer - oparg;
             if (_PY_UNLIKELY(tstate->use_tracing)) {
                 res = trace_call_function(tstate, func, stack, oparg, NULL);
@@ -3343,10 +3378,12 @@ main_loop:
             }
             assert((res != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
             /* Clear the stack of the arguments object. */
-            while (stack_pointer >= stack) {
+            while (stack_pointer > stack) {
                 PyObject *w = POP();
                 Py_DECREF(w);
             }
+            --f->f_callabletop;
+            Py_DECREF_STACK(func);
             PUSH(res);
             if (res == NULL) {
                 goto error;
@@ -3355,15 +3392,18 @@ main_loop:
         }
 
         case TARGET(CALL_FUNCTION_KW): {
-            PyObject **sp, *res, *names;
+            PyObject **sp, *res, *names, *func;
 
             names = POP();
             assert(PyTuple_Check(names));
             assert(PyTuple_GET_SIZE(names) <= oparg);
             /* We assume without checking that names contains only strings */
+            func = f->f_callabletop[-1];
             sp = stack_pointer;
-            res = call_function(tstate, &sp, oparg, names);
+            res = call_function(tstate, func, &sp, oparg, names);
             stack_pointer = sp;
+            --f->f_callabletop;
+            Py_DECREF_STACK(func);
             PUSH(res);
             Py_DECREF(names);
 
@@ -3376,6 +3416,7 @@ main_loop:
         case TARGET(CALL_FUNCTION_EX): {
             PREDICTED(CALL_FUNCTION_EX);
             PyObject *func, *callargs, *kwargs = NULL, *result;
+            func = f->f_callabletop[-1];
             if (oparg & 0x01) {
                 kwargs = POP();
                 if (!PyDict_CheckExact(kwargs)) {
@@ -3384,7 +3425,7 @@ main_loop:
                         goto error;
                     if (_PyDict_MergeEx(d, kwargs, 2) < 0) {
                         Py_DECREF(d);
-                        format_kwargs_error(tstate, SECOND(), kwargs);
+                        format_kwargs_error(tstate, func, kwargs);
                         Py_DECREF(kwargs);
                         goto error;
                     }
@@ -3394,25 +3435,28 @@ main_loop:
                 assert(PyDict_CheckExact(kwargs));
             }
             callargs = POP();
-            func = TOP();
             if (!PyTuple_CheckExact(callargs)) {
                 if (check_args_iterable(tstate, func, callargs) < 0) {
                     Py_DECREF(callargs);
+                    --f->f_callabletop;
                     goto error;
                 }
                 Py_SETREF(callargs, PySequence_Tuple(callargs));
                 if (callargs == NULL) {
+                    --f->f_callabletop;
                     goto error;
                 }
             }
             assert(PyTuple_CheckExact(callargs));
 
             result = do_call_core(tstate, func, callargs, kwargs);
-            Py_DECREF(func);
+            assert(f->f_callabletop[-1] == func);
+            Py_DECREF_STACK(func);
+            --f->f_callabletop;
             Py_DECREF(callargs);
             Py_XDECREF(kwargs);
 
-            SET_TOP(result);
+            PUSH(result);
             if (result == NULL) {
                 goto error;
             }
@@ -3580,10 +3624,14 @@ exception_unwind:
             PyTryBlock *b = &f->f_blockstack[--f->f_iblock];
 
             if (b->b_type == EXCEPT_HANDLER) {
-                UNWIND_EXCEPT_HANDLER(b);
+                PyObject **sp = stack_pointer;
+                PyFrame_BlockUnwindExceptHandler(f, b, &sp);
+                stack_pointer = sp;
                 continue;
             }
-            UNWIND_BLOCK(b);
+            PyObject **sp = stack_pointer;
+            PyFrame_BlockUnwind(f, b, &sp);
+            stack_pointer = sp;
             if (b->b_type == SETUP_FINALLY) {
                 PyObject *exc, *val, *tb;
                 int handler = b->b_handler;
@@ -3648,6 +3696,12 @@ exception_unwind:
         PyObject *o = POP();
         Py_XDECREF(o);
     }
+    while (f->f_callabletop != f->f_callablestack) {
+        PyObject *o = *--f->f_callabletop;
+        if (o) {
+            Py_DECREF_STACK(o);
+        }
+    }
 
 exiting:
     if (tstate->use_tracing) {
@@ -3670,8 +3724,18 @@ exit_eval_frame:
     if (PyDTrace_FUNCTION_RETURN_ENABLED())
         dtrace_function_return(f);
     _Py_LeaveRecursiveCall(tstate);
+    if (f->f_callabletop != f->f_callablestack) {
+        PyObject **top = f->f_callabletop;
+        for (PyObject **p = f->f_callablestack; p != top; p++) {
+            PyObject *val = *p;
+            if (_PyObject_IS_DEFERRED_RC(val)) {
+                Py_INCREF(val);
+            }
+        }
+    }
     f->f_executing = 0;
     tstate->frame = f->f_back;
+    tstate->use_deferred_rc--;
 
     return _Py_CheckFunctionResult(tstate, NULL, retval, "PyEval_EvalFrameEx");
 }
@@ -4149,6 +4213,7 @@ _PyEval_EvalCode(PyThreadState *tstate,
             return NULL;
         }
 
+        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
 
         return gen;
@@ -4164,8 +4229,9 @@ fail: /* Jump here from prelude on failure */
        so recursion_depth must be boosted for the duration.
     */
     if (Py_REFCNT(f) > 1) {
-        Py_DECREF(f);
+        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
+        Py_DECREF(f);
     }
     else {
         ++tstate->recursion_depth;
@@ -4849,10 +4915,9 @@ trace_call_function(PyThreadState *tstate,
 /* Issue #29227: Inline call_function() into _PyEval_EvalFrameDefault()
    to reduce the stack consumption. */
 Py_LOCAL_INLINE(PyObject *) _Py_HOT_FUNCTION
-call_function(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
+call_function(PyThreadState *tstate, PyObject *func, PyObject ***pp_stack, Py_ssize_t oparg, PyObject *kwnames)
 {
-    PyObject **pfunc = (*pp_stack) - oparg - 1;
-    PyObject *func = *pfunc;
+    PyObject **stackbase = (*pp_stack) - oparg;
     PyObject *x, *w;
     Py_ssize_t nkwargs = (kwnames == NULL) ? 0 : PyTuple_GET_SIZE(kwnames);
     Py_ssize_t nargs = oparg - nkwargs;
@@ -4867,8 +4932,8 @@ call_function(PyThreadState *tstate, PyObject ***pp_stack, Py_ssize_t oparg, PyO
 
     assert((x != NULL) ^ (_PyErr_Occurred(tstate) != NULL));
 
-    /* Clear the stack of the function object. */
-    while ((*pp_stack) > pfunc) {
+    /* Clear the stack of the arguments object. */
+    while ((*pp_stack) > stackbase) {
         w = EXT_POP(*pp_stack);
         Py_DECREF(w);
     }

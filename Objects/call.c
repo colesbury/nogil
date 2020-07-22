@@ -327,8 +327,9 @@ function_code_fastcall(PyThreadState *tstate, PyCodeObject *co,
     PyObject *result = _PyEval_EvalFrame(tstate, f, 0);
 
     if (Py_REFCNT(f) > 1) {
-        Py_DECREF(f);
+        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
+        Py_DECREF(f);
     }
     else {
         ++tstate->recursion_depth;

@@ -898,6 +898,12 @@ stack_effect(int opcode, int oparg, int jump)
         case DUP_TOP_TWO:
             return 2;
 
+        case DEFER_REFCOUNT:
+            return -1;
+        case LOAD_GLOBAL_FOR_CALL:
+        case LOAD_FAST_FOR_CALL:
+            return 0;
+
         /* Unary operators */
         case UNARY_POSITIVE:
         case UNARY_NEGATIVE:
@@ -1065,13 +1071,13 @@ stack_effect(int opcode, int oparg, int jump)
 
         /* Functions and calls */
         case CALL_FUNCTION:
-            return -oparg;
+            return -oparg + 1;
         case CALL_METHOD:
             return -oparg-1;
         case CALL_FUNCTION_KW:
-            return -oparg-1;
+            return -oparg;
         case CALL_FUNCTION_EX:
-            return -1 - ((oparg & 0x01) != 0);
+            return -((oparg & 0x01) != 0);
         case MAKE_FUNCTION:
             return -1 - ((oparg & 0x01) != 0) - ((oparg & 0x02) != 0) -
                 ((oparg & 0x04) != 0) - ((oparg & 0x08) != 0);
@@ -1142,6 +1148,44 @@ int
 PyCompile_OpcodeStackEffect(int opcode, int oparg)
 {
     return stack_effect(opcode, oparg, -1);
+}
+
+int
+PyCompile_CallableStackSize(PyObject *bytecode)
+{
+    assert(PyBytes_Check(bytecode));
+    Py_ssize_t size = Py_SIZE(bytecode) / sizeof(_Py_CODEUNIT);
+    _Py_CODEUNIT *code = (_Py_CODEUNIT *)PyBytes_AS_STRING(bytecode);
+
+    static int8_t fn_stack_effect[256];
+
+    // initialize table of callable stack effects
+    static _PyOnceFlag once;
+    if (_PyBeginOnce(&once)) {
+        fn_stack_effect[DEFER_REFCOUNT] = 1;
+        fn_stack_effect[LOAD_FAST_FOR_CALL] = 1;
+        fn_stack_effect[LOAD_GLOBAL_FOR_CALL] = 1;
+        fn_stack_effect[CALL_FUNCTION] = -1;
+        fn_stack_effect[CALL_FUNCTION_KW] = -1;
+        fn_stack_effect[CALL_FUNCTION_EX] = -1;
+        _PyEndOnce(&once);
+    }
+
+    // The callable stack effect is easier to compute than the normal stack
+    // effect. The relevant instructions are only generated from function
+    // call experssions. We don't even need to take into account jumps because
+    // expressions can't contain statements in Python.
+    int curdepth = 0;
+    int maxdepth = 0;
+    for (Py_ssize_t i = 0; i < size; i++) {
+        int opcode = _Py_OPCODE(code[i]);
+        curdepth += fn_stack_effect[opcode];
+        if (curdepth > maxdepth) {
+            maxdepth = curdepth;
+        }
+    }
+
+    return maxdepth;
 }
 
 struct BlockEffect {
@@ -1762,6 +1806,7 @@ compiler_pop_fblock(struct compiler *c, enum fblocktype t, basicblock *b)
 
 static int
 compiler_call_exit_with_nones(struct compiler *c) {
+    ADDOP(c, DEFER_REFCOUNT);
     ADDOP_O(c, LOAD_CONST, Py_None, consts);
     ADDOP(c, DUP_TOP);
     ADDOP(c, DUP_TOP);
@@ -2079,6 +2124,7 @@ compiler_decorators(struct compiler *c, asdl_seq* decos)
 
     for (i = 0; i < asdl_seq_LEN(decos); i++) {
         VISIT(c, expr, (expr_ty)asdl_seq_GET(decos, i));
+        ADDOP(c, DEFER_REFCOUNT);
     }
     return 1;
 }
@@ -2482,6 +2528,7 @@ compiler_class(struct compiler *c, stmt_ty s)
 
     /* 2. load the 'build_class' function */
     ADDOP(c, LOAD_BUILD_CLASS);
+    ADDOP(c, DEFER_REFCOUNT); // FIXME: make load_build_class defer rc
 
     /* 3. load a function (or closure) made from the code object */
     compiler_make_closure(c, co, 0, NULL);
@@ -3415,6 +3462,7 @@ compiler_assert(struct compiler *c, stmt_ty s)
         return 0;
     ADDOP(c, LOAD_ASSERTION_ERROR);
     if (s->v.Assert.msg) {
+        ADDOP(c, DEFER_REFCOUNT); // PyExc_AssertionError is immortal, but whatever
         VISIT(c, expr, s->v.Assert.msg);
         ADDOP_I(c, CALL_FUNCTION, 1);
     }
@@ -3672,6 +3720,7 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
     switch (optype) {
     case OP_DEREF:
         switch (ctx) {
+        case FuncLoad:
         case Load:
             op = (c->u->u_ste->ste_type == ClassBlock) ? LOAD_CLASSDEREF : LOAD_DEREF;
             break;
@@ -3691,6 +3740,9 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         break;
     case OP_FAST:
         switch (ctx) {
+        case FuncLoad:
+            op = LOAD_FAST_FOR_CALL;
+            break;
         case Load: op = LOAD_FAST; break;
         case Store:
             op = STORE_FAST;
@@ -3706,9 +3758,13 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
             return 0;
         }
         ADDOP_N(c, op, mangled, varnames);
+        if (ctx == FuncLoad && op != LOAD_FAST_FOR_CALL) {
+            ADDOP(c, DEFER_REFCOUNT);
+        }
         return 1;
     case OP_GLOBAL:
         switch (ctx) {
+        case FuncLoad: op = LOAD_GLOBAL_FOR_CALL; break;
         case Load: op = LOAD_GLOBAL; break;
         case Store:
             op = STORE_GLOBAL;
@@ -3726,6 +3782,7 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         break;
     case OP_NAME:
         switch (ctx) {
+        case FuncLoad:
         case Load: op = LOAD_NAME; break;
         case Store:
             op = STORE_NAME;
@@ -3748,7 +3805,13 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
     Py_DECREF(mangled);
     if (arg < 0)
         return 0;
-    return compiler_addop_i(c, op, arg);
+    ADDOP_I(c, op, arg);
+    if (ctx == FuncLoad) {
+        if (op != LOAD_GLOBAL_FOR_CALL) {
+            ADDOP(c, DEFER_REFCOUNT);
+        }
+    }
+    return 1;
 }
 
 static int
@@ -4220,14 +4283,24 @@ maybe_optimize_method_call(struct compiler *c, expr_ty e)
 static int
 compiler_call(struct compiler *c, expr_ty e)
 {
-    int ret = maybe_optimize_method_call(c, e);
+    int ret;
+    ret = maybe_optimize_method_call(c, e);
     if (ret >= 0) {
         return ret;
     }
-    if (!check_caller(c, e->v.Call.func)) {
+    expr_ty func = e->v.Call.func;
+    if (!check_caller(c, func)) {
         return 0;
     }
-    VISIT(c, expr, e->v.Call.func);
+    if (func->kind == Name_kind) {
+        if (!compiler_nameop(c, func->v.Name.id, FuncLoad)) {
+            return 0;
+        }
+    }
+    else {
+        VISIT(c, expr, func);
+        ADDOP(c, DEFER_REFCOUNT);
+    }
     return compiler_call_helper(c, 0,
                                 e->v.Call.args,
                                 e->v.Call.keywords);
@@ -4705,6 +4778,8 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
 
     if (!compiler_make_closure(c, co, 0, qualname))
         goto error;
+
+    ADDOP(c, DEFER_REFCOUNT);
     Py_DECREF(qualname);
     Py_DECREF(co);
 
@@ -5480,6 +5555,7 @@ compiler_handle_subscr(struct compiler *c, const char *kind,
 
     /* XXX this code is duplicated */
     switch (ctx) {
+        case FuncLoad: /* fall through to Load */
         case AugLoad: /* fall through to Load */
         case Load:    op = BINARY_SUBSCR; break;
         case AugStore:/* fall through to Store */
@@ -6075,7 +6151,7 @@ makecode(struct compiler *c, struct assembler *a)
     int nlocals_int;
     int flags;
     int posorkeywordargcount, posonlyargcount, kwonlyargcount;
-    int maxdepth, maxfblocks;
+    int maxdepth, maxfndepth, maxfblocks;
 
     consts = consts_dict_keys_inorder(c->u->u_consts);
     names = dict_keys_inorder(c->u->u_names, 0);
@@ -6126,13 +6202,17 @@ makecode(struct compiler *c, struct assembler *a)
     if (maxdepth < 0) {
         goto error;
     }
+    maxfndepth = PyCompile_CallableStackSize(bytecode);
+    if (maxfndepth < 0) {
+        goto error;
+    }
     maxfblocks = PyCompile_BlockDepth(bytecode);
     if (maxfblocks < 0) {
         goto error;
     }
     co = PyCode_NewInternal(posonlyargcount+posorkeywordargcount,
                             posonlyargcount, kwonlyargcount, nlocals_int,
-                            maxdepth, maxfblocks, flags, bytecode, consts, names,
+                            maxdepth, maxfndepth, maxfblocks, flags, bytecode, consts, names,
                             varnames, freevars, cellvars, c->c_filename,
                             c->u->u_name, c->u->u_firstlineno, a->a_lnotab);
  error:

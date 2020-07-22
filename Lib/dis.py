@@ -160,7 +160,7 @@ def _format_code_info(co):
     lines.append("Positional-only arguments: %s" % co.co_posonlyargcount)
     lines.append("Kw-only arguments: %s" % co.co_kwonlyargcount)
     lines.append("Number of locals:  %s" % co.co_nlocals)
-    lines.append("Stack size:        %s" % co.co_stacksize)
+    lines.append("Stack size:        %s" % (co.co_stacksize + co.co_callablesize))
     lines.append("Flags:             %s" % pretty_flags(co.co_flags))
     if co.co_consts:
         lines.append("Constants:")

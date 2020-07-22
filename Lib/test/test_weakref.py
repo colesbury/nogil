@@ -115,7 +115,7 @@ class ReferencesTestCase(TestBase):
 
     def test_basic_callback(self):
         self.check_basic_callback(C)
-        self.check_basic_callback(create_function)
+        self.check_basic_callback(create_function, need_gc=True)
         self.check_basic_callback(create_bound_method)
 
     @support.cpython_only
@@ -186,11 +186,13 @@ class ReferencesTestCase(TestBase):
         self.assertIs(o, o2,
                      "<ref>() should return original object if live")
 
-    def check_basic_callback(self, factory):
+    def check_basic_callback(self, factory, need_gc=False):
         self.cbcalled = 0
         o = factory()
         ref = weakref.ref(o, self.callback)
         del o
+        if need_gc:
+            gc.collect()
         self.assertEqual(self.cbcalled, 1,
                      "callback did not properly set 'cbcalled'")
         self.assertIsNone(ref(),

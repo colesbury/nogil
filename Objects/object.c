@@ -2209,10 +2209,22 @@ _PyObject_AssertFailed(PyObject *obj, const char *expr, const char *msg,
     Py_FatalError("_PyObject_AssertFailed");
 }
 
+static int
+should_defer_dealloc(PyObject *op)
+{
+    if (op->ob_ref_local & _Py_REF_DEFERRED_MASK) {
+        return _PyThreadState_GET()->use_deferred_rc;
+    }
+    return 0;
+}
 
 void
 _Py_Dealloc(PyObject *op)
 {
+    if (should_defer_dealloc(op)) {
+        return;
+    }
+
     destructor dealloc = Py_TYPE(op)->tp_dealloc;
 #ifdef Py_TRACE_REFS
     _Py_ForgetReference(op);
@@ -2223,7 +2235,7 @@ _Py_Dealloc(PyObject *op)
 void
 _Py_MergeZeroRefcount(PyObject *op)
 {
-    assert(_Py_atomic_load_uint32_relaxed(&op->ob_ref_local) == 0);
+    assert((op->ob_ref_local & ~_Py_REF_DEFERRED_MASK) == 0);
 
     Py_ssize_t refcount;
     for (;;) {
@@ -2250,6 +2262,7 @@ _Py_MergeZeroRefcount(PyObject *op)
         }
 
         if (refcount == 0 &&
+            !should_defer_dealloc(op) &&
             Py_TYPE(op)->tp_dealloc == &_PyObject_Dealloc &&
             Py_TYPE(op)->tp_free == &PyObject_Del)
         {
@@ -2316,7 +2329,7 @@ _Py_ExplicitMergeRefcount(PyObject *op)
             new_shared);
     } while (!ok);
 
-    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
+    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, op->ob_ref_local & _Py_REF_DEFERRED_MASK);
     _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
     return refcount;
 }

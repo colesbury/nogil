@@ -17,6 +17,7 @@ extern "C" {
 #define UNARY_POSITIVE           10
 #define UNARY_NEGATIVE           11
 #define UNARY_NOT                12
+#define DEFER_REFCOUNT           13
 #define UNARY_INVERT             15
 #define BINARY_MATRIX_MULTIPLY   16
 #define INPLACE_MATRIX_MULTIPLY  17
@@ -127,6 +128,8 @@ extern "C" {
 #define SET_UPDATE              163
 #define DICT_MERGE              164
 #define DICT_UPDATE             165
+#define LOAD_GLOBAL_FOR_CALL    166
+#define LOAD_FAST_FOR_CALL      167
 
 /* EXCEPT_HANDLER is a special, implicit block type which is created when
    entering an except handler. It is not an opcode but we define it here

@@ -22,7 +22,7 @@ int _PyCode_InitOpcache(PyCodeObject *co);
 
 PyCodeObject *
 PyCode_NewInternal(
-        int, int, int, int, int, int, int, PyObject *, PyObject *,
+        int, int, int, int, int, int, int, int, PyObject *, PyObject *,
         PyObject *, PyObject *, PyObject *, PyObject *,
         PyObject *, PyObject *, int, PyObject *);
 

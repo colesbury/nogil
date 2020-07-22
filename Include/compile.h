@@ -82,6 +82,7 @@ PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
 #define PY_INVALID_STACK_EFFECT INT_MAX
 PyAPI_FUNC(int) PyCompile_OpcodeStackEffect(int opcode, int oparg);
 PyAPI_FUNC(int) PyCompile_OpcodeStackEffectWithJump(int opcode, int oparg, int jump);
+PyAPI_FUNC(int) PyCompile_CallableStackSize(PyObject *code);
 PyAPI_FUNC(int) PyCompile_BlockDepth(PyObject *code);
 
 

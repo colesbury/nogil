@@ -315,6 +315,21 @@ class ExceptionTest(unittest.TestCase):
         self.assertIsInstance(cm.exception.value, StopIteration)
         self.assertEqual(cm.exception.value.value, 2)
 
+    def test_yield_with_func_on_stack(self):
+        def bar(arg):
+            return arg * 2
+
+        def foo():
+            r = bar((yield 1))
+            yield r
+
+        gen = foo()
+        val = next(gen)
+        # after this, `bar` only exists on foo's stack
+        del bar; gc.collect()
+        self.assertEqual(val, 1)
+        self.assertEqual(gen.send(4 + val), 10)
+
 
 class YieldFromTests(unittest.TestCase):
     def test_generator_gi_yieldfrom(self):
