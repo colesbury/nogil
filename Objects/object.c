@@ -1232,7 +1232,6 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
                      Py_TYPE(name)->tp_name);
         return NULL;
     }
-    Py_INCREF(name);
 
     if (tp->tp_dict == NULL) {
         if (PyType_Ready(tp) < 0)
@@ -1318,7 +1317,6 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
     }
   done:
     Py_XDECREF(descr);
-    Py_DECREF(name);
     return res;
 }
 
