@@ -54,6 +54,13 @@ _Py_atomic_add_uintptr(volatile uintptr_t *address, uintptr_t value)
     return atomic_fetch_add((volatile _Atomic(uintptr_t)*)address, value);
 }
 
+static inline Py_ssize_t
+_Py_atomic_add_ssize(volatile Py_ssize_t *address, Py_ssize_t value)
+{
+    MI_USING_STD
+    return atomic_fetch_add((volatile _Atomic(Py_ssize_t)*)address, value);
+}
+
 
 static inline int
 _Py_atomic_compare_exchange_int32(volatile int32_t *address, int32_t expected, int32_t value)

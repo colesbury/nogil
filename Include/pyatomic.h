@@ -19,6 +19,8 @@ _Py_atomic_add_uint64(volatile uint64_t *address, uint64_t value);
 static inline uintptr_t
 _Py_atomic_add_uintptr(volatile uintptr_t *address, uintptr_t value);
 
+static inline Py_ssize_t
+_Py_atomic_add_ssize(volatile Py_ssize_t *address, Py_ssize_t value);
 
 static inline int
 _Py_atomic_compare_exchange_int32(volatile int32_t *address, int32_t expected, int32_t value);

@@ -1,6 +1,8 @@
 #ifndef Py_OBJECT_H
 #define Py_OBJECT_H
 
+#include "pyatomic.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -394,7 +396,7 @@ static inline void _Py_INCREF(PyObject *op)
 #ifdef Py_REF_DEBUG
     _Py_RefTotal++;
 #endif
-    op->ob_refcnt++;
+    _Py_atomic_add_ssize(&op->ob_refcnt, 1);
 }
 
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
@@ -408,9 +410,10 @@ static inline void _Py_DECREF(
 #ifdef Py_REF_DEBUG
     _Py_RefTotal--;
 #endif
-    if (--op->ob_refcnt != 0) {
+    Py_ssize_t refcnt = _Py_atomic_add_ssize(&op->ob_refcnt, -1) - 1;
+    if (refcnt != 0) {
 #ifdef Py_REF_DEBUG
-        if (op->ob_refcnt < 0) {
+        if (refcnt < 0) {
             _Py_NegativeRefcount(filename, lineno, op);
         }
 #endif
