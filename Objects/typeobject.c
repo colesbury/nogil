@@ -5003,6 +5003,15 @@ add_getset(PyTypeObject *type, PyGetSetDef *gsp)
             Py_DECREF(descr);
             return -1;
         }
+
+        if (!PyType_HasFeature(type, Py_TPFLAGS_HEAPTYPE)) {
+            // make descriptors immortal if type is immortal
+            assert(_PyObject_IS_IMMORTAL((PyObject *)type));
+            descr->ob_tid = 0;
+            descr->ob_ref_local = _Py_REF_IMMORTAL_MASK;
+            _PyObject_GC_UNTRACK(descr);
+        }
+
         if (PyDict_SetItem(dict, PyDescr_NAME(descr), descr) < 0) {
             Py_DECREF(descr);
             return -1;
