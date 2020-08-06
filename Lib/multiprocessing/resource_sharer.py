@@ -144,7 +144,8 @@ class _ResourceSharer(object):
                     if msg is None:
                         break
                     key, destination_pid = msg
-                    send, close = self._cache.pop(key)
+                    with self._lock:
+                        send, close = self._cache.pop(key)
                     try:
                         send(conn, destination_pid)
                     finally:
