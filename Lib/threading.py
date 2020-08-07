@@ -808,6 +808,7 @@ class Thread:
         # Copy of sys.stderr used by self._invoke_excepthook()
         self._stderr = _sys.stderr
         self._invoke_excepthook = _make_invoke_excepthook()
+        self._locals = {}
         # For debugging and _after_fork()
         _dangling.add(self)
 

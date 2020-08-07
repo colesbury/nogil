@@ -171,7 +171,7 @@ class _localimpl:
             # When the localimpl is deleted, remove the thread attribute.
             thread = wrthread()
             if thread is not None:
-                del thread.__dict__[key]
+                del thread._locals[key]
         def thread_deleted(_, idt=idt):
             # When the thread is deleted, remove the local dict.
             # Note that this is suboptimal if the thread object gets
@@ -182,7 +182,7 @@ class _localimpl:
                 dct = local.dicts.pop(idt)
         wrlocal = ref(self, local_deleted)
         wrthread = ref(thread, thread_deleted)
-        thread.__dict__[key] = wrlocal
+        thread._locals[key] = wrlocal
         self.dicts[idt] = wrthread, localdict
         return localdict
 
