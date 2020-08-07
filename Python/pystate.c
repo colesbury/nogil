@@ -41,7 +41,6 @@ extern "C" {
 /* Forward declarations */
 static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
-static int _PyThreadStateOS_Init(PyThreadStateOS *os);
 
 Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 
@@ -336,7 +335,7 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     while (!stopped_all_threads) {
         /* Otherwise we need to wait until the remaining threads stop themselves. */
         int64_t wait_ns = 1000*1000;
-        if (_PyRawEvent_TimedWait(&gc->gc_stop_event, this_tstate, wait_ns)) {
+        if (_PyRawEvent_TimedWait(&gc->gc_stop_event, wait_ns)) {
             assert(gc->gc_thread_countdown == 0);
             assert_all_stopped(runtime);
             _PyRawEvent_Reset(&gc->gc_stop_event);
@@ -839,7 +838,7 @@ _PyInterpreterState_WaitForThreads(PyInterpreterState *interp)
             break;
         }
 
-        _PyEvent_Wait(&join_event->event, tstate);
+        _PyEvent_Wait(&join_event->event);
         _PyEventRC_Decref(join_event);
     }
 
@@ -928,10 +927,6 @@ new_threadstate(PyInterpreterState *interp, int init)
     PyThreadStateOS *os = (PyThreadStateOS *)(tstate + 1);
     tstate->os = os;
     os->tstate = tstate;
-    if (_PyThreadStateOS_Init(os) < 0) {
-        PyMem_RawFree(tstate);
-        return NULL;
-    }
 
     if (init) {
         _PyThreadState_Init(tstate);
@@ -971,38 +966,15 @@ _PyThreadState_Init(PyThreadState *tstate)
     tstate->heap_backing = mi_heap_get_backing();
     tstate->heap_obj = mi_heap_get_obj();
     tstate->heap_gc = mi_heap_get_gc();
+    tstate->waiter = _PyParkingLot_InitThread();
+    if (!tstate->waiter) {
+        Py_FatalError("Failed to initialize thread waiter data");
+    }
     if (!tstate->heap_gc->gcstate) {
         tstate->heap_gc->gcstate = &tstate->interp->gc;
     }
-    // printf("_PyThreadState_Init: %p (tid %ld) runtime=%p interp=%p\n", tstate, tstate->fast_thread_id, runtime, tstate->interp);
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
-}
-
-static int
-_PyThreadStateOS_Init(PyThreadStateOS *os)
-{
-    os->next_waiter = NULL;
-    os->waiter_counter = 0;
-    if (PyMUTEX_INIT(&os->waiter_mutex)) {
-        return -1;
-    }
-
-    if (PyCOND_INIT(&os->waiter_cond)) {
-        PyMUTEX_FINI(&os->waiter_mutex);
-        return -1;
-    }
-    return 0;
-}
-
-static void _PyThreadStateOS_Delete(PyThreadStateOS *os)
-{
-    if (PyMUTEX_FINI(&os->waiter_mutex)) {
-        Py_FatalError("unable to destroy PyThreadStateOS waiter_mutex");
-    }
-    if (PyCOND_FINI(&os->waiter_cond)) {
-        Py_FatalError("unable to destroy PyThreadStateOS waiter_cond");
-    }
 }
 
 
@@ -1305,7 +1277,7 @@ tstate_delete_common(PyThreadState *tstate,
     tstate->heap_obj = NULL;
     tstate->heap_gc = NULL;
 
-    _PyThreadStateOS_Delete(tstate->os);
+    _PyParkingLot_DeinitThread(tstate->waiter);
     PyMem_RawFree(tstate);
 
     if (gilstate->autoInterpreterState &&

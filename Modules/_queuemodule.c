@@ -154,7 +154,7 @@ _queue_SimpleQueue_put_impl(simplequeueobject *self, PyObject *item,
     if (self->waiting) {
         int more_waiters;
         int should_be_fair;
-        PyThreadState *waiter;
+        Waiter *waiter;
 
         /* If there is a waiter, handoff the item directly */
         _PyParkingLot_BeginUnpark(&self->waiting, &waiter, &more_waiters, &should_be_fair);
@@ -279,8 +279,8 @@ _queue_SimpleQueue_get_impl(simplequeueobject *self, int block,
             }
         }
 
-        PyThreadState *tstate = PyThreadState_GET();
-        tstate->handoff_elem = (uintptr_t)&item;
+        Waiter *this_waiter = _PyParkingLot_ThisWaiter();
+        this_waiter->handoff_elem = (uintptr_t)&item;
         int ret = _PyParkingLot_Park(&self->waiting, 1, 0, timeout_ns);
         if (ret == PY_PARK_OK) {
             assert(item);

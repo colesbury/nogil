@@ -2,6 +2,8 @@
 #define Py_PARKING_LOT_H
 
 #include "pyatomic.h"
+#include "pycore_llist.h"
+#include "pycore_condvar.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,29 +16,50 @@ enum {
     PY_PARK_OK = 0,
 };
 
-int
-_PySemaphore_Wait(PyThreadState *tstate, int64_t ns);
+typedef struct Waiter {
+    struct llist_node node;     // wait queue node
+    Py_ssize_t refcount;
+    struct Waiter *next_waiter; // for "raw" locks
+    PyMUTEX_T mutex;
+    PyCOND_T cond;
+    int counter;
+    uintptr_t key;
+    int64_t time_to_be_fair;
+    uintptr_t thread_id;
+    uintptr_t handoff_elem;
+} Waiter;
+
+Waiter *
+_PyParkingLot_InitThread(void);
 
 void
-_PySemaphore_Signal(PyThreadStateOS *os, const char *msg, void *data);
+_PyParkingLot_DeinitThread(Waiter *waiter);
 
-/* Functions for waking and parking threads */
+Waiter *
+_PyParkingLot_ThisWaiter(void);
+
+void
+_PySemaphore_Signal(Waiter *waiter, const char *msg, void *data);
+
+int
+_PySemaphore_Wait(Waiter *waiter, int64_t ns);
+
 int
 _PyParkingLot_ParkInt32(const int32_t *key, int32_t expected);
 
 int
-_PyParkingLot_Park(const uintptr_t *key, uintptr_t expected,
-                   _PyTime_t start_time, int64_t timeout_ns);
+_PyParkingLot_Park(const void *key, uintptr_t expected,
+                   _PyTime_t start_time, int64_t ns);
 
 void
 _PyParkingLot_UnparkAll(const void *key);
 
 void
-_PyParkingLot_BeginUnpark(const void *key, PyThreadState **tstate,
-                          int *more_waiters, int *time_to_be_fair);
+_PyParkingLot_BeginUnpark(const void *key, struct Waiter **out,
+                          int *more_waiters, int *should_be_fair);
 
 void
-_PyParkingLot_FinishUnpark(const void *key, PyThreadState *tstate);
+_PyParkingLot_FinishUnpark(const void *key, struct Waiter *waiter);
 
 void
 _PyParkingLot_AfterFork(void);

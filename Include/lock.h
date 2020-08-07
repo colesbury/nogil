@@ -7,9 +7,6 @@
 extern "C" {
 #endif
 
-struct _ts;
-typedef struct _ts PyThreadState;
-
 typedef struct {
     uintptr_t v;
 } _PyRawMutex;
@@ -52,18 +49,17 @@ void _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m);
 void _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m);
 
 void _PyRawEvent_Notify(_PyRawEvent *o);
-void _PyRawEvent_Wait(_PyRawEvent *o, PyThreadState *tstate);
-int _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns);
+void _PyRawEvent_Wait(_PyRawEvent *o);
+int _PyRawEvent_TimedWait(_PyRawEvent *o, int64_t ns);
 void _PyRawEvent_Reset(_PyRawEvent *o);
 
 void _PyEvent_Notify(_PyEvent *o);
-void _PyEvent_Wait(_PyEvent *o, PyThreadState *tstate);
-int _PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns);
+void _PyEvent_Wait(_PyEvent *o);
+int _PyEvent_TimedWait(_PyEvent *o, int64_t ns);
 
 int _PyBeginOnce_slow(_PyOnceFlag *o);
 void _PyEndOnce(_PyOnceFlag *o);
 void _PyEndOnceFailed(_PyOnceFlag *o);
-
 
 static inline int
 _PyMutex_is_locked(_PyMutex *m)
@@ -80,7 +76,6 @@ _PyRawMutex_is_locked(_PyRawMutex *m)
 static inline void
 _PyRawMutex_lock(_PyRawMutex *m)
 {
-    // lock_count++;
     if (_Py_atomic_compare_exchange_uintptr(&m->v, UNLOCKED, LOCKED)) {
         return;
     }

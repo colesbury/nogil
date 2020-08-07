@@ -10,7 +10,6 @@
 void
 _PyMutex_lock_slow(_PyMutex *m)
 {
-    PyThreadState *tstate = _PyThreadState_GET();
     for (;;) {
         uintptr_t v = _Py_atomic_load_uintptr(&m->v);
 
@@ -21,13 +20,16 @@ _PyMutex_lock_slow(_PyMutex *m)
             continue;
         }
 
-        PyThreadState *next_waiter = (PyThreadState *)(v & ~1);
-        tstate->os->next_waiter = next_waiter;
-        if (!_Py_atomic_compare_exchange_uintptr(&m->v, v, ((uintptr_t)tstate)|LOCKED)) {
+        Waiter *this_waiter = _PyParkingLot_ThisWaiter();
+        assert(this_waiter);
+
+        Waiter *next_waiter = (Waiter *)(v & ~1);
+        this_waiter->next_waiter = next_waiter;
+        if (!_Py_atomic_compare_exchange_uintptr(&m->v, v, ((uintptr_t)this_waiter)|LOCKED)) {
             continue;
         }
 
-        _PySemaphore_Wait(tstate, -1);
+        _PySemaphore_Wait(this_waiter, -1);
     }
 }
 
@@ -41,11 +43,11 @@ _PyMutex_unlock_slow(_PyMutex *m)
             Py_FatalError("unlocking mutex that is not locked");
         }
 
-        PyThreadState *waiter = (PyThreadState *)(v & ~1);
+        Waiter *waiter = (Waiter *)(v & ~1);
         if (waiter) {
-            uintptr_t next_waiter = (uintptr_t)waiter->os->next_waiter;
+            uintptr_t next_waiter = (uintptr_t)waiter->next_waiter;
             if (_Py_atomic_compare_exchange_uintptr(&m->v, v, next_waiter)) {
-                _PySemaphore_Signal(waiter->os, "_PyMutex_unlock_slow", m);
+                _PySemaphore_Signal(waiter, "_PyMutex_unlock_slow", m);
                 return;
             }
         }
@@ -55,15 +57,11 @@ _PyMutex_unlock_slow(_PyMutex *m)
             }
         }
     }
-
 }
 
 void
 _PyRawMutex_lock_slow(_PyRawMutex *m)
 {
-    PyThreadState *tstate = _PyThreadState_GET();
-    assert(tstate);
-
     for (;;) {
         uintptr_t v = _Py_atomic_load_uintptr(&m->v);
 
@@ -74,14 +72,16 @@ _PyRawMutex_lock_slow(_PyRawMutex *m)
             continue;
         }
 
-        PyThreadState *next_waiter = (PyThreadState *)(v & ~1);
-        tstate->os->next_waiter = next_waiter;
-        if (!_Py_atomic_compare_exchange_uintptr(&m->v, v, ((uintptr_t)tstate)|LOCKED)) {
+        Waiter *this_waiter = _PyParkingLot_ThisWaiter();
+        assert(this_waiter);
+
+        Waiter *next_waiter = (Waiter *)(v & ~1);
+        this_waiter->next_waiter = next_waiter;
+        if (!_Py_atomic_compare_exchange_uintptr(&m->v, v, ((uintptr_t)this_waiter)|LOCKED)) {
             continue;
         }
 
-        int64_t ns = -1;
-        _PySemaphore_Wait(tstate, ns);
+        _PySemaphore_Wait(this_waiter, -1);
     }
 }
 
@@ -95,11 +95,11 @@ _PyRawMutex_unlock_slow(_PyRawMutex *m)
             Py_FatalError("unlocking mutex that is not locked");
         }
 
-        PyThreadState *waiter = (PyThreadState *)(v & ~1);
+        Waiter *waiter = (Waiter *)(v & ~1);
         if (waiter) {
-            uintptr_t next_waiter = (uintptr_t)waiter->os->next_waiter;
+            uintptr_t next_waiter = (uintptr_t)waiter->next_waiter;
             if (_Py_atomic_compare_exchange_uintptr(&m->v, v, next_waiter)) {
-                _PySemaphore_Signal(waiter->os, "_PyRawMutex_unlock_slow", m);
+                _PySemaphore_Signal(waiter, "_PyRawMutex_unlock_slow", m);
                 return;
             }
         }
@@ -122,31 +122,31 @@ _PyRawEvent_Notify(_PyRawEvent *o)
         Py_FatalError("_PyRawEvent: duplicate notifications");
     }
     else {
-        PyThreadState *waiter = (PyThreadState *)v;
-        _PySemaphore_Signal(waiter->os, "_PyRawEvent_Notify", o);
+        Waiter *waiter = (Waiter *)v;
+        _PySemaphore_Signal(waiter, "_PyRawEvent_Notify", o);
     }
 }
 
 void
-_PyRawEvent_Wait(_PyRawEvent *o, PyThreadState *tstate)
+_PyRawEvent_Wait(_PyRawEvent *o)
 {
     int64_t ns = -1;
-    _PyRawEvent_TimedWait(o, tstate, ns);
+    _PyRawEvent_TimedWait(o, ns);
 }
 
 int
-_PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns)
+_PyRawEvent_TimedWait(_PyRawEvent *o, int64_t ns)
 {
-    assert(tstate);
-
-    if (_Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, (uintptr_t)tstate)) {
-        if (_PySemaphore_Wait(tstate, ns) == PY_PARK_OK) {
+    Waiter *waiter = _PyParkingLot_ThisWaiter();
+    assert(waiter);
+    if (_Py_atomic_compare_exchange_uintptr(&o->v, UNLOCKED, (uintptr_t)waiter)) {
+        if (_PySemaphore_Wait(waiter, ns) == PY_PARK_OK) {
             assert(_Py_atomic_load_uintptr(&o->v) == LOCKED);
             return 1;
         }
 
         /* remove us as the waiter */
-        if (_Py_atomic_compare_exchange_uintptr(&o->v, (uintptr_t)tstate, UNLOCKED)) {
+        if (_Py_atomic_compare_exchange_uintptr(&o->v, (uintptr_t)waiter, UNLOCKED)) {
             return 0;
         }
 
@@ -154,7 +154,7 @@ _PyRawEvent_TimedWait(_PyRawEvent *o, PyThreadState *tstate, int64_t ns)
         if (v == LOCKED) {
             /* Grab the notification */
             for (;;) {
-                if (_PySemaphore_Wait(tstate, -1) == PY_PARK_OK) {
+                if (_PySemaphore_Wait(waiter, -1) == PY_PARK_OK) {
                     return 1;
                 }
             }
@@ -179,8 +179,6 @@ _PyRawEvent_Reset(_PyRawEvent *o)
     _Py_atomic_store_uintptr(&o->v, UNLOCKED);
 }
 
-//
-
 void
 _PyEvent_Notify(_PyEvent *o)
 {
@@ -199,20 +197,18 @@ _PyEvent_Notify(_PyEvent *o)
 }
 
 void
-_PyEvent_Wait(_PyEvent *o, PyThreadState *tstate)
+_PyEvent_Wait(_PyEvent *o)
 {
     for (;;) {
-        if (_PyEvent_TimedWait(o, tstate, -1)) {
+        if (_PyEvent_TimedWait(o, -1)) {
             return;
         }
     }
 }
 
 int
-_PyEvent_TimedWait(_PyEvent *o, PyThreadState *tstate, int64_t ns)
+_PyEvent_TimedWait(_PyEvent *o, int64_t ns)
 {
-    assert(tstate);
-
     uintptr_t v = _Py_atomic_load_uintptr(&o->v);
     if (v == LOCKED) {
         return 1;
@@ -272,8 +268,6 @@ _PyEndOnceFailed(_PyOnceFlag *o)
     }
 }
 
-//
-
 void
 _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
 {
@@ -283,22 +277,23 @@ _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
         return;
     }
 
-    PyThreadState *tstate = _PyThreadState_GET();
-    assert(tstate);
-
-    if (_Py_atomic_load_ptr_relaxed(&_PyRuntime.finalizing) == tstate) {
+    PyThreadState *finalizing = _Py_atomic_load_ptr_relaxed(&_PyRuntime.finalizing);
+    if (finalizing && finalizing == _PyThreadState_GET()) {
         /* Act as-if we have ownership of the lock if the interpretr
          * shutting down. At this point all other threads have exited. */
         m->recursions++;
         return;
     }
 
+    Waiter *waiter =  _PyParkingLot_ThisWaiter();
+    assert(waiter);
+
     _PyTime_t now = _PyTime_GetMonotonicClock();
     int loops = 0;
     for (;;) {
         v = _Py_atomic_load_uintptr(&m->v);
 
-        assert((v & ~3) != (uintptr_t)tstate);
+        assert((v & ~3) != _Py_ThreadId());
 
         if ((v & 1) == UNLOCKED) {
             uintptr_t newv = _Py_ThreadId() | (v & HAS_PARKED) | LOCKED;
@@ -318,7 +313,7 @@ _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m)
         }
 
         int ret = _PyParkingLot_Park(&m->v, newv, now, -1);
-        if (ret == PY_PARK_OK && tstate->handoff_elem) {
+        if (ret == PY_PARK_OK && waiter->handoff_elem) {
             assert((_Py_atomic_load_uintptr_relaxed(&m->v) & ~2) == (_Py_ThreadId() | LOCKED));
             return;
         }
@@ -342,15 +337,15 @@ _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m)
         else if ((v & 2) == HAS_PARKED) {
             int more_waiters;
             int should_be_fair;
-            PyThreadState *tstate;
+            Waiter *waiter;
 
-            _PyParkingLot_BeginUnpark(&m->v, &tstate, &more_waiters,
-                                      &should_be_fair);
+            _PyParkingLot_BeginUnpark(&m->v, &waiter, &more_waiters,
+                                       &should_be_fair);
             v = 0;
-            if (tstate) {
-                tstate->handoff_elem = should_be_fair;
+            if (waiter) {
+                waiter->handoff_elem = should_be_fair;
                 if (should_be_fair) {
-                    v |= tstate->fast_thread_id;
+                    v |= waiter->thread_id;
                     v |= LOCKED;
                 }
                 if (more_waiters) {
@@ -359,7 +354,7 @@ _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m)
             }
             _Py_atomic_store_uintptr(&m->v, v);
 
-            _PyParkingLot_FinishUnpark(&m->v, tstate);
+            _PyParkingLot_FinishUnpark(&m->v, waiter);
             return;
         }
         else if (_Py_atomic_compare_exchange_uintptr(&m->v, v, UNLOCKED)) {

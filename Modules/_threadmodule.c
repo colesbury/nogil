@@ -702,8 +702,6 @@ event_set(eventobject *self, PyObject *Py_UNUSED(ignored))
 static PyObject *
 event_wait(eventobject *self, PyObject *args)
 {
-    PyThreadState *tstate = PyThreadState_Get();
-
     PyObject *timeout_obj = NULL;
     if (!PyArg_ParseTuple(args, "|O:wait", &timeout_obj)) {
         return NULL;
@@ -721,7 +719,7 @@ event_wait(eventobject *self, PyObject *args)
         }
     }
 
-    int ok = _PyEvent_TimedWait(&self->erc->event, tstate, timeout_ns);
+    int ok = _PyEvent_TimedWait(&self->erc->event, timeout_ns);
     if (ok) {
         Py_RETURN_TRUE;
     }

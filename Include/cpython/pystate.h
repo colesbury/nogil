@@ -56,6 +56,7 @@ typedef struct mi_heap_s mi_heap_t;
 struct PyThreadStateOS;
 typedef struct PyThreadStateOS PyThreadStateOS;
 
+struct Waiter;
 typedef struct _PyEventRC _PyEventRC;
 
 
@@ -69,7 +70,7 @@ struct _ts {
 
     /* OS-specific state (for locking and parking) */
     PyThreadStateOS *os;
-    uintptr_t handoff_elem;
+    uintptr_t _unused_handoff_elem; // TODO: delete before release, but gonna require recompiling conda binaries
 
     /* thread status */
     int32_t status;
@@ -151,6 +152,8 @@ struct _ts {
 
     /* Unique thread state id. */
     uint64_t id;
+
+    struct Waiter *waiter;
 
     /* XXX signal handlers should also be here */
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];

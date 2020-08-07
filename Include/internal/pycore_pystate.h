@@ -365,35 +365,16 @@ _PyThreadState_CheckForShutdown(PyThreadState *tstate)
 
 
 /* Other */
-struct PyThreadStateWaiter {
-    struct PyThreadStateWaiter *next;
-    struct PyThreadStateWaiter *prev;
-    uintptr_t key;
-    int64_t time_to_be_fair;
-};
-
 struct brc_queued_object;
 
 struct PyThreadStateOS {
-    struct PyThreadStateWaiter waiter;
-
     PyThreadState *tstate;
-    PyThreadState *next_waiter;
-    PyMUTEX_T waiter_mutex;
-    PyCOND_T waiter_cond;
-    int waiter_counter;
 
     struct _PyBrcState {
         struct llist_node node;
         uintptr_t thread_id;
         struct brc_queued_object *queue;
     } brc;
-
-    /* DEBUG info */
-    PyThreadState *last_notifier;
-    const char *last_notifier_msg;
-    void *last_notifier_data;
-    int64_t counter;
 };
 
 PyAPI_FUNC(void) _PyThreadState_Init(
