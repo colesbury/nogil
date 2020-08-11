@@ -4213,7 +4213,6 @@ _PyEval_EvalCode(PyThreadState *tstate,
             return NULL;
         }
 
-        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
 
         return gen;
@@ -4229,7 +4228,6 @@ fail: /* Jump here from prelude on failure */
        so recursion_depth must be boosted for the duration.
     */
     if (Py_REFCNT(f) > 1) {
-        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
         Py_DECREF(f);
     }

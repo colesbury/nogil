@@ -678,6 +678,42 @@ count_generation(int generation)
     return args.size;
 }
 
+struct find_frames_args {
+    enum find_frames_args_op {
+        RETAIN,
+        RELEASE
+    } op;
+};
+
+static int
+find_frames_visitor(PyGC_Head *gc, void *void_arg)
+{
+    struct find_frames_args *args = (struct find_frames_args *)void_arg;
+    assert(GC_BITS_IS_TRACKED(gc) > 0);
+
+    PyObject *op = FROM_GC(gc);
+    if (PyFrame_Check(op)) {
+        if (args->op == RETAIN) {
+            PyFrame_RetainForGC((PyFrameObject *)op);
+        }
+        else {
+            PyFrame_UnretainForGC((PyFrameObject *)op);
+        }
+    }
+    return 0;
+}
+
+/* Set all gc_refs = ob_refcnt.  After this, gc_refs is > 0 and
+ * GC_COLLECTING_MASK bit is set for all objects in containers.
+ */
+static void
+find_frames(enum find_frames_args_op op)
+{
+    struct find_frames_args args;
+    args.op = op;
+    visit_heap(find_frames_visitor, &args);
+}
+
 static int
 add_deferred_reference_counts(void)
 {
@@ -690,6 +726,8 @@ add_deferred_reference_counts(void)
             PyFrame_RetainForGC(p->frame);
         }
     }
+
+    find_frames(RETAIN);
 
     // Now that we've added the deferred reference counts, any decrement to
     // zero should immediately free that object, even if the object usually
@@ -716,6 +754,8 @@ remove_deferred_reference_counts(int prev_use_deferred_rc)
             PyFrame_UnretainForGC(p->frame);
         }
     }
+
+    find_frames(RELEASE);
 }
 
 struct update_refs_args {
@@ -1023,8 +1063,6 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              */
             PyObject *op = FROM_GC(gc);
             traverseproc traverse = Py_TYPE(op)->tp_traverse;
-            _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) > 0,
-                                      "refcount is too small");
             // NOTE: visit_reachable may change gc->_gc_next when
             // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
             (void) traverse(op,
@@ -1451,12 +1489,6 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
                PyGC_Head *collectable)
 {
     assert(!_PyErr_Occurred(tstate));
-
-    for (PyGC_Head *gc = GC_NEXT(collectable); gc != collectable; gc = GC_NEXT(gc)) {
-        PyObject *op = FROM_GC(gc);
-        _PyObject_ASSERT_WITH_MSG(op, _Py_GC_REFCNT(op) >= 0,
-                        "refcount is too small");
-    }
 
     while (!gc_list_is_empty(collectable)) {
         PyGC_Head *gc = GC_NEXT(collectable);

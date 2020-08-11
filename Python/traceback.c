@@ -48,11 +48,8 @@ tb_create_raw(PyTracebackObject *next, PyFrameObject *frame, int lasti,
     if (tb != NULL) {
         Py_XINCREF(next);
         tb->tb_next = next;
+        Py_XINCREF(frame);
         tb->tb_frame = frame;
-        if (frame) {
-            Py_INCREF(frame);
-            PyFrame_Retain(frame);
-        }
         tb->tb_lasti = lasti;
         tb->tb_lineno = lineno;
         PyObject_GC_Track(tb);

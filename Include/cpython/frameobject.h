@@ -84,7 +84,6 @@ PyAPI_FUNC(void) PyFrame_LocalsToFast(PyFrameObject *, int);
 PyAPI_FUNC(int) PyFrame_FastToLocalsWithError(PyFrameObject *f);
 PyAPI_FUNC(void) PyFrame_FastToLocals(PyFrameObject *);
 
-PyAPI_FUNC(void) PyFrame_Retain(PyFrameObject *);
 PyAPI_FUNC(void) PyFrame_RetainForGC(PyFrameObject *);
 PyAPI_FUNC(void) PyFrame_UnretainForGC(PyFrameObject *);
 

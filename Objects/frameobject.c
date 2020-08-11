@@ -619,7 +619,6 @@ static void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
     PyObject **p, **valuestack;
-    int retains_code;
     PyObject *builtins, *globals;
     PyCodeObject *co;
 
@@ -627,6 +626,8 @@ frame_dealloc(PyFrameObject *f)
         _PyObject_GC_UNTRACK(f);
 
     Py_TRASHCAN_SAFE_BEGIN(f)
+    int retains_code = f->f_retains_code;
+
     /* Kill all local variables */
     valuestack = f->f_valuestack;
     for (p = f->f_localsplus; p < valuestack; p++)
@@ -636,11 +637,16 @@ frame_dealloc(PyFrameObject *f)
     if (f->f_stacktop != NULL) {
         for (p = valuestack; p < f->f_stacktop; p++)
             Py_XDECREF(*p);
-    }
-    if (f->f_callabletop != NULL) {
+
+        // Only free the callable stack if the frame isn't executing. That
+        // can happen during shutdown when the main thread clears the frames
+        // of daemon threads. Yuck! This effectively prevents executing functions
+        // and their arguments from being freed. This avoids some deadlocks/fatal
+        // errors on exit like in test_threading.py test_4_daemon_threads
         for (p = f->f_callablestack; p < f->f_callabletop; p++) {
-            if (p) {
-                Py_DECREF_STACK(p);
+            Py_DECREF_STACK(*p);
+            if (retains_code) {
+                Py_DECREF(*p);
             }
         }
     }
@@ -648,7 +654,6 @@ frame_dealloc(PyFrameObject *f)
     Py_XDECREF(f->f_back);;
     Py_CLEAR(f->f_locals);
     Py_CLEAR(f->f_trace);
-    retains_code = f->f_retains_code;
     builtins = f->f_builtins;
     globals = f->f_globals;
     co = f->f_code;
@@ -658,17 +663,14 @@ frame_dealloc(PyFrameObject *f)
     else
         PyObject_GC_Del(f);
 
+    Py_DECREF_STACK(builtins);
+    Py_DECREF_STACK(globals);
+    Py_DECREF_STACK(co);
     if (retains_code) {
         Py_DECREF(builtins);
         Py_DECREF(globals);
         Py_DECREF(co);
     }
-    else {
-        Py_DECREF_STACK(builtins);
-        Py_DECREF_STACK(globals);
-        Py_DECREF_STACK(co);
-    }
-
     Py_TRASHCAN_SAFE_END(f)
 }
 
@@ -678,8 +680,8 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
     PyObject **fastlocals, **p;
     Py_ssize_t i, slots;
 
-    assert(f->f_retains_code);
     Py_VISIT(f->f_back);
+    Py_VISIT(f->f_code);
     Py_VISIT(f->f_builtins);
     Py_VISIT(f->f_globals);
     Py_VISIT(f->f_locals);
@@ -696,7 +698,11 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
         for (p = f->f_valuestack; p < f->f_stacktop; p++)
             Py_VISIT(*p);
     }
-    // FIXME: callable stack ??
+    /* callables stack */
+    PyObject **top = f->f_callabletop;
+    for (PyObject **p = f->f_callablestack; p != top; p++) {
+        Py_VISIT(*p);
+    }
 
     return 0;
 }
@@ -965,7 +971,6 @@ PyFrame_New(PyThreadState *tstate, PyCodeObject *code,
 {
     PyFrameObject *f = _PyFrame_New_NoTrack(tstate, code, globals, locals);
     if (f) {
-        PyFrame_Retain(f);
         _PyObject_GC_TRACK(f);
     }
     return f;
@@ -1260,26 +1265,6 @@ PyFrame_LocalsToFast(PyFrameObject *f, int clear)
 }
 
 void
-PyFrame_Retain(PyFrameObject *top)
-{
-    for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
-        if (f->f_retains_code & 1) {
-            return;
-        }
-        f->f_retains_code |= 1;
-        if (_PyObject_IS_DEFERRED_RC((PyObject *)f->f_code)) {
-            Py_INCREF(f->f_code);
-        }
-        if (_PyObject_IS_DEFERRED_RC(f->f_globals)) {
-            Py_INCREF(f->f_globals);
-        }
-        if (_PyObject_IS_DEFERRED_RC(f->f_builtins)) {
-            Py_INCREF(f->f_builtins);
-        }
-    }
-}
-
-void
 PyFrame_RetainForGC(PyFrameObject *top)
 {
     for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
@@ -1287,7 +1272,10 @@ PyFrame_RetainForGC(PyFrameObject *top)
         // running the tracefunc for that thread. This logic could be simplified
         // if we mark the frame as executing *before* running the tracefunc. That
         // would maintain an invariant that f_executing <=> frame on the stack.
-        f->f_retains_code |= 2;
+        if (f->f_retains_code ) {
+            return;
+        }
+        f->f_retains_code = 1;
         Py_INCREF(f->f_code);
         Py_INCREF(f->f_globals);
         Py_INCREF(f->f_builtins);
@@ -1302,7 +1290,10 @@ void
 PyFrame_UnretainForGC(PyFrameObject *top)
 {
     for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
-        f->f_retains_code &= ~2;
+        if (!f->f_retains_code) {
+            return;
+        }
+        f->f_retains_code = 0;
         Py_DECREF(f->f_code);
         Py_DECREF(f->f_globals);
         Py_DECREF(f->f_builtins);
