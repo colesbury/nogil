@@ -15377,6 +15377,10 @@ PyUnicode_InternInPlace(PyObject **p)
     Py_ALLOW_RECURSION
     _PyMutex_lock(&interned_mutex);
     t = PyDict_SetDefault(interned, s, s);
+    if (t == s && !_PyRuntime.ceval.gil.enabled && _Py_ThreadLocal(t)) {
+        t->ob_tid = 0;
+        t->ob_ref_local = _Py_REF_IMMORTAL_MASK;
+    }
     _PyMutex_unlock(&interned_mutex);
     Py_END_ALLOW_RECURSION
     if (t == NULL) {
