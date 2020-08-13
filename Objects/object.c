@@ -2225,8 +2225,6 @@ _Py_MergeZeroRefcount(PyObject *op)
 {
     assert(_Py_atomic_load_uint32_relaxed(&op->ob_ref_local) == 0);
 
-    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
-
     Py_ssize_t refcount;
     for (;;) {
         uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
@@ -2245,6 +2243,9 @@ _Py_MergeZeroRefcount(PyObject *op)
             // count was temporarily negative and hasn't been proceessed yet.
             // We don't want to merge it yet because that might result in the
             // object being freed while it's still in the queue.
+            // We still need to zero the thread-id so that subsequent decrements
+            // from this thread do not push the ob_ref_local negative.
+            _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
             break;
         }
 
@@ -2257,6 +2258,7 @@ _Py_MergeZeroRefcount(PyObject *op)
              * a) weak references
              * b) dangling pointers (e.g. loading from a list or dict)
              */
+            _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
             op->ob_ref_local = 0;
             PyObject_Del(op);
             return;
@@ -2272,6 +2274,7 @@ _Py_MergeZeroRefcount(PyObject *op)
         }
     }
 
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
     if (refcount == 0) {
         _Py_Dealloc(op);
     }
@@ -2355,12 +2358,15 @@ _Py_TryIncRefShared(PyObject *op)
 void
 _Py_DecRefShared(PyObject *op)
 {
-    // TODO: fixme
     uint32_t old_shared;
     uint32_t new_shared;
-    int ok;
 
-    do {
+    // We need to grab the thread-id before modifying the refcount
+    // because the owning thread may set it to zero if we mark the
+    // object as queued.
+    uintptr_t tid = _PyObject_ThreadId(op);
+
+    for (;;) {
         old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
 
         new_shared = old_shared;
@@ -2369,15 +2375,22 @@ _Py_DecRefShared(PyObject *op)
         }
         new_shared -= (1 << _Py_REF_SHARED_SHIFT);
 
-        ok = _Py_atomic_compare_exchange_uint32(
+        int ok = _Py_atomic_compare_exchange_uint32(
             &op->ob_ref_shared,
             old_shared,
             new_shared);
-    } while (!ok);
+
+        if (ok) {
+            break;
+        }
+    }
 
     if (_Py_REF_IS_MERGED(new_shared)) {
         // TOOD(sgross): implementation defined behavior
         assert(((int32_t)new_shared) >= 0);
+        if (((int32_t)new_shared) < 0) {
+            Py_FatalError("negative refcount on merged object");
+        }
     }
 
     if (_Py_REF_IS_QUEUED(new_shared) != _Py_REF_IS_QUEUED(old_shared)) {
@@ -2389,7 +2402,7 @@ _Py_DecRefShared(PyObject *op)
             }
         }
         else {
-            _Py_queue_object(op);
+            _Py_queue_object(op, tid);
         }
     }
     else if (_Py_REF_IS_MERGED(new_shared) &&

@@ -34,10 +34,13 @@ find_brc_state(Bucket *bucket, uintptr_t thread_id)
 }
 
 void
-_Py_queue_object(PyObject *ob)
+_Py_queue_object(PyObject *ob, uintptr_t tid)
 {
-    uintptr_t tid = _PyObject_ThreadId(ob);
     Bucket *bucket = &buckets[tid % NUM_BUCKETS];
+
+    if (tid == 0) {
+        Py_FatalError("_Py_queue_object called with unowned object");
+    }
 
     _PyMutex_lock(&bucket->mutex);
     struct _PyBrcState *brc = find_brc_state(bucket, tid);
