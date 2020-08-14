@@ -299,6 +299,7 @@ _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
     HEAD_LOCK(runtime);
     if (runtime->stop_the_world) {
         assert(_Py_CURRENTLY_FINALIZING(runtime, this_tstate));
+        runtime->stop_the_world++;
         HEAD_UNLOCK(runtime);
         return;
     }
@@ -359,6 +360,13 @@ _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime)
     assert(!_PyThreadState_GET()->interp->gc.collecting);
 
     HEAD_LOCK(runtime);
+    if (runtime->stop_the_world > 1) {
+        assert(_Py_CURRENTLY_FINALIZING(runtime, PyThreadState_GET()));
+        runtime->stop_the_world--;
+        HEAD_UNLOCK(runtime);
+        return;
+    }
+
     runtime->stop_the_world = 0;
     PyInterpreterState *head = runtime->interpreters.head;
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
