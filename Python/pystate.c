@@ -1203,56 +1203,13 @@ tstate_delete_common(PyThreadState *tstate,
         Py_FatalError("PyThreadState_Delete: NULL interp");
     }
 
-    _PyEventRC *join_event;
+    assert(is_current ? tstate->status == _Py_THREAD_ATTACHED
+                      : tstate->status != _Py_THREAD_ATTACHED);
 
-    HEAD_LOCK(runtime);
-
-    /* Unlink thread state */
-    if (tstate->prev)
-        tstate->prev->next = tstate->next;
-    else
-        interp->tstate_head = tstate->next;
-    if (tstate->next)
-        tstate->next->prev = tstate->prev;
-
-    interp->num_threads--;
-
-    /* The _PyEvent_Notify calls may block in acquiring parking lot locks.
-     * Set the status to detached so that it doesn't try to detach/reattach.
-      */
-    tstate->status = _Py_THREAD_DETACHED;
-
-    join_event = tstate->join_event;
-    tstate->join_event = NULL;
-
-    if (runtime->stop_the_world) {
-        struct _gc_runtime_state *gc = &tstate->interp->gc;
-        gc->gc_thread_countdown--;
-        assert(gc->gc_thread_countdown >= 0);
-        if (gc->gc_thread_countdown == 0) {
-            _PyRawEvent_Notify(&gc->gc_stop_event);
-        }
-    }
-
-#ifdef Py_REF_DEBUG
-    runtime->ref_total += tstate->thread_ref_total;
-    tstate->thread_ref_total = 0;
-#endif
-
-    HEAD_UNLOCK(runtime);
-
-    /* Notify threads waiting on Thread.join(). This should happen after the
-     * thread state is unlinked, but must happen before tstate->os is deleted.
-     */
-    if (join_event) {
-        _PyEvent_Notify(&join_event->event);
-        _PyEventRC_Decref(join_event);
-    }
-
+    // Abandon heaps. After this point we must not allocate any Python objects.
     if (tstate->heap_gc->gcstate == &tstate->interp->gc) {
         tstate->heap_gc->gcstate = NULL;
     }
-
     if (tstate->heap_obj->thread_id == _Py_ThreadId() &&
         _Py_IsMainInterpreter(tstate)) {
         // NOTE: this may be called from a different thread. This can
@@ -1270,31 +1227,81 @@ tstate_delete_common(PyThreadState *tstate,
         }
     }
 
-    if (is_current) {
-        /* Current thread state can't be set to NULL until after join_event
-         * because it may be used by _PyEvent_Notify/_PyRawEvent_Notify calls.
-         * We also can't release it before mi_heap_done because then GC may proceed
-         * while abandoning is taking place. */
-        _PyRuntimeState_SetThreadState(runtime, NULL);
-
-        /* Drop the GIL if we hold it */
-        PyEval_ReleaseLock();
-    }
-
     tstate->heap_backing = NULL;
     tstate->heap_obj = NULL;
     tstate->heap_gc = NULL;
 
-    _PyParkingLot_DeinitThread(tstate->waiter);
-    PyMem_RawFree(tstate);
+    _PyEventRC *join_event;
+    HEAD_LOCK(runtime);
+
+    /* Unlink thread state */
+    if (tstate->prev)
+        tstate->prev->next = tstate->next;
+    else
+        interp->tstate_head = tstate->next;
+    if (tstate->next)
+        tstate->next->prev = tstate->prev;
+
+    interp->num_threads--;
+
+    // Set the status to detached so that _PyEvent_Notify does not try to
+    // detach/reattach when acquiring parking lot locks.
+    int32_t old_status = _Py_atomic_exchange_int32(&tstate->status, _Py_THREAD_DETACHED);
+
+    join_event = tstate->join_event;
+    tstate->join_event = NULL;
+
+    if (runtime->stop_the_world &&
+        !_Py_CURRENTLY_FINALIZING(runtime, tstate) &&
+        old_status != _Py_THREAD_GC) {
+        struct _gc_runtime_state *gc = &tstate->interp->gc;
+        gc->gc_thread_countdown--;
+        assert(gc->gc_thread_countdown >= 0);
+        if (gc->gc_thread_countdown == 0) {
+            _PyRawEvent_Notify(&gc->gc_stop_event);
+        }
+    }
+
+#ifdef Py_REF_DEBUG
+    runtime->ref_total += tstate->thread_ref_total;
+    tstate->thread_ref_total = 0;
+#endif
+    HEAD_UNLOCK(runtime);
+
+    // Notify threads waiting on Thread.join(). This should happen after the
+    // thread state is unlinked, but must happen before parking lot is
+    // deinitialized.
+    if (join_event) {
+        _PyEvent_Notify(&join_event->event);
+        _PyEventRC_Decref(join_event);
+    }
+
+    if (is_current) {
+        // TODO(sgross): I think this should be moved up between mi_heap_done() and
+        // unlinking thread state.
+        // We also can't release it before mi_heap_done because then GC may proceed
+        // while abandoning is taking place.
+        _PyRuntimeState_SetThreadState(runtime, NULL);
+
+        // Drop the GIL if we hold it
+        PyEval_ReleaseLock();
+    }
 
     if (gilstate->autoInterpreterState &&
         PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
     {
         PyThread_tss_set(&gilstate->autoTSSkey, NULL);
     }
-}
 
+    // TODO(sgross): what if this isn't the current thread? Might the owning
+    // thread be stuck in a parking lot lock? Will it have some sort of dead
+    // waiter? ruh roh.
+    if (is_current) {
+        _PyParkingLot_DeinitThread(tstate->waiter);
+    }
+
+    PyMem_RawFree(tstate);
+}
 
 static void
 _PyThreadState_Delete(PyThreadState *tstate, int check_current)
