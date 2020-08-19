@@ -20,6 +20,8 @@ struct _frame; /* Avoid including frameobject.h */
     struct _frame *prefix##_frame;                                          \
     /* True if generator is being executed. */                              \
     char prefix##_running;                                                  \
+    /* True during GC when the the code object is strongly retained. */     \
+    char prefix##_retains_code;                                             \
     /* The code object backing the generator */                             \
     PyObject *prefix##_code;                                                \
     /* List of weak reference. */                                           \
@@ -50,6 +52,9 @@ PyObject *_PyGen_yf(PyGenObject *);
 PyAPI_FUNC(void) _PyGen_Finalize(PyObject *self);
 
 #ifndef Py_LIMITED_API
+PyAPI_FUNC(void) _PyGen_RetainForGC(PyGenObject *gen);
+PyAPI_FUNC(void) _PyGen_UnretainForGC(PyGenObject *gen);
+
 typedef struct {
     _PyGenObject_HEAD(cr)
     PyObject *cr_origin;

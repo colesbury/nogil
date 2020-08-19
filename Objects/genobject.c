@@ -99,6 +99,22 @@ _PyGen_Finalize(PyObject *self)
     PyErr_Restore(error_type, error_value, error_traceback);
 }
 
+void
+_PyGen_RetainForGC(PyGenObject *gen)
+{
+    assert(!gen->gi_retains_code);
+    gen->gi_retains_code = 1;
+    Py_INCREF(gen->gi_code);
+}
+
+void
+_PyGen_UnretainForGC(PyGenObject *gen)
+{
+    assert(gen->gi_retains_code);
+    gen->gi_retains_code = 0;
+    Py_DECREF(gen->gi_code);
+}
+
 static inline void
 exc_state_clear(_PyErr_StackItem *exc_state)
 {
@@ -143,7 +159,12 @@ gen_dealloc(PyGenObject *gen)
     if (((PyCodeObject *)gen->gi_code)->co_flags & CO_COROUTINE) {
         Py_CLEAR(((PyCoroObject *)gen)->cr_origin);
     }
-    Py_CLEAR(gen->gi_code);
+    PyObject *code = gen->gi_code;
+    gen->gi_code = NULL;
+    Py_DECREF_STACK(code);
+    if (gen->gi_retains_code) {
+        Py_DECREF(code);
+    }
     Py_CLEAR(gen->gi_name);
     Py_CLEAR(gen->gi_qualname);
     exc_state_clear(&gen->gi_exc_state);
@@ -786,9 +807,10 @@ gen_new_with_qualname(PyTypeObject *type, PyFrameObject *f,
     }
     gen->gi_frame = f;
     f->f_gen = (PyObject *) gen;
-    Py_INCREF(f->f_code);
+    Py_INCREF_STACK(f->f_code);  // ref count deferred
     gen->gi_code = (PyObject *)(f->f_code);
     gen->gi_running = 0;
+    gen->gi_retains_code = 0;
     gen->gi_weakreflist = NULL;
     gen->gi_exc_state.exc_type = NULL;
     gen->gi_exc_state.exc_value = NULL;

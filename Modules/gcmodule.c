@@ -700,6 +700,14 @@ find_frames_visitor(PyGC_Head *gc, void *void_arg)
             PyFrame_UnretainForGC((PyFrameObject *)op);
         }
     }
+    else if (PyGen_CheckExact(op) || PyCoro_CheckExact(op) || PyAsyncGen_CheckExact(op)) {
+        if (args->op == RETAIN) {
+            _PyGen_RetainForGC((PyGenObject *)op);
+        }
+        else {
+            _PyGen_UnretainForGC((PyGenObject *)op);
+        }
+    }
     return 0;
 }
 
