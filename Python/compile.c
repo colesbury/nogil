@@ -1073,7 +1073,7 @@ stack_effect(int opcode, int oparg, int jump)
         case CALL_FUNCTION:
             return -oparg + 1;
         case CALL_METHOD:
-            return -oparg-1;
+            return -oparg;
         case CALL_FUNCTION_KW:
             return -oparg;
         case CALL_FUNCTION_EX:
@@ -1122,7 +1122,7 @@ stack_effect(int opcode, int oparg, int jump)
                else 1->1. */
             return (oparg & FVS_MASK) == FVS_HAVE_SPEC ? -1 : 0;
         case LOAD_METHOD:
-            return 1;
+            return 0;
         case LOAD_ASSERTION_ERROR:
             return 1;
         case LIST_TO_TUPLE:
@@ -1165,6 +1165,8 @@ PyCompile_CallableStackSize(PyObject *bytecode)
         fn_stack_effect[DEFER_REFCOUNT] = 1;
         fn_stack_effect[LOAD_FAST_FOR_CALL] = 1;
         fn_stack_effect[LOAD_GLOBAL_FOR_CALL] = 1;
+        fn_stack_effect[LOAD_METHOD] = 1;
+        fn_stack_effect[CALL_METHOD] = -1;
         fn_stack_effect[CALL_FUNCTION] = -1;
         fn_stack_effect[CALL_FUNCTION_KW] = -1;
         fn_stack_effect[CALL_FUNCTION_EX] = -1;

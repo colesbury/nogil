@@ -1207,6 +1207,101 @@ _PyObject_GetMethod(PyObject *obj, PyObject *name, PyObject **method)
     return 0;
 }
 
+int
+_PyObject_GetMethodStack(PyObject *obj, PyObject *name, PyObject **method)
+{
+    PyTypeObject *tp = Py_TYPE(obj);
+    PyObject *descr;
+    descrgetfunc f = NULL;
+    PyObject **dictptr, *dict;
+    PyObject *attr;
+    int meth_found = 0;
+
+    assert(*method == NULL);
+
+    if (Py_TYPE(obj)->tp_getattro != PyObject_GenericGetAttr
+            || !PyUnicode_Check(name)) {
+        PyObject *value = PyObject_GetAttr(obj, name);
+        if (value && _PyObject_IS_DEFERRED_RC(value)) {
+            Py_DECREF(value);
+        }
+        *method = value;
+        return 0;
+    }
+
+    if (tp->tp_dict == NULL && PyType_Ready(tp) < 0)
+        return 0;
+
+    descr = _PyType_Lookup(tp, name);
+    if (descr != NULL) {
+        Py_INCREF_STACK(descr);
+        if (PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
+            meth_found = 1;
+        } else {
+            f = Py_TYPE(descr)->tp_descr_get;
+            if (f != NULL && PyDescr_IsData(descr)) {
+                PyObject *value = f(descr, obj, (PyObject *)Py_TYPE(obj));
+                if (value && _PyObject_IS_DEFERRED_RC(value)) {
+                    Py_DECREF(value);
+                }
+                *method = value;
+                Py_DECREF_STACK(descr);
+                return 0;
+            }
+        }
+    }
+
+    dictptr = _PyObject_GetDictPtr(obj);
+    if (dictptr != NULL && (dict = *dictptr) != NULL) {
+        Py_INCREF(dict);
+        attr = PyDict_GetItemWithError(dict, name);
+        if (attr != NULL) {
+            Py_INCREF_STACK(attr);
+            *method = attr;
+            Py_DECREF(dict);
+            if (descr) {
+                Py_DECREF_STACK(descr);
+            }
+            return 0;
+        }
+        else {
+            Py_DECREF(dict);
+            if (PyErr_Occurred()) {
+                if (descr) {
+                    Py_DECREF_STACK(descr);
+                }
+                return 0;
+            }
+        }
+    }
+
+    if (meth_found) {
+        *method = descr;
+        return 1;
+    }
+
+    if (f != NULL) {
+        PyObject *value = f(descr, obj, (PyObject *)Py_TYPE(obj));
+        if (value && _PyObject_IS_DEFERRED_RC(value)) {
+            Py_DECREF(value);
+        }
+        *method = value;
+        Py_DECREF_STACK(descr);
+        return 0;
+    }
+
+    if (descr != NULL) {
+        *method = descr;
+        return 0;
+    }
+
+    PyErr_Format(PyExc_AttributeError,
+                 "'%.50s' object has no attribute '%U'",
+                 tp->tp_name, name);
+    return 0;
+}
+
+
 /* Generic GetAttr functions - put these in your tp_[gs]etattro slot. */
 
 PyObject *

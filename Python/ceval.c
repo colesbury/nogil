@@ -3279,86 +3279,59 @@ main_loop:
         case TARGET(LOAD_METHOD): {
             /* Designed to work in tandem with CALL_METHOD. */
             PyObject *name = GETITEM(names, oparg);
-            PyObject *obj = TOP();
+            PyObject *self = TOP();
             PyObject *meth = NULL;
 
-            int meth_found = _PyObject_GetMethod(obj, name, &meth);
-
+            int meth_found = _PyObject_GetMethodStack(self, name, &meth);
             if (meth == NULL) {
                 /* Most likely attribute wasn't found. */
                 goto error;
             }
 
+            /* Stack:
+               self | arg1 | ... | argN     // meth_found=1, unbound method
+               NULL | arg1 | ... | argN     // meth_found=0
+             */
+            *f->f_callabletop++ = meth;
             if (meth_found) {
-                /* We can bypass temporary bound method object.
-                   meth is unbound method and obj is self.
-
-                   meth | self | arg1 | ... | argN
-                 */
-                SET_TOP(meth);
-                PUSH(obj);  // self
+                SET_TOP(self);
             }
             else {
-                /* meth is not an unbound method (but a regular attr, or
-                   something was returned by a descriptor protocol).  Set
-                   the second element of the stack to NULL, to signal
-                   CALL_METHOD that it's not a method call.
-
-                   NULL | meth | arg1 | ... | argN
-                */
                 SET_TOP(NULL);
-                Py_DECREF(obj);
-                PUSH(meth);
+                Py_DECREF(self);
             }
             DISPATCH();
         }
 
         case TARGET(CALL_METHOD): {
             /* Designed to work in tamdem with LOAD_METHOD. */
-            PyObject **sp, *res, *meth;
+            PyObject **sp, *res, *self, *meth;
+            int narg;
 
+            /* The method is in the callable stack. Main stack layout:
+
+                For function/bound method 
+                    ... | NULL | arg1 | ... | argN
+
+                For unbound method (optimized case):
+                    ... | self | arg1 | ... | argN
+                                              ^- TOP()
+                                 ^- (-oparg)
+                          ^- (-oparg-1)
+
+                In the unbound case, `self` will be POPed by call_function.
+            */
             sp = stack_pointer;
-            meth = PEEK(oparg + 2);
-            if (meth == NULL) {
-                /* `meth` is NULL when LOAD_METHOD thinks that it's not
-                   a method call.
-
-                   Stack layout:
-
-                       ... | NULL | callable | arg1 | ... | argN
-                                                            ^- TOP()
-                                               ^- (-oparg)
-                                    ^- (-oparg-1)
-                             ^- (-oparg-2)
-
-                   `callable` will be POPed by call_function.
-                   NULL will will be POPed manually later.
-                */
-                meth = PEEK(oparg + 1);
-                res = call_function(tstate, meth, &sp, oparg, NULL);
-                stack_pointer = sp;
-                (void)POP(); /* POP the callable. */
-                (void)POP(); /* POP the NULL. */
+            self = PEEK(oparg + 1);
+            meth = f->f_callabletop[-1];
+            narg = oparg + (self != NULL);
+            res = call_function(tstate, meth, &sp, narg, NULL);
+            stack_pointer = sp;
+            if (!self) {
+                (void)POP();    // POP NULL in bound case
             }
-            else {
-                /* This is a method call.  Stack layout:
-
-                     ... | method | self | arg1 | ... | argN
-                                                        ^- TOP()
-                                           ^- (-oparg)
-                                    ^- (-oparg-1)
-                           ^- (-oparg-2)
-
-                  `self` and `method` will be POPed by call_function.
-                  We'll be passing `oparg + 1` to call_function, to
-                  make it accept the `self` as a first argument.
-                */
-                res = call_function(tstate, meth, &sp, oparg + 1, NULL);
-                stack_pointer = sp;
-                (void)POP(); /* POP the method. */
-            }
-
-            Py_DECREF(meth);
+            --f->f_callabletop;
+            Py_DECREF_STACK(meth);
             PUSH(res);
             if (res == NULL)
                 goto error;
