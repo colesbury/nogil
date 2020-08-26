@@ -22,22 +22,18 @@ class code "PyCodeObject *" "&PyCode_Type"
 [clinic start generated code]*/
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=78aa5d576683bb4b]*/
 
-/* all_name_chars(s): true iff s matches [a-zA-Z0-9_]* */
+/* has_null_char(o): string contains NULL character */
 static int
-all_name_chars(PyObject *o)
+has_null_char(PyObject *o)
 {
     const unsigned char *s, *e;
-
-    if (!PyUnicode_IS_ASCII(o))
-        return 0;
-
     s = PyUnicode_1BYTE_DATA(o);
     e = s + PyUnicode_GET_LENGTH(o);
     for (; s != e; s++) {
-        if (!Py_ISALNUM(*s) && *s != '_')
-            return 0;
+        if (*s == 0)
+            return 1;
     }
-    return 1;
+    return 0;
 }
 
 static int
@@ -68,7 +64,7 @@ intern_string_constants(PyObject *tuple, int *modified)
                 return -1;
             }
 
-            if (all_name_chars(v)) {
+            if (!has_null_char(v)) {
                 PyObject *w = v;
                 PyUnicode_InternInPlace(&v);
                 if (w != v) {
