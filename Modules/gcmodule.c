@@ -2120,7 +2120,7 @@ gc_referrers_visitor(PyGC_Head *gc, void *void_arg)
     if (obj == objs || obj == resultlist) {
         return 0;
     }
-    if (traverse(obj, (visitproc)referrersvisit, objs)) {
+    if (traverse && traverse(obj, (visitproc)referrersvisit, objs)) {
         if (PyList_Append(resultlist, obj) < 0) {
             return -1; /* error */
         }
@@ -2139,6 +2139,8 @@ gc_get_referrers(PyObject *self, PyObject *args)
     if (!result) {
         return NULL;
     }
+
+    using_debug_allocator = _PyMem_DebugEnabled();
 
     struct gc_referrers_arg arg;
     arg.objs = args;
