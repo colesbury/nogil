@@ -137,9 +137,6 @@ list_item_safe(PyListObject *self, Py_ssize_t idx)
     if (_PY_UNLIKELY(!_Py_TryIncrefFast(item))) {
         return list_item_slow(self, idx, ob_item, item);
     }
-    if (_PY_UNLIKELY(item != _Py_atomic_load_ptr(&ob_item[idx]))) {
-        return list_item_locked(self, idx, item);
-    }
     if (_PY_UNLIKELY(ob_item != _Py_atomic_load_ptr(&self->ob_item))) {
         return list_item_locked(self, idx, item);
     }

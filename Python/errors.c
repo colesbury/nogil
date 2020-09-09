@@ -183,6 +183,13 @@ _PyErr_SetKeyError(PyObject *arg)
     Py_DECREF(tup);
 }
 
+PyObject *
+_PyErr_SetKeyError2(PyObject *arg)
+{
+    _PyErr_SetKeyError(arg);
+    return NULL;
+}
+
 void
 _PyErr_SetNone(PyThreadState *tstate, PyObject *exception)
 {

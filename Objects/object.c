@@ -2448,33 +2448,7 @@ _Py_IncRefShared(PyObject *op)
 int
 _Py_TryIncRefShared(PyObject *op)
 {
-    uint32_t old_shared;
-    uint32_t new_shared;
-    int ok;
-
-    do {
-        old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
-
-        uint32_t old_count = (old_shared >> _Py_REF_SHARED_SHIFT);
-
-        if (old_count == 0 && _Py_REF_IS_MERGED(old_shared)) {
-            return 0;
-        }
-
-        new_shared = old_shared;
-        new_shared += (1 << _Py_REF_SHARED_SHIFT);
-
-        ok = _Py_atomic_compare_exchange_uint32(
-            &op->ob_ref_shared,
-            old_shared,
-            new_shared);
-    } while (!ok);
-
-#ifdef Py_REF_DEBUG
-    _Py_IncRefTotal();
-#endif
-
-    return 1;
+    return _Py_TryIncRefShared2(op);
 }
 
 void

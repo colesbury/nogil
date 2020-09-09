@@ -32,6 +32,28 @@ _PyObject_SET_DEFERRED_RC(PyObject *op)
 	op->ob_ref_local |= _Py_REF_DEFERRED_MASK;
 }
 
+static inline bool
+_Py_TryIncRefShared2(PyObject *op)
+{
+    for (;;) {
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+
+        if (shared == _Py_REF_MERGED_MASK ||
+            shared == (_Py_REF_MERGED_MASK|_Py_REF_QUEUED_MASK)) {
+            return false;
+        }
+
+        if (_Py_atomic_compare_exchange_uint32(
+                &op->ob_ref_shared,
+                shared,
+                shared + (1 << _Py_REF_SHARED_SHIFT))) {
+#ifdef Py_REF_DEBUG
+            _Py_IncRefTotal();
+#endif
+            return true;
+        }
+    }
+}
 
 #ifdef __cplusplus
 }

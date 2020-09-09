@@ -375,6 +375,13 @@ _Py_atomic_store_ptr_relaxed(volatile void *address, void *value)
 }
 
 static inline void
+_Py_atomic_store_ptr_release(volatile void *address, void *value)
+{
+    MI_USING_STD
+    atomic_store_explicit((volatile _Atomic(void*)*)address, value, memory_order_release);
+}
+
+static inline void
 _Py_atomic_thread_fence(void)
 {
     MI_USING_STD

@@ -3106,7 +3106,6 @@ _PySys_Create(PyThreadState *tstate, PyObject **sysmod_p)
     if (modules == NULL) {
         goto error;
     }
-    ((PyDictObject*)modules)->ma_use_mutex = 1;
     interp->modules = modules;
 
     PyObject *sysmod = _PyModule_CreateInitialized(&sysmodule, PYTHON_API_VERSION);

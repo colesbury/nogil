@@ -2347,7 +2347,7 @@ _collections_synchronized(PyObject *module, PyObject *src)
         if (!copy) {
             return NULL;
         }
-        ((PyDictObject*)copy)->ma_use_mutex = 1;
+        // ((PyDictObject*)copy)->ma_use_mutex = 1;
         return copy;
     }
 

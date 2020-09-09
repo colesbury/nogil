@@ -2851,7 +2851,7 @@ main_loop:
             PyObject *name = GETITEM(names, oparg);
             assert(PyUnicode_CheckExact(name));
             PyObject *owner = TOP();
-            PyObject *res = PyObject_GetAttr(owner, name);
+            PyObject *res = _PyObject_GetAttrFast(owner, name);
             Py_DECREF(owner);
             SET_TOP(res);
             if (res == NULL)

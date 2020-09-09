@@ -279,7 +279,7 @@ dict_hassplittable(PyObject *self, PyObject *arg)
         return NULL;
     }
 
-    return PyBool_FromLong(_PyDict_HasSplitTable((PyDictObject*)arg));
+    return PyBool_FromLong(0);//_PyDict_HasSplitTable((PyDictObject*)arg));
 }
 
 /* Issue #4701: Check that PyObject_Hash implicitly calls

@@ -75,6 +75,7 @@ typedef PyOSErrorObject PyWindowsErrorObject;
 /* Error handling definitions */
 
 PyAPI_FUNC(void) _PyErr_SetKeyError(PyObject *);
+PyAPI_FUNC(PyObject *) _PyErr_SetKeyError2(PyObject *);
 _PyErr_StackItem *_PyErr_GetTopmostException(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyErr_GetExcInfo(PyThreadState *, PyObject **, PyObject **, PyObject **);
 

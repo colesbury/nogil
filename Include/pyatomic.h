@@ -155,6 +155,9 @@ static inline void
 _Py_atomic_store_ptr_relaxed(volatile void *address, void *value);
 
 static inline void
+_Py_atomic_store_ptr_release(volatile void *address, void *value);
+
+static inline void
 _Py_atomic_thread_fence(void);
 
 

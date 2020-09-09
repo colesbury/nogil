@@ -3402,8 +3402,8 @@ type_dealloc(PyTypeObject *type)
     Py_XDECREF(et->ht_slots);
     if (et->ht_cached_dict) {
         // FIXME: does this need to lock???
-        PyDictObject *dict = (PyDictObject *)(et->ht_cached_dict);
-        dict->ma_type_ref = 0;
+        // PyDictObject *dict = (PyDictObject *)(et->ht_cached_dict);
+        // dict->ma_type_ref = 0;
     }
     Py_TYPE(type)->tp_free((PyObject *)type);
 }

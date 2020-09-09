@@ -716,7 +716,7 @@ class CPythonOrderedDictTests(OrderedDictTests, unittest.TestCase):
         with self.assertRaises(RuntimeError):
             for k in od:
                 del od['c']
-        self.assertEqual(list(od), list('bdeaf'))
+        self.assertEqual(list(od), list('deabf'))
 
     def test_iterators_pickling(self):
         OrderedDict = self.OrderedDict

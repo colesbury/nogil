@@ -24,11 +24,6 @@ typedef struct {
     PyDictKeysObject *ma_keys;
 
     _PyMutex ma_mutex;
-
-    char ma_use_mutex;
-
-    // For prototype dicts
-    PyHeapTypeObject *ma_type_ref;
 } PyDictObject;
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,
@@ -44,7 +39,6 @@ PyAPI_FUNC(int) _PyDict_DelItem_KnownHash(PyObject *mp, PyObject *key,
                                           Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItemIf(PyObject *mp, PyObject *key,
                                   int (*predicate)(PyObject *value));
-PyDictKeysObject *_PyDict_NewKeysForClass(void);
 PyAPI_FUNC(PyObject *) PyObject_GenericGetDict(PyObject *, void *);
 PyAPI_FUNC(int) _PyDict_Next(
     PyObject *mp, Py_ssize_t *pos, PyObject **key, PyObject **value, Py_hash_t *hash);
@@ -60,7 +54,7 @@ PyAPI_FUNC(Py_ssize_t) _PyDict_SizeOf(PyDictObject *);
 PyAPI_FUNC(PyObject *) _PyDict_Pop(PyObject *, PyObject *, PyObject *);
 PyObject *_PyDict_Pop_KnownHash(PyObject *, PyObject *, Py_hash_t, PyObject *);
 PyObject *_PyDict_FromKeys(PyObject *, PyObject *, PyObject *);
-PyAPI_FUNC(int) _PyDict_HasSplitTable(PyDictObject *mp);
+// PyAPI_FUNC(int) _PyDict_HasSplitTable(PyDictObject *mp);
 
 PyAPI_FUNC(int) PyDict_ClearFreeList(void);
 
@@ -78,6 +72,7 @@ PyAPI_FUNC(void) _PyDict_DebugMallocStats(FILE *out);
 
 int _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr, PyObject *name, PyObject *value);
 PyObject *_PyDict_LoadGlobal(PyDictObject *, PyDictObject *, PyObject *);
+PyObject *_PyObject_GetAttrFast(PyObject *owner, PyObject *name);
 
 /* _PyDictView */
 
