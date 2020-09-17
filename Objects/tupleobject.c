@@ -13,9 +13,15 @@ class tuple "PyTupleObject *" "&PyTuple_Type"
 
 #include "clinic/tupleobject.c.h"
 
-static PyTupleObject _Py_EmptyTupleStruct = {
-    { _PyObject_STRUCT_INIT(&PyTuple_Type), 0 },
-    { NULL }
+static struct {
+    PyGC_Head head;
+    PyTupleObject tuple;
+} _Py_EmptyTupleStruct = {
+    {0, 0},
+    {
+        { _PyObject_STRUCT_INIT(&PyTuple_Type), 0 },
+        { NULL }
+    }
 };
 
 static inline void
@@ -56,7 +62,7 @@ PyObject *
 PyTuple_New(Py_ssize_t size)
 {
     if (size == 0) {
-        return (PyObject *) &_Py_EmptyTupleStruct;
+        return (PyObject *) &_Py_EmptyTupleStruct.tuple;
     }
     PyTupleObject *op = tuple_alloc(size);
     if (op == NULL) {
