@@ -676,6 +676,8 @@ class PyDictObjectPtr(PyObjectPtr):
         analogous to dict.iteritems()
         '''
         keys = self.field('ma_keys')
+        if int(self.field('ma_used')) == 0:
+            return
         try:
             values = self.field('ma_values')
             if long(values) == 0:
