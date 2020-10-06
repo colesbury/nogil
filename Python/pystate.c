@@ -1441,10 +1441,13 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
         assert(status == _Py_THREAD_ATTACHED || status == _Py_THREAD_GC);
 
         if (status == _Py_THREAD_ATTACHED) {
-            _Py_atomic_store_int32(&oldts->status, _Py_THREAD_DETACHED);
-
             // FIXME: what if we're in GC state?
+
+            // NOTE: must mark QSBR as offline before marking as detached,
+            // because QSBR depends on stop-the-world.
             _Py_qsbr_offline(oldts->qsbr);
+
+            _Py_atomic_store_int32(&oldts->status, _Py_THREAD_DETACHED);
         }
     }
 
