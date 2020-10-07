@@ -33,24 +33,19 @@ _PyWeakref_GetWeakrefCount(PyWeakReference *head)
     return count;
 }
 
-
-static void
-init_weakref(PyWeakReference *self, PyObject *ob, PyObject *callback)
+static PyWeakReference *
+new_weakref(PyTypeObject *type, PyObject *ob, PyObject *callback)
 {
+    PyWeakReference *self = (PyWeakReference *)type->tp_alloc(type, 0);
+    if (!self) {
+        return NULL;
+    }
+    self->mutex.v = 0;
     self->hash = -1;
     self->wr_object = ob;
     Py_XINCREF(callback);
     self->wr_callback = callback;
-}
-
-static PyWeakReference *
-new_weakref(PyTypeObject *type, PyObject *ob, PyObject *callback)
-{
-    PyWeakReference *result = (PyWeakReference *)type->tp_alloc(type, 0);
-    if (result) {
-        init_weakref(result, ob, callback);
-    }
-    return result;
+    return self;
 }
 
 /* This function clears the passed-in reference and removes it from the
@@ -69,7 +64,7 @@ clear_weakref(PyWeakReference *self)
     PyWeakReference *root = self->wr_parent;
     assert(root);
 
-    PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+    _PyMutex_lock(&root->mutex);
 
     if (self->wr_prev != NULL)
         self->wr_prev->wr_next = self->wr_next;
@@ -78,7 +73,7 @@ clear_weakref(PyWeakReference *self)
     self->wr_prev = NULL;
     self->wr_next = NULL;
 
-    PyThread_release_lock(root->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     Py_CLEAR(self->wr_callback);
     Py_CLEAR(self->wr_parent);
@@ -106,10 +101,6 @@ weakref_dealloc(PyWeakReference *self)
 {
     PyObject_GC_UnTrack(self);
     clear_weakref(self);
-    if (self->mutex) {
-        PyThread_free_lock(self->mutex);
-        self->mutex = NULL;
-    }
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -266,14 +257,6 @@ PyWeakref_Root(PyObject *ob)
         return NULL;
     }
 
-    PyThread_type_lock mutex = PyThread_allocate_lock();
-    if (!mutex) {
-        Py_DECREF(root);
-        PyErr_SetString(PyExc_MemoryError, "Unable to allocate lock");
-        return NULL;
-    }
-    root->mutex = mutex;
-
     if (!_Py_atomic_compare_exchange_ptr(wrptr, NULL, root)) {
         /* Another thread already set the root weakref; use it */
         Py_DECREF(root);
@@ -294,13 +277,13 @@ PyWeakref_SharedProxy(PyTypeObject *type, PyObject *ob)
         return NULL;
     }
 
-    PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+    _PyMutex_lock(&root->mutex);
     PyWeakReference *prev = root->wr_prev;
     if (prev && _Py_TRY_INCREF(prev)) {
-        PyThread_release_lock(root->mutex);
+        _PyMutex_unlock(&root->mutex);
         return prev;
     }
-    PyThread_release_lock(root->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     PyWeakReference *self = new_weakref(type, ob, NULL);
     if (!self) {
@@ -310,9 +293,9 @@ PyWeakref_SharedProxy(PyTypeObject *type, PyObject *ob)
     Py_INCREF(root);
     self->wr_parent = root;
 
-    PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+    _PyMutex_lock(&root->mutex);
     insert_before(self, root);
-    PyThread_release_lock(root->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     return self;
 }
@@ -344,10 +327,6 @@ PyWeakref_NewWithType(PyTypeObject *type, PyObject *ob, PyObject *callback)
     }
 
     /* We have to create a new reference. */
-    /* Note: the tp_alloc() can trigger cyclic GC, so the weakref
-       list on ob can be mutated.  This means that the PyWeakref_Root
-       must be after ... TODO(sgross): I don't this matters anymore but
-       update comment. */
     PyWeakReference *self = new_weakref(type, ob, callback);
     if (self != NULL) {
         PyWeakReference *root = PyWeakref_Root(ob);
@@ -359,9 +338,9 @@ PyWeakref_NewWithType(PyTypeObject *type, PyObject *ob, PyObject *callback)
         Py_INCREF(root);
         self->wr_parent = root;
 
-        PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+        _PyMutex_lock(&root->mutex);
         insert_after(self, root);
-        PyThread_release_lock(root->mutex);
+        _PyMutex_unlock(&root->mutex);
     }
     return (PyObject *)self;
 }
@@ -874,21 +853,14 @@ PyWeakref_LockObject(PyObject *ref)
     }
 
     PyWeakReference *wr = (PyWeakReference *)ref;
-    if (wr->wr_object == Py_None) {
-        Py_RETURN_NONE;
-    }
+    PyWeakReference *root = wr->wr_parent ? wr->wr_parent : wr;
 
-    if (wr->wr_parent) {
-        wr = wr->wr_parent;
-    }
-
-    PyThread_acquire_lock(wr->mutex, WAIT_LOCK);
-    PyObject *obj = wr->wr_object;
-    if (!Py_IS_REFERENCED(obj)) {
+    _PyMutex_lock(&root->mutex);
+    PyObject *obj = root->wr_object;
+    if (!_Py_TRY_INCREF(obj)) {
         obj = Py_None;
     }
-    Py_INCREF(obj);
-    PyThread_release_lock(wr->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     return obj;
 }
@@ -948,9 +920,9 @@ _PyObject_ClearWeakRefsFromGC(PyObject *object)
 
     *wrptr = NULL;
 
-    PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+    _PyMutex_lock(&root->mutex);
     root->wr_object = Py_None;
-    PyThread_release_lock(root->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     Py_DECREF(root);
 }
@@ -985,11 +957,12 @@ PyObject_ClearWeakRefs(PyObject *object)
     *wrptr = NULL;
 
     assert(root->wr_object == object);
+    assert(root->wr_parent == NULL);
 
-    PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+    _PyMutex_lock(&root->mutex);
     root->wr_object = Py_None;
     int has_refs = root->wr_next != NULL;
-    PyThread_release_lock(root->mutex);
+    _PyMutex_unlock(&root->mutex);
 
     if (!has_refs) {
         Py_DECREF(root);
@@ -1001,10 +974,10 @@ PyObject_ClearWeakRefs(PyObject *object)
 
     PyWeakReference *list[16];
     while (has_refs) {
-        PyThread_acquire_lock(root->mutex, WAIT_LOCK);
+        _PyMutex_lock(&root->mutex);
         Py_ssize_t count = _PyWeakref_DetachRefs(root, list, 16);
         has_refs = root->wr_next != NULL;
-        PyThread_release_lock(root->mutex);
+        _PyMutex_unlock(&root->mutex);
 
         for (Py_ssize_t i = 0; i < count; i++) {
             PyWeakReference *ref = list[i];

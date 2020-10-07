@@ -16,7 +16,7 @@ typedef struct _PyWeakReference PyWeakReference;
 struct _PyWeakReference {
     PyObject_HEAD
 
-    PyThread_type_lock mutex;
+    _PyMutex mutex;
 
     /* The object to which this is a weak reference, or Py_None if none.
      * Note that this is a stealth reference:  wr_object's refcount is
