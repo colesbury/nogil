@@ -273,8 +273,9 @@ typedef struct mi_page_s {
   #ifdef MI_ENCODE_FREELIST
   uintptr_t             keys[2];           // two random keys to encode the free lists (see `_mi_block_next`)
   #endif
-  uint32_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
-  uint32_t              xblock_size;       // size available in each block (always `>0`) 
+  int8_t                debug_offset;      // offset for filling in debug bytes (0xDD, 0xD0)
+  uint16_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
+  uint32_t              xblock_size;       // size available in each block (always `>0`)
 
   mi_block_t*           local_free;        // list of deferred free blocks by this thread (migrates to `free`)
   _Atomic(mi_thread_free_t) xthread_free;  // list of deferred free blocks freed by other threads
@@ -390,6 +391,7 @@ struct mi_heap_s {
   bool                  no_reclaim;                          // `true` if this heap should not reclaim abandoned pages
   unsigned char         tag;
   bool                  visited;                             // used by gcmodule.c
+  int8_t                debug_offset;                        // offset for filling in debug bytes (0xDD, 0xD0)
 };
 
 
