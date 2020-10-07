@@ -7,6 +7,9 @@ terms of the MIT license. A copy of the license can be found in the file
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 
+#include "Python.h"
+#include "pycore_gc.h"
+
 #include <string.h>  // memcpy, memset
 #include <stdlib.h>  // atexit
 
@@ -14,6 +17,7 @@ terms of the MIT license. A copy of the license can be found in the file
 const mi_page_t _mi_page_empty = {
   0, false, false, false, false,
   0,       // tag
+  0,       // debug_offset
   0,       // capacity
   0,       // reserved capacity
   { 0 },   // flags
@@ -119,7 +123,8 @@ mi_decl_cache_align const mi_heap_t _mi_heap_empty = {
   NULL,             // next
   false,
   0,
-  false
+  false,
+  0
 };
 
 // the thread-local default heap for allocation
@@ -137,6 +142,14 @@ mi_stats_t _mi_stats_main = { MI_STATS_NULL };
 
 
 
+static int debug_offsets[MI_NUM_HEAPS] = {
+  [mi_heap_tag_default] = 0,
+  [mi_heap_tag_obj] = offsetof(PyObject, ob_type),
+  [mi_heap_tag_gc] = sizeof(PyGC_Head) + offsetof(PyObject, ob_type),
+  [mi_heap_tag_list_array] = -1,
+  [mi_heap_tag_dict_keys] = -1
+};
+
 static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
   if (heap->cookie != 0) return;
   _mi_memcpy_aligned(heap, &_mi_heap_empty, sizeof(*heap));
@@ -152,6 +165,7 @@ static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
   heap->keys[1] = _mi_heap_random_next(heap);
   heap->tld = tld;
   heap->tag = tag;
+  heap->debug_offset = debug_offsets[tag];
 }
 
 static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])

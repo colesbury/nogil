@@ -20,6 +20,16 @@ terms of the MIT license. A copy of the license can be found in the file
 // Allocation
 // ------------------------------------------------------
 
+#if (MI_DEBUG!=0)
+static inline void _mi_debug_fill(mi_page_t* page, mi_block_t* block, int c, size_t size) {
+   // offset is sign extended so that -1 becomes SIZE_MAX
+  size_t offset = (size_t)page->debug_offset;
+  if (offset < size) {
+    memset((char*)block + offset, c, size - offset);
+  }
+}
+#endif
+
 // Fast allocation in a page: just pop from the free list.
 // Fall back to generic allocation only if the list is empty.
 extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t size, bool zero) mi_attr_noexcept {
@@ -48,7 +58,7 @@ extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t siz
 
 #if (MI_DEBUG>0) && !MI_TRACK_ENABLED
   if (!page->is_zero && !zero && !mi_page_is_huge(page)) {
-    memset(block, MI_DEBUG_UNINIT, mi_page_usable_block_size(page));
+    _mi_debug_fill(page, block, MI_DEBUG_UNINIT, mi_page_usable_block_size(page));
   }
 #elif (MI_SECURE!=0)
   if (!zero) { block->next = 0; } // don't leak internal data
@@ -393,7 +403,7 @@ static mi_decl_noinline void _mi_free_block_mt(mi_page_t* page, mi_block_t* bloc
   
   #if (MI_DEBUG!=0) && !MI_TRACK_ENABLED                    // note: when tracking, cannot use mi_usable_size with multi-threading
   if (segment->kind != MI_SEGMENT_HUGE) {                   // not for huge segments as we just reset the content
-    memset(block, MI_DEBUG_FREED, mi_usable_size(block));
+    _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_usable_size(block));
   }
   #endif
 
@@ -447,7 +457,7 @@ static inline void _mi_free_block(mi_page_t* page, bool local, mi_block_t* block
     mi_check_padding(page, block);
     #if (MI_DEBUG!=0) && !MI_TRACK_ENABLED
     if (!mi_page_is_huge(page)) {   // huge page content may be already decommitted
-      memset(block, MI_DEBUG_FREED, mi_page_block_size(page));
+      _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
     }
     #endif
     mi_block_set_next(page, block, page->local_free);
@@ -542,7 +552,7 @@ void mi_free(void* p) mi_attr_noexcept
       mi_check_padding(page, block);
       mi_stat_free(page, block);
       #if (MI_DEBUG!=0) && !MI_TRACK_ENABLED
-      memset(block, MI_DEBUG_FREED, mi_page_block_size(page));
+      _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
       #endif
       mi_track_free(p);
       mi_block_set_next(page, block, page->local_free);

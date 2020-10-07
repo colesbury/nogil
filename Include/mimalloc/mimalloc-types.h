@@ -280,6 +280,7 @@ typedef struct mi_page_s {
   uint8_t               is_committed : 1;  // `true` if the page virtual memory is committed
   uint8_t               is_zero_init : 1;  // `true` if the page was zero initialized
   uint8_t               tag : 4;           // heap tag (mi_heap_tag_t)
+  int8_t                debug_offset;      // offset for filling in debug bytes (0xDD, 0xD0)
 
   // layout like this to optimize access in `mi_malloc` and `mi_free`
   uint16_t              capacity;          // number of blocks committed, must be the first field, see `segment.c:page_clear`
@@ -459,6 +460,7 @@ struct mi_heap_s {
   bool                  no_reclaim;                          // `true` if this heap should not reclaim abandoned pages
   unsigned char         tag;
   bool                  visited;                             // used by gcmodule.c
+  int8_t                debug_offset;                        // offset for filling in debug bytes (0xDD, 0xD0)
 };
 
 
