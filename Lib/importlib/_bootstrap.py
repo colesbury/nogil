@@ -1165,7 +1165,6 @@ def _setup(sys_module, _imp_module):
         setattr(self_module, builtin_name, builtin_module)
 
     global _module_locks, _blocking_on
-    _module_locks = _collections.synchronized(_module_locks)
     _blocking_on = _collections.synchronized(_blocking_on)
 
 
