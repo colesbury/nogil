@@ -615,6 +615,7 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   #endif
   page->is_zero = page->is_zero_init;
   page->tag = heap->tag;
+  page->debug_offset = heap->debug_offset;
 
   mi_assert_internal(page->capacity == 0);
   mi_assert_internal(page->free == NULL);
