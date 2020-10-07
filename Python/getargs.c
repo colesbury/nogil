@@ -1926,19 +1926,27 @@ parser_init(struct _PyArg_Parser *parser)
 {
     const char * const *keywords;
     const char *format, *msg;
-    int i, len, min, max, nkw;
+    const char *fname = NULL, *custom_msg = NULL;
+    int pos = 0, min = 0, max = 0;
+    int i, len, nkw;
     PyObject *kwtuple;
 
     assert(parser->keywords != NULL);
-    if (parser->kwtuple != NULL) {
+    if (_PyOnce_Initialized(&parser->once)) {
+        // already initialized
+        assert(parser->kwtuple != NULL);
         return 1;
     }
+
+    // We allow threads to potentially race scanning the keywords
+    // and format, since these are read-only. Modifications to the
+    // _PyArg_Parser are protected by a _PyOnceFlag below.
 
     keywords = parser->keywords;
     /* scan keywords and count the number of positional-only parameters */
     for (i = 0; keywords[i] && !*keywords[i]; i++) {
     }
-    parser->pos = i;
+    pos = i;
     /* scan keywords and get greatest possible nbr of args */
     for (; keywords[i]; i++) {
         if (!*keywords[i]) {
@@ -1952,15 +1960,15 @@ parser_init(struct _PyArg_Parser *parser)
     format = parser->format;
     if (format) {
         /* grab the function name or custom error msg first (mutually exclusive) */
-        parser->fname = strchr(parser->format, ':');
-        if (parser->fname) {
-            parser->fname++;
-            parser->custom_msg = NULL;
+        fname = strchr(parser->format, ':');
+        if (fname) {
+            fname++;
+            custom_msg = NULL;
         }
         else {
-            parser->custom_msg = strchr(parser->format,';');
-            if (parser->custom_msg)
-                parser->custom_msg++;
+            custom_msg = strchr(parser->format,';');
+            if (custom_msg)
+                custom_msg++;
         }
 
         min = max = INT_MAX;
@@ -1985,7 +1993,7 @@ parser_init(struct _PyArg_Parser *parser)
                                     "Invalid format string ($ specified twice)");
                     return 0;
                 }
-                if (i < parser->pos) {
+                if (i < pos) {
                     PyErr_SetString(PyExc_SystemError,
                                     "Empty parameter name after $");
                     return 0;
@@ -2007,8 +2015,8 @@ parser_init(struct _PyArg_Parser *parser)
                 return 0;
             }
         }
-        parser->min = Py_MIN(min, len);
-        parser->max = Py_MIN(max, len);
+        min = Py_MIN(min, len);
+        max = Py_MIN(max, len);
 
         if (!IS_END_OF_FORMAT(*format) && (*format != '|') && (*format != '$')) {
             PyErr_Format(PyExc_SystemError,
@@ -2018,12 +2026,12 @@ parser_init(struct _PyArg_Parser *parser)
         }
     }
 
-    nkw = len - parser->pos;
+    nkw = len - pos;
     kwtuple = PyTuple_New(nkw);
     if (kwtuple == NULL) {
         return 0;
     }
-    keywords = parser->keywords + parser->pos;
+    keywords = parser->keywords + pos;
     for (i = 0; i < nkw; i++) {
         PyObject *str = PyUnicode_FromString(keywords[i]);
         if (str == NULL) {
@@ -2033,11 +2041,29 @@ parser_init(struct _PyArg_Parser *parser)
         PyUnicode_InternInPlace(&str);
         PyTuple_SET_ITEM(kwtuple, i, str);
     }
+
+    if (!_PyBeginOnce(&parser->once)) {
+        // some other thread initialized parser
+        assert(parser->kwtuple != NULL);
+        return 1;
+    }
+
+    if (format) {
+        parser->fname = fname;
+        parser->custom_msg = custom_msg;
+        parser->min = min;
+        parser->max = max;
+    }
+    parser->pos = pos;
     parser->kwtuple = kwtuple;
 
     assert(parser->next == NULL);
-    parser->next = static_arg_parsers;
-    static_arg_parsers = parser;
+    struct _PyArg_Parser *next;
+    do {
+        next = _Py_atomic_load_ptr(&static_arg_parsers);
+        parser->next = next;
+    } while (!_Py_atomic_compare_exchange_ptr(&static_arg_parsers, next, parser));
+    _PyEndOnce(&parser->once);
     return 1;
 }
 

@@ -147,6 +147,12 @@ _PyEvent_IsSet(_PyEvent *e)
 }
 
 static inline int
+_PyOnce_Initialized(_PyOnceFlag *o)
+{
+    return (_Py_atomic_load_uintptr(&o->v) & ONCE_INITIALIZED) != 0;
+}
+
+static inline int
 _PyBeginOnce(_PyOnceFlag *o)
 {
     if ((_Py_atomic_load_uintptr(&o->v) & ONCE_INITIALIZED) != 0) {
