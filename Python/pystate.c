@@ -1264,6 +1264,12 @@ tstate_delete_common(PyThreadState *tstate,
         tstate->heaps[tag] = NULL;
     }
 
+    if (gilstate->autoInterpreterState &&
+        PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
+    {
+        PyThread_tss_set(&gilstate->autoTSSkey, NULL);
+    }
+
     _PyEventRC *join_event;
     HEAD_LOCK(runtime);
 
@@ -1322,12 +1328,6 @@ tstate_delete_common(PyThreadState *tstate,
     else {
         /* TODO(sgross): not sure about this... */
         _Py_qsbr_unregister_other(tstate->qsbr);
-    }
-
-    if (gilstate->autoInterpreterState &&
-        PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
-    {
-        PyThread_tss_set(&gilstate->autoTSSkey, NULL);
     }
 
     // TODO(sgross): what if this isn't the current thread? Might the owning
