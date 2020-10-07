@@ -991,12 +991,19 @@ _PyThreadState_Init(PyThreadState *tstate)
 {
     assert(Py_NUM_HEAPS == MI_NUM_HEAPS);
     tstate->fast_thread_id = _Py_ThreadId();
+    mi_heap_t **heaps = tstate->heaps;
     for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
-        tstate->heaps[tag] = mi_heap_get_tag(tag);
+        heaps[tag] = mi_heap_get_tag(tag);
     }
-    mi_heap_t *heap_gc = tstate->heaps[mi_heap_tag_gc];
-    if (!heap_gc->gcstate) {
-        heap_gc->gcstate = &tstate->interp->gc;
+
+    // debug offsets
+    heaps[mi_heap_tag_obj]->debug_offset = offsetof(PyObject, ob_type);
+    heaps[mi_heap_tag_gc]->debug_offset = sizeof(PyGC_Head) + offsetof(PyObject, ob_type);
+    heaps[mi_heap_tag_list_array]->debug_offset = -1;
+    heaps[mi_heap_tag_dict_keys]->debug_offset = -1;
+
+    if (!heaps[mi_heap_tag_gc]->gcstate) {
+        heaps[mi_heap_tag_gc]->gcstate = &tstate->interp->gc;
     }
     tstate->waiter = _PyParkingLot_InitThread();
     if (!tstate->waiter) {

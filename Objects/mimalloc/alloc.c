@@ -15,6 +15,16 @@ terms of the MIT license. A copy of the license can be found in the file
 // Allocation
 // ------------------------------------------------------
 
+#if (MI_DEBUG!=0)
+static inline void _mi_debug_fill(mi_page_t* page, mi_block_t* block, int c, size_t size) {
+   // offset is sign extended so that -1 becomes SIZE_MAX
+  size_t offset = (size_t)page->debug_offset;
+  if (offset < size) {
+    memset((char*)block + offset, c, size - offset);
+  }
+}
+#endif
+
 // Fast allocation in a page: just pop from the free list.
 // Fall back to generic allocation only if the list is empty.
 extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t size) mi_attr_noexcept {
@@ -29,7 +39,7 @@ extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t siz
   page->used++;
   mi_assert_internal(page->free == NULL || _mi_ptr_page(page->free) == page);
 #if (MI_DEBUG>0)
-  if (!page->is_zero) { memset(block, MI_DEBUG_UNINIT, size); }
+  if (!page->is_zero) { _mi_debug_fill(page,block, MI_DEBUG_UNINIT, size); }
 #elif (MI_SECURE!=0)
   block->next = 0;  // don't leak internal data
 #endif
@@ -315,7 +325,7 @@ static mi_decl_noinline void _mi_free_block_mt(mi_page_t* page, mi_block_t* bloc
   mi_check_padding(page, block);
   mi_padding_shrink(page, block, sizeof(mi_block_t)); // for small size, ensure we can fit the delayed thread pointers without triggering overflow detection
   #if (MI_DEBUG!=0)
-  memset(block, MI_DEBUG_FREED, mi_usable_size(block));
+  _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_usable_size(block));
   #endif
 
   // huge page segments are always abandoned and can be freed immediately
@@ -375,7 +385,7 @@ static inline void _mi_free_block(mi_page_t* page, bool local, mi_block_t* block
     if (mi_unlikely(mi_check_is_double_free(page, block))) return;
     mi_check_padding(page, block);
     #if (MI_DEBUG!=0)
-    memset(block, MI_DEBUG_FREED, mi_page_block_size(page));
+    _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
     #endif
     mi_block_set_next(page, block, page->local_free);
     page->local_free = block;
@@ -446,7 +456,7 @@ void mi_free(void* p) mi_attr_noexcept
     if (mi_unlikely(mi_check_is_double_free(page,block))) return;
     mi_check_padding(page, block);
     #if (MI_DEBUG!=0)
-    memset(block, MI_DEBUG_FREED, mi_page_block_size(page));
+    _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
     #endif
     mi_block_set_next(page, block, page->local_free);
     page->local_free = block;

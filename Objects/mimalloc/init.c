@@ -24,6 +24,7 @@ const mi_page_t _mi_page_empty = {
   { 0, 0 },
   #endif
   ATOMIC_VAR_INIT(0), // use_qsbr
+  0,       // debug_offset
   0,       // used
   0,       // xblock_size
   NULL,    // local_free
@@ -103,6 +104,7 @@ const mi_heap_t _mi_heap_empty = {
   false,
   0,
   false,
+  0,
   NULL
 };
 

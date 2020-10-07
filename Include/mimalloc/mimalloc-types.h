@@ -224,6 +224,7 @@ typedef struct mi_page_s {
   uintptr_t             keys[2];           // two random keys to encode the free lists (see `_mi_block_next`)
   #endif
   _Atomic(uint8_t)      use_qsbr;
+  int8_t                debug_offset;      // offset for filling in debug bytes (0xDD, 0xD0)
   uint16_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
   uint32_t              xblock_size;       // size available in each block (always `>0`)
 
@@ -341,6 +342,7 @@ struct mi_heap_s {
   bool                  no_reclaim;                          // `true` if this heap should not reclaim abandoned pages
   unsigned char         tag;
   bool                  visited;                                     // used by gcmodule.c
+  int8_t                debug_offset;                        // offset for filling in debug bytes (0xDD, 0xD0)
   struct _gc_runtime_state* gcstate;
 };
 
