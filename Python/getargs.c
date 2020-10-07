@@ -1972,13 +1972,11 @@ new_kwtuple(const char * const *keywords, int total, int pos)
 static int
 _parser_init(struct _PyArg_Parser *parser)
 {
+    // We allow threads to potentially race scanning the keywords
+    // and format, since these are read-only. Modifications to the
+    // _PyArg_Parser are protected by a _PyOnceFlag below.
     const char * const *keywords = parser->keywords;
     assert(keywords != NULL);
-    assert(parser->pos == 0 &&
-           (parser->format == NULL || parser->fname == NULL) &&
-           parser->custom_msg == NULL &&
-           parser->min == 0 &&
-           parser->max == 0);
 
     int len, pos;
     if (scan_keywords(keywords, &len, &pos) < 0) {
@@ -2012,6 +2010,18 @@ _parser_init(struct _PyArg_Parser *parser)
         owned = 0;
     }
 
+    if (!_PyBeginOnce(&parser->once)) {
+        // someone else initialized the parser
+        Py_DECREF(kwtuple);
+        return 1;
+    }
+
+    assert(parser->pos == 0 &&
+           (parser->format == NULL || parser->fname == NULL) &&
+           parser->custom_msg == NULL &&
+           parser->min == 0 &&
+           parser->max == 0);
+
     parser->pos = pos;
     parser->fname = fname;
     parser->custom_msg = custommsg;
@@ -2021,31 +2031,22 @@ _parser_init(struct _PyArg_Parser *parser)
     parser->initialized = owned ? 1 : -1;
 
     assert(parser->next == NULL);
-    parser->next = _PyRuntime.getargs.static_parsers;
-    _PyRuntime.getargs.static_parsers = parser;
+    struct _PyArg_Parser *next;
+    do {
+        next = _Py_atomic_load_ptr(&_PyRuntime.getargs.static_parsers);
+        parser->next = next;
+    } while (!_Py_atomic_compare_exchange_ptr(&_PyRuntime.getargs.static_parsers, next, parser));
+    _PyEndOnce(&parser->once);
     return 1;
 }
 
 static int
 parser_init(struct _PyArg_Parser *parser)
 {
-    // volatile as it can be modified by other threads
-    // and should not be optimized or reordered by compiler
-    if (*((volatile int *)&parser->initialized)) {
-        assert(parser->kwtuple != NULL);
+    if (_PyOnce_Initialized(&parser->once)) {
         return 1;
     }
-    PyThread_acquire_lock(_PyRuntime.getargs.mutex, WAIT_LOCK);
-    // Check again if another thread initialized the parser
-    // while we were waiting for the lock.
-    if (*((volatile int *)&parser->initialized)) {
-        assert(parser->kwtuple != NULL);
-        PyThread_release_lock(_PyRuntime.getargs.mutex);
-        return 1;
-    }
-    int ret = _parser_init(parser);
-    PyThread_release_lock(_PyRuntime.getargs.mutex);
-    return ret;
+    return _parser_init(parser);
 }
 
 static void

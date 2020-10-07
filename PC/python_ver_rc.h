@@ -8,6 +8,7 @@
 #define PYTHON_COPYRIGHT "Copyright \xA9 2001-2023 Python Software Foundation. Copyright \xA9 2000 BeOpen.com. Copyright \xA9 1995-2001 CNRI. Copyright \xA9 1991-1995 SMC."
 
 #define MS_WINDOWS
+#define Py_LIMITED_API 3
 #include "modsupport.h"
 #include "patchlevel.h"
 #ifdef _DEBUG
