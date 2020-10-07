@@ -33,12 +33,16 @@ PyAPI_FUNC(PyObject *) _PyDict_GetItemIdWithError(PyObject *dp,
 PyAPI_FUNC(PyObject *) _PyDict_GetItemStringWithError(PyObject *, const char *);
 PyAPI_FUNC(PyObject *) PyDict_SetDefault(
     PyObject *mp, PyObject *key, PyObject *defaultobj);
+PyAPI_FUNC(PyObject *) _PyDict_SetDefault(PyObject *d, PyObject *key,
+                                          PyObject *defaultobj,
+                                          int incref, int *is_insert);
 PyAPI_FUNC(int) _PyDict_SetItem_KnownHash(PyObject *mp, PyObject *key,
                                           PyObject *item, Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItem_KnownHash(PyObject *mp, PyObject *key,
                                           Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItemIf(PyObject *mp, PyObject *key,
-                                  int (*predicate)(PyObject *value));
+                                  int (*predicate)(PyObject *value, void *data),
+                                  void *data);
 PyAPI_FUNC(PyObject *) PyObject_GenericGetDict(PyObject *, void *);
 PyAPI_FUNC(int) _PyDict_Next(
     PyObject *mp, Py_ssize_t *pos, PyObject **key, PyObject **value, Py_hash_t *hash);

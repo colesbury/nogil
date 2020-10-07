@@ -1269,7 +1269,8 @@ _PyDict_DelItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
  */
 int
 _PyDict_DelItemIf(PyObject *op, PyObject *key,
-                  int (*predicate)(PyObject *value))
+                  int (*predicate)(PyObject *value, void *data),
+                  void *data)
 {
     if (!PyDict_Check(op)) {
         PyErr_BadInternalCall();
@@ -1294,7 +1295,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
     }
 
     PyObject *old_value = ep->me_value;
-    int res = predicate(old_value);
+    int res = predicate(old_value, data);
     if (res != 1) {
         _PyMutex_unlock(&mp->ma_mutex);
         return res;
@@ -2431,8 +2432,9 @@ dict_get_impl(PyDictObject *self, PyObject *key, PyObject *default_value)
     return default_value;
 }
 
-static PyObject *
-_PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj, int incref)
+PyObject *
+_PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj,
+                   int incref, int *is_insert)
 {
     if (!PyDict_Check(d)) {
         PyErr_BadInternalCall();
@@ -2446,13 +2448,12 @@ _PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj, int incref)
 
     PyDictObject *mp = (PyDictObject *)d;
     _PyMutex_lock(&mp->ma_mutex);
-    int is_insert;
-    PyDictKeyEntry *entry = find_or_prepare_insert(mp, key, hash, &is_insert);
+    PyDictKeyEntry *entry = find_or_prepare_insert(mp, key, hash, is_insert);
     if (!entry) {
         _PyMutex_unlock(&mp->ma_mutex);
         return NULL;
     }
-    if (is_insert) {
+    if (*is_insert) {
         MAINTAIN_TRACKING(mp, key, defaultobj);
         Py_INCREF(defaultobj);
         Py_INCREF(key);
@@ -2467,7 +2468,6 @@ _PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj, int incref)
         return defaultobj;
     }
     else {
-        // borrowed reference ugh!
         PyObject *value = entry->me_value;
         if (incref) {
             Py_INCREF(value);
@@ -2482,7 +2482,8 @@ PyObject *
 PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj)
 {
     // NOTE: return value isn't thread-safe because it's a borrowed reference.
-    return _PyDict_SetDefault(d, key, defaultobj, 0);
+    int is_insert;
+    return _PyDict_SetDefault(d, key, defaultobj, 0, &is_insert);
 }
 
 /*[clinic input]
@@ -2502,7 +2503,8 @@ dict_setdefault_impl(PyDictObject *self, PyObject *key,
                      PyObject *default_value)
 /*[clinic end generated code: output=f8c1101ebf69e220 input=0f063756e815fd9d]*/
 {
-    return _PyDict_SetDefault((PyObject *)self, key, default_value, 1);
+    int is_insert;
+    return _PyDict_SetDefault((PyObject *)self, key, default_value, 1, &is_insert);
 }
 
 static PyObject *
