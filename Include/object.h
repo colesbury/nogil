@@ -525,7 +525,7 @@ _Py_ALWAYS_INLINE static inline void
 _Py_INCREF_STACK(PyObject *op)
 {
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
-    if ((local & 0x3) != 0) {
+    if (_PY_LIKELY((local & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0)) {
         return;
     }
 
@@ -628,7 +628,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF_STACK(
     PyObject *op)
 {
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
-    if ((local & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0) {
+    if (_PY_LIKELY((local & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0)) {
         return;
     }
 

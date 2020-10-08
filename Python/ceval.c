@@ -2374,7 +2374,37 @@ main_loop:
             DISPATCH();
         }
 
-        case TARGET(LOAD_GLOBAL_FOR_CALL):
+        case TARGET(LOAD_GLOBAL_FOR_CALL): {
+            PyObject *name = GETITEM(names, oparg);
+            if (PyDict_CheckExact(f->f_globals)) {
+                int is_error = 0;
+                PyObject *v = _PyDict_LoadNameStack(f->f_globals, name, &is_error);
+                if (v != NULL) {
+                    *f->f_callabletop++ = v;
+                    DISPATCH();
+                }
+                else if (is_error) {
+                    goto error;
+                }
+                if (PyDict_CheckExact(f->f_builtins)) {
+                    int is_error = 0;
+                    PyObject *v = _PyDict_LoadNameStack(f->f_builtins, name, &is_error);
+                    if (v != NULL) {
+                        *f->f_callabletop++ = v;
+                        DISPATCH();
+                    }
+                    else if (is_error) {
+                        goto error;
+                    }
+                    else {
+                        format_exc_check_arg(tstate, PyExc_NameError,
+                                                NAME_ERROR_MSG, name);
+                    }
+                }
+            }
+        }
+        /* fall through */
+
         case TARGET(LOAD_GLOBAL): {
             PyObject *name;
             PyObject *v;

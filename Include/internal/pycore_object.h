@@ -32,6 +32,25 @@ _PyObject_SET_DEFERRED_RC(PyObject *op)
 	op->ob_ref_local |= _Py_REF_DEFERRED_MASK;
 }
 
+
+static inline int
+_Py_TryIncrefStackFast(PyObject *op) {
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_PY_LIKELY((local & (_Py_REF_DEFERRED_MASK | _Py_REF_IMMORTAL_MASK)) != 0)) {
+        return 1;
+    }
+
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        local += (1 << _Py_REF_LOCAL_SHIFT);
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#ifdef Py_REF_DEBUG
+        _Py_IncRefTotal();
+#endif
+        return 1;
+    }
+    return 0;
+}
+
 static inline bool
 _Py_TryIncRefShared2(PyObject *op)
 {

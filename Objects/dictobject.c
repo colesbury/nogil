@@ -1111,6 +1111,66 @@ _PyDict_LoadGlobalSlow(PyDictObject *globals, PyDictObject *builtins, PyObject *
     }
 }
 
+__attribute__((noinline))
+static PyObject *
+_PyDict_LoadNameStackSlow(PyObject *op, PyObject *name, int *is_error)
+{
+    PyObject *value = PyDict_GetItemWithError2(op, name);
+    if (!value) {
+        *is_error = PyErr_Occurred() != NULL;
+        return NULL;
+    }
+    if (_PyObject_IS_DEFERRED_RC(value)) {
+        Py_DECREF(value);
+    }
+    return value;
+}
+
+__attribute__((noinline))
+static PyObject *
+_PyDict_LoadNameStackSlow2(PyObject *op, PyObject *name, int *is_error, PyObject *garbage)
+{
+    Py_DECREF(garbage);
+    return _PyDict_LoadNameStackSlow(op, name, is_error);
+}
+
+PyObject *
+_PyDict_LoadNameStack(PyObject *op, PyObject *name, int *is_error)
+{
+    PyDictObject *mp = (PyDictObject *)op;
+    PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&mp->ma_keys);
+    if (_PY_UNLIKELY(keys->dk_type != DK_UNICODE)) {
+        return _PyDict_LoadNameStackSlow(op, name, is_error);
+    }
+    PyDictKeyEntry *entry = find_unicode(keys, name);
+    if (entry == NULL) {
+        // fixme check keys
+        *is_error = 0;
+        return NULL;
+    }
+    PyObject *value = _Py_atomic_load_ptr_relaxed(&entry->me_value);
+    if (value == NULL) {
+        return _PyDict_LoadNameStackSlow(op, name, is_error);
+    }
+    if (_Py_TryIncrefStackFast(value)) {
+        goto check_keys;
+    }
+    if (!_Py_TryIncRefShared2(value)) {
+        return _PyDict_LoadNameStackSlow(op, name, is_error);
+    }
+    if (value != _Py_atomic_load_ptr(&entry->me_value)) {
+        goto fail;
+    }
+check_keys:
+    if (keys != _Py_atomic_load_ptr(&mp->ma_keys)) {
+        goto fail;
+    }
+    return value;
+fail:
+    return _PyDict_LoadNameStackSlow2(op, name, is_error, value);
+}
+
+
 /* Fast version of global value lookup (LOAD_GLOBAL).
  * Lookup in globals, then builtins.
  *

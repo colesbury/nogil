@@ -185,6 +185,14 @@ PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
     if (intern_string_constants(consts, NULL) < 0) {
         return NULL;
     }
+    Py_ssize_t nconst = PyTuple_GET_SIZE(consts);
+    for (Py_ssize_t i = 0; i < nconst; i++) {
+        PyObject *op = PyTuple_GET_ITEM(consts, i);
+        if (_Py_ThreadLocal(op)) {
+            op->ob_ref_local |= _Py_REF_IMMORTAL_MASK;
+            op->ob_tid = 0;
+        }
+    }
 
     /* Check for any inner or outer closure references */
     n_cellvars = PyTuple_GET_SIZE(cellvars);
