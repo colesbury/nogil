@@ -322,6 +322,8 @@ PYTHON_OBJS=	\
 		Python/ast_unparse.o \
 		Python/bltinmodule.o \
 		Python/ceval.o \
+		Python/ceval2.o \
+		Python/ceval2_meta.o \
 		Python/codecs.o \
 		Python/compile.o \
 		Python/context.o \
@@ -599,6 +601,9 @@ pybuilddir.txt: $(BUILDPYTHON)
 		rm -f ./pybuilddir.txt ; \
 		exit 1 ; \
 	fi
+
+Python/ceval2.o: Python/ceval2.c
+	$(CC) -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 -o $@ $<
 
 # This is shared by the math and cmath modules
 Modules/_math.o: Modules/_math.c Modules/_math.h

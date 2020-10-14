@@ -1988,6 +1988,19 @@ diff(struct timespec start, struct timespec end)
   return (double)temp.tv_sec + temp.tv_nsec * 1e-9;
 }
 
+PyObject *
+callfib(PyObject *const *args, Py_ssize_t nargs);
+
+PyObject* bar(int a, int b, int c, int d) {
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+sys_fib(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *keywords)
+{
+    return callfib(args, nargs);
+}
+
 static PyObject *
 sys_microbench(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *keywords)
 {
@@ -2017,6 +2030,8 @@ static PyMethodDef sys_methods[] = {
     {"breakpointhook",  (PyCFunction)(void(*)(void))sys_breakpointhook,
      METH_FASTCALL | METH_KEYWORDS, breakpointhook_doc},
     {"microbench",  (PyCFunction)(void(*)(void))sys_microbench,
+     METH_FASTCALL | METH_KEYWORDS, NULL},
+    {"fib",  (PyCFunction)(void(*)(void))sys_fib,
      METH_FASTCALL | METH_KEYWORDS, NULL},
     SYS__CLEAR_TYPE_CACHE_METHODDEF
     SYS__CURRENT_FRAMES_METHODDEF

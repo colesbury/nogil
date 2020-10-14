@@ -10,6 +10,7 @@
 #include "Python.h"
 #include "pycore_object.h"
 #include "pycore_pystate.h"
+#include "pycore_dict.h"
 #include "lock.h"
 #include "stringlib/eq.h"    /* to get unicode_eq() */
 
@@ -20,49 +21,6 @@ class dict "PyDictObject *" "&PyDict_Type"
 [clinic start generated code]*/
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=f157a5a0ce9589d6]*/
 
-
-typedef struct {
-    PyObject *me_key;
-    PyObject *me_value; /* This field is only meaningful for combined tables */
-} PyDictKeyEntry;
-
-enum {
-    CTRL_EMPTY = 0,
-    CTRL_DELETED = 1,
-    CTRL_FULL = 0x80
-};
-
-enum {
-    DK_UNICODE = 1,
-    DK_GENERIC = 4
-};
-
-// See dictobject.c for actual layout of DictKeysObject
-struct _dictkeysobject {
-    // Number of usable entries in dk_entries
-    // Note: this field is clobbered when the object is freed
-    Py_ssize_t dk_usable;
-
-    // Hashtable type (DK_UNICODE, DK_SPLIT, or DK_GENERIC)
-    uint8_t dk_type;
-
-    Py_ssize_t dk_size;
-
-    PyDictKeyEntry *dk_entries;
-
-    /* Number of used entries in dk_entries. */
-    Py_ssize_t dk_nentries;
-
-    uint8_t dk_ctrl[];
-
-    //
-    // Py_hash_t dk_hashes[dk_size]; (optional)
-    //
-    // PyDictKeyEntry dk_entries[dk_size];
-    //
-    // <varies> dk_indices[dk_usable + 1];
-    //
-};
 
 /* forward declarations */
 static int resize(PyDictObject *mp, Py_ssize_t size, uint8_t type);
@@ -328,12 +286,6 @@ static PyDictKeysObject *new_keys_object(Py_ssize_t size, uint8_t type)
 }
 
 static inline int
-ctrl_has_empty(__m128i ctrl)
-{
-    return _mm_movemask_epi8(_mm_cmpeq_epi8(ctrl, _mm_set1_epi8(CTRL_EMPTY)));
-}
-
-static inline int
 ctrl_is_full(uint8_t ctrl)
 {
     return (ctrl & CTRL_FULL) != 0;
@@ -393,13 +345,6 @@ dict_entry_hash(PyDictKeysObject *keys, PyDictKeyEntry *entry)
         Py_hash_t *hashes = dict_hashes(keys);
         return _Py_atomic_load_ssize(&hashes[idx]);
     }
-}
-
-__attribute__((no_sanitize("thread")))
-static inline __m128i
-_mm_loadu_si128_nonatomic(void *p)
-{
-    return _mm_loadu_si128((__m128i *)p);
 }
 
 static PyDictKeyEntry *
@@ -498,32 +443,6 @@ retry:
                 return entry;
             }
 next:
-            bitmask &= bitmask - 1;
-        }
-        if (_PY_LIKELY(ctrl_has_empty(ctrl))) {
-            return NULL;
-        }
-        ix = (ix + 16) & mask;
-    }
-}
-
-static PyDictKeyEntry *
-find_unicode(PyDictKeysObject *keys, PyObject *key)
-{
-    PyDictKeyEntry *entries = keys->dk_entries;
-    size_t mask = keys->dk_size & ~15;
-    Py_hash_t hash = ((PyASCIIObject *)key)->hash;
-    Py_hash_t ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
-    for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
-        while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
-            PyDictKeyEntry *entry = &entries[ix + lsb];
-            if (_PY_LIKELY(entry->me_key == key)) {
-                return entry;
-            }
             bitmask &= bitmask - 1;
         }
         if (_PY_LIKELY(ctrl_has_empty(ctrl))) {
