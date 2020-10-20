@@ -2470,6 +2470,10 @@ _Py_TryIncRefShared(PyObject *op)
             new_shared);
     } while (!ok);
 
+#ifdef Py_REF_DEBUG
+    _Py_IncRefTotal();
+#endif
+
     return 1;
 }
 

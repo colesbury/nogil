@@ -550,12 +550,12 @@ _Py_TryIncref(PyObject *op) {
         return 1;
     }
 
-#ifdef Py_REF_DEBUG
-    _Py_IncRefTotal();
-#endif
     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
         local += (1 << _Py_REF_LOCAL_SHIFT);
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#ifdef Py_REF_DEBUG
+        _Py_IncRefTotal();
+#endif
         return 1;
     }
     else {
