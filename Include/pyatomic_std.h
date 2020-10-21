@@ -3,7 +3,9 @@
 #endif
 
 #ifdef __cplusplus
+extern "C++" {
 #include <atomic>
+}
 #define  MI_USING_STD   using namespace std;
 #define  _Atomic(tp)    atomic<tp>
 #else
