@@ -188,7 +188,9 @@ PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
     Py_ssize_t nconst = PyTuple_GET_SIZE(consts);
     for (Py_ssize_t i = 0; i < nconst; i++) {
         PyObject *op = PyTuple_GET_ITEM(consts, i);
-        if (_Py_ThreadLocal(op)) {
+        if (_Py_ThreadLocal(op) &&
+            (PyLong_CheckExact(op) || PyFloat_CheckExact(op))) {
+            // intern number constants
             op->ob_ref_local |= _Py_REF_IMMORTAL_MASK;
             op->ob_tid = 0;
         }
