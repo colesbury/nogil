@@ -658,10 +658,17 @@ id(foo.__code__)''',
                                           breakpoint='builtin_id',
                                           cmds_after_breakpoint=['print (PyFrameObject*)(((PyCodeObject*)v)->co_zombieframe)']
                                           )
-        self.assertTrue(re.match(r'.*\s+\$1 =\s+Frame 0x-?[0-9a-f]+, for file <string>, line 3, in foo \(\)\s+.*',
-                                 gdb_output,
-                                 re.DOTALL),
-                        'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
+        if sys.flags.nogil:
+            # nogil mode doesn't use zombie frames
+            self.assertTrue(re.match(r'.*\s+\$1 =\s+0x0.*',
+                                    gdb_output,
+                                    re.DOTALL),
+                            'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
+        else:
+            self.assertTrue(re.match(r'.*\s+\$1 =\s+Frame 0x-?[0-9a-f]+, for file <string>, line 3, in foo \(\)\s+.*',
+                                    gdb_output,
+                                    re.DOTALL),
+                            'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
 
 @unittest.skipIf(python_is_optimized(),
                  "Python was compiled with optimizations")

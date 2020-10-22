@@ -658,7 +658,7 @@ frame_dealloc(PyFrameObject *f)
     globals = f->f_globals;
     co = f->f_code;
 
-    if (_PyObject_ThreadId(co) == _Py_ThreadId() && co->co_zombieframe == NULL)
+    if (!_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL)
         co->co_zombieframe = f;
     else
         PyObject_GC_Del(f);

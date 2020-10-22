@@ -1138,7 +1138,7 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
-    if (co->co_opcache_flag < OPCACHE_MIN_RUNS && !_PyRuntime.preconfig.disable_gil) {
+    if (!_PyRuntime.preconfig.disable_gil && co->co_opcache_flag < OPCACHE_MIN_RUNS) {
         co->co_opcache_flag++;
         if (co->co_opcache_flag == OPCACHE_MIN_RUNS) {
             if (_PyCode_InitOpcache(co) < 0) {
