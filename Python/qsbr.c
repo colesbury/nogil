@@ -32,7 +32,6 @@
 
 #include "Python.h"
 #include "pycore_qsbr.h"
-#include "pycore_llist.h"
 #include "pycore_pystate.h"
 #include "pyatomic.h"
 #include "lock.h"
@@ -50,35 +49,42 @@ enum {
     QSBR_INCR = 2,
 };
 
+static qsbr_t
+_Py_qsbr_alloc(qsbr_shared_t shared)
+{
+    qsbr_t qsbr = (qsbr_t)PyMem_RawMalloc(sizeof(struct qsbr_pad));
+    if (qsbr == NULL) {
+        return NULL;
+    }
+    memset(qsbr, 0, sizeof(*qsbr));
+    qsbr->t_shared = shared;
+    return qsbr;
+}
+
 PyStatus
 _Py_qsbr_init(qsbr_shared_t shared)
 {
     memset(shared, 0, sizeof(*shared));
-    qsbr_t threads = PyMem_RawCalloc(INITIAL_NUM_THREADS, sizeof(struct qsbr));
-    if (!threads) {
+    qsbr_t head = _Py_qsbr_alloc(shared);
+    if (head == NULL) {
         return _PyStatus_NO_MEMORY();
     }
-    shared->threads = threads;
-    shared->n_threads = INITIAL_NUM_THREADS;
-    shared->n_free = INITIAL_NUM_THREADS;
+    shared->head = head;
+    shared->n_free = 1;
     shared->s_wr = QSBR_INITIAL;
     shared->s_rd_seq = QSBR_INITIAL;
-    for (size_t i = 0; i < INITIAL_NUM_THREADS; i++) {
-        shared->threads[i].t_shared = shared;
-    }
     return _PyStatus_OK();
 }
 
 void
-_Py_qsbr_after_fork(qsbr_shared_t shared, qsbr_t qsbr)
+_Py_qsbr_after_fork(qsbr_shared_t shared, qsbr_t this_qsbr)
 {
-    size_t num_threads = shared->n_threads;
-    qsbr_t threads = shared->threads;
-
-    for (size_t i = 0; i != num_threads; i++) {
-        if (&threads[i] != qsbr) {
-            _Py_qsbr_unregister_other(&threads[i]);
+    struct qsbr *qsbr = _Py_atomic_load_ptr(&shared->head);
+    while (qsbr != NULL) {
+        if (qsbr != this_qsbr) {
+            _Py_qsbr_unregister_other(qsbr);
         }
+        qsbr = qsbr->t_next;
     }
 }
 
@@ -92,18 +98,14 @@ _Py_qsbr_advance(qsbr_shared_t shared)
 uint64_t
 _Py_qsbr_poll_scan(qsbr_shared_t shared)
 {
-    size_t n_threads = shared->n_threads;
-    struct qsbr *threads = shared->threads;
-
     uint64_t min_seq = _Py_atomic_load_uint64(&shared->s_wr);
-    for (size_t i = 0; i != n_threads; i++) {
-        uint64_t seq = _Py_atomic_load_uint64(&threads[i].t_seq);
-        if (seq == QSBR_OFFLINE) {
-            continue;
-        }
-        if (QSBR_LT(seq, min_seq)) {
+    struct qsbr *qsbr = _Py_atomic_load_ptr(&shared->head);
+    while (qsbr != NULL) {
+        uint64_t seq = _Py_atomic_load_uint64(&qsbr->t_seq);
+        if (seq != QSBR_OFFLINE && QSBR_LT(seq, min_seq)) {
             min_seq = seq;
         }
+        qsbr = qsbr->t_next;
     }
 
     uint64_t rd_seq = _Py_atomic_load_uint64(&shared->s_rd_seq);
@@ -154,15 +156,15 @@ _Py_qsbr_recycle(qsbr_shared_t shared, PyThreadState *tstate)
     if (_Py_atomic_load_uintptr(&shared->n_free) == 0) {
         return NULL;
     }
-    uintptr_t size = _Py_atomic_load_uintptr(&shared->n_threads);
-    for (uintptr_t i = 0; i < size; i++) {
-        qsbr_t qsbr = &shared->threads[i];
+    qsbr_t qsbr = _Py_atomic_load_ptr(&shared->head);
+    while (qsbr != NULL) {
         if (_Py_atomic_load_ptr_relaxed(&qsbr->tstate) == NULL &&
             _Py_atomic_compare_exchange_ptr(&qsbr->tstate, NULL, tstate)) {
 
             _Py_atomic_add_uintptr(&shared->n_free, -1);
             return qsbr;
         }
+        qsbr = qsbr->t_next;
     }
     return NULL;
 }
@@ -176,39 +178,17 @@ _Py_qsbr_register(qsbr_shared_t shared, PyThreadState *tstate)
         return qsbr;
     }
 
-    _PyMutex_lock(&_PyRuntime.stoptheworld_mutex);
-    _PyRuntimeState_StopTheWorld(&_PyRuntime);
-    qsbr = _Py_qsbr_recycle(shared, tstate);
-    if (qsbr) {
-        goto done;
+    qsbr = _Py_qsbr_alloc(shared);
+    if (qsbr == NULL) {
+        return NULL;
     }
 
-    size_t n_threads = shared->n_threads * 2;
-    qsbr_t threads = PyMem_RawCalloc(n_threads, sizeof(struct qsbr));
-    if (!threads) {
-        goto done;
-    }
-
-    memcpy(threads, shared->threads, shared->n_threads * sizeof(struct qsbr));
-    PyMem_RawFree(shared->threads);
-    shared->threads = threads;
-    shared->n_threads = n_threads;
-    shared->n_free = n_threads / 2;
-    for (size_t i = 0; i < n_threads / 2; i++) {
-        threads[i].tstate->qsbr = &threads[i];
-    }
-    for (size_t i = 0; i < n_threads; i++) {
-        threads[i].t_shared = shared;
-    }
-
-    qsbr = &shared->threads[n_threads / 2];
     qsbr->tstate = tstate;
-    qsbr->t_shared = shared;
-    shared->n_free--;
-
-done:
-    _PyRuntimeState_StartTheWorld(&_PyRuntime);
-    _PyMutex_unlock(&_PyRuntime.stoptheworld_mutex);
+    qsbr_t next;
+    do {
+        next = _Py_atomic_load_ptr(&shared->head);
+        qsbr->t_next = next;
+    } while (!_Py_atomic_compare_exchange_ptr(&shared->head, next, qsbr));
     return qsbr;
 }
 

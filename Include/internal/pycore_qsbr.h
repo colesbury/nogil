@@ -12,9 +12,13 @@ typedef struct qsbr_shared *qsbr_shared_t;
 struct qsbr {
     uint64_t        t_seq;
     qsbr_shared_t   t_shared;
+    struct qsbr     *t_next;
     PyThreadState   *tstate;
+};
 
-    char __padding[64 - sizeof(uint64_t) - sizeof(qsbr_shared_t) - sizeof(PyThreadState*)];
+struct qsbr_pad {
+    struct qsbr qsbr;
+    char __padding[64 - sizeof(struct qsbr)];
 };
 
 typedef struct qsbr *qsbr_t;
@@ -26,9 +30,8 @@ struct qsbr_shared {
     /* Minimum observed read sequence. */
     uint64_t    s_rd_seq;
 
-    qsbr_t      threads;
+    qsbr_t      head;
     uintptr_t   n_free;
-    size_t      n_threads;
 };
 
 static inline uint64_t
