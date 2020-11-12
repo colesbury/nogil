@@ -449,8 +449,13 @@ _Py_ThreadLocal(PyObject *op)
 #if defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__)
     uintptr_t tmp;
     int out;
-    __asm__ ("mov    %%fs:0, %[tmp]\n\t"
-             "cmp    %[tmp], %[ob_tid]"
+    __asm__ (
+    #if defined(__MACH__)
+        "mov    %%gs:0, %[tmp]\n\t"
+    #else
+        "mov    %%fs:0, %[tmp]\n\t"
+    #endif
+        "cmp    %[tmp], %[ob_tid]"
         : [tmp] "=&r"(tmp), "=@ccz" (out)
         : [ob_tid] "m" (*ob_tid)
         : );
