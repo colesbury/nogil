@@ -53,7 +53,7 @@ def_op('LOAD_NAME', 101)        # Index in name list
 def_op('LOAD_CONST', 100)       # Index in const list
 def_op('LOAD_ATTR', 106)        # Index in name list
 def_op('LOAD_GLOBAL', 116)      # Index in name list
-def_op('LOAD_METHOD', 160) 
+def_op('LOAD_METHOD', 160)
 
 def_op('STORE_FAST', 125)       # Local variable number
 def_op('STORE_NAME', 90)        # Index in name list
@@ -91,7 +91,7 @@ def_op('POP_JUMP_IF_TRUE', 115)     # ""
 def_op('GET_ITER', 68)
 def_op('GET_YIELD_FROM_ITER', 69)
 
-# imports 
+# imports
 def_op('IMPORT_NAME', 108)      # Index in name list
 def_op('IMPORT_FROM', 109)      # Index in name list
 def_op('IMPORT_STAR', 84)
@@ -147,5 +147,9 @@ def_op('DICT_UPDATE', 165)
 
 def_op('LOAD_GLOBAL_FOR_CALL', 166)     # Index in name list
 def_op('LOAD_FAST_FOR_CALL', 167)     # Index in name list
+
+
+def_op('CLEAR', 168)     # Index in name list
+def_op('MOVE', 169)
 
 del def_op
