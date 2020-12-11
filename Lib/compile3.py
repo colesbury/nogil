@@ -82,16 +82,16 @@ class SetLineNo(Assembly):
         return ((start, self.line),)
 
 class Instruction(Assembly):
+    length = 2
+
     def __init__(self, opcode, arg):
         self.opcode = opcode
         self.arg    = arg
-        self.length = 1 if arg is None else 3
     def encode(self, start, addresses):
         if   self.opcode in dis.hasjabs: arg = addresses[self.arg]
-        elif self.opcode in dis.hasjrel: arg = addresses[self.arg] - (start+3)
+        elif self.opcode in dis.hasjrel: arg = addresses[self.arg] - (start+2)
         else:                            arg = self.arg
-        if arg is None: return bytes([self.opcode])
-        else:           return bytes([self.opcode, arg % 256, arg // 256])
+        return bytes([self.opcode, arg or 0])
     def plumb(self, depths):
         arg = 0 if isinstance(self.arg, Label) else self.arg
         depths.append(depths[-1] + dis.stack_effect(self.opcode, arg))
@@ -140,6 +140,7 @@ class CodeGen(ast.NodeVisitor):
         return self.make_code(assembly, name, 0, False, False)
 
     def make_code(self, assembly, name, argcount, has_varargs, has_varkws):
+        posonlyargcount = 0
         kwonlyargcount = 0
         nlocals = len(self.varnames)
         stacksize = plumb_depths(assembly)
@@ -149,8 +150,9 @@ class CodeGen(ast.NodeVisitor):
                  | (0x10 if self.scope.freevars      else 0)
                  | (0x40 if not self.scope.derefvars else 0))
         firstlineno, lnotab = make_lnotab(assembly)
-        return types.CodeType(argcount, kwonlyargcount,
-                              nlocals, stacksize, flags, assemble(assembly),
+        code = assemble(assembly)
+        return types.CodeType(argcount, posonlyargcount, kwonlyargcount,
+                              nlocals, stacksize, flags, code,
                               self.collect_constants(),
                               collect(self.names), collect(self.varnames),
                               self.filename, name, firstlineno, lnotab,
@@ -191,15 +193,16 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
-        opcode = (op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
-                  op.CALL_FUNCTION_VAR    if t.starargs else
-                  op.CALL_FUNCTION_KW     if t.kwargs else
+        opcode = (
+                  # op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
+                  # op.CALL_FUNCTION_VAR    if t.starargs else
+                  # op.CALL_FUNCTION_KW     if t.kwargs else
                   op.CALL_FUNCTION)
         return (self(t.func)
                 + self(t.args)
                 + self(t.keywords)
-                + (self(t.starargs) if t.starargs else no_op)
-                + (self(t.kwargs)   if t.kwargs   else no_op)
+                # + (self(t.starargs) if t.starargs else no_op)
+                # + (self(t.kwargs)   if t.kwargs   else no_op)
                 + opcode((len(t.keywords) << 8) | len(t.args)))
 
     def visit_keyword(self, t):
@@ -412,7 +415,7 @@ def rewriter(rewrite):
     return visit
 
 def Call(fn, args):
-    return ast.Call(fn, args, [], None, None)
+    return ast.Call(fn, args, [])
 
 class Desugarer(ast.NodeTransformer):
 
@@ -445,7 +448,8 @@ class Desugarer(ast.NodeTransformer):
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body,
               ast.Return(ast.Name('.0', load))]
-        args = ast.arguments([ast.arg('.0', None)], None, [], None, [], [])
+        args = ast.arguments([None, ast.arg('.0', None)], None, [], None, [], [])
+
         return Call(Function('<listcomp>', args, fn),
                     [ast.List([], load)])
 

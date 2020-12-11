@@ -12,6 +12,7 @@ def _f(): pass
 FunctionType = type(_f)
 LambdaType = type(lambda: None)         # Same as FunctionType
 CodeType = type(_f.__code__)
+Code2Type = _code2
 MappingProxyType = type(type.__dict__)
 SimpleNamespace = type(sys.implementation)
 

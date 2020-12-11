@@ -144,8 +144,8 @@ class Checker(ast.NodeVisitor):
         self(t.func)
         self(t.args)
         self(t.keywords)
-        if t.starargs: self(t.starargs)
-        if t.kwargs:   self(t.kwargs)
+        # if t.starargs: self(t.starargs)
+        # if t.kwargs:   self(t.kwargs)
 
     def visit_keyword(self, t):
         self.check_identifier(t.arg)
