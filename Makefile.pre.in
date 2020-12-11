@@ -394,6 +394,7 @@ OBJECT_OBJS=	\
 		Objects/cellobject.o \
 		Objects/classobject.o \
 		Objects/codeobject.o \
+		Objects/codeobject2.o \
 		Objects/complexobject.o \
 		Objects/descrobject.o \
 		Objects/enumobject.o \
@@ -996,6 +997,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/ceval.h \
 		$(srcdir)/Include/classobject.h \
 		$(srcdir)/Include/code.h \
+		$(srcdir)/Include/code2.h \
 		$(srcdir)/Include/codecs.h \
 		$(srcdir)/Include/compile.h \
 		$(srcdir)/Include/complexobject.h \

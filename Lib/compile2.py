@@ -1,4 +1,5 @@
 import ast
+import io
 import symtable as symtables
 import sys
 import os
@@ -19,6 +20,9 @@ class CompilerUnit:
     def __init__(self, name, symtable):
         self.name = name
         self.symtable = symtable
+        self.symbol_scopes = {}
+        for child in symtable.get_children():
+            self.symbol_scopes[child.get_name(), child.get_lineno()] = child
         self.consts = {}
         self.names = {}
         self.varnames = {}
@@ -40,8 +44,17 @@ class CompilerUnit:
         return idx
 
     def assemble(self):
-        # return code object?
-        pass
+        buf = io.BytesIO()
+        for block in self.blocks:
+            for instr in block.instrs:
+                enc = bytearray(4)
+                enc[0] = instr & 0xff
+                enc[1] = (instr >> 8) & 0xff
+                enc[2] = (instr >> 16) & 0xff
+                enc[3] = (instr >> 24) & 0xff
+                buf.write(enc)
+
+
 
 
 def constant_key(value):
@@ -52,9 +65,6 @@ class Compiler(ast.NodeVisitor):
     def __init__(self, symtable):
         self.unit = CompilerUnit('<module>', symtable)
         self.top_symtable = symtable
-        self.symbol_scopes = {}
-        for child in symtable.get_children():
-            self.symbol_scopes[child.get_name()] = child
         self.stack = []  # stack of compilation units
         self.next_register = 0
         self.max_registers = 0
@@ -76,13 +86,10 @@ class Compiler(ast.NodeVisitor):
 
     def visit_Module(self, mod):
         # enter scope
-        print('mod', mod)
-        print(mod.body)
         self.generic_visit(mod)
 
     def visit_FunctionDef(self, s):
-        with self.scope(s.name) as unit:
-            print(s.body)
+        with self.scope(s.name, s) as unit:
             for stmt in s.body:
                 self.visit(stmt)
             code = unit.assemble()
@@ -103,14 +110,16 @@ class Compiler(ast.NodeVisitor):
         # TODO: name mangling
         for i, target in enumerate(node.targets):
             if type(target) == ast.Name:
-                print(target.id)
                 symbol = symtable.lookup(target.id)
+                name = self.mangle_name(symbol.get_name())
+
                 if symbol.is_local():
                     if symtable.get_type() == 'function':
-                        arg = self.add_const(self.mangle_name(symbol.get_name()))
-                        self.emit(STORE_NAME, arg)
+                        arg = self.unit.varnames[name]
+                        self.emit(STORE_FAST, arg)
                     else:
-                        print('fail')
+                        arg = self.add_const(name)
+                        self.emit(STORE_NAME, arg)
             else:
                 print('??? =', type(target))
         # print(node.targets)
@@ -145,13 +154,11 @@ class Compiler(ast.NodeVisitor):
         self.emit(RETURN_VALUE)
 
     def visit_Name(self, node):
-        print(self.unit.symtable)
         symbol = self.unit.symtable.lookup(node.id)
         pass
 
     def visit_ListComp(self, node):
-        print('ListComp', node, node.generators, node.elt)
-        with self.scope('<listcomp>'):
+        with self.scope('listcomp', node):
             pass
         pass
 
@@ -174,19 +181,19 @@ class Compiler(ast.NodeVisitor):
             super().visit(node)
 
     def generic_visit(self, node):
-        print('visit', type(node))
         super().generic_visit(node)
 
     def make_closure(self, code, flags, qualname):
-        print('make_closure', code, flags, qualname)
+        arg = self.add_const(code)
+        self.emit(MAKE_FUNCTION, arg)
         pass
 
     @contextlib.contextmanager
-    def scope(self, name):
+    def scope(self, name, node):
         self.stack.append(self.unit)
-        print('scope', self.top_symtable.lookup(name), self.top_symtable.lookup(name).get_namespace())
-        scope = self.symbol_scopes[name]
-        print('locals', scope.get_locals())
+        # print('scope', self.top_symtable.lookup(name), self.top_symtable.lookup(name).get_namespace())
+        scope = self.unit.symbol_scopes[(name, node.lineno)]
+        # scope2 = self.unit.symtable.lookup(name)
         self.unit = CompilerUnit(name, scope)
         yield self.unit
         self.unit = self.stack.pop()
@@ -215,7 +222,6 @@ def main():
     tree = ast.parse(contents, filename)
     st = symtables.symtable(contents, filename, 'exec')
     # print(ast.dump(tree, indent=4))
-    print(st.get_children())
     Compiler(st).visit(tree)
 
 if __name__ == '__main__':

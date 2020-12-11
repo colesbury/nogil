@@ -17,7 +17,7 @@
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
-#include "opcodes2.h"
+#include "opcode2.h"
 #include "ceval2_meta.h"
 
 #include <ctype.h>
@@ -26,11 +26,11 @@
 #define LIKELY _PY_LIKELY
 
 // tt  = type
-//   r = refcounted 
+//   r = refcounted
 //     .. [ttr]
 // 000 ..  000 NULL
 // aaa ..  000 non-RC OBJ
-// aaa ..  001 RC obj 
+// aaa ..  001 RC obj
 //     ..  010 int
 //     ..  100 pri (True, False, None)
 
@@ -67,7 +67,7 @@
 } while (0)
 
 struct metadata {
-    
+
 };
 
 Code *func_code(PyFunc *func)
@@ -276,13 +276,13 @@ void baz() {
 // code block ->
 //   ...
 //   pointer to constants array
-// 
+//
 // so loading constant at index N
 // tmp = load regs[2]
 // tmp = load tmp[offsetof constnt]
 // tmp = load tmp[N]
 
-PyObject* 
+PyObject*
 _PyEval_Fast(struct ThreadState *ts)
 {
     const Register *constants = ts->constants;
@@ -305,11 +305,11 @@ _PyEval_Fast(struct ThreadState *ts)
     // constants (KBASE)
     // PC
     // opcode_targets
-    
+
     // We want saved:
     // next_instr (pc) -- webkit splits this in two: PB/PC PB is saved, PC is returned on calls
     // constants -- webkit sticks this in frame?
-    // opcode_targets 
+    // opcode_targets
     // ts (?)
     // OBJ_MASK
     // INT32_TAG
@@ -535,7 +535,7 @@ _PyEval_Fast(struct ThreadState *ts)
             "# constants = %6 \n\t"
             "# ts = %7 \n\t"
             "# opcode_targets = %8 \n\t"
-            "# metadata = %9 \n\t" :: 
+            "# metadata = %9 \n\t" ::
             "r" (opcode),
             "r" (opA),
             "r" (opD),

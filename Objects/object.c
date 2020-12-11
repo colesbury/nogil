@@ -11,6 +11,7 @@
 #include "pycore_pystate.h"
 #include "frameobject.h"
 #include "interpreteridobject.h"
+#include "code2.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -1900,6 +1901,7 @@ _PyTypes_Init(void)
     INIT_TYPE(&PyReversed_Type, "reversed");
     INIT_TYPE(&PyStdPrinter_Type, "StdPrinter");
     INIT_TYPE(&PyCode_Type, "code");
+    INIT_TYPE(&PyCode2_Type, "code2");
     INIT_TYPE(&PyFrame_Type, "frame");
     INIT_TYPE(&PyCFunction_Type, "builtin function");
     INIT_TYPE(&PyMethod_Type, "method");

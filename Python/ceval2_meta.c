@@ -16,7 +16,7 @@
 #include "pydtrace.h"
 #include "setobject.h"
 #include "structmember.h"
-#include "opcodes2.h"
+#include "opcode2.h"
 #include "ceval2_meta.h"
 
 #include <ctype.h>
