@@ -68,7 +68,7 @@ def_op('INPLACE_POWER', 67, 'reg')
 
 # load / store / delete
 def_op('LOAD_FAST', 124, 'reg')        # Local variable number
-def_op('LOAD_NAME', 101, 'reg')        # Index in name list
+def_op('LOAD_NAME', 101, 'str')        # Index in name list
 def_op('LOAD_CONST', 100, 'const')       # Index in const list
 def_op('LOAD_ATTR', 106, 'reg')        # Index in name list
 def_op('LOAD_GLOBAL', 116, 'reg')      # Index in name list
@@ -99,12 +99,11 @@ def_op('YIELD_VALUE', 86)
 def_op('YIELD_FROM', 72)
 
 # jmp
-def_op('JUMP_FORWARD', 110, None, 'jump')         # Number of bytes to skip
-def_op('JUMP_IF_FALSE_OR_POP', 111, None, 'jump') # Target byte offset from beginning of code
-def_op('JUMP_IF_TRUE_OR_POP', 112, None, 'jump')  # ""
-def_op('JUMP_ABSOLUTE', 113, None, 'jump')        # ""
+def_op('JUMP', 113, None, 'jump')                 # Target byte offset from beginning of code
+def_op('JUMP_IF_FALSE', 111, None, 'jump')        # ""
+def_op('JUMP_IF_TRUE', 112, None, 'jump')         # ""
 def_op('JUMP_IF_NOT_EXC_MATCH', 121, None, 'jump')
-def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # ""
+def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # "" while loop
 def_op('POP_JUMP_IF_TRUE', 115, None, 'jump')     # ""
 
 def_op('GET_ITER', 68)
@@ -146,7 +145,7 @@ def_op('POP_EXCEPT', 89)
 def_op('WITH_EXCEPT_START', 49)
 def_op('BEFORE_ASYNC_WITH', 52)
 def_op('END_ASYNC_FOR', 54)
-def_op('FOR_ITER', 93, 'jump')
+def_op('FOR_ITER', 93, None, 'jump')
 def_op('UNPACK_SEQUENCE', 92, 'base', 'lit')   # Number of tuple items
 def_op('UNPACK_EX', 94)
 def_op('SETUP_FINALLY', 122)   # Distance to target address

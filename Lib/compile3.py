@@ -29,11 +29,6 @@ from check_subset import check_conformity
 def assemble(assembly):
     return bytes(iter(assembly.encode(0, dict(assembly.resolve(0)))))
 
-def plumb_depths(assembly):
-    depths = [0]
-    assembly.plumb(depths)
-    return max(depths)
-
 def make_lnotab(assembly):
     firstlineno, lnotab = None, []
     byte, line = 0, None
@@ -85,7 +80,7 @@ class SetLineNo(Assembly):
         return ((start, self.line),)
 
 class Instruction(Assembly):
-    length = 2
+    length = 4
 
     def __init__(self, opcode, arg, arg2):
         self.opcode = opcode
@@ -94,7 +89,7 @@ class Instruction(Assembly):
     def encode(self, start, addresses):
         arg, arg2 = self.arg, self.arg2
         if dis.opcodes[self.opcode].is_jump():
-            arg2 = addresses[arg2] - (start+4)
+            arg2 = (addresses[arg2] - start) // 4 - 1
         if arg2 is None:
             arg2 = 0
         else:
@@ -104,9 +99,6 @@ class Instruction(Assembly):
         argB = arg2 & 0xFF
         argC = (arg2 >> 8)
         return bytes([self.opcode, argA, argB, argC])
-    def plumb(self, depths):
-        arg = 0 if isinstance(self.arg, Label) else self.arg
-        depths.append(depths[-1] + dis.stack_effect(self.opcode, arg))
 
 class Chain(Assembly):
     def __init__(self, assembly1, assembly2):
@@ -122,13 +114,6 @@ class Chain(Assembly):
     def line_nos(self, start):
         return chain(self.part1.line_nos(start),
                      self.part2.line_nos(start + self.part1.length))
-    def plumb(self, depths):
-        self.part1.plumb(depths)
-        self.part2.plumb(depths)
-
-class OffsetStack(Assembly):
-    def plumb(self, depths):
-        depths.append(depths[-1] - 1)
 
 class Placeholder:
     def __init__(self, visitor):
@@ -186,7 +171,7 @@ class CodeGen(ast.NodeVisitor):
         kwonlyargcount = 0
         nlocals = len(self.varnames)
         # stacksize = plumb_depths(assembly)
-        framesize = 0
+        framesize = self.max_registers
         flags = (  (0x02 if nlocals                  else 0)
                  | (0x04 if has_varargs              else 0)
                  | (0x08 if has_varkws               else 0)
@@ -306,15 +291,14 @@ class CodeGen(ast.NodeVisitor):
     def visit_If(self, t):
         orelse, after = Label(), Label()
         return (           self(t.test) + op.POP_JUMP_IF_FALSE(orelse)
-                         + self(t.body) + op.JUMP_FORWARD(after)
+                         + self(t.body) + op.JUMP(after)
                 + orelse + self(t.orelse)
                 + after)
 
     def visit_IfExp(self, t):
         orelse, after = Label(), Label()
         return (           self(t.test) + op.POP_JUMP_IF_FALSE(orelse)
-                         + self(t.body) + op.JUMP_FORWARD(after)
-                + OffsetStack()
+                         + self(t.body) + op.JUMP(after)
                 + orelse + self(t.orelse)
                 + after)
 
@@ -378,10 +362,10 @@ class CodeGen(ast.NodeVisitor):
         op_jump = self.ops_bool[type(t.op)]
         def compose(left, right):
             after = Label()
-            return left + op_jump(after) + OffsetStack() + right + after
+            return left + op_jump(after) + right + after
         return reduce(compose, map(self, t.values))
-    ops_bool = {ast.And: op.JUMP_IF_FALSE_OR_POP,
-                ast.Or:  op.JUMP_IF_TRUE_OR_POP}
+    ops_bool = {ast.And: op.JUMP_IF_FALSE,
+                ast.Or:  op.JUMP_IF_TRUE}
 
     def visit_Pass(self, t):
         return no_op
@@ -410,15 +394,15 @@ class CodeGen(ast.NodeVisitor):
     def visit_While(self, t):
         loop, end = Label(), Label()
         return (  loop + self(t.test) + op.POP_JUMP_IF_FALSE(end)
-                       + self(t.body) + op.JUMP_ABSOLUTE(loop)
+                       + self(t.body) + op.JUMP(loop)
                 + end)
 
     def visit_For(self, t):
         loop, end = Label(), Label()
         return (         self(t.iter) + op.GET_ITER
                 + loop + op.FOR_ITER(end) + self(t.target)
-                       + self(t.body) + op.JUMP_ABSOLUTE(loop)
-                + end  + OffsetStack())
+                       + self(t.body) + op.JUMP(loop)
+                + end)
 
     def visit_Return(self, t):
         return ((self(t.value) if t.value else self.load_const(None))

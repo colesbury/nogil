@@ -329,7 +329,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         argval = arg
         argrepr = ''
         if fmt == 'jump':
-            argval = offset + 2 + arg
+            argval = offset + 4 * (signed(arg) + 1)
             argrepr = "to " + repr(argval)
         elif fmt == 'str':
             argval, argrepr = _get_const_info(arg, constants)
@@ -340,7 +340,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
                 argrepr = '#t' + str(arg - len(varnames))
         elif fmt == 'const':
             argval, argrepr = _get_const_info(arg, constants)
-        return argrepr
+        return argval, argrepr
 
 
     labels = findlabels(code)
@@ -353,8 +353,8 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         is_jump_target = offset in labels
         argval = None
         bytecode = opcodes[op]
-        argreprA = get_repr(argA, bytecode.opA)
-        argreprD = get_repr(argD, bytecode.opD)
+        _, argreprA = get_repr(argA, bytecode.opA)
+        argval, argreprD = get_repr(argD, bytecode.opD)
         # if arg is not None:
         #     #  Set argval to the dereferenced value of the argument when
         #     #  available, and argrepr to the string representation of argval.
@@ -443,12 +443,16 @@ def _disassemble_str(source, **kwargs):
 
 disco = disassemble                     # XXX For backwards compatibility
 
+def signed(x):
+    return x if x < 32768 else (x - 65536)
+
 def _unpack_opargs(code):
     extended_arg = 0
     for i in range(0, len(code), 4):
         op = code[i]
         argA, argB, argC = code[i+1:i+4]
         argD = argB | (argC << 8)
+        argD = signed(argD)
         if opcodes[op].opA is None:
             assert argA == 0
             argA = None
