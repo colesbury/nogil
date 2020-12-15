@@ -127,6 +127,22 @@ class Placeholder:
         self.reg, instrs = self.visitor.to_register(t)
         return instrs
 
+class Register:
+    def __init__(self, visitor, reg):
+        self.visitor = visitor
+        self.reg = reg
+    def __index__(self):
+        assert self.reg is not None, 'unassigned placeholder'
+        return self.reg
+    def __call__(self, t):
+        reg, instrs = self.visitor.to_register(t, self.reg)
+        assert reg == self.reg
+        assert self.visitor.next_register <= reg
+        self.visitor.next_register = reg + 1
+        if reg + 1 > self.visitor.max_registers:
+            self.visitor.max_registers = reg + 1
+        return instrs
+
 def denotation(defn):
     opcode = defn.opcode
     opA = defn.opA
@@ -214,12 +230,24 @@ class CodeGen(ast.NodeVisitor):
     def register(self):
         return Placeholder(self)
 
-    def to_register(self, t):
+    def register_list(self):
+        visitor = self
+        class RegisterList:
+            base = self.next_register
+            def __getitem__(self, i):
+                return Register(visitor, self.base + i)
+        return RegisterList()
+
+    def to_register(self, t, reg=None):
         if isinstance(t, ast.Name):
             access = self.scope.access(t.id)
             if access == 'fast':
-                return self.varnames[t.id], no_op
-        reg = self.new_register()
+                if reg is None:
+                    return self.varnames[t.id], no_op
+                else:
+                    return reg, op.COPY(reg, self.varnames[t.id])
+        if reg is None:
+            reg = self.new_register()
         return reg, self(t) + op.STORE_FAST(reg)
 
     def visit_NameConstant(self, t): return self.load_const(t.value)
@@ -249,21 +277,20 @@ class CodeGen(ast.NodeVisitor):
     def cell_index(self, name):
         return self.scope.derefvars.index(name)
 
+    @register_scope
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
+        assert len(t.keywords) == 0
         # FIXME base register
-        base = 0
         opcode = (
                   # op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
                   # op.CALL_FUNCTION_VAR    if t.starargs else
                   # op.CALL_FUNCTION_KW     if t.kwargs else
                   op.CALL_FUNCTION)
-        return (self(t.func)
-                + self(t.args)
-                + self(t.keywords)
-                # + (self(t.starargs) if t.starargs else no_op)
-                # + (self(t.kwargs)   if t.kwargs   else no_op)
-                + opcode(base, len(t.args)))
+        regs = self.register_list()
+        return (regs[0](t.func) +
+                concat([regs[2+i](arg) for i,arg in enumerate(t.args)]) +
+                opcode(regs.base, len(t.args)))
 
     def visit_keyword(self, t):
         return self.load_const(t.arg) + self(t.value)
@@ -432,6 +459,10 @@ class CodeGen(ast.NodeVisitor):
             self.varnames[arg.arg]
         if t.args.vararg: self.varnames[t.args.vararg.arg]
         if t.args.kwarg:  self.varnames[t.args.kwarg.arg]
+        for local in self.scope.local_defs:
+            self.varnames[local]
+        self.next_register = len(self.varnames)
+        self.max_registers = self.next_register
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
         return self.make_code(assembly, t.name,
                               len(t.args.args), t.args.vararg, t.args.kwarg)

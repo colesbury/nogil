@@ -164,6 +164,6 @@ def_op('DICT_MERGE', 164)
 def_op('DICT_UPDATE', 165)
 
 def_op('CLEAR_FAST', 168, 'reg')     # Index in name list
-def_op('MOVE', 169, 'reg', 'reg')
+def_op('COPY', 169, 'reg', 'reg')
 
 del def_op

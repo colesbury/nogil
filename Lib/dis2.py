@@ -192,15 +192,14 @@ def show_code(co, *, file=None):
     print(code_info(co), file=file)
 
 _Instruction = collections.namedtuple("_Instruction",
-     "opname opcode argA argD argval argreprA argreprD offset starts_line is_jump_target")
+     "opname opcode argA argD argval argrepr offset starts_line is_jump_target")
 
 _Instruction.opname.__doc__ = "Human readable name for operation"
 _Instruction.opcode.__doc__ = "Numeric code for operation"
 _Instruction.argA.__doc__ = "Numeric argument to operation (if any), otherwise None"
 _Instruction.argD.__doc__ = "Numeric argument to operation (if any), otherwise None"
 _Instruction.argval.__doc__ = "Resolved arg value (if known), otherwise same as arg"
-_Instruction.argreprA.__doc__ = "Human readable description of operation argument"
-_Instruction.argreprD.__doc__ = "Human readable description of operation argument"
+_Instruction.argrepr.__doc__ = "Human readable description of operation argument"
 _Instruction.offset.__doc__ = "Start index of operation within bytecode sequence"
 _Instruction.starts_line.__doc__ = "Line started by this opcode (if any), otherwise None"
 _Instruction.is_jump_target.__doc__ = "True if other code jumps to here, otherwise False"
@@ -252,16 +251,11 @@ class Instruction(_Instruction):
         # Column: Opcode name
         fields.append(self.opname.ljust(_OPNAME_WIDTH))
         # Column: Opcode argument
-        if self.argA is not None:
-            fields.append(repr(self.argA).rjust(_OPARG_WIDTH))
-            # Column: Opcode argument details
-            if self.argreprA:
-                fields.append('(' + self.argreprA + ')')
-        if self.argD is not None:
-            fields.append(repr(self.argD).rjust(_OPARG_WIDTH))
-            # Column: Opcode argument details
-            if self.argreprD:
-                fields.append('(' + self.argreprD + ')')
+        args = ' '.join(map(str, filter(lambda x: x is not None, [self.argA, self.argD])))
+        if args != '':
+            fields.append(args.rjust(_OPARG_WIDTH))
+            if self.argrepr:
+                fields.append('(' + self.argrepr + ')')
         return ' '.join(fields).rstrip()
 
 
@@ -325,22 +319,32 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
     arguments.
 
     """
-    def get_repr(arg, fmt):
-        argval = arg
+    def format_reg(reg):
+        if varnames is None or reg < len(varnames):
+            argval, argrepr = _get_name_info(reg, varnames)
+        else:
+            argrepr = '.t' + str(reg - len(varnames))
+        return argrepr
+
+
+    def get_repr(bytecode, argA, argD):
         argrepr = ''
-        if fmt == 'jump':
-            argval = offset + 4 * (signed(arg) + 1)
-            argrepr = "to " + repr(argval)
-        elif fmt == 'str':
-            argval, argrepr = _get_const_info(arg, constants)
-        elif fmt == 'reg':
-            if varnames is None or arg < len(varnames):
-                argval, argrepr = _get_name_info(arg, varnames)
-            else:
-                argrepr = '#t' + str(arg - len(varnames))
-        elif fmt == 'const':
-            argval, argrepr = _get_const_info(arg, constants)
-        return argval, argrepr
+        if bytecode.name == 'CALL_FUNCTION':
+            return f'{format_reg(argA)} to {format_reg(argA+argD+1)}'
+
+        for (arg, fmt) in [(argA, bytecode.opA), (argD, bytecode.opD)]:
+            if fmt == 'jump':
+                argval = offset + 4 * (signed(arg) + 1)
+                argrepr = "to " + repr(argval)
+            elif fmt == 'str':
+                argval, argrepr = _get_const_info(arg, constants)
+            elif fmt == 'reg':
+                argrepr = format_reg(arg)
+            elif fmt == 'const':
+                argval, argrepr = _get_const_info(arg, constants)
+            elif fmt == 'cell':
+                argval, argrepr = _get_name_info(arg, cells)
+        return argrepr
 
 
     labels = findlabels(code)
@@ -353,8 +357,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         is_jump_target = offset in labels
         argval = None
         bytecode = opcodes[op]
-        _, argreprA = get_repr(argA, bytecode.opA)
-        argval, argreprD = get_repr(argD, bytecode.opD)
+        argrepr = get_repr(bytecode, argA, argD)
         # if arg is not None:
         #     #  Set argval to the dereferenced value of the argument when
         #     #  available, and argrepr to the string representation of argval.
@@ -386,7 +389,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         #         argrepr = ', '.join(s for i, s in enumerate(MAKE_FUNCTION_FLAGS)
         #                             if arg & (1<<i))
         yield Instruction(opname[op], op,
-                          argA, argD, argval, argreprA, argreprD,
+                          argA, argD, argval, argrepr,
                           offset, starts_line, is_jump_target)
 
 def disassemble(co, lasti=-1, *, file=None):
