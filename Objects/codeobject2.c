@@ -175,7 +175,20 @@ code_dealloc(PyCodeObject2 *co)
 static PyObject *
 code_repr(PyCodeObject2 *co)
 {
-    return PyUnicode_FromFormat("<code2 object>");
+    int lineno;
+    if (co->co_firstlineno != 0)
+        lineno = co->co_firstlineno;
+    else
+        lineno = -1;
+    if (co->co_filename && PyUnicode_Check(co->co_filename)) {
+        return PyUnicode_FromFormat(
+            "<code2 object %U at %p, file \"%U\", line %d>",
+            co->co_name, co, co->co_filename, lineno);
+    } else {
+        return PyUnicode_FromFormat(
+            "<code2 object %U at %p, file ???, line %d>",
+            co->co_name, co, lineno);
+    }
 }
 
 static Py_hash_t
@@ -231,9 +244,6 @@ code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
         PyTuple_SET_ITEM(t, i, c);
     }
     return t;
-
-    uint32_t *bytecode = PyCode2_Code((PyObject *)co);
-    return PyBytes_FromStringAndSize((char *)bytecode, co->co_size * sizeof(uint32_t));
 }
 
 static struct PyMethodDef code_methods[] = {
