@@ -140,8 +140,8 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         return NULL;
     }
     co->co_argcount = argcount;
-    Py_XINCREF(names);
-    co->co_varnames = names;
+    Py_XINCREF(varnames);
+    co->co_varnames = varnames;
     Py_XINCREF(freevars);
     co->co_freevars = freevars;
     Py_XINCREF(cellvars);

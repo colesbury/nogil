@@ -93,8 +93,8 @@ class Instruction(Assembly):
         self.arg2   = arg2
     def encode(self, start, addresses):
         arg, arg2 = self.arg, self.arg2
-        if self.opcode in dis.isjump:
-            arg2 = addresses[arg2] - (start+2)
+        if dis.opcodes[self.opcode].is_jump():
+            arg2 = addresses[arg2] - (start+4)
         if arg2 is None:
             arg2 = 0
         else:
@@ -131,27 +131,32 @@ class OffsetStack(Assembly):
         depths.append(depths[-1] - 1)
 
 class Placeholder:
-    def __init__(self):
+    def __init__(self, visitor):
         self.reg = None
+        self.visitor = visitor
     def __index__(self):
         assert self.reg is not None, 'unassigned placeholder'
         return self.reg
+    def __call__(self, t):
+        assert self.reg is None, 'unassigned placeholder'
+        self.reg, instrs = self.visitor.to_register(t)
+        return instrs
 
-def denotation(opcode):
-    fmt = dis.opfmt[opcode]
-    if fmt is None:
+def denotation(defn):
+    opcode = defn.opcode
+    opA = defn.opA
+    opD = defn.opD
+    if opA is None and opD is None:
         return Instruction(opcode, None, None)
-    elif fmt == 'A':
+    elif opD is None:
         return lambda arg: Instruction(opcode, arg, None)
-    elif fmt == 'AD':
-        return lambda arg, arg2: Instruction(opcode, arg, arg2)
-    elif fmt == 'D':
+    elif opA is None:
         return lambda arg2: Instruction(opcode, None, arg2)
     else:
-        assert False, 'invalid opcode format'
+        return lambda arg, arg2: Instruction(opcode, arg, arg2)
 
-op = type('op', (), dict([(name, denotation(opcode))
-                          for name, opcode in dis.opmap.items()]))
+op = type('op', (), dict([(bytecode.name, denotation(bytecode))
+                          for bytecode in dis.bytecodes]))
 
 def register_scope(visitor):
     def visit(self, t):
@@ -165,8 +170,8 @@ class CodeGen(ast.NodeVisitor):
     def __init__(self, filename, scope):
         self.filename  = filename
         self.scope     = scope
-        self.constants = make_table()
-        self.names     = make_table()
+        self.constants = constants()
+        self.names     = self.constants
         self.varnames  = make_table()
         self.nlocals = 0
         self.next_register = 0
@@ -189,10 +194,9 @@ class CodeGen(ast.NodeVisitor):
                  | (0x40 if not self.scope.derefvars else 0))
         firstlineno, lnotab = make_lnotab(assembly)
         code = assemble(assembly)
-        consts = self.collect_constants()
         print('here we go!')
         return types.Code2Type(code,
-                               consts,
+                               self.constants.collect(),
                                argcount=argcount,
                                posonlyargcount=posonlyargcount,
                                kwonlyargcount=kwonlyargcount,
@@ -213,10 +217,7 @@ class CodeGen(ast.NodeVisitor):
         #                       self.scope.freevars, self.scope.cellvars)
 
     def load_const(self, constant):
-        return op.LOAD_CONST(self.constants[constant, type(constant)])
-
-    def collect_constants(self):
-        return tuple([constant for constant,_ in collect(self.constants)])
+        return op.LOAD_CONST(self.constants[constant])
 
     def new_register(self):
         reg = self.next_register
@@ -225,9 +226,16 @@ class CodeGen(ast.NodeVisitor):
             self.max_registers = self.next_register
         return reg
 
-    def to_register(self, t, placeholder):
-        reg = placeholder.reg = self.new_register()
-        return self(t) + op.STORE_FAST(reg)
+    def register(self):
+        return Placeholder(self)
+
+    def to_register(self, t):
+        if isinstance(t, ast.Name):
+            access = self.scope.access(t.id)
+            if access == 'fast':
+                return self.varnames[t.id], no_op
+        reg = self.new_register()
+        return reg, self(t) + op.STORE_FAST(reg)
 
     def visit_NameConstant(self, t): return self.load_const(t.value)
     def visit_Num(self, t):          return self.load_const(t.n)
@@ -317,8 +325,8 @@ class CodeGen(ast.NodeVisitor):
 
     @register_scope
     def visit_Subscript(self, t):
-        reg = Placeholder()
-        return (self.to_register(t.value, reg) +
+        reg = self.register()
+        return (reg(t.value) +
                 self(t.slice.value) +
                 self.subscr_ops[type(t.ctx)](reg))
     subscr_ops = {ast.Load: op.BINARY_SUBSCR, ast.Store: op.STORE_SUBSCR}
@@ -346,9 +354,11 @@ class CodeGen(ast.NodeVisitor):
     ops1 = {ast.UAdd: op.UNARY_POSITIVE,  ast.Invert: op.UNARY_INVERT,
             ast.USub: op.UNARY_NEGATIVE,  ast.Not:    op.UNARY_NOT}
 
+    @register_scope
     def visit_BinOp(self, t):
-        # FIXME: register
-        return self(t.left) + self(t.right) + self.ops2[type(t.op)](0)
+        reg = self.register()
+        return reg(t.left) + self(t.right) + self.ops2[type(t.op)](reg)
+
     ops2 = {ast.Pow:    op.BINARY_POWER,  ast.Add:  op.BINARY_ADD,
             ast.LShift: op.BINARY_LSHIFT, ast.Sub:  op.BINARY_SUBTRACT,
             ast.RShift: op.BINARY_RSHIFT, ast.Mult: op.BINARY_MULTIPLY,
@@ -459,6 +469,14 @@ class CodeGen(ast.NodeVisitor):
                     + self(t.body)
                     + self.load_const(None) + op.RETURN_VALUE)
         return self.make_code(assembly, t.name, 0, False, False)
+
+class constants(collections.defaultdict):
+    def __init__(self):
+        super().__init__(lambda: len(self))
+    def __getitem__(self, key):
+        return super().__getitem__((key, type(key)))
+    def collect(self):
+        return tuple(key for key,_ in self.keys())
 
 def make_table():
     table = collections.defaultdict(lambda: len(table))
