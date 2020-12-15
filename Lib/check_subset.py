@@ -51,6 +51,11 @@ class Checker(ast.NodeVisitor):
         if t.value is not None:
             self(t.value)
 
+    def visit_AugAssign(self, t):
+        assert type(t.op) in self.ops2, "Unsupported assignment op: %r" % (t,)
+        self(t.target)
+        self(t.value)
+
     def visit_Assign(self, t):
         assert t.targets, "At least one target required: %r" % (t,)
         self(t.targets)

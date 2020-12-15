@@ -19,7 +19,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import ast, collections, dis, types, sys
+import ast, collections, types, sys
+import dis2 as dis
+import contextlib
 from functools import reduce
 from itertools import chain
 from check_subset import check_conformity
@@ -58,6 +60,7 @@ def concat(assemblies):
 
 class Assembly:
     def __add__(self, other):
+        assert isinstance(other, Assembly), other
         return Chain(self, other)
     length = 0
     def resolve(self, start):
@@ -84,14 +87,23 @@ class SetLineNo(Assembly):
 class Instruction(Assembly):
     length = 2
 
-    def __init__(self, opcode, arg):
+    def __init__(self, opcode, arg, arg2):
         self.opcode = opcode
         self.arg    = arg
+        self.arg2   = arg2
     def encode(self, start, addresses):
-        if   self.opcode in dis.hasjabs: arg = addresses[self.arg]
-        elif self.opcode in dis.hasjrel: arg = addresses[self.arg] - (start+2)
-        else:                            arg = self.arg
-        return bytes([self.opcode, arg or 0])
+        arg, arg2 = self.arg, self.arg2
+        if self.opcode in dis.isjump:
+            arg2 = addresses[arg2] - (start+2)
+        if arg2 is None:
+            arg2 = 0
+        else:
+            assert arg2 >= -32768 and arg2 < 32768
+            arg2 = arg2 & 0xFFFF
+        argA = self.arg or 0
+        argB = arg2 & 0xFF
+        argC = (arg2 >> 8)
+        return bytes([self.opcode, argA, argB, argC])
     def plumb(self, depths):
         arg = 0 if isinstance(self.arg, Label) else self.arg
         depths.append(depths[-1] + dis.stack_effect(self.opcode, arg))
@@ -118,14 +130,36 @@ class OffsetStack(Assembly):
     def plumb(self, depths):
         depths.append(depths[-1] - 1)
 
+class Placeholder:
+    def __init__(self):
+        self.reg = None
+    def __index__(self):
+        assert self.reg is not None, 'unassigned placeholder'
+        return self.reg
+
 def denotation(opcode):
-    if opcode < dis.HAVE_ARGUMENT:
-        return Instruction(opcode, None)
+    fmt = dis.opfmt[opcode]
+    if fmt is None:
+        return Instruction(opcode, None, None)
+    elif fmt == 'A':
+        return lambda arg: Instruction(opcode, arg, None)
+    elif fmt == 'AD':
+        return lambda arg, arg2: Instruction(opcode, arg, arg2)
+    elif fmt == 'D':
+        return lambda arg2: Instruction(opcode, None, arg2)
     else:
-        return lambda arg: Instruction(opcode, arg)
+        assert False, 'invalid opcode format'
 
 op = type('op', (), dict([(name, denotation(opcode))
                           for name, opcode in dis.opmap.items()]))
+
+def register_scope(visitor):
+    def visit(self, t):
+        top = self.next_register
+        ret = visitor(self, t)
+        self.next_register = top
+        return ret
+    return visit
 
 class CodeGen(ast.NodeVisitor):
     def __init__(self, filename, scope):
@@ -134,6 +168,9 @@ class CodeGen(ast.NodeVisitor):
         self.constants = make_table()
         self.names     = make_table()
         self.varnames  = make_table()
+        self.nlocals = 0
+        self.next_register = 0
+        self.max_registers = 0
 
     def compile_module(self, t, name):
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
@@ -143,7 +180,8 @@ class CodeGen(ast.NodeVisitor):
         posonlyargcount = 0
         kwonlyargcount = 0
         nlocals = len(self.varnames)
-        stacksize = plumb_depths(assembly)
+        # stacksize = plumb_depths(assembly)
+        framesize = 0
         flags = (  (0x02 if nlocals                  else 0)
                  | (0x04 if has_varargs              else 0)
                  | (0x08 if has_varkws               else 0)
@@ -151,18 +189,45 @@ class CodeGen(ast.NodeVisitor):
                  | (0x40 if not self.scope.derefvars else 0))
         firstlineno, lnotab = make_lnotab(assembly)
         code = assemble(assembly)
-        return types.CodeType(argcount, posonlyargcount, kwonlyargcount,
-                              nlocals, stacksize, flags, code,
-                              self.collect_constants(),
-                              collect(self.names), collect(self.varnames),
-                              self.filename, name, firstlineno, lnotab,
-                              self.scope.freevars, self.scope.cellvars)
+        consts = self.collect_constants()
+        print('here we go!')
+        return types.Code2Type(code,
+                               consts,
+                               argcount=argcount,
+                               posonlyargcount=posonlyargcount,
+                               kwonlyargcount=kwonlyargcount,
+                               nlocals=nlocals,
+                               framesize=framesize,
+                               varnames=collect(self.varnames),
+                               filename=self.filename,
+                               name=name,
+                               firstlineno=firstlineno,
+                               linetable=lnotab,
+                               freevars=self.scope.freevars,
+                               cellvars=self.scope.cellvars)
+        # return types.Code2Type(argcount, posonlyargcount, kwonlyargcount,
+        #                       nlocals, stacksize, flags, code,
+        #                       self.collect_constants(),
+        #                       collect(self.names), collect(self.varnames),
+        #                       self.filename, name, firstlineno, lnotab,
+        #                       self.scope.freevars, self.scope.cellvars)
 
     def load_const(self, constant):
         return op.LOAD_CONST(self.constants[constant, type(constant)])
 
     def collect_constants(self):
         return tuple([constant for constant,_ in collect(self.constants)])
+
+    def new_register(self):
+        reg = self.next_register
+        self.next_register += 1
+        if self.next_register > self.max_registers:
+            self.max_registers = self.next_register
+        return reg
+
+    def to_register(self, t, placeholder):
+        reg = placeholder.reg = self.new_register()
+        return self(t) + op.STORE_FAST(reg)
 
     def visit_NameConstant(self, t): return self.load_const(t.value)
     def visit_Num(self, t):          return self.load_const(t.n)
@@ -193,6 +258,8 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
+        # FIXME base register
+        base = 0
         opcode = (
                   # op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
                   # op.CALL_FUNCTION_VAR    if t.starargs else
@@ -203,7 +270,7 @@ class CodeGen(ast.NodeVisitor):
                 + self(t.keywords)
                 # + (self(t.starargs) if t.starargs else no_op)
                 # + (self(t.kwargs)   if t.kwargs   else no_op)
-                + opcode((len(t.keywords) << 8) | len(t.args)))
+                + opcode(base, len(t.args)))
 
     def visit_keyword(self, t):
         return self.load_const(t.arg) + self(t.value)
@@ -217,11 +284,16 @@ class CodeGen(ast.NodeVisitor):
         assert False, t
 
     def visit_Expr(self, t):
-        return self(t.value) + op.POP_TOP
+        # TODO: skip constants as optimization
+        return self(t.value) + op.CLEAR_ACC
+
+    def visit_AugAssign(self, t):
+        pass
+        return no_op
 
     def visit_Assign(self, t):
-        def compose(left, right): return op.DUP_TOP + left + right
-        return self(t.value) + reduce(compose, map(self, t.targets))
+        # FIXME: multiple assignment
+        return self(t.value) + self(t.targets[0])
 
     def visit_If(self, t):
         orelse, after = Label(), Label()
@@ -243,8 +315,12 @@ class CodeGen(ast.NodeVisitor):
                 + concat([self(v) + self(k) + op.STORE_MAP
                           for k, v in zip(t.keys, t.values)]))
 
+    @register_scope
     def visit_Subscript(self, t):
-        return self(t.value) + self(t.slice.value) + self.subscr_ops[type(t.ctx)]
+        reg = Placeholder()
+        return (self.to_register(t.value, reg) +
+                self(t.slice.value) +
+                self.subscr_ops[type(t.ctx)](reg))
     subscr_ops = {ast.Load: op.BINARY_SUBSCR, ast.Store: op.STORE_SUBSCR}
 
     def visit_Attribute(self, t):
@@ -259,7 +335,9 @@ class CodeGen(ast.NodeVisitor):
         if   isinstance(t.ctx, ast.Load):
             return self(t.elts) + build_op(len(t.elts))
         elif isinstance(t.ctx, ast.Store):
-            return op.UNPACK_SEQUENCE(len(t.elts)) + self(t.elts)
+            # FIXME: register
+            base = 0
+            return op.UNPACK_SEQUENCE(base, len(t.elts)) + self(t.elts)
         else:
             assert False
 
@@ -269,7 +347,8 @@ class CodeGen(ast.NodeVisitor):
             ast.USub: op.UNARY_NEGATIVE,  ast.Not:    op.UNARY_NOT}
 
     def visit_BinOp(self, t):
-        return self(t.left) + self(t.right) + self.ops2[type(t.op)]
+        # FIXME: register
+        return self(t.left) + self(t.right) + self.ops2[type(t.op)](0)
     ops2 = {ast.Pow:    op.BINARY_POWER,  ast.Add:  op.BINARY_ADD,
             ast.LShift: op.BINARY_LSHIFT, ast.Sub:  op.BINARY_SUBTRACT,
             ast.RShift: op.BINARY_RSHIFT, ast.Mult: op.BINARY_MULTIPLY,
@@ -311,7 +390,7 @@ class CodeGen(ast.NodeVisitor):
                 + concat([op.IMPORT_FROM(self.names[alias.name])
                           + self.store(alias.asname or alias.name)
                          for alias in t.names])
-                + op.POP_TOP)
+                + op.CLEAR_ACC)
 
     def import_name(self, level, fromlist, name):
         return (self.load_const(level)
@@ -348,7 +427,7 @@ class CodeGen(ast.NodeVisitor):
                             for freevar in code.co_freevars])
                     + op.BUILD_TUPLE(len(code.co_freevars))
                     + self.load_const(code) + self.load_const(name)
-                    + op.MAKE_CLOSURE(0))
+                    + op.MAKE_FUNCTION(0x08))
         else:
             return (self.load_const(code) + self.load_const(name)
                     + op.MAKE_FUNCTION(0))
@@ -396,8 +475,10 @@ def load_file(filename, module_name):
 
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
+    print('made code')
     module = types.ModuleType(module_name, ast.get_docstring(t))
-    exec(code, module.__dict__)
+    print(dis.dis(code))
+    # exec(code, module.__dict__)
     return module
 
 def code_for_module(module_name, filename, t):
@@ -448,7 +529,7 @@ class Desugarer(ast.NodeTransformer):
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body,
               ast.Return(ast.Name('.0', load))]
-        args = ast.arguments([None, ast.arg('.0', None)], None, [], None, [], [])
+        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
 
         return Call(Function('<listcomp>', args, fn),
                     [ast.List([], load)])
