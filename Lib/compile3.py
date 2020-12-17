@@ -93,6 +93,7 @@ class Instruction(Assembly):
         if arg2 is None:
             arg2 = 0
         else:
+            arg2 = int(arg2)
             assert arg2 >= -32768 and arg2 < 32768
             arg2 = arg2 & 0xFFFF
         argA = self.arg or 0
@@ -115,18 +116,6 @@ class Chain(Assembly):
         return chain(self.part1.line_nos(start),
                      self.part2.line_nos(start + self.part1.length))
 
-class Placeholder:
-    def __init__(self, visitor):
-        self.reg = None
-        self.visitor = visitor
-    def __index__(self):
-        assert self.reg is not None, 'unassigned placeholder'
-        return self.reg
-    def __call__(self, t):
-        assert self.reg is None, 'unassigned placeholder'
-        self.reg, instrs = self.visitor.to_register(t)
-        return instrs
-
 class Register:
     def __init__(self, visitor, reg):
         self.visitor = visitor
@@ -134,14 +123,42 @@ class Register:
     def __index__(self):
         assert self.reg is not None, 'unassigned placeholder'
         return self.reg
+    def is_placeholder(self):
+        return self.reg is None
+    def is_temporary(self):
+        return self.reg >= self.visitor.nlocals
+    def allocate(self):
+        visitor = self.visitor
+        if self.reg is None:
+            self.reg = visitor.new_register()
+        else:
+            assert visitor.next_register <= self.reg
+            while visitor.next_register <= self.reg:
+                visitor.new_register()
+        return self.reg
+    def clear(self):
+        assert self.reg is not None
+        return op.CLEAR_FAST(self.reg) if self.is_temporary() else no_op
     def __call__(self, t):
-        reg, instrs = self.visitor.to_register(t, self.reg)
-        assert reg == self.reg
-        assert self.visitor.next_register <= reg
-        self.visitor.next_register = reg + 1
-        if reg + 1 > self.visitor.max_registers:
-            self.visitor.max_registers = reg + 1
-        return instrs
+        return self.visitor.to_register(t, self)
+
+class RegisterList:
+    def __init__(self, visitor, n):
+        self.visitor = visitor
+        self.base = visitor.new_register(n)
+    def __getitem__(self, i):
+        return self.visitor.register(self.base + i)
+    def __call__(self, seq):
+        return concat([self[i](t) for i,t in enumerate(seq)])
+
+class Reference:
+    def __init__(self, visitor):
+        self.visitor = visitor
+    def load(self):
+        return no_op
+    def store(self, value):
+        return no_op
+
 
 def denotation(defn):
     opcode = defn.opcode
@@ -158,6 +175,16 @@ def denotation(defn):
 
 op = type('op', (), dict([(bytecode.name, denotation(bytecode))
                           for bytecode in dis.bytecodes]))
+
+
+def as_load(t):
+    attrs = []
+    for field in t._fields:
+        if field != 'ctx':
+            attrs.append(getattr(t, field))
+        else:
+            attrs.append(ast.Load())
+    return type(t)(*attrs)
 
 def register_scope(visitor):
     def visit(self, t):
@@ -195,7 +222,6 @@ class CodeGen(ast.NodeVisitor):
                  | (0x40 if not self.scope.derefvars else 0))
         firstlineno, lnotab = make_lnotab(assembly)
         code = assemble(assembly)
-        print('here we go!')
         return types.Code2Type(code,
                                self.constants.collect(),
                                argcount=argcount,
@@ -220,35 +246,25 @@ class CodeGen(ast.NodeVisitor):
     def load_const(self, constant):
         return op.LOAD_CONST(self.constants[constant])
 
-    def new_register(self):
+    def new_register(self, n=1):
         reg = self.next_register
-        self.next_register += 1
+        self.next_register += n
         if self.next_register > self.max_registers:
             self.max_registers = self.next_register
         return reg
 
-    def register(self):
-        return Placeholder(self)
+    def register(self, reg=None):
+        return Register(self, reg)
 
-    def register_list(self):
-        visitor = self
-        class RegisterList:
-            base = self.next_register
-            def __getitem__(self, i):
-                return Register(visitor, self.base + i)
-        return RegisterList()
+    def register_list(self, n=0):
+        return RegisterList(self, n)
 
-    def to_register(self, t, reg=None):
+    def to_register(self, t, reg):
         if isinstance(t, ast.Name):
-            access = self.scope.access(t.id)
-            if access == 'fast':
-                if reg is None:
-                    return self.varnames[t.id], no_op
-                else:
-                    return reg, op.COPY(reg, self.varnames[t.id])
-        if reg is None:
-            reg = self.new_register()
-        return reg, self(t) + op.STORE_FAST(reg)
+            return self.load(t.id, reg)
+        elif isinstance(t, Register):
+            return self.copy_register(reg, t)
+        return self(t) + op.STORE_FAST(reg.allocate())
 
     def visit_NameConstant(self, t): return self.load_const(t.value)
     def visit_Num(self, t):          return self.load_const(t.n)
@@ -256,19 +272,39 @@ class CodeGen(ast.NodeVisitor):
     visit_Bytes = visit_Str
 
     def visit_Name(self, t):
-        if   isinstance(t.ctx, ast.Load):  return self.load(t.id)
-        elif isinstance(t.ctx, ast.Store): return self.store(t.id)
-        else: assert False
+        assert isinstance(t.ctx, ast.Load)
+        return self.load(t.id)
 
-    def load(self, name):
+    def copy_register(self, dst, src):
+        if dst.is_placeholder():
+            dst.reg = src.reg
+            return no_op
+        elif src.is_temporary():
+            return op.MOVE(dst.allocate(), src.reg)
+        else:
+            return op.COPY(dst.allocate(), src.reg)
+
+    def load(self, name, dst=None):
         access = self.scope.access(name)
+        if isinstance(dst, Register):
+            if access == 'fast':
+                src = Register(self, self.varnames[name])
+                return self.copy_register(dst, src)
+            return self.load(name) + op.STORE_FAST(dst.allocate())
+
         if   access == 'fast':  return op.LOAD_FAST(self.varnames[name])
         elif access == 'deref': return op.LOAD_DEREF(self.cell_index(name))
         elif access == 'name':  return op.LOAD_NAME(self.names[name])
         else: assert False
 
-    def store(self, name):
+    def store(self, name, value=None):
         access = self.scope.access(name)
+        if isinstance(value, Register):
+            if access == 'fast':
+                opcode = (op.MOVE if value.is_temporary() else
+                          op.COPY)
+                return opcode(self.varnames[name], value.reg)
+            return op.LOAD_FAST(reg) + reg.clear() + self.store(name)
         if   access == 'fast':  return op.STORE_FAST(self.varnames[name])
         elif access == 'deref': return op.STORE_DEREF(self.cell_index(name))
         elif access == 'name':  return op.STORE_NAME(self.names[name])
@@ -277,7 +313,6 @@ class CodeGen(ast.NodeVisitor):
     def cell_index(self, name):
         return self.scope.derefvars.index(name)
 
-    @register_scope
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
         assert len(t.keywords) == 0
@@ -297,7 +332,9 @@ class CodeGen(ast.NodeVisitor):
 
     def __call__(self, t):
         if isinstance(t, list): return concat(map(self, t))
+        top = self.next_register
         assembly = self.visit(t)
+        self.next_register = top
         return SetLineNo(t.lineno) + assembly if hasattr(t, 'lineno') else assembly
 
     def generic_visit(self, t):
@@ -307,13 +344,73 @@ class CodeGen(ast.NodeVisitor):
         # TODO: skip constants as optimization
         return self(t.value) + op.CLEAR_ACC
 
+    def assign(self, target, value):
+        method = 'assign_' + target.__class__.__name__
+        visitor = getattr(self, method)
+        return visitor(target, value)
+
+    def assign_Name(self, target, value):
+        if isinstance(value, (Register, ast.Name)):
+            return self.store(target.id, value)
+
+        return self(value) + self.store(target.id)
+
+    def assign_Attribute(self, target, value):
+        reg = self.register()
+        attr = self.constants[target.attr]
+        # FIXME: clear reg if temporary ???
+        return reg(value) + self(target.value) + op.STORE_ATTR(reg, attr) + reg.clear()
+
+    def assign_Subscript(self, target, value):
+        reg1 = self.register()
+        reg2 = self.register()
+        # FIXME: clear regs if temporary ???
+        # FIXME: target.slice.value ???
+        return (  reg1(value) + reg2(target.value)
+                + self(target.slice)
+                + op.STORE_SUBSCR(reg1, reg2)
+                + reg2.clear() + reg1.clear())
+
+
+    def assign_List(self, target, value): return self.assign_sequence(target, value)
+    def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
+    def assign_sequence(self, target, value):
+        reg = self.register_list()
+        n = len(target.elts)
+        return (  op.UNPACK_SEQUENCE(reg.base, len(target.elts))
+                + concat([self.assign(target.elts[i], reg[i]) for i in range(n)]))
+
     def visit_AugAssign(self, t):
-        pass
-        return no_op
+        ref = self.reference(t.target)
+        reg = self.register()
+        return (  ref.load(reg)
+                + self(t.value)
+                + self.aug_ops[type(t.op)](reg)
+                + reg.clear()
+                + ref.store())
+    aug_ops = {ast.Pow:    op.INPLACE_POWER,  ast.Add:  op.INPLACE_ADD,
+               ast.LShift: op.INPLACE_LSHIFT, ast.Sub:  op.INPLACE_SUBTRACT,
+               ast.RShift: op.INPLACE_RSHIFT, ast.Mult: op.INPLACE_MULTIPLY,
+               ast.BitOr:  op.INPLACE_OR,     ast.Mod:  op.INPLACE_MODULO,
+               ast.BitAnd: op.INPLACE_AND,    ast.Div:  op.INPLACE_TRUE_DIVIDE,
+               ast.BitXor: op.INPLACE_XOR,    ast.FloorDiv: op.INPLACE_FLOOR_DIVIDE}
+
+    def reference(self, target):
+        method = 'reference_' + target.__class__.__name__
+        visitor = getattr(self, method)
+        return visitor(target)
+
+    def reference_Name(self, t):
+        visitor = self
+        class NameRef:
+            def load(self, reg):
+                return visitor.load(t.id, reg)
+            def store(self):
+                return visitor.store(t.id)
+        return NameRef()
 
     def visit_Assign(self, t):
-        # FIXME: multiple assignment
-        return self(t.value) + self(t.targets[0])
+        return self.assign(t.targets[0], t.value)
 
     def visit_If(self, t):
         orelse, after = Label(), Label()
@@ -334,41 +431,42 @@ class CodeGen(ast.NodeVisitor):
                 + concat([self(v) + self(k) + op.STORE_MAP
                           for k, v in zip(t.keys, t.values)]))
 
-    @register_scope
     def visit_Subscript(self, t):
         reg = self.register()
-        return (reg(t.value) +
-                self(t.slice.value) +
-                self.subscr_ops[type(t.ctx)](reg))
+        return (  reg(t.value)
+                + self(t.slice.value)
+                + self.subscr_ops[type(t.ctx)](reg)
+                + reg.clear())
     subscr_ops = {ast.Load: op.BINARY_SUBSCR, ast.Store: op.STORE_SUBSCR}
 
     def visit_Attribute(self, t):
+        reg = self.register()
         sub_op = self.attr_ops[type(t.ctx)]
-        return self(t.value) + sub_op(self.names[t.attr])
+        return (  reg(t.value)
+                + sub_op(reg, self.names[t.attr])
+                + reg.clear())
     attr_ops = {ast.Load: op.LOAD_ATTR, ast.Store: op.STORE_ATTR}
 
     def visit_List(self, t):  return self.visit_sequence(t, op.BUILD_LIST)
     def visit_Tuple(self, t): return self.visit_sequence(t, op.BUILD_TUPLE)
 
     def visit_sequence(self, t, build_op):
-        if   isinstance(t.ctx, ast.Load):
-            return self(t.elts) + build_op(len(t.elts))
-        elif isinstance(t.ctx, ast.Store):
-            # FIXME: register
-            base = 0
-            return op.UNPACK_SEQUENCE(base, len(t.elts)) + self(t.elts)
-        else:
-            assert False
+        assert isinstance(t.ctx, ast.Load)
+        regs = self.register_list()
+        return regs(t.elts) + build_op(regs[0], len(t.elts))
+
+    def visit_ListAppend(self, t):
+        reg = self.register()
+        return reg(t.list) + self(t.item) + op.LIST_APPEND(reg) + reg.clear()
 
     def visit_UnaryOp(self, t):
         return self(t.operand) + self.ops1[type(t.op)]
     ops1 = {ast.UAdd: op.UNARY_POSITIVE,  ast.Invert: op.UNARY_INVERT,
             ast.USub: op.UNARY_NEGATIVE,  ast.Not:    op.UNARY_NOT}
 
-    @register_scope
     def visit_BinOp(self, t):
         reg = self.register()
-        return reg(t.left) + self(t.right) + self.ops2[type(t.op)](reg)
+        return reg(t.left) + self(t.right) + self.ops2[type(t.op)](reg) + reg.clear()
 
     ops2 = {ast.Pow:    op.BINARY_POWER,  ast.Add:  op.BINARY_ADD,
             ast.LShift: op.BINARY_LSHIFT, ast.Sub:  op.BINARY_SUBTRACT,
@@ -425,11 +523,11 @@ class CodeGen(ast.NodeVisitor):
                 + end)
 
     def visit_For(self, t):
-        loop, end = Label(), Label()
-        return (         self(t.iter) + op.GET_ITER
-                + loop + op.FOR_ITER(end) + self(t.target)
-                       + self(t.body) + op.JUMP(loop)
-                + end)
+        reg = self.register()
+        start, loop = Label(), Label()
+        return (self(t.iter) + op.GET_ITER(reg.allocate())
+                + op.JUMP(start) + loop + self(t.body)
+                + start + op.FOR_ITER(reg, loop))
 
     def visit_Return(self, t):
         return ((self(t.value) if t.value else self.load_const(None))
@@ -443,15 +541,16 @@ class CodeGen(ast.NodeVisitor):
         return CodeGen(self.filename, self.scope.children[t])
 
     def make_closure(self, code, name):
-        if code.co_freevars:
-            return (concat([op.LOAD_CLOSURE(self.cell_index(freevar))
-                            for freevar in code.co_freevars])
-                    + op.BUILD_TUPLE(len(code.co_freevars))
-                    + self.load_const(code) + self.load_const(name)
-                    + op.MAKE_FUNCTION(0x08))
-        else:
-            return (self.load_const(code) + self.load_const(name)
-                    + op.MAKE_FUNCTION(0))
+        return op.MAKE_FUNCTION(self.constants[code])
+        # if code.co_freevars:
+        #     return (concat([op.LOAD_CLOSURE(self.cell_index(freevar))
+        #                     for freevar in code.co_freevars])
+        #             + op.BUILD_TUPLE(255, len(code.co_freevars))
+        #             + self.load_const(code) + self.load_const(name)
+        #             + op.MAKE_FUNCTION(0x08))
+        # else:
+        #     return (self.load_const(code) + self.load_const(name)
+        #             + op.MAKE_FUNCTION(0))
 
     def compile_function(self, t):
         self.load_const(ast.get_docstring(t))
@@ -461,6 +560,7 @@ class CodeGen(ast.NodeVisitor):
         if t.args.kwarg:  self.varnames[t.args.kwarg.arg]
         for local in self.scope.local_defs:
             self.varnames[local]
+        self.nlocals = len(self.varnames)
         self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
@@ -508,7 +608,6 @@ def load_file(filename, module_name):
 
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
-    print('made code')
     module = types.ModuleType(module_name, ast.get_docstring(t))
     print(dis.dis(code))
     # exec(code, module.__dict__)
@@ -530,6 +629,14 @@ def rewriter(rewrite):
 
 def Call(fn, args):
     return ast.Call(fn, args, [])
+
+class ListAppend(ast.stmt):
+    _fields = ('list', 'item')
+    pass
+
+class StoreSubcript(ast.stmt):
+    _fields = ('container', 'slice', 'value')
+    pass
 
 class Desugarer(ast.NodeTransformer):
 
@@ -554,8 +661,7 @@ class Desugarer(ast.NodeTransformer):
 
     @rewriter
     def visit_ListComp(self, t):
-        result_append = ast.Attribute(ast.Name('.0', load), 'append', load)
-        body = ast.Expr(Call(result_append, [t.elt]))
+        body = ListAppend(ast.Name('.0', load), t.elt)
         for loop in reversed(t.generators):
             for test in reversed(loop.ifs):
                 body = ast.If(test, [body], [])

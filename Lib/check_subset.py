@@ -169,6 +169,9 @@ class Checker(ast.NodeVisitor):
     def visit_Str(self, t):
         pass
 
+    def visit_ListAppend(self, t):
+        pass
+
     visit_Bytes = visit_Str
 
     def visit_Attribute(self, t):

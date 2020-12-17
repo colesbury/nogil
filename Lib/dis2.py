@@ -326,13 +326,25 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
             argrepr = '.t' + str(reg - len(varnames))
         return argrepr
 
+    def get_const(reg):
+        return _get_const_info(reg, constants)[1]
+
 
     def get_repr(bytecode, argA, argD):
-        argrepr = ''
+        argreprs = []
         if bytecode.name == 'CALL_FUNCTION':
             return f'{format_reg(argA)} to {format_reg(argA+argD+1)}'
+        elif bytecode.name == 'LOAD_ATTR':
+             return f"{format_reg(argA)}[{get_const(argD)}]"
+        elif bytecode.name == 'STORE_ATTR':
+             return f"acc.{get_const(argD)}={format_reg(argA)}"
+        elif bytecode.name == 'MOVE':
+             return f"{format_reg(argA)} <- {format_reg(argD)}"
+        elif bytecode.name == 'COPY':
+             return f"{format_reg(argA)} <- {format_reg(argD)}"
 
         for (arg, fmt) in [(argA, bytecode.opA), (argD, bytecode.opD)]:
+            argrepr = None
             if fmt == 'jump':
                 argval = offset + 4 * (signed(arg) + 1)
                 argrepr = "to " + repr(argval)
@@ -344,7 +356,10 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
                 argval, argrepr = _get_const_info(arg, constants)
             elif fmt == 'cell':
                 argval, argrepr = _get_name_info(arg, cells)
-        return argrepr
+            if argrepr is not None:
+                argreprs.append(argrepr)
+
+        return '; '.join(argreprs)
 
 
     labels = findlabels(code)
@@ -474,7 +489,7 @@ def findlabels(code):
     labels = []
     for offset, op, argA, argD in _unpack_opargs(code):
         if opcodes[op].is_jump():
-            label = offset + 4 + argD
+            label = offset + 4 * (argD + 1)
             if label not in labels:
                 labels.append(label)
     return labels

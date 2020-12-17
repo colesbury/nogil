@@ -37,9 +37,9 @@ def_op('BINARY_MATRIX_MULTIPLY', 16, 'reg')
 def_op('BINARY_POWER', 19, 'reg')
 def_op('BINARY_MULTIPLY', 20, 'reg')
 def_op('BINARY_MODULO', 22, 'reg')
-def_op('BINARY_ADD', 23, 'reg')
+def_op('BINARY_ADD', 23, 'reg')         # reg + acc
 def_op('BINARY_SUBTRACT', 24, 'reg')
-def_op('BINARY_SUBSCR', 25, 'reg')
+def_op('BINARY_SUBSCR', 25, 'reg')      # reg[acc]
 def_op('BINARY_FLOOR_DIVIDE', 26, 'reg')
 def_op('BINARY_TRUE_DIVIDE', 27, 'reg')
 def_op('BINARY_LSHIFT', 62, 'reg')
@@ -69,16 +69,16 @@ def_op('INPLACE_POWER', 67, 'reg')
 # load / store / delete
 def_op('LOAD_FAST', 124, 'reg')        # Local variable number
 def_op('LOAD_NAME', 101, 'str')        # Index in name list
-def_op('LOAD_CONST', 100, 'const')       # Index in const list
-def_op('LOAD_ATTR', 106, 'reg')        # Index in name list
+def_op('LOAD_CONST', 100, 'const')     # Index in const list
+def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
 def_op('LOAD_GLOBAL', 116, 'reg')      # Index in name list
 def_op('LOAD_METHOD', 160, 'reg')
 
 def_op('STORE_FAST', 125, 'reg')       # Local variable number
 def_op('STORE_NAME', 90, 'str')        # Index in name list
-def_op('STORE_ATTR', 95, 'reg', 'str')        # Index in name list
+def_op('STORE_ATTR', 95, 'reg', 'str') # acc[str] = reg
 def_op('STORE_GLOBAL', 97, 'reg')      # ""
-def_op('STORE_SUBSCR', 60, 'reg')
+def_op('STORE_SUBSCR', 60, 'reg', 'reg') # reg1[acc] = reg
 
 def_op('DELETE_FAST', 126, 'reg')      # Local variable number
 def_op('DELETE_NAME', 91, 'reg')       # ""
@@ -106,8 +106,9 @@ def_op('JUMP_IF_NOT_EXC_MATCH', 121, None, 'jump')
 def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # "" while loop
 def_op('POP_JUMP_IF_TRUE', 115, None, 'jump')     # ""
 
-def_op('GET_ITER', 68)
+def_op('GET_ITER', 68, 'reg')
 def_op('GET_YIELD_FROM_ITER', 69)
+def_op('FOR_ITER', 93, 'reg', 'jump')
 
 # imports
 def_op('IMPORT_NAME', 108, 'str')      # Index in name list
@@ -116,10 +117,10 @@ def_op('IMPORT_STAR', 84, 'str')
 
 # build built-in objects
 def_op('BUILD_SLICE', 133, 'lit')      # Number of items
-def_op('BUILD_TUPLE', 102, 'lit')      # Number of tuple items
-def_op('BUILD_LIST', 103, 'lit')       # Number of list items
-def_op('BUILD_SET', 104, 'lit')        # Number of set items
-def_op('BUILD_MAP', 105, 'lit')        # Number of dict entries
+def_op('BUILD_TUPLE', 102, 'reg', 'lit')      # Number of tuple items
+def_op('BUILD_LIST', 103, 'reg', 'lit')       # Number of list items
+def_op('BUILD_SET', 104, 'reg', 'lit')        # Number of set items
+def_op('BUILD_MAP', 105, 'reg', 'lit')        # Number of dict entries
 
 
 # ----
@@ -145,18 +146,17 @@ def_op('POP_EXCEPT', 89)
 def_op('WITH_EXCEPT_START', 49)
 def_op('BEFORE_ASYNC_WITH', 52)
 def_op('END_ASYNC_FOR', 54)
-def_op('FOR_ITER', 93, None, 'jump')
 def_op('UNPACK_SEQUENCE', 92, 'base', 'lit')   # Number of tuple items
 def_op('UNPACK_EX', 94)
 def_op('SETUP_FINALLY', 122)   # Distance to target address
-def_op('MAKE_FUNCTION', 132, 'lit')    # Flags
+def_op('MAKE_FUNCTION', 132, 'const')    # Flags
 def_op('SETUP_WITH', 143)
 def_op('LOAD_CLASSDEREF', 148)
 def_op('EXTENDED_ARG', 144)
 def_op('SETUP_ASYNC_WITH', 154)
 def_op('BUILD_CONST_KEY_MAP', 156)
 def_op('LIST_EXTEND', 162)
-def_op('LIST_APPEND', 145)
+def_op('LIST_APPEND', 145, 'reg')
 def_op('SET_ADD', 146)
 def_op('SET_UPDATE', 163)
 def_op('MAP_ADD', 147)
@@ -165,5 +165,6 @@ def_op('DICT_UPDATE', 165)
 
 def_op('CLEAR_FAST', 168, 'reg')     # Index in name list
 def_op('COPY', 169, 'reg', 'reg')
+def_op('MOVE', 170, 'reg', 'reg')
 
 del def_op
