@@ -292,9 +292,13 @@ class CodeGen(ast.NodeVisitor):
                 return self.copy_register(dst, src)
             return self.load(name) + op.STORE_FAST(dst.allocate())
 
-        if   access == 'fast':  return op.LOAD_FAST(self.varnames[name])
-        elif access == 'deref': return op.LOAD_DEREF(self.cell_index(name))
-        elif access == 'name':  return op.LOAD_NAME(self.names[name])
+        if access == 'global' and name == 'i':
+            import pdb; pdb.set_trace()
+
+        if   access == 'fast':   return op.LOAD_FAST(self.varnames[name])
+        elif access == 'deref':  return op.LOAD_DEREF(self.cell_index(name))
+        elif access == 'name':   return op.LOAD_NAME(self.names[name])
+        elif access == 'global': return op.LOAD_GLOBAL(self.names[name])
         else: assert False
 
     def store(self, name, value=None):
@@ -305,9 +309,10 @@ class CodeGen(ast.NodeVisitor):
                           op.COPY)
                 return opcode(self.varnames[name], value.reg)
             return op.LOAD_FAST(reg) + reg.clear() + self.store(name)
-        if   access == 'fast':  return op.STORE_FAST(self.varnames[name])
-        elif access == 'deref': return op.STORE_DEREF(self.cell_index(name))
-        elif access == 'name':  return op.STORE_NAME(self.names[name])
+        if   access == 'fast':   return op.STORE_FAST(self.varnames[name])
+        elif access == 'deref':  return op.STORE_DEREF(self.cell_index(name))
+        elif access == 'name':   return op.STORE_NAME(self.names[name])
+        elif access == 'global': return op.STORE_GLOBAL(self.names[name])
         else: assert False
 
     def cell_index(self, name):
@@ -498,6 +503,9 @@ class CodeGen(ast.NodeVisitor):
     def visit_Raise(self, t):
         return self(t.exc) + op.RAISE_VARARGS(1)
 
+    def visit_Global(self, t):
+        return no_op
+
     def visit_Import(self, t):
         return concat([self.import_name(0, None, alias.name)
                        + self.store(alias.asname or alias.name.split('.')[0])
@@ -679,28 +687,30 @@ class Function(ast.FunctionDef):
 load, store = ast.Load(), ast.Store()
 
 def top_scope(t):
-    top = Scope(t, ())
+    top = Scope(t, 'module', ())
     top.visit(t)
     top.analyze(set())
     return top
 
 class Scope(ast.NodeVisitor):
-    def __init__(self, t, defs):
+    def __init__(self, t, scope_type, defs):
         self.t = t
         self.children = {}       # Enclosed sub-scopes
         self.defs = set(defs)    # Variables defined
         self.uses = set()        # Variables referenced
+        self.globals = set()
+        self.scope_type = scope_type
 
     def visit_ClassDef(self, t):
         self.defs.add(t.name)
         for expr in t.bases: self.visit(expr)
-        subscope = Scope(t, ())
+        subscope = Scope(t, 'class', ())
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
     def visit_Function(self, t):
         all_args = list(t.args.args) + [t.args.vararg, t.args.kwarg]
-        subscope = Scope(t, [arg.arg for arg in all_args if arg])
+        subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg])
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
@@ -717,6 +727,12 @@ class Scope(ast.NodeVisitor):
         elif isinstance(t.ctx, ast.Store): self.defs.add(t.id)
         else: assert False
 
+    def visit_Global(self, t):
+        for name in t.names:
+            assert name not in self.defs, "name '%r' is assigned to before global declaration" % (name,)
+            assert name not in self.uses, "name '%r' is used prior to global declaration" % (name,)
+            self.globals.add(name)
+
     def analyze(self, parent_defs):
         self.local_defs = self.defs if isinstance(self.t, Function) else set()
         for child in self.children.values():
@@ -731,6 +747,7 @@ class Scope(ast.NodeVisitor):
     def access(self, name):
         return ('deref' if name in self.derefvars else
                 'fast'  if name in self.local_defs else
+                'global' if name in self.globals or self.scope_type == 'function' else
                 'name')
 
 if __name__ == '__main__':

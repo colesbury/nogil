@@ -81,6 +81,10 @@ class Checker(ast.NodeVisitor):
         self(t.exc)
         assert not t.cause, "Cause argument not supported: %r" % (t,)
 
+    def visit_Global(self, t):
+        for name in t.names:
+            self.check_identifier(name)
+
     def visit_Import(self, t):
         self(t.names)
 

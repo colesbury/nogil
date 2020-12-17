@@ -71,13 +71,13 @@ def_op('LOAD_FAST', 124, 'reg')        # Local variable number
 def_op('LOAD_NAME', 101, 'str')        # Index in name list
 def_op('LOAD_CONST', 100, 'const')     # Index in const list
 def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
-def_op('LOAD_GLOBAL', 116, 'reg')      # Index in name list
-def_op('LOAD_METHOD', 160, 'reg')
+def_op('LOAD_GLOBAL', 116, 'str')      # Index in name list
+def_op('LOAD_METHOD', 160, 'reg', 'str')
 
 def_op('STORE_FAST', 125, 'reg')       # Local variable number
 def_op('STORE_NAME', 90, 'str')        # Index in name list
 def_op('STORE_ATTR', 95, 'reg', 'str') # acc[str] = reg
-def_op('STORE_GLOBAL', 97, 'reg')      # ""
+def_op('STORE_GLOBAL', 97, 'str')      # ""
 def_op('STORE_SUBSCR', 60, 'reg', 'reg') # reg1[acc] = reg
 
 def_op('DELETE_FAST', 126, 'reg')      # Local variable number
