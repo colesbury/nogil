@@ -81,7 +81,7 @@ PyCode2_New(PyObject *bytecode, PyObject *consts)
     co->co_size = ninstrs;
     co->co_nconsts = nconsts;
 
-    uint32_t *instrs = PyCode2_Code((PyObject *)co);
+    uint32_t *instrs = PyCode2_Code(co);
     memcpy(instrs, PyBytes_AsString(bytecode), ninstrs * sizeof(uint32_t));
 
     PyObject **co_constants = (PyObject **)((char *)co +
@@ -140,6 +140,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         return NULL;
     }
     co->co_argcount = argcount;
+    co->co_nlocals = nlocals;
     Py_XINCREF(varnames);
     co->co_varnames = varnames;
     Py_XINCREF(freevars);
@@ -227,7 +228,7 @@ code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 static PyObject *
 code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
-    uint32_t *bytecode = PyCode2_Code((PyObject *)co);
+    uint32_t *bytecode = PyCode2_Code(co);
     return PyBytes_FromStringAndSize((char *)bytecode, co->co_size * sizeof(uint32_t));
 }
 

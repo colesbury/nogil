@@ -11,7 +11,7 @@
 #include "pycore_qsbr.h"
 #include "pycore_dict.h"
 
-#include "code.h"
+#include "code2.h"
 #include "dictobject.h"
 #include "frameobject.h"
 #include "pydtrace.h"
@@ -65,15 +65,6 @@
         } \
     } \
 } while (0)
-
-struct metadata {
-
-};
-
-Code *func_code(PyFunc *func)
-{
-    return (Code *)((char *)func + sizeof(PyFunc));
-}
 
 __attribute__((noinline))
 void foo() {
@@ -142,11 +133,11 @@ IS_INT32(Register r)
     return (r.as_int64 & INT32_TAG) != 0;
 }
 
-static inline bool
-BOTH_INT32(Register a, Register b)
-{
-    return ((a.as_int64 & b.as_int64) & INT32_TAG) != 0;
-}
+// static inline bool
+// BOTH_INT32(Register a, Register b)
+// {
+//     return ((a.as_int64 & b.as_int64) & INT32_TAG) != 0;
+// }
 
 static inline int32_t
 AS_INT32(Register r)
@@ -163,78 +154,79 @@ AS_OBJ(Register r)
 
 PyObject *callfib(PyObject *const *args, Py_ssize_t nargs)
 {
-    static uint32_t code[] = {
-        FUNC_HEADER(5),
-        LOAD_INT(2),
-        TEST_LESS_THAN(0),
-        JUMP_IF_FALSE(2),
-        LOAD_INT(1),
-        RET(),
-        LOAD_GLOBAL(0, 3),
-        MOVE(1),
-        LOAD_INT(2),
-        SUB(0),
-        MOVE(3),
-        CALL_FUNCTION(1, 1),
-        MOVE(1),
-        LOAD_GLOBAL(0, 3),
-        MOVE(2),
-        LOAD_INT(1),
-        SUB(0),
-        MOVE(4),
-        CALL_FUNCTION(2, 1),
-        ADD(1),
-        CLEAR(1),
-        RET()
-    };
+//     static uint32_t code[] = {
+//         FUNC_HEADER(5),
+//         LOAD_INT(2),
+//         TEST_LESS_THAN(0),
+//         JUMP_IF_FALSE(2),
+//         LOAD_INT(1),
+//         RET(),
+//         LOAD_GLOBAL(0, 3),
+//         MOVE(1),
+//         LOAD_INT(2),
+//         SUB(0),
+//         MOVE(3),
+//         CALL_FUNCTION(1, 1),
+//         MOVE(1),
+//         LOAD_GLOBAL(0, 3),
+//         MOVE(2),
+//         LOAD_INT(1),
+//         SUB(0),
+//         MOVE(4),
+//         CALL_FUNCTION(2, 1),
+//         ADD(1),
+//         CLEAR(1),
+//         RET()
+//     };
 
-    static uint32_t retc[] = {
-        RETURN_TO_C()
-    };
+//     static uint32_t retc[] = {
+//         RETURN_TO_C()
+//     };
 
-    Register stack[256];
-    memset(stack, 0, sizeof(stack));
+//     Register stack[256];
+//     memset(stack, 0, sizeof(stack));
 
-    _Py_IDENTIFIER(fib);
+//     _Py_IDENTIFIER(fib);
 
-    Register constants[2];
-    memset(constants, 0, sizeof(constants));
-    constants[0].obj = _PyUnicode_FromId(&PyId_fib);
+//     Register constants[2];
+//     memset(constants, 0, sizeof(constants));
+//     constants[0].obj = _PyUnicode_FromId(&PyId_fib);
 
-    struct ThreadState *ts = malloc(sizeof(struct ThreadState));
-    memset(ts, 0, sizeof(struct ThreadState));
+//     struct ThreadState *ts = malloc(sizeof(struct ThreadState));
+//     memset(ts, 0, sizeof(struct ThreadState));
 
-    ts->pc = &code[0];
-    ts->stack = stack;
-    ts->maxstack = &stack[256];
-    ts->regs = &stack[2];
-    ts->constants = constants;
-    ts->opcode_targets = malloc(sizeof(void*) * 256);
-    memset(ts->opcode_targets, 0, sizeof(void*) * 256);
-    ts->metadata = malloc(sizeof(uint16_t) * 32);
-    memset(ts->metadata, 0, sizeof(uint16_t) * 32);
+//     ts->pc = &code[0];
+//     ts->stack = stack;
+//     ts->maxstack = &stack[256];
+//     ts->regs = &stack[2];
+//     ts->constants = constants;
+//     ts->opcode_targets = malloc(sizeof(void*) * 256);
+//     memset(ts->opcode_targets, 0, sizeof(void*) * 256);
+//     ts->metadata = malloc(sizeof(uint16_t) * 32);
+//     memset(ts->metadata, 0, sizeof(uint16_t) * 32);
 
-    PyObject *globals = PyDict_New();
+//     PyObject *globals = PyDict_New();
 
-    PyFunc *func = (PyFunc *)vm_new_func();
-    func->code = code;
-    func->constants = constants;
-    func->nargs = 1;
-    func->framesize = 5;
-    func->globals = globals;
+//     PyFunc *func = (PyFunc *)vm_new_func();
+//     func->code = code;
+//     func->constants = constants;
+//     func->nargs = 1;
+//     func->framesize = 5;
+//     func->globals = globals;
 
-    _PyDict_SetItemId(globals, &PyId_fib, (PyObject *)func);
-    PyDictKeysObject *keys = ((PyDictObject *)globals)->ma_keys;
-    PyDictKeyEntry *entry = find_unicode(((PyDictObject *)globals)->ma_keys, _PyUnicode_FromId(&PyId_fib));
-    Py_ssize_t offset = entry - keys->dk_entries;
-    ts->metadata[3] = offset;
+//     _PyDict_SetItemId(globals, &PyId_fib, (PyObject *)func);
+//     PyDictKeysObject *keys = ((PyDictObject *)globals)->ma_keys;
+//     PyDictKeyEntry *entry = find_unicode(((PyDictObject *)globals)->ma_keys, _PyUnicode_FromId(&PyId_fib));
+//     Py_ssize_t offset = entry - keys->dk_entries;
+//     ts->metadata[3] = offset;
 
-    stack[0].obj = (PyObject *)func; // this_func
-    stack[1].as_int64 = (intptr_t)&retc; // retc
-    stack[2] = PACK_INT32(PyLong_AsLong(args[0])); // arg
+//     stack[0].obj = (PyObject *)func; // this_func
+//     stack[1].as_int64 = (intptr_t)&retc; // retc
+//     stack[2] = PACK_INT32(PyLong_AsLong(args[0])); // arg
 
-    ts->nargs = 1;
-    return _PyEval_Fast(ts);
+//     ts->nargs = 1;
+//     return _PyEval_Fast(ts);
+    return NULL;
 }
 
 PyObject* bar(int a, int b, int c, int d);
@@ -264,6 +256,9 @@ void baz() {
 #define THIS_FUNC() \
     ((PyFunc *)AS_OBJ(regs[-2]))
 
+#define THIS_CODE() \
+    (PyCode2_FromInstr(THIS_FUNC()->first_instr))
+
 // LLINT (JSCORE)
 // Call Frame points to regs
 // regs[0] = caller
@@ -285,8 +280,13 @@ void baz() {
 PyObject*
 _PyEval_Fast(struct ThreadState *ts)
 {
-    const Register *constants = ts->constants;
+    #include "opcode_targets2.h"
+    if (!ts->opcode_targets[0]) {
+        memcpy(ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
+    }
+
     const uint32_t *next_instr = ts->pc;
+    PyObject **constants = PyCode2_FromInstr(next_instr)->co_constants;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
@@ -313,28 +313,6 @@ _PyEval_Fast(struct ThreadState *ts)
     // ts (?)
     // OBJ_MASK
     // INT32_TAG
-
-    static void *opcode_targets_base[256] = {
-        0,
-        &&TARGET_LOAD_INT,
-        &&TARGET_TEST_LESS_THAN,
-        &&TARGET_FUNC_HEADER,
-        &&TARGET_JUMP_IF_FALSE,
-        &&TARGET_RET,
-        &&TARGET_LOAD_GLOBAL,
-        &&TARGET_MOVE,
-        &&TARGET_ADD,
-        &&TARGET_SUB,
-        &&TARGET_CALL_FUNCTION,
-        &&TARGET_RETURN_TO_C,
-        &&TARGET_CLEAR,
-        0,
-        0,
-        &&TARGET_debug_regs
-    };
-    if (!ts->opcode_targets[0]) {
-        memcpy(ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
-    }
 
     void **opcode_targets = ts->opcode_targets;
     uint16_t *metadata = ts->metadata;
@@ -386,8 +364,8 @@ _PyEval_Fast(struct ThreadState *ts)
         // opA contains framesize
         // acc contains nargs from call
         // FIXME: this_func is this_code object
-        PyFunc *this_func = (PyFunc *)AS_OBJ(regs[-2]);
-        constants = this_func->constants;
+        PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
+        constants = this_code->co_constants;
         ts->regs = regs;
         if (UNLIKELY(regs + opA > ts->maxstack)) {
             // resize stack
@@ -395,7 +373,7 @@ _PyEval_Fast(struct ThreadState *ts)
             // todo: check for errors!
         }
         Py_ssize_t nargs = AS_INT32(acc);
-        if (UNLIKELY(nargs != this_func->nargs)) {
+        if (UNLIKELY(nargs != this_code->co_argcount)) {
             // error!
             // well... we might have set-up a try-catch, so we can't just return
             ts->regs = regs;
@@ -419,14 +397,13 @@ _PyEval_Fast(struct ThreadState *ts)
         regs = &regs[opA + 2];
         regs[-1].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
-        next_instr = func->code;
+        next_instr = func->first_instr;
         FAST_DISPATCH();
     }
 
-    TARGET(RET) {
-        // GET code object (?)
-        PyFunc *this_func = (PyFunc *)AS_OBJ(regs[-2]);
-        Register *top = &regs[this_func->nargs];
+    TARGET(RETURN_VALUE) {
+        PyCodeObject2 *this_code = THIS_CODE();
+        Register *top = &regs[this_code->co_nlocals];
         int64_t pc = regs[-1].as_int64;
         while (top != regs - 2) {
             top--;
@@ -444,7 +421,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_GLOBAL) {
-        PyObject *name = constants[opD].obj;
+        PyObject *name = constants[opD];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
 
@@ -478,13 +455,21 @@ _PyEval_Fast(struct ThreadState *ts)
         }
     }
 
-    TARGET(MOVE) {
+    TARGET(STORE_FAST) {
         regs[opA] = acc;
         acc.as_int64 = 0;
         FAST_DISPATCH();
     }
 
-    TARGET(CLEAR) {
+    TARGET(MOVE) {
+        Register r = regs[opA];
+        regs[opA] = regs[opD];
+        regs[opD].as_int64 = 0;
+        DECREF(r);
+        FAST_DISPATCH();
+    }
+
+    TARGET(CLEAR_FAST) {
         Register r = regs[opA];
         regs[opA].as_int64 = 0;
         DECREF(r);
@@ -494,7 +479,7 @@ _PyEval_Fast(struct ThreadState *ts)
     // 0 1 2 3
     // 1 1 2 3
 
-    TARGET(ADD) {
+    TARGET(BINARY_ADD) {
         Register a = regs[opA];
         // if (IS_INT32(acc) && IS_INT32(a)) {
         if (IS_INT32(acc) && IS_INT32(a)) {
@@ -509,7 +494,7 @@ _PyEval_Fast(struct ThreadState *ts)
         FAST_DISPATCH();
     }
 
-    TARGET(SUB) {
+    TARGET(BINARY_SUBTRACT) {
         Register a = regs[opA];
         if (IS_INT32(acc) && IS_INT32(a)) {
             int32_t res;
@@ -521,6 +506,12 @@ _PyEval_Fast(struct ThreadState *ts)
         }
         CALL_VM(acc = vm_add(regs[opA], acc));
         FAST_DISPATCH();
+    }
+
+    #include "unimplemented_opcodes.h"
+    {
+        CALL_VM(acc = vm_unknown_opcode(opcode));
+        __builtin_unreachable();
     }
 
     COLD_TARGET(debug_regs) {

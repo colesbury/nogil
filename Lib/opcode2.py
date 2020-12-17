@@ -25,6 +25,10 @@ def def_op(name, opcode, opA=None, opD=None):
 
 
 def_op('CLEAR_ACC', 1)
+def_op('FUNC_HEADER', 2, 'lit')
+def_op('RETURN_TO_C', 3)
+def_op('LOAD_INT', 4, 'lit')
+def_op('TEST_LESS_THAN', 5, 'reg')
 def_op('NOP', 9)
 # unary math operations
 def_op('UNARY_POSITIVE', 10)

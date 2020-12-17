@@ -13,6 +13,7 @@ PyAPI_DATA(PyTypeObject) PyCode2_Type;
 typedef struct {
     PyObject_HEAD
     uint8_t co_argcount;
+    uint8_t co_nlocals;
     Py_ssize_t co_size;         /* number of instructions */
     Py_ssize_t co_nconsts;      /* number of constants */
 
@@ -37,11 +38,20 @@ typedef struct {
 
 PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
 
+#define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
+
 static inline uint32_t *
-PyCode2_Code(PyObject *code)
+PyCode2_Code(PyCodeObject2 *code)
 {
     return (uint32_t *)((char *)code + sizeof(PyCodeObject2));
 }
+
+static inline PyCodeObject2 *
+PyCode2_FromInstr(const uint32_t *first_instr)
+{
+    return (PyCodeObject2 *)((char *)first_instr - sizeof(PyCodeObject2));
+}
+
 
 
 #ifdef __cplusplus

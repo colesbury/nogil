@@ -39,26 +39,28 @@ typedef uint32_t Code;
 typedef struct {
     PyObject_HEAD
     Code *first_instr;  // can get PyCodeObject2 via offset
-    PyObject *func_globals;
+    PyObject *globals;
     // closure... LuaJit has closed-over variables as flexiable array member
-} PyFunctionObject2;
+} PyFunc;
 
 
 // basically PyCodeObject ?
-typedef struct _PyFunc {
-    PyObject_HEAD;
-    // frame size
-    // number of parameters?
-    Code *code;
-    Register *constants;
-    intptr_t nargs;
-    Py_ssize_t framesize;
-    PyObject *globals;
-    // code
-    // constants
-} PyFunc;
+// typedef struct _PyFunc {
+//     PyObject_HEAD;
+//     // frame size
+//     // number of parameters?
+//     Code *code;
+//     Register *constants;
+//     intptr_t nargs;
+//     Py_ssize_t framesize;
+//     PyObject *globals;
+//     // code
+//     // constants
+// } PyFunc;
 
 Register vm_compare(Register a, Register b);
+
+Register vm_unknown_opcode(intptr_t opcode);
 
 // decrefs x!
 Register vm_to_bool(Register x);

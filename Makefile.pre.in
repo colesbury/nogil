@@ -603,7 +603,7 @@ pybuilddir.txt: $(BUILDPYTHON)
 		exit 1 ; \
 	fi
 
-Python/ceval2.o: Python/ceval2.c
+Python/ceval2.o: Python/ceval2.c $(srcdir)/Python/opcode_targets2.h $(srcdir)/Python/unimplemented_opcodes.h
 	$(CC) -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 -o $@ $<
 
 # This is shared by the math and cmath modules
