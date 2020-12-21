@@ -255,7 +255,7 @@ make_globals() {
     }
 
     static const uint32_t func_vector_call[] = {
-        FUNC_VECTOR_CALL
+        CFUNC_HEADER
     };
 
     PyObject *name = _PyUnicode_FromId(&PyId_builtins);

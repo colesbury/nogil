@@ -5,7 +5,7 @@ static const char *opcode_names[256] = {
     "RETURN_TO_C",
     "LOAD_INT",
     "TEST_LESS_THAN",
-    "FUNC_VECTOR_CALL",
+    "CFUNC_HEADER",
     "unknown_opcode",
     "unknown_opcode",
     "NOP",

@@ -12,7 +12,7 @@ extern "C" {
 #define RETURN_TO_C               3
 #define LOAD_INT                  4
 #define TEST_LESS_THAN            5
-#define FUNC_VECTOR_CALL          6
+#define CFUNC_HEADER          6
 #define NOP                       9
 #define UNARY_POSITIVE           10
 #define UNARY_NEGATIVE           11

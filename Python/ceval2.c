@@ -326,7 +326,7 @@ _PyEval_Fast(struct ThreadState *ts)
         FAST_DISPATCH();
     }
 
-    TARGET(FUNC_VECTOR_CALL) {
+    TARGET(CFUNC_HEADER) {
         Py_ssize_t nargs = AS_INT32(acc);
         PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-2]);
         PyObject *ret = func->vectorcall((PyObject *)func, (PyObject *const)regs, nargs, empty_tuple);
