@@ -329,7 +329,6 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(FUNC_VECTOR_CALL) {
         Py_ssize_t nargs = AS_INT32(acc);
         PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-2]);
-        printf("FUNC_VECTOR_CALL %zd %p\n", nargs, regs[0]);
         PyObject *ret = func->vectorcall((PyObject *)func, (PyObject *const)regs, nargs, empty_tuple);
         acc.obj = ret;
 
@@ -339,7 +338,6 @@ _PyEval_Fast(struct ThreadState *ts)
             top--;
             Register r = *top;
             top->as_int64 = 0;
-            printf("decref: %p\n", r.as_int64);
             DECREF(r);
         }
         next_instr = (const uint32_t *)pc;
@@ -372,7 +370,6 @@ _PyEval_Fast(struct ThreadState *ts)
         regs = &regs[opA + 2];
         regs[-1].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
-        printf("func = %p next_instr =%p\n", func, next_instr);
         next_instr = func->first_instr;
         FAST_DISPATCH();
     }
@@ -413,7 +410,6 @@ _PyEval_Fast(struct ThreadState *ts)
         // }
 
         CALL_VM(acc = vm_load_name((PyObject *)globals, name));
-        printf("LOAD_NAME: acc=%p\n", acc.as_int64);
         FAST_DISPATCH();
     }
 
