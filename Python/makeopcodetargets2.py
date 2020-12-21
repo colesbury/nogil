@@ -27,10 +27,9 @@ else:
         return SourceFileLoader(modname, modpath).load_module()
 
 
-def write_contents(f):
+def write_targets(opcode, f):
     """Write C code contents to the target file object.
     """
-    opcode = find_module('opcode2')
     targets = ['_unknown_opcode'] * 256
     targets[255] = 'TARGET_debug_regs'
     for opname, bytecode in opcode.opmap.items():
@@ -40,16 +39,28 @@ def write_contents(f):
     f.write("\n};\n")
 
 
+def write_names(opcode, f):
+    """Write C code contents to the target file object.
+    """
+    names = ['unknown_opcode'] * 256
+    names[255] = 'debug_regs'
+    for opname, bytecode in opcode.opmap.items():
+        names[bytecode.opcode] = opname
+    f.write("static const char *opcode_names[256] = {\n")
+    f.write(",\n".join(['    "%s"' % s for s in names]))
+    f.write("\n};\n")
+
+
 def main():
     if len(sys.argv) >= 3:
         sys.exit("Too many arguments")
-    if len(sys.argv) == 2:
-        target = sys.argv[1]
-    else:
-        target = "Python/opcode_targets2.h"
-    with open(target, "w") as f:
-        write_contents(f)
-    print("Jump table written into %s" % target)
+    opcode = find_module('opcode2')
+    with open("Python/opcode_targets2.h", "w") as f:
+        write_targets(opcode, f)
+        print("Jump table written into Python/opcode_targets2.h")
+    with open("Python/opcode_names2.h", "w") as f:
+        write_names(opcode, f)
+        print("Name table written into Python/opcode_names2.h")
 
 
 if __name__ == "__main__":

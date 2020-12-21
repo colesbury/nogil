@@ -8,6 +8,11 @@ extern "C" {
 
     /* Instruction opcodes for compiled code */
 #define CLEAR_ACC                 1
+#define FUNC_HEADER               2
+#define RETURN_TO_C               3
+#define LOAD_INT                  4
+#define TEST_LESS_THAN            5
+#define FUNC_VECTOR_CALL          6
 #define NOP                       9
 #define UNARY_POSITIVE           10
 #define UNARY_NEGATIVE           11

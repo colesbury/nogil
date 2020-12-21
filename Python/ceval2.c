@@ -71,86 +71,11 @@ void foo() {
     __asm__ volatile ("");
 }
 
-PyObject* _PyEval_Fast(struct ThreadState *ts);
-
-static const int64_t INT32_TAG = 0x2;
-static const int64_t REFCOUNT_TAG = 0x1;
-static const int64_t PRI_TAG = 0x4;
-
-// static const int64_t PRI_NONE = 0x0;
-// static const int64_t PRI_FALSE = 0x1;
-static const int64_t PRI_TRUE = 0x2;
-
 static PyObject *primitives[3] = {
     Py_None,
     Py_False,
     Py_True
 };
-
-static inline Register
-PACK_INT32(int32_t value)
-{
-    Register r;
-    r.as_int64 = INT32_TAG | ((int64_t)value << 32);
-    return r;
-}
-
-static inline Register
-PACK_BOOL(bool value)
-{
-    Register r;
-    r.as_int64 = PRI_TAG | (((int64_t)value + 1) << 32);
-    return r;
-}
-
-static inline bool
-IS_PRI(Register r)
-{
-    return (r.as_int64 & PRI_TAG) != 0;
-}
-
-static inline int32_t
-AS_PRI(Register r)
-{
-    return (r.as_int64 >> 32);
-}
-
-static inline bool
-IS_OBJ(Register r)
-{
-    return (r.as_int64 & INT32_TAG) == 0;
-}
-
-static inline bool
-IS_RC(Register r)
-{
-    return (r.as_int64 & REFCOUNT_TAG) != 0;
-}
-
-static inline bool
-IS_INT32(Register r)
-{
-    return (r.as_int64 & INT32_TAG) != 0;
-}
-
-// static inline bool
-// BOTH_INT32(Register a, Register b)
-// {
-//     return ((a.as_int64 & b.as_int64) & INT32_TAG) != 0;
-// }
-
-static inline int32_t
-AS_INT32(Register r)
-{
-    return (r.as_int64 >> 32);
-}
-
-static inline PyObject *
-AS_OBJ(Register r)
-{
-    r.as_int64 &= ~1;
-    return r.obj;
-}
 
 PyObject *callfib(PyObject *const *args, Py_ssize_t nargs)
 {
@@ -327,6 +252,11 @@ _PyEval_Fast(struct ThreadState *ts)
         FAST_DISPATCH();
     }
 
+    TARGET(LOAD_CONST) {
+        acc.obj = constants[opA];
+        FAST_DISPATCH();
+    }
+
     TARGET(TEST_LESS_THAN) {
         // is register less than accumulator
         Register r = regs[opA];
@@ -382,6 +312,26 @@ _PyEval_Fast(struct ThreadState *ts)
         FAST_DISPATCH();
     }
 
+    TARGET(FUNC_VECTOR_CALL) {
+        Py_ssize_t nargs = AS_INT32(acc);
+        PyCFunc *func = (PyCFunc *)AS_OBJ(regs[-2]);
+        printf("FUNC_VECTOR_CALL %zd %p\n", nargs, regs[0]);
+        PyObject *ret = func->vectorcall((PyObject *)func, (PyObject *const)regs, nargs, empty_tuple);
+        acc.obj = ret;
+
+        uint32_t call = next_instr[-1];
+        intptr_t offset = (call >> 8) & 0xFF;
+        regs -= offset + 2;
+        ts->regs = regs;
+        FAST_DISPATCH();
+    }
+
+    TARGET(MAKE_FUNCTION) {
+        PyCodeObject2 *code = (PyCodeObject2 *)constants[opA];
+        CALL_VM(acc = vm_make_function(ts, code));
+        FAST_DISPATCH();
+    }
+
     TARGET(CALL_FUNCTION) {
         // opsD = nargs
         // opsA = func
@@ -397,6 +347,7 @@ _PyEval_Fast(struct ThreadState *ts)
         regs = &regs[opA + 2];
         regs[-1].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
+        printf("func = %p next_instr =%p\n", func, next_instr);
         next_instr = func->first_instr;
         FAST_DISPATCH();
     }
@@ -420,22 +371,32 @@ _PyEval_Fast(struct ThreadState *ts)
         FAST_DISPATCH();
     }
 
+    TARGET(LOAD_NAME)
     TARGET(LOAD_GLOBAL) {
-        PyObject *name = constants[opD];
+        PyObject *name = constants[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
 
-        intptr_t guess = metadata[opA];
-        guess &= keys->dk_size;
-        PyDictKeyEntry *entry = &keys->dk_entries[guess];
-        if (entry->me_key == name) {
-            // printf("guess found\n");
-            PyObject *value = entry->me_value;
-            acc.obj = value;
-            FAST_DISPATCH();
-        }
+        // intptr_t guess = metadata[opA];
+        // guess &= keys->dk_size;
+        // PyDictKeyEntry *entry = &keys->dk_entries[guess];
+        // if (entry->me_key == name) {
+        //     // printf("guess found\n");
+        //     PyObject *value = entry->me_value;
+        //     acc.obj = value;
+        //     FAST_DISPATCH();
+        // }
 
         CALL_VM(acc = vm_load_name((PyObject *)globals, name));
+        printf("LOAD_NAME: acc=%p\n", acc.as_int64);
+        FAST_DISPATCH();
+    }
+
+    TARGET(STORE_NAME)
+    TARGET(STORE_GLOBAL) {
+        PyObject *name = constants[opD];
+        PyObject *globals = THIS_FUNC()->globals;
+        CALL_VM(acc = vm_store_global(globals, name, acc));
         FAST_DISPATCH();
     }
 

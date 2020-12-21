@@ -5,7 +5,7 @@ static void *opcode_targets_base[256] = {
     &&TARGET_RETURN_TO_C,
     &&TARGET_LOAD_INT,
     &&TARGET_TEST_LESS_THAN,
-    &&_unknown_opcode,
+    &&TARGET_FUNC_VECTOR_CALL,
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&TARGET_NOP,

@@ -18,8 +18,49 @@
 #include "structmember.h"
 #include "opcode2.h"
 #include "ceval2_meta.h"
+#include "opcode_names2.h"
 
 #include <ctype.h>
+
+static PyObject *primitives[3] = {
+    Py_None,
+    Py_False,
+    Py_True
+};
+
+static PyObject *
+vm_object(Register acc) {
+    if (IS_OBJ(acc)) {
+        acc.as_int64 &= ~REFCOUNT_TAG;
+        return acc.obj;
+    }
+    else if (IS_INT32(acc)) {
+        return PyLong_FromLong(AS_INT32(acc));
+    }
+    else if (IS_PRI(acc)) {
+        return primitives[AS_PRI(acc)];
+    }
+    else {
+        __builtin_unreachable();
+    }
+}
+
+#define DECREF(reg) do { \
+    if (IS_RC(reg)) { \
+        PyObject *obj = reg.obj; \
+        if (_PY_LIKELY(_Py_ThreadLocal(obj))) { \
+            uint32_t refcount = obj->ob_ref_local; \
+            refcount -= 4; \
+            obj->ob_ref_local = refcount; \
+            if (_PY_UNLIKELY(refcount == 0)) { \
+                _Py_MergeZeroRefcount(obj); \
+            } \
+        } \
+        else { \
+            _Py_DecRefShared(obj); \
+        } \
+    } \
+} while (0)
 
 Register vm_compare(Register a, Register b)
 {
@@ -30,7 +71,7 @@ Register vm_compare(Register a, Register b)
 
 Register vm_unknown_opcode(intptr_t opcode)
 {
-    printf("vm_unknown_opcode: %d\n", (int)opcode);
+    printf("vm_unknown_opcode: %d (%s)\n", (int)opcode, opcode_names[opcode]);
     abort();
 }
 
@@ -55,10 +96,12 @@ Register vm_add(Register a, Register b)
 
 Register vm_load_name(PyObject *dict, PyObject *name)
 {
+    printf("loading %s (%s) from %p\n", PyUnicode_AsUTF8(name), Py_TYPE(name)->tp_name, dict);
     PyObject *value = PyDict_GetItemWithError2(dict, name);
     if (value == NULL) {
         printf("value is null nyi\n");
     }
+    printf("value = %p\n", value);
     Register r;
     r.obj = value;
     uint32_t local = value->ob_ref_local;
@@ -69,6 +112,36 @@ Register vm_load_name(PyObject *dict, PyObject *name)
         r.as_int64 |= 1;
     }
     return r;
+}
+
+Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
+{
+    PyObject *value = vm_object(acc);
+    int err = PyDict_SetItem(dict, name, value);
+    Register ret;
+    if (err < 0) {
+        ret.as_int64 = 0;
+        return ret;
+    }
+    DECREF(acc);
+    ret.obj = Py_None;
+    return ret;
+}
+
+static PyFunc *
+PyFunc_New(PyCodeObject2 *code, PyObject *globals);
+
+Register
+vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
+{
+    Register ret;
+    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-2]);
+    PyObject *globals = this_func->globals;
+    PyFunc *func = PyFunc_New(code, globals);
+    assert(func == NULL || _PyObject_IS_DEFERRED_RC((PyObject *)func));
+    ret.obj = func;
+    ret.as_int64 |= REFCOUNT_TAG;
+    return ret;
 }
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
@@ -123,48 +196,112 @@ err:
     return NULL;
 }
 
-PyObject *
-eval_code2(PyCodeObject2 *code)
+static PyTypeObject PyFunc_Type;
+// static PyTypeObject PyCFunc_Type;
+
+static PyCFunc *
+PyCFunc_New(vectorcallfunc vectorcall)
 {
-    struct ThreadState *ts = new_threadstate();
-    if (ts == NULL) {
+    PyCFunc *func = PyObject_Malloc(sizeof(PyCFunc));
+    if (func == NULL) {
+        return NULL;
+    }
+    memset(func, 0, sizeof(PyCFunc));
+    PyObject_Init((PyObject *)func, &PyFunc_Type);
+
+    static const uint32_t func_vector_call[] = {
+        FUNC_VECTOR_CALL
+    };
+    printf("PyCFunc_New: first_instr=%p\n", &func_vector_call);
+
+    func->base.globals = NULL;
+    func->base.first_instr = &func_vector_call;
+    func->vectorcall = vectorcall;
+    return func;
+}
+
+static PyFunc *
+PyFunc_New(PyCodeObject2 *code, PyObject *globals)
+{
+    PyFunc *func = PyObject_New(PyFunc, &PyFunc_Type);
+    if (func == NULL) {
+        return NULL;
+    }
+    ((PyObject *)func)->ob_ref_local |= _Py_REF_DEFERRED_MASK;
+    func->first_instr = PyCode2_GET_CODE(code);
+    Py_INCREF(globals);
+    func->globals = globals;
+    return func;
+}
+
+static const uint32_t retc[] = {
+    RETURN_TO_C
+};
+
+static struct ThreadState *ts;
+_Py_IDENTIFIER(builtins);
+
+static PyObject *
+make_globals() {
+    PyObject *globals = PyDict_New();
+    if (globals == NULL) {
         return NULL;
     }
 
-    ts->pc = PyCode2_GET_CODE(code);
-    ts->constants = code->co_constants;
-//     ts->opcode_targets = malloc(sizeof(void*) * 256);
-//     memset(ts->opcode_targets, 0, sizeof(void*) * 256);
-//     ts->metadata = malloc(sizeof(uint16_t) * 32);
-//     memset(ts->metadata, 0, sizeof(uint16_t) * 32);
+    PyObject *name = _PyUnicode_FromId(&PyId_builtins);
+    PyObject *builtins = PyImport_GetModule(name);
+    PyObject *builtins_dict = PyModule_GetDict(builtins);
+    Py_ssize_t i = 0;
+    PyObject *key, *value;
+    while (PyDict_Next(builtins_dict, &i, &key, &value)) {
+        if (PyCFunction_Check(value)) {
+            value = (PyObject *)PyCFunc_New(((PyCFunctionObject *)value)->vectorcall);
+            printf("name = %s value = %p\n", PyUnicode_AsUTF8(key), value);
+        }
+        int err = PyDict_SetItem(globals, key, value);
+        assert(err == 0);
+    }
 
-//     PyObject *globals = PyDict_New();
-
-//     PyFunc *func = (PyFunc *)vm_new_func();
-//     func->code = code;
-//     func->constants = constants;
-//     func->nargs = 1;
-//     func->framesize = 5;
-//     func->globals = globals;
-
-//     _PyDict_SetItemId(globals, &PyId_fib, (PyObject *)func);
-//     PyDictKeysObject *keys = ((PyDictObject *)globals)->ma_keys;
-//     PyDictKeyEntry *entry = find_unicode(((PyDictObject *)globals)->ma_keys, _PyUnicode_FromId(&PyId_fib));
-//     Py_ssize_t offset = entry - keys->dk_entries;
-//     ts->metadata[3] = offset;
-
-//     stack[0].obj = (PyObject *)func; // this_func
-//     stack[1].as_int64 = (intptr_t)&retc; // retc
-//     stack[2] = PACK_INT32(PyLong_AsLong(args[0])); // arg
-
-//     ts->nargs = 1;
-//     return _PyEval_Fast(ts);
-
-
-    return NULL;
+    Py_DECREF(builtins);
+    return globals;
 }
 
-static PyTypeObject PyFunc_Type;
+PyObject *
+exec_code2(PyCodeObject2 *code, PyObject *globals)
+{
+    if (ts == NULL) {
+        ts = new_threadstate();
+        if (ts == NULL) {
+            return NULL;
+        }
+    }
+
+    ts->pc = PyCode2_GET_CODE(code);
+
+    if (empty_tuple == NULL) {
+        empty_tuple = PyTuple_New(0);
+    }
+
+    if (globals == NULL) {
+        globals = make_globals();
+        if (globals == NULL) {
+            return NULL;
+        }
+    }
+
+    PyFunc *func = PyFunc_New(code, globals);
+    if (func == NULL) {
+        return NULL;
+    }
+    printf("exec with func: %p\n", func);
+    printf("calling with regs = %p\n", ts->regs);
+
+    ts->regs += 2;
+    ts->regs[-2].obj = (PyObject *)func; // this_func
+    ts->regs[-1].as_int64 = (intptr_t)&retc;
+    ts->nargs = 0;
+    return _PyEval_Fast(ts);
+}
 
 PyObject *vm_new_func(void)
 {

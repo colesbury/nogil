@@ -10,6 +10,8 @@
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 
+#include "ceval2_meta.h"
+
 // An individual register can have an owning or non-owning reference
 // Deferred and immortal objects always have non-owning references (immortal for correctness, deferred for perf, helps)
 // A regular object *may* have a non-owning reference for aliases
@@ -217,6 +219,16 @@ code_richcompare(PyObject *self, PyObject *other, int op)
 }
 
 static PyObject *
+code_exec(PyCodeObject2 *co, PyObject *args)
+{
+    PyObject *globals = NULL;
+    if (PyTuple_GET_SIZE(args) >= 1) {
+        globals = PyTuple_GET_ITEM(args, 0);
+    }
+    return exec_code2(co, globals);
+}
+
+static PyObject *
 code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     Py_ssize_t size = sizeof(PyCodeObject);
@@ -249,6 +261,7 @@ code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 
 static struct PyMethodDef code_methods[] = {
     {"__sizeof__", (PyCFunction)code_sizeof, METH_NOARGS},
+    {"exec", (PyCFunction)code_exec, METH_VARARGS},
     {NULL, NULL}                /* sentinel */
 };
 
