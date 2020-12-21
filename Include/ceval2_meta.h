@@ -97,21 +97,6 @@ struct ThreadState {
     void **opcode_targets;//[256];
 };
 
-typedef uint32_t Code;
-
-typedef struct {
-    PyObject_HEAD
-    Code *first_instr;  // can get PyCodeObject2 via offset
-    PyObject *globals;
-    // closure... LuaJit has closed-over variables as flexiable array member
-} PyFunc;
-
-typedef struct {
-    PyFunc base;
-    vectorcallfunc vectorcall;
-} PyCFunc;
-
-
 // basically PyCodeObject ?
 // typedef struct _PyFunc {
 //     PyObject_HEAD;

@@ -51,7 +51,7 @@
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
-        PyObject *obj = reg.obj; \
+        PyObject *obj = AS_OBJ(reg); \
         if (LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount -= 4; \
@@ -62,6 +62,20 @@
         } \
         else { \
             CALL_VM(vm_decref_shared(obj)); \
+        } \
+    } \
+} while (0)
+
+#define INCREF(reg) do { \
+    if (IS_RC(reg)) { \
+        PyObject *obj = AS_OBJ(reg); \
+        if (LIKELY(_Py_ThreadLocal(obj))) { \
+            uint32_t refcount = obj->ob_ref_local; \
+            refcount += 4; \
+            obj->ob_ref_local = refcount; \
+        } \
+        else { \
+            CALL_VM(vm_incref_shared(obj)); \
         } \
     } \
 } while (0)
@@ -314,11 +328,22 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(FUNC_VECTOR_CALL) {
         Py_ssize_t nargs = AS_INT32(acc);
-        PyCFunc *func = (PyCFunc *)AS_OBJ(regs[-2]);
+        PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-2]);
         printf("FUNC_VECTOR_CALL %zd %p\n", nargs, regs[0]);
         PyObject *ret = func->vectorcall((PyObject *)func, (PyObject *const)regs, nargs, empty_tuple);
         acc.obj = ret;
 
+        Register *top = &regs[nargs];
+        int64_t pc = regs[-1].as_int64;
+        while (top != regs - 2) {
+            top--;
+            Register r = *top;
+            top->as_int64 = 0;
+            printf("decref: %p\n", r.as_int64);
+            DECREF(r);
+        }
+        next_instr = (const uint32_t *)pc;
+        // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
@@ -394,7 +419,7 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(STORE_NAME)
     TARGET(STORE_GLOBAL) {
-        PyObject *name = constants[opD];
+        PyObject *name = constants[opA];
         PyObject *globals = THIS_FUNC()->globals;
         CALL_VM(acc = vm_store_global(globals, name, acc));
         FAST_DISPATCH();
@@ -416,6 +441,13 @@ _PyEval_Fast(struct ThreadState *ts)
         }
     }
 
+    TARGET(LOAD_FAST) {
+        acc = regs[opA];
+        INCREF(acc);
+        FAST_DISPATCH();
+    }
+
+
     TARGET(STORE_FAST) {
         regs[opA] = acc;
         acc.as_int64 = 0;
@@ -433,6 +465,13 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(CLEAR_FAST) {
         Register r = regs[opA];
         regs[opA].as_int64 = 0;
+        DECREF(r);
+        FAST_DISPATCH();
+    }
+
+    TARGET(CLEAR_ACC) {
+        Register r = acc;
+        acc.as_int64 = 0;
         DECREF(r);
         FAST_DISPATCH();
     }

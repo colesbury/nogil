@@ -87,6 +87,13 @@ PyAPI_FUNC(PyObject *) PyCFunction_NewEx(PyMethodDef *, PyObject *,
 #ifndef Py_LIMITED_API
 typedef struct {
     PyObject_HEAD
+    uint32_t *first_instr;  // can get PyCodeObject2 via offset
+    PyObject *globals;
+    // closure... LuaJit has closed-over variables as flexiable array member
+} PyFunc;
+
+typedef struct {
+    PyFunc      m_base;
     PyMethodDef *m_ml; /* Description of the C function to call */
     PyObject    *m_self; /* Passed as 'self' arg to the C func, can be NULL */
     PyObject    *m_module; /* The __module__ attribute, can be anything */

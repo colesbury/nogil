@@ -47,7 +47,7 @@ vm_object(Register acc) {
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
-        PyObject *obj = reg.obj; \
+        PyObject *obj = AS_OBJ(reg); \
         if (_PY_LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount -= 4; \
@@ -87,7 +87,14 @@ Register vm_to_bool(Register x)
 
 Register vm_add(Register a, Register b)
 {
-    printf("vm_add\n");
+    printf("vm_add: %p %p\n", a.as_int64, b.as_int64);
+    if (IS_OBJ(a)) {
+        printf("a = %s\n", Py_TYPE(AS_OBJ(a))->tp_name);
+    }
+    if (IS_OBJ(b)) {
+        printf("b = %s\n", Py_TYPE(AS_OBJ(b))->tp_name);
+    }
+
     abort();
     Register r;
     r.obj = Py_False;
@@ -96,6 +103,7 @@ Register vm_add(Register a, Register b)
 
 Register vm_load_name(PyObject *dict, PyObject *name)
 {
+    printf("loading %p[%p]\n", dict, name);
     printf("loading %s (%s) from %p\n", PyUnicode_AsUTF8(name), Py_TYPE(name)->tp_name, dict);
     PyObject *value = PyDict_GetItemWithError2(dict, name);
     if (value == NULL) {
@@ -117,10 +125,12 @@ Register vm_load_name(PyObject *dict, PyObject *name)
 Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
 {
     PyObject *value = vm_object(acc);
+    printf("storing %p[%p] = %p\n", dict, name, value);
     int err = PyDict_SetItem(dict, name, value);
     Register ret;
     if (err < 0) {
         ret.as_int64 = 0;
+        abort();
         return ret;
     }
     DECREF(acc);
@@ -199,26 +209,22 @@ err:
 static PyTypeObject PyFunc_Type;
 // static PyTypeObject PyCFunc_Type;
 
-static PyCFunc *
-PyCFunc_New(vectorcallfunc vectorcall)
-{
-    PyCFunc *func = PyObject_Malloc(sizeof(PyCFunc));
-    if (func == NULL) {
-        return NULL;
-    }
-    memset(func, 0, sizeof(PyCFunc));
-    PyObject_Init((PyObject *)func, &PyFunc_Type);
+// static PyCFunc *
+// PyCFunc_New(vectorcallfunc vectorcall)
+// {
+//     PyCFunc *func = PyObject_Malloc(sizeof(PyCFunc));
+//     if (func == NULL) {
+//         return NULL;
+//     }
+//     memset(func, 0, sizeof(PyCFunc));
+//     PyObject_Init((PyObject *)func, &PyFunc_Type);
+//     printf("PyCFunc_New: first_instr=%p\n", &func_vector_call);
 
-    static const uint32_t func_vector_call[] = {
-        FUNC_VECTOR_CALL
-    };
-    printf("PyCFunc_New: first_instr=%p\n", &func_vector_call);
-
-    func->base.globals = NULL;
-    func->base.first_instr = &func_vector_call;
-    func->vectorcall = vectorcall;
-    return func;
-}
+//     func->base.globals = NULL;
+//     func->base.first_instr = &func_vector_call;
+//     func->vectorcall = vectorcall;
+//     return func;
+// }
 
 static PyFunc *
 PyFunc_New(PyCodeObject2 *code, PyObject *globals)
@@ -248,6 +254,10 @@ make_globals() {
         return NULL;
     }
 
+    static const uint32_t func_vector_call[] = {
+        FUNC_VECTOR_CALL
+    };
+
     PyObject *name = _PyUnicode_FromId(&PyId_builtins);
     PyObject *builtins = PyImport_GetModule(name);
     PyObject *builtins_dict = PyModule_GetDict(builtins);
@@ -255,8 +265,7 @@ make_globals() {
     PyObject *key, *value;
     while (PyDict_Next(builtins_dict, &i, &key, &value)) {
         if (PyCFunction_Check(value)) {
-            value = (PyObject *)PyCFunc_New(((PyCFunctionObject *)value)->vectorcall);
-            printf("name = %s value = %p\n", PyUnicode_AsUTF8(key), value);
+            ((PyFunc *)value)->first_instr = &func_vector_call;
         }
         int err = PyDict_SetItem(globals, key, value);
         assert(err == 0);
@@ -318,7 +327,7 @@ PyObject *vm_new_func(void)
 
 void vm_zero_refcount(PyObject *op) {}
 void vm_decref_shared(PyObject *op) {
-    printf("vm_decref_shared\n");
+    printf("vm_decref_shared: %p\n", op);
     abort();
 }
 void vm_incref_shared(PyObject *op) {
