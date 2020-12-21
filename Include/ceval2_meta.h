@@ -128,6 +128,7 @@ Register vm_to_bool(Register x);
 
 // decrefs acc!
 Register vm_add(Register x, Register acc);
+Register vm_sub(Register x, Register acc);
 
 Register vm_load_name(PyObject *dict, PyObject *name);
 Register vm_store_global(PyObject *dict, PyObject *name, Register value);

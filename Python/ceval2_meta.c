@@ -101,6 +101,13 @@ Register vm_add(Register a, Register b)
     return r;
 }
 
+Register vm_sub(Register a, Register b)
+{
+    printf("vm_sub: %p %p\n", a.as_int64, b.as_int64);
+    abort();
+}
+
+
 Register vm_load_name(PyObject *dict, PyObject *name)
 {
     printf("loading %p[%p]\n", dict, name);
@@ -145,7 +152,7 @@ Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
 {
     Register ret;
-    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-2]);
+    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyObject *globals = this_func->globals;
     PyFunc *func = PyFunc_New(code, globals);
     assert(func == NULL || _PyObject_IS_DEFERRED_RC((PyObject *)func));
@@ -306,8 +313,8 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     printf("calling with regs = %p\n", ts->regs);
 
     ts->regs += 2;
-    ts->regs[-2].obj = (PyObject *)func; // this_func
-    ts->regs[-1].as_int64 = (intptr_t)&retc;
+    ts->regs[-2].as_int64 = (intptr_t)&retc;
+    ts->regs[-1].obj = (PyObject *)func; // this_func
     ts->nargs = 0;
     return _PyEval_Fast(ts);
 }

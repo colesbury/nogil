@@ -328,7 +328,7 @@ class CodeGen(ast.NodeVisitor):
                   # op.CALL_FUNCTION_KW     if t.kwargs else
                   op.CALL_FUNCTION)
         regs = self.register_list()
-        return (regs[0](t.func) +
+        return (regs[1](t.func) +
                 concat([regs[2+i](arg) for i,arg in enumerate(t.args)]) +
                 opcode(regs.base, len(t.args)))
 

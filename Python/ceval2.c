@@ -37,7 +37,7 @@
 
 #define TARGET(name) \
     TARGET_##name: \
-   __asm__ volatile(".TARGET_" #name ":");
+   __asm__ volatile("#.TARGET_" #name ":");
 
 
 #define COLD_TARGET(name) \
@@ -188,12 +188,13 @@ void baz() {
         next_instr++; \
     } while (0)
 
-#define FAST_DISPATCH() \
+#define FAST_DISPATCH(name) \
     NEXTOPARG(); \
+    __asm__ volatile("# computed goto " #name); \
     goto *opcode_targets[opcode]
 
 #define THIS_FUNC() \
-    ((PyFunc *)AS_OBJ(regs[-2]))
+    ((PyFunc *)AS_OBJ(regs[-1]))
 
 #define THIS_CODE() \
     (PyCode2_FromInstr(THIS_FUNC()->first_instr))
@@ -230,7 +231,7 @@ _PyEval_Fast(struct ThreadState *ts)
     intptr_t opA;
     intptr_t opD;
     Register acc;
-    // callee saved: rbx,rbp,r12,r13,r14, r15 6 usable registers + rsp
+    // callee saved: rbx,rbp,r12,r13,r14,r15 6 usable registers + rsp
 
     // WebKit Saved:
     // regs (cfr)
@@ -259,16 +260,16 @@ _PyEval_Fast(struct ThreadState *ts)
     // NOTE: after memcpy call!
     Register *regs = ts->regs;
     acc = PACK_INT32(ts->nargs);
-    FAST_DISPATCH();
+    FAST_DISPATCH(INITIAL);
 
     TARGET(LOAD_INT) {
         acc = PACK_INT32(opD);
-        FAST_DISPATCH();
+        FAST_DISPATCH(LOAD_INT);
     }
 
     TARGET(LOAD_CONST) {
         acc.obj = constants[opA];
-        FAST_DISPATCH();
+        FAST_DISPATCH(LOAD_CONST);
     }
 
     TARGET(TEST_LESS_THAN) {
@@ -281,17 +282,17 @@ _PyEval_Fast(struct ThreadState *ts)
         else {
             CALL_VM(acc = vm_compare(r, acc));
         }
-        FAST_DISPATCH();
+        FAST_DISPATCH(TEST_LESS_THAN);
     }
 
     TARGET(JUMP_IF_FALSE) {
         if (_PY_LIKELY(IS_PRI(acc))) {
             if ((AS_PRI(acc) & PRI_TRUE) == 0) {
                 next_instr += opD - 0x8000;
-                FAST_DISPATCH();
+                FAST_DISPATCH(JUMP_IF_FALSE);
             }
             else {
-                FAST_DISPATCH();
+                FAST_DISPATCH(JUMP_IF_FALSE);
             }
         }
         else {
@@ -300,7 +301,7 @@ _PyEval_Fast(struct ThreadState *ts)
                 opD = next_instr[-1] >> 16;
                 next_instr += opD - 0x8000;
             }
-            FAST_DISPATCH();
+            FAST_DISPATCH(JUMP_IF_FALSE);
         }
     }
 
@@ -323,42 +324,41 @@ _PyEval_Fast(struct ThreadState *ts)
             ts->regs = regs;
             return vm_args_error(ts);
         }
-        FAST_DISPATCH();
+        FAST_DISPATCH(FUNC_HEADER);
     }
 
     TARGET(CFUNC_HEADER) {
         Py_ssize_t nargs = AS_INT32(acc);
-        PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-2]);
-        PyObject *ret = func->vectorcall((PyObject *)func, (PyObject *const)regs, nargs, empty_tuple);
-        acc.obj = ret;
+        PyCFunctionObject *func = (PyCFunctionObject *)THIS_FUNC();
+        CALL_VM(acc.obj = func->vectorcall((PyObject *)func, (PyObject *const*)regs, nargs, empty_tuple));
 
         Register *top = &regs[nargs];
-        int64_t pc = regs[-1].as_int64;
-        while (top != regs - 2) {
+        while (top != regs - 1) {
             top--;
             Register r = *top;
             top->as_int64 = 0;
             DECREF(r);
         }
-        next_instr = (const uint32_t *)pc;
+        next_instr = (const uint32_t *)regs[-2].as_int64;
+        regs[-2].as_int64 = 0;
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
         ts->regs = regs;
-        FAST_DISPATCH();
+        FAST_DISPATCH(CFUNC_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
         PyCodeObject2 *code = (PyCodeObject2 *)constants[opA];
         CALL_VM(acc = vm_make_function(ts, code));
-        FAST_DISPATCH();
+        FAST_DISPATCH(MAKE_FUNCTION);
     }
 
     TARGET(CALL_FUNCTION) {
         // opsD = nargs
-        // opsA = func
-        // opsA + 1 = <empty> (frame link)
+        // opsA - 1 = <empty> (frame link)
+        // opsA + 0 = func
         // opsA + 2 = arg0
         // opsA + 2 + opsD = argsN
         Register callable = regs[opA];
@@ -367,33 +367,36 @@ _PyEval_Fast(struct ThreadState *ts)
             return vm_error_not_callable(ts);
         }
         PyFunc *func = (PyFunc *)AS_OBJ(callable);
-        regs = &regs[opA + 2];
-        regs[-1].as_int64 = (intptr_t)next_instr;
+        regs = &regs[opA + 1];
+        regs[-2].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
         next_instr = func->first_instr;
-        FAST_DISPATCH();
+        FAST_DISPATCH(CALL_FUNCTION);
     }
 
     TARGET(RETURN_VALUE) {
         PyCodeObject2 *this_code = THIS_CODE();
         Register *top = &regs[this_code->co_nlocals];
-        int64_t pc = regs[-1].as_int64;
-        while (top != regs - 2) {
+        while (top != regs - 1) {
             top--;
             Register r = *top;
             top->as_int64 = 0;
             DECREF(r);
         }
-        next_instr = (const uint32_t *)pc;
+        next_instr = (const uint32_t *)regs[-2].as_int64;
+        regs[-2].as_int64 = 0;
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
         ts->regs = regs;
-        FAST_DISPATCH();
+        FAST_DISPATCH(RETURN_VALUE);
     }
 
-    TARGET(LOAD_NAME)
+    TARGET(LOAD_NAME) {
+        goto TARGET_LOAD_GLOBAL;
+    }
+
     TARGET(LOAD_GLOBAL) {
         PyObject *name = constants[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
@@ -410,7 +413,7 @@ _PyEval_Fast(struct ThreadState *ts)
         // }
 
         CALL_VM(acc = vm_load_name((PyObject *)globals, name));
-        FAST_DISPATCH();
+        FAST_DISPATCH(LOAD_GLOBAL);
     }
 
     TARGET(STORE_NAME)
@@ -418,7 +421,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *name = constants[opA];
         PyObject *globals = THIS_FUNC()->globals;
         CALL_VM(acc = vm_store_global(globals, name, acc));
-        FAST_DISPATCH();
+        FAST_DISPATCH(STORE_GLOBAL);
     }
 
     TARGET(RETURN_TO_C) {
@@ -440,14 +443,13 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(LOAD_FAST) {
         acc = regs[opA];
         INCREF(acc);
-        FAST_DISPATCH();
+        FAST_DISPATCH(LOAD_FAST);
     }
-
 
     TARGET(STORE_FAST) {
         regs[opA] = acc;
         acc.as_int64 = 0;
-        FAST_DISPATCH();
+        FAST_DISPATCH(STORE_FAST);
     }
 
     TARGET(MOVE) {
@@ -455,21 +457,21 @@ _PyEval_Fast(struct ThreadState *ts)
         regs[opA] = regs[opD];
         regs[opD].as_int64 = 0;
         DECREF(r);
-        FAST_DISPATCH();
+        FAST_DISPATCH(MOVE);
     }
 
     TARGET(CLEAR_FAST) {
         Register r = regs[opA];
         regs[opA].as_int64 = 0;
         DECREF(r);
-        FAST_DISPATCH();
+        FAST_DISPATCH(CLEAR_FAST);
     }
 
     TARGET(CLEAR_ACC) {
         Register r = acc;
         acc.as_int64 = 0;
         DECREF(r);
-        FAST_DISPATCH();
+        FAST_DISPATCH(CLEAR_ACC);
     }
 
     // 0 1 2 3
@@ -483,11 +485,12 @@ _PyEval_Fast(struct ThreadState *ts)
             bool overflow = __builtin_add_overflow(AS_INT32(a), AS_INT32(acc), &res);
             if (LIKELY(!overflow)) {
                 acc = PACK_INT32(res);
-                FAST_DISPATCH();
+                goto add_dispatch;
             }
         }
         CALL_VM(acc = vm_add(regs[opA], acc));
-        FAST_DISPATCH();
+    add_dispatch:
+        FAST_DISPATCH(BINARY_ADD);
     }
 
     TARGET(BINARY_SUBTRACT) {
@@ -497,11 +500,12 @@ _PyEval_Fast(struct ThreadState *ts)
             bool overflow = __builtin_sub_overflow(AS_INT32(a), AS_INT32(acc), &res);
             if (LIKELY(!overflow)) {
                 acc = PACK_INT32(res);
-                FAST_DISPATCH();
+                goto subtract_dispatch;
             }
         }
-        CALL_VM(acc = vm_add(regs[opA], acc));
-        FAST_DISPATCH();
+        CALL_VM(acc = vm_sub(regs[opA], acc));
+    subtract_dispatch:
+        FAST_DISPATCH(BINARY_SUBTRACT);
     }
 
     #include "unimplemented_opcodes.h"
@@ -533,7 +537,7 @@ _PyEval_Fast(struct ThreadState *ts)
             "r" (ts),
             "r" (opcode_targets),
             "r" (metadata));
-        FAST_DISPATCH();
+        FAST_DISPATCH(debug_regs);
     }
 
     __builtin_unreachable();
