@@ -572,6 +572,7 @@ class CodeGen(ast.NodeVisitor):
         self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
+        assembly = op.FUNC_HEADER(self.max_registers) + assembly
         return self.make_code(assembly, t.name,
                               len(t.args.args), t.args.vararg, t.args.kwarg)
 

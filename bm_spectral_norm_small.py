@@ -44,3 +44,5 @@ def bench_spectral_norm(loops):
             vv += ve * ve
 
     return u
+
+print(eval_A(1.0, 2.0))

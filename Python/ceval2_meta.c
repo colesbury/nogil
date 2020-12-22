@@ -29,20 +29,30 @@ static PyObject *primitives[3] = {
 };
 
 static PyObject *
-vm_object(Register acc) {
-    if (IS_OBJ(acc)) {
-        acc.as_int64 &= ~REFCOUNT_TAG;
-        return acc.obj;
+vm_object(Register r) {
+    if (IS_OBJ(r)) {
+        return AS_OBJ(r);
     }
-    else if (IS_INT32(acc)) {
-        return PyLong_FromLong(AS_INT32(acc));
+    else if (IS_INT32(r)) {
+        return PyLong_FromLong(AS_INT32(r));
     }
-    else if (IS_PRI(acc)) {
-        return primitives[AS_PRI(acc)];
+    else if (IS_PRI(r)) {
+        return primitives[AS_PRI(r)];
     }
     else {
         __builtin_unreachable();
     }
+}
+
+static Register
+FROM_OBJ(PyObject *obj)
+{
+    Register r;
+    r.obj = obj;
+    if (obj && _PyObject_IS_DEFERRED_RC(obj)) {
+        r.as_int64 |= REFCOUNT_TAG;
+    }
+    return r;
 }
 
 #define DECREF(reg) do { \
@@ -75,7 +85,6 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
-
 Register vm_to_bool(Register x)
 {
     printf("vm_to_bool\n");
@@ -85,26 +94,51 @@ Register vm_to_bool(Register x)
     return r;
 }
 
-Register vm_add(Register a, Register b)
+Register vm_add(Register a, Register acc)
 {
-    printf("vm_add: %p %p\n", a.as_int64, b.as_int64);
-    if (IS_OBJ(a)) {
-        printf("a = %s\n", Py_TYPE(AS_OBJ(a))->tp_name);
+    printf("vm_add %p %p\n", a.as_int64, acc.as_int64);
+    PyObject *o1 = vm_object(a);
+    PyObject *o2 = vm_object(acc);
+    PyObject *res = PyNumber_Add(o1, o2);
+    if (res == NULL) {
+        PyErr_Print();
+        assert(res != NULL);
     }
-    if (IS_OBJ(b)) {
-        printf("b = %s\n", Py_TYPE(AS_OBJ(b))->tp_name);
-    }
-
-    abort();
-    Register r;
-    r.obj = Py_False;
-    return r;
+    DECREF(acc);
+    return FROM_OBJ(res);
 }
 
 Register vm_sub(Register a, Register b)
 {
     printf("vm_sub: %p %p\n", a.as_int64, b.as_int64);
     abort();
+}
+
+Register vm_mul(Register a, Register acc)
+{
+    PyObject *o1 = vm_object(a);
+    PyObject *o2 = vm_object(acc);
+    PyObject *res = PyNumber_Multiply(o1, o2);
+    DECREF(acc);
+    return FROM_OBJ(res);
+}
+
+Register vm_true_div(Register a, Register acc)
+{
+    PyObject *o1 = vm_object(a);
+    PyObject *o2 = vm_object(acc);
+    PyObject *res = PyNumber_TrueDivide(o1, o2);
+    DECREF(acc);
+    return FROM_OBJ(res);
+}
+
+Register vm_floor_div(Register a, Register acc)
+{
+    PyObject *o1 = vm_object(a);
+    PyObject *o2 = vm_object(acc);
+    PyObject *res = PyNumber_FloorDivide(o1, o2);
+    DECREF(acc);
+    return FROM_OBJ(res);
 }
 
 
@@ -247,9 +281,6 @@ PyFunc_New(PyCodeObject2 *code, PyObject *globals)
     return func;
 }
 
-static const uint32_t retc[] = {
-    RETURN_TO_C
-};
 
 static struct ThreadState *ts;
 _Py_IDENTIFIER(builtins);
@@ -313,7 +344,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     printf("calling with regs = %p\n", ts->regs);
 
     ts->regs += 2;
-    ts->regs[-2].as_int64 = (intptr_t)&retc;
+    ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1].obj = (PyObject *)func; // this_func
     ts->nargs = 0;
     return _PyEval_Fast(ts);

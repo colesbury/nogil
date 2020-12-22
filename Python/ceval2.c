@@ -331,7 +331,6 @@ _PyEval_Fast(struct ThreadState *ts)
         Py_ssize_t nargs = AS_INT32(acc);
         PyCFunctionObject *func = (PyCFunctionObject *)THIS_FUNC();
         CALL_VM(acc.obj = func->vectorcall((PyObject *)func, (PyObject *const*)regs, nargs, empty_tuple));
-
         Register *top = &regs[nargs];
         while (top != regs - 1) {
             top--;
@@ -346,7 +345,7 @@ _PyEval_Fast(struct ThreadState *ts)
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
         ts->regs = regs;
-        FAST_DISPATCH(CFUNC_HEADER);
+        FAST_DISPATCH(function_return);
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -357,17 +356,17 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(CALL_FUNCTION) {
         // opsD = nargs
-        // opsA - 1 = <empty> (frame link)
-        // opsA + 0 = func
+        // opsA + 0 = <empty> (frame link)
+        // opsA + 1 = func
         // opsA + 2 = arg0
         // opsA + 2 + opsD = argsN
-        Register callable = regs[opA];
+        Register callable = regs[opA + 1];
         if (UNLIKELY(!IS_OBJ(callable))) {
             ts->regs = regs;
             return vm_error_not_callable(ts);
         }
         PyFunc *func = (PyFunc *)AS_OBJ(callable);
-        regs = &regs[opA + 1];
+        regs = &regs[opA + 2];
         regs[-2].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
         next_instr = func->first_instr;
@@ -375,8 +374,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(RETURN_VALUE) {
-        PyCodeObject2 *this_code = THIS_CODE();
-        Register *top = &regs[this_code->co_nlocals];
+        Register *top = &regs[THIS_CODE()->co_nlocals];
         while (top != regs - 1) {
             top--;
             Register r = *top;
@@ -385,12 +383,16 @@ _PyEval_Fast(struct ThreadState *ts)
         }
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
+        if ((((uintptr_t)next_instr) & FRAME_C) != 0) {
+            goto return_to_c;
+        }
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
         ts->regs = regs;
-        FAST_DISPATCH(RETURN_VALUE);
+        constants = THIS_CODE()->co_constants;
+        FAST_DISPATCH(function_return);
     }
 
     TARGET(LOAD_NAME) {
@@ -422,22 +424,6 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *globals = THIS_FUNC()->globals;
         CALL_VM(acc = vm_store_global(globals, name, acc));
         FAST_DISPATCH(STORE_GLOBAL);
-    }
-
-    TARGET(RETURN_TO_C) {
-        if (IS_OBJ(acc)) {
-            acc.as_int64 &= ~REFCOUNT_TAG;
-            return acc.obj;
-        }
-        else if (IS_INT32(acc)) {
-            return PyLong_FromLong(AS_INT32(acc));
-        }
-        else if (IS_PRI(acc)) {
-            return primitives[AS_PRI(acc)];
-        }
-        else {
-            __builtin_unreachable();
-        }
     }
 
     TARGET(LOAD_FAST) {
@@ -489,6 +475,7 @@ _PyEval_Fast(struct ThreadState *ts)
             }
         }
         CALL_VM(acc = vm_add(regs[opA], acc));
+        assert(acc.as_int64 != 0);
     add_dispatch:
         FAST_DISPATCH(BINARY_ADD);
     }
@@ -504,8 +491,52 @@ _PyEval_Fast(struct ThreadState *ts)
             }
         }
         CALL_VM(acc = vm_sub(regs[opA], acc));
+        assert(acc.as_int64 != 0);
     subtract_dispatch:
         FAST_DISPATCH(BINARY_SUBTRACT);
+    }
+
+    TARGET(BINARY_MULTIPLY) {
+        Register a = regs[opA];
+        if (IS_INT32(acc) && IS_INT32(a)) {
+            int32_t res;
+            bool overflow = __builtin_mul_overflow(AS_INT32(a), AS_INT32(acc), &res);
+            if (LIKELY(!overflow)) {
+                acc = PACK_INT32(res);
+                goto multiply_dispatch;
+            }
+        }
+        CALL_VM(acc = vm_mul(regs[opA], acc));
+        assert(acc.as_int64 != 0);
+    multiply_dispatch:
+        FAST_DISPATCH(BINARY_MULTIPLY);
+    }
+
+    TARGET(BINARY_TRUE_DIVIDE) {
+        CALL_VM(acc = vm_true_div(regs[opA], acc));
+        assert(acc.as_int64 != 0);
+        FAST_DISPATCH(BINARY_TRUE_DIVIDE);
+    }
+
+    TARGET(BINARY_FLOOR_DIVIDE) {
+        CALL_VM(acc = vm_floor_div(regs[opA], acc));
+        assert(acc.as_int64 != 0);
+        FAST_DISPATCH(BINARY_FLOOR_DIVIDE);
+    }
+
+    return_to_c: {
+        if (IS_OBJ(acc)) {
+            return AS_OBJ(acc);
+        }
+        else if (IS_INT32(acc)) {
+            return PyLong_FromLong(AS_INT32(acc));
+        }
+        else if (IS_PRI(acc)) {
+            return primitives[AS_PRI(acc)];
+        }
+        else {
+            __builtin_unreachable();
+        }
     }
 
     #include "unimplemented_opcodes.h"

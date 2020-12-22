@@ -17,6 +17,8 @@ PyObject *empty_tuple;
 #define PRI_TAG 0x4
 #define PRI_TRUE 0x2
 
+#define FRAME_C 0x1
+
 static inline Register
 PACK_INT32(int32_t value)
 {
@@ -72,7 +74,7 @@ AS_INT32(Register r)
 static inline PyObject *
 AS_OBJ(Register r)
 {
-    r.as_int64 &= ~1;
+    r.as_int64 &= ~REFCOUNT_TAG;
     return r.obj;
 }
 
@@ -129,6 +131,9 @@ Register vm_to_bool(Register x);
 // decrefs acc!
 Register vm_add(Register x, Register acc);
 Register vm_sub(Register x, Register acc);
+Register vm_mul(Register a, Register acc);
+Register vm_true_div(Register a, Register acc);
+Register vm_floor_div(Register a, Register acc);
 
 Register vm_load_name(PyObject *dict, PyObject *name);
 Register vm_store_global(PyObject *dict, PyObject *name, Register value);
