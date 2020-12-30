@@ -69,6 +69,9 @@ class Assembly:
 
 no_op = Assembly()
 
+class Accumulator:
+    pass
+
 class Label(Assembly):
     def resolve(self, start):
         return ((self, start),)
@@ -90,12 +93,13 @@ class Instruction(Assembly):
         arg, arg2 = self.arg, self.arg2
         if dis.opcodes[self.opcode].is_jump():
             arg2 = (addresses[arg2] - start) // 4 - 1
+            arg2 += 0x8000
         if arg2 is None:
             arg2 = 0
         else:
             arg2 = int(arg2)
-            assert arg2 >= -32768 and arg2 < 32768
-            arg2 = arg2 & 0xFFFF
+            assert arg2 >= 0 and arg2 < 65536
+            # arg2 = arg2 & 0xFFFF
         argA = self.arg or 0
         argB = arg2 & 0xFF
         argC = (arg2 >> 8)
@@ -200,10 +204,10 @@ class CodeGen(ast.NodeVisitor):
         self.scope     = scope
         self.constants = constants()
         self.names     = self.constants
-        self.varnames  = make_table()
-        self.nlocals = 0
-        self.next_register = 0
-        self.max_registers = 0
+        self.varnames  = scope.regs
+        self.nlocals = len(self.scope.local_defs)
+        self.next_register = len(self.varnames)
+        self.max_registers = self.next_register
 
     def compile_module(self, t, name):
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
@@ -212,16 +216,24 @@ class CodeGen(ast.NodeVisitor):
     def make_code(self, assembly, name, argcount, has_varargs, has_varkws):
         posonlyargcount = 0
         kwonlyargcount = 0
-        nlocals = len(self.varnames)
         # stacksize = plumb_depths(assembly)
+        nlocals = self.nlocals
         framesize = self.max_registers
-        flags = (  (0x02 if nlocals                  else 0)
-                 | (0x04 if has_varargs              else 0)
-                 | (0x08 if has_varkws               else 0)
-                 | (0x10 if self.scope.freevars      else 0)
-                 | (0x40 if not self.scope.derefvars else 0))
         firstlineno, lnotab = make_lnotab(assembly)
         code = assemble(assembly)
+        cell2reg = tuple(reg for name, reg in self.varnames.items() if name in self.scope.cellvars)
+        assert len(cell2reg) == len(self.scope.cellvars)
+
+        # ((upval0, reg0), (upval1, reg1), ...)
+        free2reg = tuple(self.scope.free2reg.values())
+        assert len(free2reg) == len(self.scope.freevars)
+
+
+        print('varnames', dict(self.varnames), 'regs', self.scope.regs, 'nlocals', nlocals, 'framesize', framesize)
+        print('cell2reg', cell2reg, self.scope.cellvars)
+        print('free2reg', free2reg, self.scope.freevars)
+        print('free2reg', self.scope.free2reg)
+        print()
         return types.Code2Type(code,
                                self.constants.collect(),
                                argcount=argcount,
@@ -234,8 +246,10 @@ class CodeGen(ast.NodeVisitor):
                                name=name,
                                firstlineno=firstlineno,
                                linetable=lnotab,
-                               freevars=self.scope.freevars,
-                               cellvars=self.scope.cellvars)
+                               freevars=(),
+                               cellvars=(),
+                               cell2reg=cell2reg,
+                               free2reg=free2reg)
         # return types.Code2Type(argcount, posonlyargcount, kwonlyargcount,
         #                       nlocals, stacksize, flags, code,
         #                       self.collect_constants(),
@@ -292,11 +306,8 @@ class CodeGen(ast.NodeVisitor):
                 return self.copy_register(dst, src)
             return self.load(name) + op.STORE_FAST(dst.allocate())
 
-        if access == 'global' and name == 'i':
-            import pdb; pdb.set_trace()
-
         if   access == 'fast':   return op.LOAD_FAST(self.varnames[name])
-        elif access == 'deref':  return op.LOAD_DEREF(self.cell_index(name))
+        elif access == 'deref':  return op.LOAD_DEREF(self.varnames[name])
         elif access == 'name':   return op.LOAD_NAME(self.names[name])
         elif access == 'global': return op.LOAD_GLOBAL(self.names[name])
         else: assert False
@@ -310,7 +321,7 @@ class CodeGen(ast.NodeVisitor):
                 return opcode(self.varnames[name], value.reg)
             return op.LOAD_FAST(reg) + reg.clear() + self.store(name)
         if   access == 'fast':   return op.STORE_FAST(self.varnames[name])
-        elif access == 'deref':  return op.STORE_DEREF(self.cell_index(name))
+        elif access == 'deref':  return op.STORE_DEREF(self.varnames[name])
         elif access == 'name':   return op.STORE_NAME(self.names[name])
         elif access == 'global': return op.STORE_GLOBAL(self.names[name])
         else: assert False
@@ -382,7 +393,8 @@ class CodeGen(ast.NodeVisitor):
     def assign_sequence(self, target, value):
         reg = self.register_list()
         n = len(target.elts)
-        return (  op.UNPACK_SEQUENCE(reg.base, len(target.elts))
+        return (  self(value)
+                + op.UNPACK_SEQUENCE(reg.base, len(target.elts))
                 + concat([self.assign(target.elts[i], reg[i]) for i in range(n)]))
 
     def visit_AugAssign(self, t):
@@ -415,6 +427,7 @@ class CodeGen(ast.NodeVisitor):
         return NameRef()
 
     def visit_Assign(self, t):
+        assert len(t.targets) == 1
         return self.assign(t.targets[0], t.value)
 
     def visit_If(self, t):
@@ -468,6 +481,9 @@ class CodeGen(ast.NodeVisitor):
         return self(t.operand) + self.ops1[type(t.op)]
     ops1 = {ast.UAdd: op.UNARY_POSITIVE,  ast.Invert: op.UNARY_INVERT,
             ast.USub: op.UNARY_NEGATIVE,  ast.Not:    op.UNARY_NOT}
+
+    def visit_Accumulator(self, t):
+        return no_op
 
     def visit_BinOp(self, t):
         reg = self.register()
@@ -534,7 +550,7 @@ class CodeGen(ast.NodeVisitor):
         reg = self.register()
         start, loop = Label(), Label()
         return (self(t.iter) + op.GET_ITER(reg.allocate())
-                + op.JUMP(start) + loop + self(t.body)
+                + op.JUMP(start) + loop + self.assign(t.target, Accumulator()) + self(t.body)
                 + start + op.FOR_ITER(reg, loop))
 
     def visit_Return(self, t):
@@ -562,15 +578,6 @@ class CodeGen(ast.NodeVisitor):
 
     def compile_function(self, t):
         self.load_const(ast.get_docstring(t))
-        for arg in t.args.args:
-            self.varnames[arg.arg]
-        if t.args.vararg: self.varnames[t.args.vararg.arg]
-        if t.args.kwarg:  self.varnames[t.args.kwarg.arg]
-        for local in self.scope.local_defs:
-            self.varnames[local]
-        self.nlocals = len(self.varnames)
-        self.next_register = len(self.varnames)
-        self.max_registers = self.next_register
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
         assembly = op.FUNC_HEADER(self.max_registers) + assembly
         return self.make_code(assembly, t.name,
@@ -692,19 +699,20 @@ def top_scope(t):
     top = Scope(t, 'module', ())
     top.visit(t)
     top.analyze(set())
+    top.assign_regs({})
     return top
 
 class Scope(ast.NodeVisitor):
     def __init__(self, t, scope_type, defs):
         self.t = t
         self.children = {}       # Enclosed sub-scopes
-        self.defs = set(defs)    # Variables defined
+        self.defs = {name: i for i, name in enumerate(defs)}  # Variables defined
         self.uses = set()        # Variables referenced
         self.globals = set()
         self.scope_type = scope_type
 
     def visit_ClassDef(self, t):
-        self.defs.add(t.name)
+        self.define(t.name)
         for expr in t.bases: self.visit(expr)
         subscope = Scope(t, 'class', ())
         self.children[t] = subscope
@@ -716,17 +724,21 @@ class Scope(ast.NodeVisitor):
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
+    def define(self, name):
+        if name not in self.defs:
+            self.defs[name] = len(self.defs)
+
     def visit_Import(self, t):
         for alias in t.names:
-            self.defs.add(alias.asname or alias.name.split('.')[0])
+            self.define(alias.asname or alias.name.split('.')[0])
 
     def visit_ImportFrom(self, t):
         for alias in t.names:
-            self.defs.add(alias.asname or alias.name)
+            self.define(alias.asname or alias.name)
 
     def visit_Name(self, t):
         if   isinstance(t.ctx, ast.Load):  self.uses.add(t.id)
-        elif isinstance(t.ctx, ast.Store): self.defs.add(t.id)
+        elif isinstance(t.ctx, ast.Store): self.define(t.id)
         else: assert False
 
     def visit_Global(self, t):
@@ -736,15 +748,30 @@ class Scope(ast.NodeVisitor):
             self.globals.add(name)
 
     def analyze(self, parent_defs):
-        self.local_defs = self.defs if isinstance(self.t, Function) else set()
+        self.local_defs = set(self.defs.keys()) if isinstance(self.t, Function) else set()
         for child in self.children.values():
             child.analyze(parent_defs | self.local_defs)
         child_uses = set([var for child in self.children.values()
                               for var in child.freevars])
         uses = self.uses | child_uses
-        self.cellvars = tuple(child_uses & self.local_defs)
-        self.freevars = tuple(uses & (parent_defs - self.local_defs))
-        self.derefvars = self.cellvars + self.freevars
+        self.cellvars = child_uses & self.local_defs
+        self.freevars = (uses & (parent_defs - self.local_defs))
+        self.derefvars = self.cellvars | self.freevars
+
+    def assign_regs(self, parent_regs):
+        self.regs = self.defs.copy() if isinstance(self.t, Function) else {}
+        self.free2reg = {}
+        for name, upval in parent_regs.items():
+            if name in self.freevars:
+                assert name not in self.regs
+                reg = len(self.regs)
+                self.regs[name] = reg
+                self.free2reg[name] = (upval, reg)
+
+        assert(all(name in self.regs for name in self.freevars))
+        for child in self.children.values():
+            child.assign_regs(self.regs)
+
 
     def access(self, name):
         return ('deref' if name in self.derefvars else

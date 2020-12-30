@@ -1,4 +1,4 @@
-DEFAULT_N = 130
+DEFAULT_N = 3
 
 
 def eval_A(i, j):
@@ -37,7 +37,10 @@ def bench_spectral_norm(loops):
             v = eval_AtA_times_u(u)
             u = eval_AtA_times_u(v)
 
-        vBv = vv = 0
+            print(u)
+
+        vBv = 0
+        vv = 0
 
         for ue, ve in zip(u, v):
             vBv += ue * ve
@@ -45,4 +48,20 @@ def bench_spectral_norm(loops):
 
     return u
 
-print(eval_A(1.0, 2.0))
+def test():
+    u = [1] * DEFAULT_N
+    # for dummy in range(10):
+    #     v = eval_AtA_times_u(u)
+    #     u = eval_AtA_times_u(v)
+
+    vBv = 0
+    vv = 0
+
+    print(vBv)
+    print(vv)
+    return u
+
+
+# print(eval_A(1.0, 2.0))
+print(bench_spectral_norm(1))
+# print(test())

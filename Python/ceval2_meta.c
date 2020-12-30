@@ -22,6 +22,8 @@
 
 #include <ctype.h>
 
+static const Register NULL_REGISTER;
+
 static PyObject *primitives[3] = {
     Py_None,
     Py_False,
@@ -89,9 +91,6 @@ Register vm_to_bool(Register x)
 {
     printf("vm_to_bool\n");
     abort();
-    Register r;
-    r.obj = Py_False;
-    return r;
 }
 
 Register vm_add(Register a, Register acc)
@@ -100,6 +99,20 @@ Register vm_add(Register a, Register acc)
     PyObject *o1 = vm_object(a);
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_Add(o1, o2);
+    if (res == NULL) {
+        PyErr_Print();
+        assert(res != NULL);
+    }
+    DECREF(acc);
+    return FROM_OBJ(res);
+}
+
+Register vm_inplace_add(Register a, Register acc)
+{
+    printf("vm_inplace_add %p %p\n", a.as_int64, acc.as_int64);
+    PyObject *o1 = vm_object(a);
+    PyObject *o2 = vm_object(acc);
+    PyObject *res = PyNumber_InPlaceAdd(o1, o2);
     if (res == NULL) {
         PyErr_Print();
         assert(res != NULL);
@@ -179,6 +192,32 @@ Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
     return ret;
 }
 
+
+Register
+vm_call_function(struct ThreadState *ts, int base, int nargs)
+{
+    PyObject *callable = AS_OBJ(ts->regs[base+1]);
+    Register *args = &ts->regs[base+2];
+    Register res;
+
+    // FIXME: leaks galore
+    for (int i = 0; i != nargs; i++) {
+        args[i].obj = AS_OBJ(args[i]);
+    }
+
+    printf("vm_call_function: %s %d %d\n", Py_TYPE(callable)->tp_name, base, nargs);
+    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    res.obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
+    res.as_int64 |= REFCOUNT_TAG;
+
+    for (int i = -2; i != nargs; i++) {
+        args[i].as_int64 = 0;
+    }
+
+    printf("res = %p %s\n", res.as_int64, Py_TYPE(AS_OBJ(res))->tp_name);
+    return res;
+}
+
 static PyFunc *
 PyFunc_New(PyCodeObject2 *code, PyObject *globals);
 
@@ -189,10 +228,104 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyObject *globals = this_func->globals;
     PyFunc *func = PyFunc_New(code, globals);
+    if (func == NULL) {
+        return NULL_REGISTER;
+    }
+
+    for (Py_ssize_t i = 0; i < code->co_nfreevars; i++) {
+        Py_ssize_t r = code->co_free2reg[i*2];
+        PyObject *cell = AS_OBJ(ts->regs[r]);
+        assert(PyCell_Check(cell));
+
+        Py_INCREF(cell);
+        func->freevars[i] = cell;
+    }
+
     assert(func == NULL || _PyObject_IS_DEFERRED_RC((PyObject *)func));
     ret.obj = func;
     ret.as_int64 |= REFCOUNT_TAG;
     return ret;
+}
+
+Register
+vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
+{
+    Register *regs = ts->regs;
+    Py_ssize_t ncells = code->co_ncells;
+    for (Py_ssize_t i = 0; i < ncells; i++) {
+        Py_ssize_t idx = code->co_cell2reg[i];
+        PyObject *cell = PyCell_New(vm_object(regs[idx]));
+        if (cell == NULL) {
+            abort();
+            return NULL_REGISTER;
+        }
+
+        regs[idx].as_int64 = (intptr_t)cell | REFCOUNT_TAG;
+    }
+    return NULL_REGISTER;
+}
+
+Register
+vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
+{
+    Register *regs = ts->regs;
+    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    Py_ssize_t nfreevars = code->co_nfreevars;
+    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+        Py_ssize_t r = code->co_free2reg[i*2+1];
+        PyObject *cell = this_func->freevars[i];
+        assert(PyCell_Check(cell));
+
+        regs[r].obj = cell;
+    }
+    return NULL_REGISTER;
+}
+
+
+Register vm_build_list(Register *regs, Py_ssize_t n)
+{
+    PyObject *obj = PyList_New(n);
+    if (obj == NULL) {
+        return NULL_REGISTER;
+    }
+    while (n) {
+        n--;
+        PyList_SET_ITEM(obj, n, vm_object(regs[n]));
+    }
+    Register r;
+    r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
+    return r;
+}
+
+
+Register vm_build_tuple(Register *regs, Py_ssize_t n)
+{
+    PyObject *obj = PyTuple_New(n);
+    if (obj == NULL) {
+        return NULL_REGISTER;
+    }
+    while (n) {
+        n--;
+        PyObject *item = vm_object(regs[n]);
+        printf("item at %zd = %p regs[n]=%p\n", n, item, (void*)regs[n].obj);
+        if (item == NULL) {
+            abort();
+        }
+        PyTuple_SET_ITEM(obj, n, item);
+    }
+    printf("build tuple: %p size=%zd\n", obj, PyTuple_GET_SIZE(obj));
+    Register r;
+    r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
+    return r;
+}
+
+Register vm_list_append(Register a, Register b)
+{
+    PyObject *list = AS_OBJ(a);
+    PyObject *item = vm_object(b);
+    PyList_Append(list, item);
+    Py_DECREF(item);
+    return NULL_REGISTER;
 }
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
@@ -216,6 +349,12 @@ PyObject *vm_error_not_callable(struct ThreadState *ts)
     return NULL;
 }
 
+void vm_handle_error(struct ThreadState *ts)
+{
+    printf("vm_handle_error\n");
+    abort();
+}
+
 static struct ThreadState *
 new_threadstate(void)
 {
@@ -236,6 +375,7 @@ new_threadstate(void)
     ts->maxstack = &stack[stack_size];
     ts->regs = stack;
     ts->opcode_targets = malloc(sizeof(void*) * 256);
+    ts->ts = PyThreadState_GET();
     if (ts->opcode_targets == NULL) {
         goto err;
     }
@@ -270,12 +410,12 @@ static PyTypeObject PyFunc_Type;
 static PyFunc *
 PyFunc_New(PyCodeObject2 *code, PyObject *globals)
 {
-    PyFunc *func = PyObject_New(PyFunc, &PyFunc_Type);
+    PyFunc *func = PyObject_NewVar(PyFunc, &PyFunc_Type, code->co_nfreevars);
     if (func == NULL) {
         return NULL;
     }
     ((PyObject *)func)->ob_ref_local |= _Py_REF_DEFERRED_MASK;
-    func->first_instr = PyCode2_GET_CODE(code);
+    func->func_base.first_instr = PyCode2_GET_CODE(code);
     Py_INCREF(globals);
     func->globals = globals;
     return func;
@@ -303,7 +443,7 @@ make_globals() {
     PyObject *key, *value;
     while (PyDict_Next(builtins_dict, &i, &key, &value)) {
         if (PyCFunction_Check(value)) {
-            ((PyFunc *)value)->first_instr = &func_vector_call;
+            ((PyFuncBase *)value)->first_instr = &func_vector_call;
         }
         int err = PyDict_SetItem(globals, key, value);
         assert(err == 0);
@@ -340,6 +480,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     if (func == NULL) {
         return NULL;
     }
+
     printf("exec with func: %p\n", func);
     printf("calling with regs = %p\n", ts->regs);
 
@@ -378,8 +519,8 @@ static PyTypeObject PyFunc_Type = {
     .tp_name = "PyFunc",
     .tp_doc = "PyFunc",
     .tp_basicsize = sizeof(PyFunc),
-    .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_itemsize = sizeof(PyObject*),
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE,
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) NULL,
     .tp_dealloc = (destructor) NULL,

@@ -14,10 +14,14 @@ typedef struct {
     PyObject_HEAD
     uint8_t co_argcount;
     uint8_t co_nlocals;
+    uint8_t co_ncells;
+    uint8_t co_nfreevars;
     Py_ssize_t co_size;         /* number of instructions */
     Py_ssize_t co_nconsts;      /* number of constants */
 
     PyObject **co_constants;    /* pointer to constants array */
+    Py_ssize_t *co_cell2reg;
+    Py_ssize_t *co_free2reg;
 
     PyObject *co_weakreflist;
 
@@ -36,7 +40,7 @@ typedef struct {
     // stack size
 } PyCodeObject2;
 
-PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
+// PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
 
 #define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
 

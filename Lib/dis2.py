@@ -333,7 +333,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
     def get_repr(bytecode, argA, argD):
         argreprs = []
         if bytecode.name == 'CALL_FUNCTION':
-            return f'{format_reg(argA)} to {format_reg(argA+argD+1)}'
+            return f'{format_reg(argA+1)} to {format_reg(argA+argD+2)}'
         elif bytecode.name == 'LOAD_ATTR':
              return f"{format_reg(argA)}[{get_const(argD)}]"
         elif bytecode.name == 'STORE_ATTR':
@@ -346,7 +346,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         for (arg, fmt) in [(argA, bytecode.opA), (argD, bytecode.opD)]:
             argrepr = None
             if fmt == 'jump':
-                argval = offset + 4 * (signed(arg) + 1)
+                argval = offset + 4 * (arg + 1 - 0x8000)
                 argrepr = "to " + repr(argval)
             elif fmt == 'str':
                 argval, argrepr = _get_const_info(arg, constants)
@@ -470,7 +470,7 @@ def _unpack_opargs(code):
         op = code[i]
         argA, argB, argC = code[i+1:i+4]
         argD = argB | (argC << 8)
-        argD = signed(argD)
+        # argD = signed(argD)
         if opcodes[op].opA is None:
             assert argA == 0
             argA = None

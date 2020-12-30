@@ -66,13 +66,15 @@ class code "PyCodeObject2 *" "&PyCode2_Type"
 
 
 PyCodeObject2 *
-PyCode2_New(PyObject *bytecode, PyObject *consts)
+PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t nfreevars)
 {
     Py_ssize_t ninstrs = PyBytes_Size(bytecode) / sizeof(uint32_t);
     Py_ssize_t nconsts = PyTuple_GET_SIZE(consts);
     Py_ssize_t size = (sizeof(PyCodeObject2) +
                        ninstrs * sizeof(uint32_t) +
-                       nconsts * sizeof(PyObject *));
+                       nconsts * sizeof(PyObject *) +
+                       ncells * sizeof(Py_ssize_t) +
+                       nfreevars * 2 * sizeof(Py_ssize_t));
 
     PyCodeObject2 *co = (PyCodeObject2 *)_PyObject_GC_Malloc(size);
     if (co == NULL) {
@@ -82,18 +84,27 @@ PyCode2_New(PyObject *bytecode, PyObject *consts)
     PyObject_INIT(co, &PyCode2_Type);
     co->co_size = ninstrs;
     co->co_nconsts = nconsts;
+    co->co_ncells = (uint8_t)ncells;
+
+    char *ptr = (char *)co + sizeof(PyCodeObject2);
 
     uint32_t *instrs = PyCode2_Code(co);
     memcpy(instrs, PyBytes_AsString(bytecode), ninstrs * sizeof(uint32_t));
+    ptr += ninstrs * sizeof(uint32_t);
 
-    PyObject **co_constants = (PyObject **)((char *)co +
-            sizeof(PyCodeObject2) + ninstrs * sizeof(uint32_t));
+    PyObject **co_constants = (PyObject **)ptr;
     co->co_constants = co_constants;
     for (Py_ssize_t i = 0; i != nconsts; i++) {
         PyObject *c = PyTuple_GET_ITEM(consts, i);
         Py_INCREF(c);
         co_constants[i] = c;
     }
+    ptr += nconsts * sizeof(PyObject *);
+
+    co->co_cell2reg = (ncells == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += ncells * sizeof(Py_ssize_t);
+
+    co->co_free2reg = (nfreevars == 0 ? NULL : (Py_ssize_t *)ptr);
 
     return co;
 }
@@ -124,6 +135,8 @@ code.__new__ as code_new
     linetable: object(subclass_of="&PyBytes_Type") = None
     freevars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
+    cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
+    free2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
 
 Create a code object.  Not for the faint of heart.
 [clinic start generated code]*/
@@ -134,15 +147,20 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int nlocals, int framesize, int flags, PyObject *names,
               PyObject *varnames, PyObject *filename, PyObject *name,
               int firstlineno, PyObject *linetable, PyObject *freevars,
-              PyObject *cellvars)
-/*[clinic end generated code: output=dc5152b0ba2545cc input=7cb9e81b878b5b9d]*/
+              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg)
+/*[clinic end generated code: output=a6acfb0a71a3930b input=21eff6647cc5fba8]*/
 {
-    PyCodeObject2 *co = PyCode2_New(bytecode, consts);
+    Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
+    Py_ssize_t nfreevars = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
+
+    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, nfreevars);
     if (co == NULL) {
         return NULL;
     }
     co->co_argcount = argcount;
     co->co_nlocals = nlocals;
+    co->co_ncells = (uint8_t)ncells;
+    co->co_nfreevars = (uint8_t)nfreevars;
     Py_XINCREF(varnames);
     co->co_varnames = varnames;
     Py_XINCREF(freevars);
@@ -156,6 +174,16 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_firstlineno = firstlineno;
     Py_INCREF(linetable);
     co->co_lnotab = linetable;
+
+    for (Py_ssize_t i = 0; i < ncells; i++) {
+        co->co_cell2reg[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(cell2reg, i));
+    }
+    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+        PyObject *pair = PyTuple_GET_ITEM(free2reg, i);
+        co->co_free2reg[i*2+0] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 0));
+        co->co_free2reg[i*2+1] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 1));
+    }
+
     return (PyObject *)co;
 }
 
@@ -241,7 +269,9 @@ static PyObject *
 code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     uint32_t *bytecode = PyCode2_Code(co);
-    return PyBytes_FromStringAndSize((char *)bytecode, co->co_size * sizeof(uint32_t));
+    Py_ssize_t nbytes = co->co_size * sizeof(uint32_t);
+
+    return PyBytes_FromStringAndSize((char *)bytecode, nbytes);
 }
 
 static PyObject *

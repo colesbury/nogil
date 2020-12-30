@@ -78,6 +78,19 @@ AS_OBJ(Register r)
     return r.obj;
 }
 
+static inline Register
+PACK_OBJ(PyObject *o)
+{
+    Register r;
+    r.obj = o;
+    if (!_PyObject_IS_IMMORTAL(o)) {
+        r.as_int64 |= REFCOUNT_TAG;
+    }
+    return r;
+}
+
+struct _ts;
+
 struct ThreadState {
     const uint32_t *pc;
 
@@ -92,9 +105,10 @@ struct ThreadState {
 
     Py_ssize_t nargs;
 
-
     // current metadata ???
     uint16_t *metadata;
+
+    struct _ts *ts;
 
     void **opcode_targets;//[256];
 };
@@ -130,6 +144,7 @@ Register vm_to_bool(Register x);
 
 // decrefs acc!
 Register vm_add(Register x, Register acc);
+Register vm_inplace_add(Register x, Register acc);
 Register vm_sub(Register x, Register acc);
 Register vm_mul(Register a, Register acc);
 Register vm_true_div(Register a, Register acc);
@@ -138,8 +153,16 @@ Register vm_floor_div(Register a, Register acc);
 Register vm_load_name(PyObject *dict, PyObject *name);
 Register vm_store_global(PyObject *dict, PyObject *name, Register value);
 
+Register vm_build_list(Register *regs, Py_ssize_t n);
+Register vm_build_tuple(Register *regs, Py_ssize_t n);
+Register vm_list_append(Register list, Register item);
+
+Register vm_call_function(struct ThreadState *ts, int base, int nargs);
+
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
+Register vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
+Register vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
@@ -148,6 +171,7 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 PyObject *vm_args_error(struct ThreadState *ts);
 
 PyObject *vm_error_not_callable(struct ThreadState *ts);
+void vm_handle_error(struct ThreadState *ts);
 
 void vm_zero_refcount(PyObject *op);
 void vm_decref_shared(PyObject *op);
