@@ -95,7 +95,6 @@ Register vm_to_bool(Register x)
 
 Register vm_add(Register a, Register acc)
 {
-    printf("vm_add %p %p\n", a.as_int64, acc.as_int64);
     PyObject *o1 = vm_object(a);
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_Add(o1, o2);
@@ -109,7 +108,6 @@ Register vm_add(Register a, Register acc)
 
 Register vm_inplace_add(Register a, Register acc)
 {
-    printf("vm_inplace_add %p %p\n", a.as_int64, acc.as_int64);
     PyObject *o1 = vm_object(a);
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_InPlaceAdd(o1, o2);
@@ -157,13 +155,10 @@ Register vm_floor_div(Register a, Register acc)
 
 Register vm_load_name(PyObject *dict, PyObject *name)
 {
-    printf("loading %p[%p]\n", dict, name);
-    printf("loading %s (%s) from %p\n", PyUnicode_AsUTF8(name), Py_TYPE(name)->tp_name, dict);
     PyObject *value = PyDict_GetItemWithError2(dict, name);
     if (value == NULL) {
-        printf("value is null nyi\n");
+        abort();
     }
-    printf("value = %p\n", value);
     Register r;
     r.obj = value;
     uint32_t local = value->ob_ref_local;
@@ -179,7 +174,6 @@ Register vm_load_name(PyObject *dict, PyObject *name)
 Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
 {
     PyObject *value = vm_object(acc);
-    printf("storing %p[%p] = %p\n", dict, name, value);
     int err = PyDict_SetItem(dict, name, value);
     Register ret;
     if (err < 0) {
@@ -205,7 +199,6 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
         args[i].obj = AS_OBJ(args[i]);
     }
 
-    printf("vm_call_function: %s %d %d\n", Py_TYPE(callable)->tp_name, base, nargs);
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
     res.obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
     res.as_int64 |= REFCOUNT_TAG;
@@ -214,7 +207,6 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
         args[i].as_int64 = 0;
     }
 
-    printf("res = %p %s\n", res.as_int64, Py_TYPE(AS_OBJ(res))->tp_name);
     return res;
 }
 
@@ -307,13 +299,11 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n)
     while (n) {
         n--;
         PyObject *item = vm_object(regs[n]);
-        printf("item at %zd = %p regs[n]=%p\n", n, item, (void*)regs[n].obj);
         if (item == NULL) {
             abort();
         }
         PyTuple_SET_ITEM(obj, n, item);
     }
-    printf("build tuple: %p size=%zd\n", obj, PyTuple_GET_SIZE(obj));
     Register r;
     r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
     return r;

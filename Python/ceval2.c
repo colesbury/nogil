@@ -361,7 +361,6 @@ _PyEval_Fast(struct ThreadState *ts)
             }
             bits <<= 1;
         }
-        printf("CFUNC_HEADER: bits=%lx\n", (long)bits);
 
 
         CALL_VM(acc.obj = func->vectorcall((PyObject *)func, (PyObject *const*)regs, nargs, empty_tuple));
@@ -487,8 +486,8 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(COPY) {
+        // FIXME: is this only used for aliases???
         regs[opA].as_int64 = regs[opD].as_int64 & ~REFCOUNT_TAG;
-        printf("copy result=%p input=%p\n", regs[opA].obj, regs[opD].obj);
         DISPATCH(COPY);
     }
 
@@ -509,7 +508,6 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(LOAD_DEREF) {
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = PyCell_GET(cell);
-        printf("LOAD_DEREF: %p %s\n", value, Py_TYPE(value)->tp_name);
         acc = PACK_INCREF(value);
         DISPATCH(LOAD_DEREF);
     }
@@ -616,7 +614,6 @@ _PyEval_Fast(struct ThreadState *ts)
         DECREF(acc);
         acc.as_int64 = 0;
         regs[opA].as_int64 = (intptr_t)iter | REFCOUNT_TAG;
-        printf("iter = %s\n", Py_TYPE(AS_OBJ(regs[opA]))->tp_name);
         DISPATCH(GET_ITER);
         get_iter_slow:
             goto error;
@@ -626,7 +623,6 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *iter = AS_OBJ(regs[opA]);
         PyObject *next;
         CALL_VM(next = (*Py_TYPE(iter)->tp_iternext)(iter));
-        printf("next = %p\n", next);
         if (next == NULL) {
             Register r = regs[opA];
             DECREF(r);
@@ -658,18 +654,16 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(UNPACK_SEQUENCE) {
         // opA = reg, opD = N
-        printf("UNPACK_SEQUENCE acc=%p opA=%d opD=%d\n", (void*)acc.obj, (int)opA, (int)opD);
         if (IS_OBJ(acc) && PyTuple_CheckExact(AS_OBJ(acc))) {
             PyObject *tuple = AS_OBJ(acc);
-            printf("tuple = %p size=%zd\n", tuple, PyTuple_GET_SIZE(tuple));
             for (Py_ssize_t i = 0; i < opD; i++) {
-                printf("i = %d\n", (int)i);
                 PyObject *item = PyTuple_GET_ITEM(tuple, i);
-                printf("item = %p\n", item);
                 regs[opA+i] = PACK_INCREF(item);
             }
         }
-        printf("UNPACK_SEQUENCE DISPATCH\n");
+        else {
+            abort();
+        }
         DISPATCH(UNPACK_SEQUENCE);
     }
 

@@ -626,7 +626,11 @@ def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
     print(dis.dis(code))
+    import time
+    start = time.perf_counter()
     code.exec()
+    end = time.perf_counter()
+    print(end - start)
     # exec(code, module.__dict__)
     return module
 
