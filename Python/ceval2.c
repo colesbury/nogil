@@ -37,27 +37,26 @@
 
 #define TARGET(name) \
     TARGET_##name: \
-   __asm__ volatile("#.TARGET_" #name ":");
+   __asm__ volatile(".TARGET_" #name ":");
 
 
 #define COLD_TARGET(name) \
-    TARGET_##name: __attribute__((cold)) \
-   __asm__ volatile(".TARGET_" #name ":");
+    TARGET_##name: __attribute__((cold))
 
 #define CALL_VM(call) \
-    ts->regs = regs; \
     call; \
     regs = ts->regs;
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
+        _Py_DECREF_TOTAL \
         PyObject *obj = AS_OBJ(reg); \
         if (LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount -= 4; \
             obj->ob_ref_local = refcount; \
             if (UNLIKELY(refcount == 0)) { \
-                CALL_VM(vm_zero_refcount(obj)); \
+                CALL_VM(_Py_MergeZeroRefcount(obj)); \
             } \
         } \
         else { \
@@ -70,6 +69,7 @@
 
 #define INCREF(reg) do { \
     if (IS_RC(reg)) { \
+        _Py_INCREF_TOTAL \
         PyObject *obj = AS_OBJ(reg); \
         if (LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
@@ -77,10 +77,43 @@
             obj->ob_ref_local = refcount; \
         } \
         else { \
-            CALL_VM(vm_incref_shared(obj)); \
+            _Py_atomic_add_uint32(&obj->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT)); \
         } \
     } \
 } while (0)
+
+#define _Py_INCREF(op) do { \
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
+    if (!_Py_REF_IS_IMMORTAL(local)) { \
+        _Py_INCREF_TOTAL \
+        if (_PY_LIKELY(_Py_ThreadLocal(op))) { \
+            local += (1 << _Py_REF_LOCAL_SHIFT); \
+            _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local); \
+        } \
+        else { \
+            _Py_atomic_add_uint32(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT)); \
+        } \
+    } \
+} while(0)
+
+
+// static inline void
+// _Py_INCREF(PyObject *op)
+// {
+//     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+//     if (_Py_REF_IS_IMMORTAL(local)) {
+//         return;
+//     }
+
+//     _Py_INCREF_TOTAL
+//     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+//         local += (1 << _Py_REF_LOCAL_SHIFT);
+//         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+//     }
+//     else {
+//         vm_incref_shared(obj);
+//     }
+// }
 
 static PyObject *primitives[3] = {
     Py_None,
@@ -94,6 +127,7 @@ PACK_INCREF(PyObject *obj)
     Register r;
     r.obj = obj;
     if ((obj->ob_ref_local & 0x3) == 0) {
+        _Py_INCREF_TOTAL
         r.as_int64 |= REFCOUNT_TAG;
         if (LIKELY(_Py_ThreadLocal(obj))) {
             uint32_t refcount = obj->ob_ref_local;
@@ -105,83 +139,6 @@ PACK_INCREF(PyObject *obj)
         }
     }
     return r;
-}
-
-PyObject *callfib(PyObject *const *args, Py_ssize_t nargs)
-{
-//     static uint32_t code[] = {
-//         FUNC_HEADER(5),
-//         LOAD_INT(2),
-//         TEST_LESS_THAN(0),
-//         JUMP_IF_FALSE(2),
-//         LOAD_INT(1),
-//         RET(),
-//         LOAD_GLOBAL(0, 3),
-//         MOVE(1),
-//         LOAD_INT(2),
-//         SUB(0),
-//         MOVE(3),
-//         CALL_FUNCTION(1, 1),
-//         MOVE(1),
-//         LOAD_GLOBAL(0, 3),
-//         MOVE(2),
-//         LOAD_INT(1),
-//         SUB(0),
-//         MOVE(4),
-//         CALL_FUNCTION(2, 1),
-//         ADD(1),
-//         CLEAR(1),
-//         RET()
-//     };
-
-//     static uint32_t retc[] = {
-//         RETURN_TO_C()
-//     };
-
-//     Register stack[256];
-//     memset(stack, 0, sizeof(stack));
-
-//     _Py_IDENTIFIER(fib);
-
-//     Register constants[2];
-//     memset(constants, 0, sizeof(constants));
-//     constants[0].obj = _PyUnicode_FromId(&PyId_fib);
-
-//     struct ThreadState *ts = malloc(sizeof(struct ThreadState));
-//     memset(ts, 0, sizeof(struct ThreadState));
-
-//     ts->pc = &code[0];
-//     ts->stack = stack;
-//     ts->maxstack = &stack[256];
-//     ts->regs = &stack[2];
-//     ts->constants = constants;
-//     ts->opcode_targets = malloc(sizeof(void*) * 256);
-//     memset(ts->opcode_targets, 0, sizeof(void*) * 256);
-//     ts->metadata = malloc(sizeof(uint16_t) * 32);
-//     memset(ts->metadata, 0, sizeof(uint16_t) * 32);
-
-//     PyObject *globals = PyDict_New();
-
-//     PyFunc *func = (PyFunc *)vm_new_func();
-//     func->code = code;
-//     func->constants = constants;
-//     func->nargs = 1;
-//     func->framesize = 5;
-//     func->globals = globals;
-
-//     _PyDict_SetItemId(globals, &PyId_fib, (PyObject *)func);
-//     PyDictKeysObject *keys = ((PyDictObject *)globals)->ma_keys;
-//     PyDictKeyEntry *entry = find_unicode(((PyDictObject *)globals)->ma_keys, _PyUnicode_FromId(&PyId_fib));
-//     Py_ssize_t offset = entry - keys->dk_entries;
-//     ts->metadata[3] = offset;
-
-//     stack[0].obj = (PyObject *)func; // this_func
-//     stack[1].as_int64 = (intptr_t)&retc; // retc
-//     stack[2] = PACK_INT32(PyLong_AsLong(args[0])); // arg
-
-//     ts->nargs = 1;
-//     return _PyEval_Fast(ts);
-    return NULL;
 }
 
 #define USE_REGISTER(value, reg) do { \
@@ -197,6 +154,9 @@ PyObject *callfib(PyObject *const *args, Py_ssize_t nargs)
         opD >>= 16; \
         next_instr++; \
     } while (0)
+
+#define RELOAD_OPD() (*(next_instr - 1) >> 16)
+#define RELOAD_OPA() ((*(next_instr - 1) >> 8) & 0xFF)
 
 #define DISPATCH(name) \
     NEXTOPARG(); \
@@ -323,7 +283,6 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(FUNC_HEADER) {
         // opA contains framesize
         // acc contains nargs from call
-        // FIXME: this_func is this_code object
         PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
         constants = this_code->co_constants;
         ts->regs = regs;
@@ -351,26 +310,7 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(CFUNC_HEADER) {
         Py_ssize_t nargs = AS_INT32(acc);
-        PyCFunctionObject *func = (PyCFunctionObject *)THIS_FUNC();
-
-        int64_t bits = 0;
-        for (Register *r = regs; r != &regs[nargs]; r++) {
-            if (IS_RC(*r)) {
-                bits |= 1;
-                r->as_int64 &= ~REFCOUNT_TAG;
-            }
-            bits <<= 1;
-        }
-
-
-        CALL_VM(acc.obj = func->vectorcall((PyObject *)func, (PyObject *const*)regs, nargs, empty_tuple));
-        Register *top = &regs[nargs];
-        while (top != regs - 1) {
-            top--;
-            Register r = *top;
-            top->as_int64 = 0;
-            DECREF(r);
-        }
+        CALL_VM(acc = vm_call_cfunction(ts, regs, nargs));
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         // this is the call that dispatched to us
@@ -378,7 +318,7 @@ _PyEval_Fast(struct ThreadState *ts)
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset + 2;
         ts->regs = regs;
-        DISPATCH(function_return);
+        DISPATCH(CFUNC_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -406,6 +346,7 @@ _PyEval_Fast(struct ThreadState *ts)
 
         PyFuncBase *func = (PyFuncBase *)callable;
         regs = &regs[opA + 2];
+        ts->regs = regs;
         regs[-2].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
         next_instr = func->first_instr;
@@ -435,7 +376,11 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_NAME) {
-        goto TARGET_LOAD_GLOBAL;
+        PyObject *name = constants[opA];
+        PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
+        PyDictKeysObject *keys = globals->ma_keys;
+        CALL_VM(acc = vm_load_name((PyObject *)globals, name));
+        DISPATCH(LOAD_NAME);
     }
 
     TARGET(LOAD_GLOBAL) {
@@ -457,7 +402,12 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(LOAD_GLOBAL);
     }
 
-    TARGET(STORE_NAME)
+    TARGET(STORE_NAME) {
+        PyObject *name = constants[opA];
+        PyObject *globals = THIS_FUNC()->globals;
+        CALL_VM(acc = vm_store_global(globals, name, acc));
+        DISPATCH(STORE_NAME);
+    }
     TARGET(STORE_GLOBAL) {
         PyObject *name = constants[opA];
         PyObject *globals = THIS_FUNC()->globals;
@@ -472,8 +422,10 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(STORE_FAST) {
+        Register old = regs[opA];
         regs[opA] = acc;
         acc.as_int64 = 0;
+        DECREF(old);
         DISPATCH(STORE_FAST);
     }
 
@@ -512,92 +464,92 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(LOAD_DEREF);
     }
 
-
-    // 0 1 2 3
-    // 1 1 2 3
+    TARGET(STORE_DEREF) {
+        PyObject *cell = AS_OBJ(regs[opA]);
+        PyObject *value = AS_OBJ(acc);
+        // FIXME: got to clear the old value
+        if (!IS_RC(acc)) {
+            _Py_INCREF(value);
+        }
+        PyCell_SET(cell, value);
+        acc.as_int64 = 0;
+        DISPATCH(STORE_DEREF);
+    }
 
     TARGET(BINARY_ADD) {
-        Register a = regs[opA];
-        // if (IS_INT32(acc) && IS_INT32(a)) {
-        if (IS_INT32(acc) && IS_INT32(a)) {
-            int32_t res;
-            bool overflow = __builtin_add_overflow(AS_INT32(a), AS_INT32(acc), &res);
-            if (LIKELY(!overflow)) {
-                acc = PACK_INT32(res);
-                goto add_dispatch;
-            }
-        }
-        CALL_VM(acc = vm_add(regs[opA], acc));
-        assert(acc.as_int64 != 0);
-    add_dispatch:
-        DISPATCH(BINARY_ADD);
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Add(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(INPLACE_ADD);
     }
 
     TARGET(INPLACE_ADD) {
-        Register a = regs[opA];
-        // if (IS_INT32(acc) && IS_INT32(a)) {
-        if (IS_INT32(acc) && IS_INT32(a)) {
-            int32_t res;
-            bool overflow = __builtin_add_overflow(AS_INT32(a), AS_INT32(acc), &res);
-            if (LIKELY(!overflow)) {
-                acc = PACK_INT32(res);
-                goto add_dispatch;
-            }
-        }
-        CALL_VM(acc = vm_inplace_add(regs[opA], acc));
-        assert(acc.as_int64 != 0);
-    inplace_add_dispatch:
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_InPlaceAdd(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
         DISPATCH(INPLACE_ADD);
     }
 
     TARGET(BINARY_SUBTRACT) {
-        Register a = regs[opA];
-        if (IS_INT32(acc) && IS_INT32(a)) {
-            int32_t res;
-            bool overflow = __builtin_sub_overflow(AS_INT32(a), AS_INT32(acc), &res);
-            if (LIKELY(!overflow)) {
-                acc = PACK_INT32(res);
-                goto subtract_dispatch;
-            }
-        }
-        CALL_VM(acc = vm_sub(regs[opA], acc));
-        assert(acc.as_int64 != 0);
-    subtract_dispatch:
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Subtract(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
         DISPATCH(BINARY_SUBTRACT);
     }
 
     TARGET(BINARY_MULTIPLY) {
-        Register a = regs[opA];
-        if (IS_INT32(acc) && IS_INT32(a)) {
-            int32_t res;
-            bool overflow = __builtin_mul_overflow(AS_INT32(a), AS_INT32(acc), &res);
-            if (LIKELY(!overflow)) {
-                acc = PACK_INT32(res);
-                goto multiply_dispatch;
-            }
-        }
-        CALL_VM(acc = vm_mul(regs[opA], acc));
-        assert(acc.as_int64 != 0);
-    multiply_dispatch:
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Multiply(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
         DISPATCH(BINARY_MULTIPLY);
     }
 
     TARGET(BINARY_TRUE_DIVIDE) {
-        CALL_VM(acc = vm_true_div(regs[opA], acc));
-        assert(acc.as_int64 != 0);
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_TrueDivide(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
         DISPATCH(BINARY_TRUE_DIVIDE);
     }
 
     TARGET(BINARY_FLOOR_DIVIDE) {
-        CALL_VM(acc = vm_floor_div(regs[opA], acc));
-        assert(acc.as_int64 != 0);
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_FloorDivide(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
         DISPATCH(BINARY_FLOOR_DIVIDE);
     }
 
     TARGET(GET_ITER) {
-        if (!IS_OBJ(acc)) {
-            goto get_iter_slow;
-        }
+        assert(IS_OBJ(acc));
         PyObject *obj = AS_OBJ(acc);
         getiterfunc f = Py_TYPE(obj)->tp_iter;
         if (f == NULL) {
@@ -613,7 +565,9 @@ _PyEval_Fast(struct ThreadState *ts)
         }
         DECREF(acc);
         acc.as_int64 = 0;
-        regs[opA].as_int64 = (intptr_t)iter | REFCOUNT_TAG;
+        opA = RELOAD_OPA();
+        assert(regs[opA].as_int64 == 0);
+        regs[opA] = PACK_OBJ(iter);
         DISPATCH(GET_ITER);
         get_iter_slow:
             goto error;
@@ -624,12 +578,14 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *next;
         CALL_VM(next = (*Py_TYPE(iter)->tp_iternext)(iter));
         if (next == NULL) {
+            opA = RELOAD_OPA();
             Register r = regs[opA];
-            DECREF(r);
             regs[opA].as_int64 = 0;
+            DECREF(r);
         }
         else {
             acc = PACK_OBJ(next);
+            opD = RELOAD_OPD();
             next_instr += opD - 0x8000;
         }
         DISPATCH(FOR_ITER);
@@ -648,7 +604,11 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LIST_APPEND) {
-        CALL_VM(acc = vm_list_append(regs[opA], acc));
+        PyObject *list = AS_OBJ(regs[opA]);
+        PyObject *item = AS_OBJ(acc);
+        CALL_VM(PyList_Append(list, item));
+        DECREF(acc);
+        acc.as_int64 = 0;
         DISPATCH(LIST_APPEND);
     }
 
@@ -658,8 +618,10 @@ _PyEval_Fast(struct ThreadState *ts)
             PyObject *tuple = AS_OBJ(acc);
             for (Py_ssize_t i = 0; i < opD; i++) {
                 PyObject *item = PyTuple_GET_ITEM(tuple, i);
+                assert(regs[opA+i].as_int64 == 0);
                 regs[opA+i] = PACK_INCREF(item);
             }
+            DECREF(acc);
         }
         else {
             abort();
@@ -688,33 +650,37 @@ _PyEval_Fast(struct ThreadState *ts)
 
     #include "unimplemented_opcodes.h"
     {
-        CALL_VM(acc = vm_unknown_opcode(opcode));
+        // CALL_VM(acc = vm_unknown_opcode(opcode));
+        // opcode = 0;
         __builtin_unreachable();
     }
+//
 
-    COLD_TARGET(debug_regs) {
-        __asm__ volatile (
-            "# REGISTER ASSIGNMENT \n\t"
-            "# opcode = %0 \n\t"
-            "# opA = %1 \n\t"
-            "# opD = %2 \n\t"
-            "# regs = %5 \n\t"
-            "# acc = %3 \n\t"
-            "# next_instr = %4 \n\t"
-            "# constants = %6 \n\t"
-            "# ts = %7 \n\t"
-            "# opcode_targets = %8 \n\t"
-            "# metadata = %9 \n\t" ::
-            "r" (opcode),
-            "r" (opA),
-            "r" (opD),
-            "r" (acc),
-            "r" (next_instr),
-            "r" (regs),
-            "r" (constants),
-            "r" (ts),
-            "r" (opcode_targets),
-            "r" (metadata));
+    TARGET(debug_regs) {
+        // int foo;
+        // __asm__ volatile (
+        //     "# REGISTER ASSIGNMENT \n\t"
+        //     "# opcode = %0 \n\t"
+        //     "# opA = %1 \n\t"
+        //     "# opD = %2 \n\t"
+        //     "# regs = %5 \n\t"
+        //     "# acc = %3 \n\t"
+        //     "# next_instr = %4 \n\t"
+        //     "# constants = %6 \n\t"
+        //     "# ts = %7 \n\t"
+        //     "# opcode_targets = %8 \n\t"
+        //     "# metadata = %9 \n\t"
+        // ::
+        //     "r" (opcode),
+        //     "r" (opA),
+        //     "r" (opD),
+        //     "r" (acc),
+        //     "r" (next_instr),
+        //     "r" (regs),
+        //     "r" (constants),
+        //     "r" (ts),
+        //     "r" (opcode_targets),
+        //     "r" (foo));
         DISPATCH(debug_regs);
     }
 

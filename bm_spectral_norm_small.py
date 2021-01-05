@@ -1,6 +1,9 @@
 DEFAULT_N = 130
 
 
+DEFAULT_N = 130
+
+
 def eval_A(i, j):
     return 1.0 / ((i + j) * (i + j + 1) // 2 + i + 1)
 
@@ -28,7 +31,6 @@ def part_At_times_u(i_u):
         partial_sum += eval_A(j, i) * u_j
     return partial_sum
 
-
 def bench_spectral_norm(loops):
     for _ in range(loops):
         u = [1] * DEFAULT_N
@@ -44,23 +46,7 @@ def bench_spectral_norm(loops):
             vBv += ue * ve
             vv += ve * ve
 
-    return u
+    return (vBv, vv)
 
 
-def test():
-    u = [1] * DEFAULT_N
-    # for dummy in range(10):
-    #     v = eval_AtA_times_u(u)
-    #     u = eval_AtA_times_u(v)
-
-    vBv = 0
-    vv = 0
-
-    print(vBv)
-    print(vv)
-    return u
-
-
-# print(eval_A(1.0, 2.0))
-print(bench_spectral_norm(1))
-# print(test())
+bench_spectral_norm(10)

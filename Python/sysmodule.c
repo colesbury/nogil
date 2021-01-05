@@ -1988,9 +1988,6 @@ diff(struct timespec start, struct timespec end)
   return (double)temp.tv_sec + temp.tv_nsec * 1e-9;
 }
 
-PyObject *
-callfib(PyObject *const *args, Py_ssize_t nargs);
-
 PyObject* bar(int a, int b, int c, int d) {
     Py_RETURN_NONE;
 }
@@ -1998,7 +1995,7 @@ PyObject* bar(int a, int b, int c, int d) {
 static PyObject *
 sys_fib(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *keywords)
 {
-    return callfib(args, nargs);
+    return Py_None;
 }
 
 static PyObject *

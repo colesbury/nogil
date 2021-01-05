@@ -228,6 +228,9 @@ class CodeGen(ast.NodeVisitor):
         free2reg = tuple(self.scope.free2reg.values())
         assert len(free2reg) == len(self.scope.freevars)
 
+        flags = (  (0x00 if nlocals                  else 0)
+                 | (0x00 if self.scope.freevars      else 0)
+                 | (0x10 if self.scope.nested        else 0))
 
         print('varnames', dict(self.varnames), 'regs', self.scope.regs, 'nlocals', nlocals, 'framesize', framesize)
         print('cell2reg', cell2reg, self.scope.cellvars)
@@ -241,6 +244,7 @@ class CodeGen(ast.NodeVisitor):
                                kwonlyargcount=kwonlyargcount,
                                nlocals=nlocals,
                                framesize=framesize,
+                               flags=flags,
                                varnames=collect(self.varnames),
                                filename=self.filename,
                                name=name,
@@ -360,15 +364,22 @@ class CodeGen(ast.NodeVisitor):
         # TODO: skip constants as optimization
         return self(t.value) + op.CLEAR_ACC
 
+    def resolve(self, t):
+        if isinstance(t, ast.Name):
+            access = self.scope.access(t.id)
+            if access == 'fast':
+                return Register(self, self.varnames[t.id])
+        return t
+
     def assign(self, target, value):
         method = 'assign_' + target.__class__.__name__
         visitor = getattr(self, method)
         return visitor(target, value)
 
     def assign_Name(self, target, value):
-        if isinstance(value, (Register, ast.Name)):
+        value = self.resolve(value)
+        if isinstance(value, Register):
             return self.store(target.id, value)
-
         return self(value) + self.store(target.id)
 
     def assign_Attribute(self, target, value):
@@ -700,31 +711,34 @@ class Function(ast.FunctionDef):
 load, store = ast.Load(), ast.Store()
 
 def top_scope(t):
-    top = Scope(t, 'module', ())
+    top = Scope(t, 'module', (), None)
     top.visit(t)
     top.analyze(set())
     top.assign_regs({})
     return top
 
 class Scope(ast.NodeVisitor):
-    def __init__(self, t, scope_type, defs):
+    def __init__(self, t, scope_type, defs, parent_scope):
         self.t = t
         self.children = {}       # Enclosed sub-scopes
         self.defs = {name: i for i, name in enumerate(defs)}  # Variables defined
         self.uses = set()        # Variables referenced
         self.globals = set()
         self.scope_type = scope_type
+        self.nested = (parent_scope is not None and 
+                       (parent_scope.nested or
+                        parent_scope.scope_type == 'function'))
 
     def visit_ClassDef(self, t):
         self.define(t.name)
         for expr in t.bases: self.visit(expr)
-        subscope = Scope(t, 'class', ())
+        subscope = Scope(t, 'class', (), self)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
     def visit_Function(self, t):
         all_args = list(t.args.args) + [t.args.vararg, t.args.kwarg]
-        subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg])
+        subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg], self)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 

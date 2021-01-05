@@ -103,6 +103,15 @@ struct ThreadState {
     // registers for current function (points within stack)
     Register *regs;
 
+    // Retained objects
+    PyObject **maxrefs;
+
+    // Base of retained object
+    PyObject **refs;
+
+    // Base of retained object
+    PyObject **refs_base;
+
     Py_ssize_t nargs;
 
     // current metadata ???
@@ -131,6 +140,9 @@ struct ThreadState {
 // ceval2.c
 PyObject* _PyEval_Fast(struct ThreadState *ts);
 
+struct _PyCodeObject2;
+typedef struct _PyCodeObject2 PyCodeObject2;
+
 PyObject *
 exec_code2(PyCodeObject2 *code, PyObject *globals);
 
@@ -144,6 +156,7 @@ Register vm_to_bool(Register x);
 
 // decrefs acc!
 Register vm_add(Register x, Register acc);
+Register vm_add_slow(Register x, Register acc);
 Register vm_inplace_add(Register x, Register acc);
 Register vm_sub(Register x, Register acc);
 Register vm_mul(Register a, Register acc);
@@ -157,6 +170,7 @@ Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);
 Register vm_list_append(Register list, Register item);
 
+Register vm_call_cfunction(struct ThreadState *ts, Register *regs, int nargs);
 Register vm_call_function(struct ThreadState *ts, int base, int nargs);
 
 Register
@@ -173,7 +187,7 @@ PyObject *vm_args_error(struct ThreadState *ts);
 PyObject *vm_error_not_callable(struct ThreadState *ts);
 void vm_handle_error(struct ThreadState *ts);
 
-void vm_zero_refcount(PyObject *op);
+// void vm_zero_refcount(PyObject *op);
 void vm_decref_shared(PyObject *op);
 void vm_incref_shared(PyObject *op);
 

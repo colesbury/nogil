@@ -10,12 +10,13 @@ extern "C" {
 
 PyAPI_DATA(PyTypeObject) PyCode2_Type;
 
-typedef struct {
+typedef struct _PyCodeObject2 {
     PyObject_HEAD
     uint8_t co_argcount;
     uint8_t co_nlocals;
     uint8_t co_ncells;
     uint8_t co_nfreevars;
+    int co_flags;
     Py_ssize_t co_size;         /* number of instructions */
     Py_ssize_t co_nconsts;      /* number of constants */
 

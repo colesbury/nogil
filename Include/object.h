@@ -505,6 +505,15 @@ _Py_REF_IS_QUEUED(uint32_t shared)
     return (shared & _Py_REF_QUEUED_MASK) != 0;
 }
 
+#ifdef Py_REF_DEBUG
+#define _Py_INCREF_TOTAL _Py_IncRefTotal();
+#define _Py_DECREF_TOTAL _Py_DecRefTotal();
+#else
+#define _Py_INCREF_TOTAL
+#define _Py_DECREF_TOTAL
+#endif
+
+
 _Py_ALWAYS_INLINE static inline void
 _Py_INCREF(PyObject *op)
 {

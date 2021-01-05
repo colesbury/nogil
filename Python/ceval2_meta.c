@@ -46,12 +46,86 @@ vm_object(Register r) {
     }
 }
 
+static PyObject *
+vm_object_steal(Register r) {
+    if (IS_RC(r)) {
+        return AS_OBJ(r);
+    }
+    else if (IS_OBJ(r)) {
+        PyObject *obj  = AS_OBJ(r);
+        Py_INCREF(obj);
+        return obj;
+    }
+    else if (IS_INT32(r)) {
+        return PyLong_FromLong(AS_INT32(r));
+    }
+    else if (IS_PRI(r)) {
+        return primitives[AS_PRI(r)];
+    }
+    else {
+        __builtin_unreachable();
+    }
+}
+
+static PyObject *
+vm_object_borrow(struct ThreadState *ts, Register r) {
+    if (IS_OBJ(r)) {
+        return AS_OBJ(r);
+    }
+    else if (IS_INT32(r)) {
+        PyObject *obj = PyLong_FromLong(AS_INT32(r));
+        *ts->maxrefs = obj;
+        ts->maxrefs++;
+        return obj;
+    }
+    else if (IS_PRI(r)) {
+        return primitives[AS_PRI(r)];
+    }
+    else {
+        __builtin_unreachable();
+    }
+}
+
+static PyObject *
+vm_object_autorelease(struct ThreadState *ts, Register r) {
+    if (IS_OBJ(r)) {
+        PyObject *obj = AS_OBJ(r);
+        if (IS_RC(r)) {
+            *ts->maxrefs = obj;
+            ts->maxrefs++;
+        }
+        return obj;
+    }
+    else if (IS_INT32(r)) {
+        PyObject *obj = PyLong_FromLong(AS_INT32(r));
+        *ts->maxrefs = obj;
+        ts->maxrefs++;
+        return obj;
+    }
+    else if (IS_PRI(r)) {
+        return primitives[AS_PRI(r)];
+    }
+    else {
+        __builtin_unreachable();
+    }
+}
+
+static void
+vm_free_autorelease(struct ThreadState *ts)
+{
+    while (ts->maxrefs != ts->refs) {
+        ts->maxrefs--;
+        PyObject *obj = *ts->maxrefs;
+        Py_DECREF(obj);
+    }
+}
+
 static Register
 FROM_OBJ(PyObject *obj)
 {
     Register r;
     r.obj = obj;
-    if (obj && _PyObject_IS_DEFERRED_RC(obj)) {
+    if (obj && !_PyObject_IS_IMMORTAL(obj)) {
         r.as_int64 |= REFCOUNT_TAG;
     }
     return r;
@@ -59,6 +133,7 @@ FROM_OBJ(PyObject *obj)
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
+        _Py_DECREF_TOTAL \
         PyObject *obj = AS_OBJ(reg); \
         if (_PY_LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
@@ -93,18 +168,20 @@ Register vm_to_bool(Register x)
     abort();
 }
 
-Register vm_add(Register a, Register acc)
+Register vm_add_slow(Register a, Register acc)
 {
-    PyObject *o1 = vm_object(a);
-    PyObject *o2 = vm_object(acc);
-    PyObject *res = PyNumber_Add(o1, o2);
-    if (res == NULL) {
-        PyErr_Print();
-        assert(res != NULL);
-    }
-    DECREF(acc);
-    return FROM_OBJ(res);
+    printf("vm_add_slow\n");
+    abort();
 }
+
+// Register vm_add(Register a, Register acc)
+// {
+//     PyObject *left = AS_OBJ(a);
+//     PyObject *right = AS_OBJ(acc);
+//     PyObject *res = PyNumber_Add(left, right);
+//     DECREF(acc);
+//     return PACK_OBJ(res);
+// }
 
 Register vm_inplace_add(Register a, Register acc)
 {
@@ -159,16 +236,7 @@ Register vm_load_name(PyObject *dict, PyObject *name)
     if (value == NULL) {
         abort();
     }
-    Register r;
-    r.obj = value;
-    uint32_t local = value->ob_ref_local;
-    if ((local & (_Py_REF_IMMORTAL_MASK|_Py_REF_DEFERRED_MASK)) != 0) {
-    }
-    else {
-        Py_INCREF(value);
-        r.as_int64 |= 1;
-    }
-    return r;
+    return PACK_OBJ(value);
 }
 
 Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
@@ -186,28 +254,42 @@ Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
     return ret;
 }
 
+Register
+vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
+{
+    for (int i = -1; i != nargs; i++) {
+        assert(IS_OBJ(args[i]));
+        args[i].obj = vm_object_autorelease(ts, args[i]);
+    }
+    PyCFunctionObject *func = (PyCFunctionObject *)(args[-1].obj);
+    PyObject *res = func->vectorcall((PyObject *)func, (PyObject *const*)args, nargs, empty_tuple);
+    for (int i = -1; i != nargs; i++) {
+        args[i].as_int64 = 0;
+    }
+    vm_free_autorelease(ts);
+    return PACK_OBJ(res);
+}   
 
 Register
 vm_call_function(struct ThreadState *ts, int base, int nargs)
 {
     PyObject *callable = AS_OBJ(ts->regs[base+1]);
     Register *args = &ts->regs[base+2];
-    Register res;
-
-    // FIXME: leaks galore
-    for (int i = 0; i != nargs; i++) {
-        args[i].obj = AS_OBJ(args[i]);
+    
+    for (int i = -1; i != nargs; i++) {
+        assert(IS_OBJ(args[i]));
+        args[i].obj = vm_object_autorelease(ts, args[i]);
     }
 
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
-    res.obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
-    res.as_int64 |= REFCOUNT_TAG;
+    PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
 
     for (int i = -2; i != nargs; i++) {
         args[i].as_int64 = 0;
     }
 
-    return res;
+    vm_free_autorelease(ts);
+    return PACK_OBJ(obj);
 }
 
 static PyFunc *
@@ -233,10 +315,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
         func->freevars[i] = cell;
     }
 
-    assert(func == NULL || _PyObject_IS_DEFERRED_RC((PyObject *)func));
-    ret.obj = func;
-    ret.as_int64 |= REFCOUNT_TAG;
-    return ret;
+    return PACK_OBJ(func);
 }
 
 Register
@@ -246,12 +325,13 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
     Py_ssize_t ncells = code->co_ncells;
     for (Py_ssize_t i = 0; i < ncells; i++) {
         Py_ssize_t idx = code->co_cell2reg[i];
-        PyObject *cell = PyCell_New(vm_object(regs[idx]));
+        PyObject *cell = PyCell_New(AS_OBJ(regs[idx]));
         if (cell == NULL) {
             abort();
             return NULL_REGISTER;
         }
 
+        DECREF(regs[idx]);
         regs[idx].as_int64 = (intptr_t)cell | REFCOUNT_TAG;
     }
     return NULL_REGISTER;
@@ -282,7 +362,7 @@ Register vm_build_list(Register *regs, Py_ssize_t n)
     }
     while (n) {
         n--;
-        PyList_SET_ITEM(obj, n, vm_object(regs[n]));
+        PyList_SET_ITEM(obj, n, vm_object_steal(regs[n]));
     }
     Register r;
     r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
@@ -298,11 +378,12 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n)
     }
     while (n) {
         n--;
-        PyObject *item = vm_object(regs[n]);
+        PyObject *item = vm_object_steal(regs[n]);
         if (item == NULL) {
             abort();
         }
         PyTuple_SET_ITEM(obj, n, item);
+        regs[n].obj = NULL;
     }
     Register r;
     r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
@@ -361,6 +442,13 @@ new_threadstate(void)
     }
     memset(stack, 0, stack_size * sizeof(Register));
 
+    ts->refs_base = malloc(sizeof(PyObject*) * 256);
+    if (!ts->refs_base) {
+        abort();
+    }
+    ts->refs = ts->refs_base;
+    ts->maxrefs = ts->refs_base;
+
     ts->stack = stack;
     ts->maxstack = &stack[stack_size];
     ts->regs = stack;
@@ -404,13 +492,14 @@ PyFunc_New(PyCodeObject2 *code, PyObject *globals)
     if (func == NULL) {
         return NULL;
     }
-    ((PyObject *)func)->ob_ref_local |= _Py_REF_DEFERRED_MASK;
+    if ((code->co_flags & CO_NESTED) == 0) {
+        _PyObject_SET_DEFERRED_RC((PyObject *)func);
+    }
     func->func_base.first_instr = PyCode2_GET_CODE(code);
     Py_INCREF(globals);
     func->globals = globals;
     return func;
 }
-
 
 static struct ThreadState *ts;
 _Py_IDENTIFIER(builtins);
@@ -471,14 +560,22 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
         return NULL;
     }
 
-    printf("exec with func: %p\n", func);
-    printf("calling with regs = %p\n", ts->regs);
+#ifdef Py_REF_DEBUG
+    intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
+#endif
 
     ts->regs += 2;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1].obj = (PyObject *)func; // this_func
     ts->nargs = 0;
-    return _PyEval_Fast(ts);
+    PyObject *ret = _PyEval_Fast(ts);
+
+#ifdef Py_REF_DEBUG
+    intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
+    printf("RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
+#endif
+
+    return ret;
 }
 
 PyObject *vm_new_func(void)
@@ -494,7 +591,6 @@ PyObject *vm_new_func(void)
     return func;
 }
 
-void vm_zero_refcount(PyObject *op) {}
 void vm_decref_shared(PyObject *op) {
     printf("vm_decref_shared: %p\n", op);
     abort();
@@ -502,6 +598,18 @@ void vm_decref_shared(PyObject *op) {
 void vm_incref_shared(PyObject *op) {
     printf("vm_incref_shared\n");
     abort();
+}
+
+static void
+PyFunc_dealloc(PyFunc *func)
+{
+    // PyObject_GC_UnTrack(func);
+    Py_CLEAR(func->globals);
+    Py_ssize_t nfreevars = Py_SIZE(func);
+    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+        Py_CLEAR(func->freevars[i]);
+    }
+    PyObject_Del(func);
 }
 
 static PyTypeObject PyFunc_Type = {
@@ -513,7 +621,7 @@ static PyTypeObject PyFunc_Type = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE,
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) NULL,
-    .tp_dealloc = (destructor) NULL,
+    .tp_dealloc = (destructor) PyFunc_dealloc,
     .tp_members = NULL,
     .tp_methods = NULL,
 };
