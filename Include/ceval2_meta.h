@@ -84,10 +84,7 @@ static inline Register
 PACK_OBJ(PyObject *o)
 {
     Register r;
-    r.obj = o;
-    if (!_PyObject_IS_IMMORTAL(o)) {
-        r.as_int64 |= REFCOUNT_TAG;
-    }
+    r.as_int64 = (intptr_t)o | !_PyObject_IS_IMMORTAL(o);
     return r;
 }
 
