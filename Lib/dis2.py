@@ -333,7 +333,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
     def get_repr(bytecode, argA, argD):
         argreprs = []
         if bytecode.name == 'CALL_FUNCTION':
-            return f'{format_reg(argA+1)} to {format_reg(argA+argD+2)}'
+            return f'{format_reg(argA)} to {format_reg(argA+argD)}'
         elif bytecode.name == 'LOAD_ATTR':
              return f"{format_reg(argA)}[{get_const(argD)}]"
         elif bytecode.name == 'STORE_ATTR':

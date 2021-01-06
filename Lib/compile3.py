@@ -342,10 +342,11 @@ class CodeGen(ast.NodeVisitor):
                   # op.CALL_FUNCTION_VAR    if t.starargs else
                   # op.CALL_FUNCTION_KW     if t.kwargs else
                   op.CALL_FUNCTION)
+        FRAME_EXTRA = 2
         regs = self.register_list()
         return (regs[1](t.func) +
                 concat([regs[2+i](arg) for i,arg in enumerate(t.args)]) +
-                opcode(regs.base, len(t.args)))
+                opcode(regs.base + FRAME_EXTRA, len(t.args)))
 
     def visit_keyword(self, t):
         return self.load_const(t.arg) + self(t.value)

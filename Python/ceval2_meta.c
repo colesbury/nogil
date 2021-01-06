@@ -262,8 +262,8 @@ vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
 Register
 vm_call_function(struct ThreadState *ts, int base, int nargs)
 {
-    PyObject *callable = AS_OBJ(ts->regs[base+1]);
-    Register *args = &ts->regs[base+2];
+    PyObject *callable = AS_OBJ(ts->regs[base-1]);
+    Register *args = &ts->regs[base];
     
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
@@ -273,7 +273,7 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
     PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
 
-    for (int i = -2; i != nargs; i++) {
+    for (int i = -FRAME_EXTRA; i != nargs; i++) {
         args[i].as_int64 = 0;
     }
 
@@ -552,7 +552,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
 #endif
 
-    ts->regs += 2;
+    ts->regs += FRAME_EXTRA;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1].obj = (PyObject *)func; // this_func
     ts->nargs = 0;

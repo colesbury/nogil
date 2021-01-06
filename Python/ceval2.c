@@ -175,6 +175,9 @@ PACK_INCREF(PyObject *obj)
 #define THIS_CODE() \
     (PyCode2_FromInstr(THIS_FUNC()->func_base.first_instr))
 
+#define CONSTANTS() \
+    (THIS_CODE()->co_constants)
+
 // LLINT (JSCORE)
 // Call Frame points to regs
 // regs[0] = caller
@@ -202,7 +205,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     const uint32_t *next_instr = ts->pc;
-    PyObject **constants = PyCode2_FromInstr(next_instr)->co_constants;
+    // PyObject **constants = PyCode2_FromInstr(next_instr)->co_constants;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
@@ -244,7 +247,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_CONST) {
-        acc.obj = constants[opA];
+        acc.obj = CONSTANTS()[opA];
         DISPATCH(LOAD_CONST);
     }
 
@@ -290,7 +293,7 @@ _PyEval_Fast(struct ThreadState *ts)
         // opA contains framesize
         // acc contains nargs from call
         PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
-        constants = this_code->co_constants;
+        // constants = this_code->co_constants;
         ts->regs = regs;
         if (UNLIKELY(regs + opA > ts->maxstack)) {
             // resize stack
@@ -322,36 +325,31 @@ _PyEval_Fast(struct ThreadState *ts)
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
-        regs -= offset + 2;
+        regs -= offset;
         ts->regs = regs;
         DISPATCH(CFUNC_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
-        PyCodeObject2 *code = (PyCodeObject2 *)constants[opA];
+        PyCodeObject2 *code = (PyCodeObject2 *)CONSTANTS()[opA];
         CALL_VM(acc = vm_make_function(ts, code));
         DISPATCH(MAKE_FUNCTION);
     }
 
     TARGET(CALL_FUNCTION) {
         // opsD = nargs
-        // opsA + 0 = <empty> (frame link)
-        // opsA + 1 = func
-        // opsA + 2 = arg0
-        // opsA + 2 + opsD = argsN
-        Register r = regs[opA + 1];
-        if (UNLIKELY(!IS_OBJ(r))) {
-            ts->regs = regs;
-            return vm_error_not_callable(ts);
-        }
-        PyObject *callable = AS_OBJ(r);
+        // opsA - 2 = <empty> (frame link)
+        // opsA - 1 = func
+        // opsA + 0 = arg0
+        // opsA + opsD = argsN
+        PyObject *callable = AS_OBJ(regs[opA - 1]);
         if (UNLIKELY(!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE))) {
             CALL_VM(acc = vm_call_function(ts, opA, opD));
             DISPATCH(CALL_FUNCTION2);
         }
 
         PyFuncBase *func = (PyFuncBase *)callable;
-        regs = &regs[opA + 2];
+        regs = &regs[opA];
         ts->regs = regs;
         regs[-2].as_int64 = (intptr_t)next_instr;
         acc = PACK_INT32(opD);
@@ -375,14 +373,14 @@ _PyEval_Fast(struct ThreadState *ts)
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
-        regs -= offset + 2;
+        regs -= offset;
         ts->regs = regs;
-        constants = THIS_CODE()->co_constants;
+        // constants = THIS_CODE()->co_constants;
         DISPATCH(function_return);
     }
 
     TARGET(LOAD_NAME) {
-        PyObject *name = constants[opA];
+        PyObject *name = CONSTANTS()[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
         CALL_VM(acc = vm_load_name((PyObject *)globals, name));
@@ -390,7 +388,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_GLOBAL) {
-        PyObject *name = constants[opA];
+        PyObject *name = CONSTANTS()[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
 
@@ -409,13 +407,13 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(STORE_NAME) {
-        PyObject *name = constants[opA];
+        PyObject *name = CONSTANTS()[opA];
         PyObject *globals = THIS_FUNC()->globals;
         CALL_VM(acc = vm_store_global(globals, name, acc));
         DISPATCH(STORE_NAME);
     }
     TARGET(STORE_GLOBAL) {
-        PyObject *name = constants[opA];
+        PyObject *name = CONSTANTS()[opA];
         PyObject *globals = THIS_FUNC()->globals;
         CALL_VM(acc = vm_store_global(globals, name, acc));
         DISPATCH(STORE_GLOBAL);
@@ -569,11 +567,11 @@ _PyEval_Fast(struct ThreadState *ts)
         if (Py_TYPE(iter)->tp_iternext == NULL) {
             goto error;
         }
-        DECREF(acc);
-        acc.as_int64 = 0;
         opA = RELOAD_OPA();
         assert(regs[opA].as_int64 == 0);
         regs[opA] = PACK_OBJ(iter);
+        DECREF(acc);
+        acc.as_int64 = 0;
         DISPATCH(GET_ITER);
         get_iter_slow:
             goto error;

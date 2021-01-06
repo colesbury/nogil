@@ -19,6 +19,9 @@ PyObject *empty_tuple;
 
 #define FRAME_C 0x1
 
+// number of extra words in a function frame
+#define FRAME_EXTRA 2
+
 static inline Register
 PACK_INT32(int32_t value)
 {
