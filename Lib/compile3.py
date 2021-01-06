@@ -511,7 +511,8 @@ class CodeGen(ast.NodeVisitor):
     def visit_Compare(self, t):
         [operator], [right] = t.ops, t.comparators
         cmp_index = dis.cmp_op.index(self.ops_cmp[type(operator)])
-        return self(t.left) + self(right) + op.COMPARE_OP(cmp_index)
+        reg = self.register()
+        return reg(t.left) + self(right) + op.COMPARE_OP(cmp_index, reg) + reg.clear()
     ops_cmp = {ast.Eq: '==', ast.NotEq: '!=', ast.Is: 'is', ast.IsNot: 'is not',
                ast.Lt: '<',  ast.LtE:   '<=', ast.In: 'in', ast.NotIn: 'not in',
                ast.Gt: '>',  ast.GtE:   '>='}

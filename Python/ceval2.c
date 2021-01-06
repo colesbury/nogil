@@ -268,6 +268,25 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(JUMP);
     }
 
+    TARGET(POP_JUMP_IF_FALSE) {
+        if (acc.obj == Py_False) {
+            next_instr += opD - 0x8000;
+        }
+        else if (LIKELY(acc.obj == Py_True)) {
+            next_instr += 0;
+        }
+        else {
+            int err;
+            CALL_VM(err = PyObject_IsTrue(AS_OBJ(acc)));
+            if (err == 0) {
+                next_instr += opD - 0x8000;
+            }
+            DECREF(acc);
+            acc.as_int64 = 0;
+        }
+        DISPATCH(POP_JUMP_IF_FALSE);
+    }
+
     TARGET(JUMP_IF_FALSE) {
         if (_PY_LIKELY(IS_PRI(acc))) {
             if ((AS_PRI(acc) & PRI_TRUE) == 0) {
@@ -478,6 +497,17 @@ _PyEval_Fast(struct ThreadState *ts)
         PyCell_SET(cell, value);
         acc.as_int64 = 0;
         DISPATCH(STORE_DEREF);
+    }
+
+    TARGET(COMPARE_OP) {
+        assert(opA <= Py_GE);
+        PyObject *left = AS_OBJ(regs[opD]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyObject_RichCompare(left, right, opA));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(COMPARE_OP);
     }
 
     TARGET(BINARY_ADD) {

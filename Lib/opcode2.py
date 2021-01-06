@@ -54,7 +54,7 @@ def_op('BINARY_XOR', 65, 'reg')
 def_op('BINARY_OR', 66, 'reg')
 def_op('IS_OP', 117, 'reg')
 def_op('CONTAINS_OP', 118, 'reg')
-def_op('COMPARE_OP', 107, 'reg')       # Comparison operator
+def_op('COMPARE_OP', 107, 'lit', 'reg')       # Comparison operator
 
 # inplace binary operators
 def_op('INPLACE_FLOOR_DIVIDE', 28, 'reg')
