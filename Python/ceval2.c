@@ -176,7 +176,7 @@ PACK_INCREF(PyObject *obj)
     (PyCode2_FromInstr(THIS_FUNC()->func_base.first_instr))
 
 #define CONSTANTS() \
-    (THIS_CODE()->co_constants)
+    ((PyObject **)regs[-3].as_int64)
 
 // LLINT (JSCORE)
 // Call Frame points to regs
@@ -205,7 +205,6 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     const uint32_t *next_instr = ts->pc;
-    // PyObject **constants = PyCode2_FromInstr(next_instr)->co_constants;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
@@ -293,7 +292,7 @@ _PyEval_Fast(struct ThreadState *ts)
         // opA contains framesize
         // acc contains nargs from call
         PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
-        // constants = this_code->co_constants;
+        regs[-3].as_int64 = (intptr_t)this_code->co_constants;
         ts->regs = regs;
         if (UNLIKELY(regs + opA > ts->maxstack)) {
             // resize stack
@@ -322,6 +321,7 @@ _PyEval_Fast(struct ThreadState *ts)
         CALL_VM(acc = vm_call_cfunction(ts, regs, nargs));
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
@@ -367,6 +367,7 @@ _PyEval_Fast(struct ThreadState *ts)
         }
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
         if ((((uintptr_t)next_instr) & FRAME_C) != 0) {
             goto return_to_c;
         }
@@ -375,8 +376,7 @@ _PyEval_Fast(struct ThreadState *ts)
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset;
         ts->regs = regs;
-        // constants = THIS_CODE()->co_constants;
-        DISPATCH(function_return);
+        DISPATCH(RETURN_VALUE);
     }
 
     TARGET(LOAD_NAME) {

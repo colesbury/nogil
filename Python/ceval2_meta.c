@@ -553,6 +553,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
 #endif
 
     ts->regs += FRAME_EXTRA;
+    ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromInstr(func->func_base.first_instr)->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1].obj = (PyObject *)func; // this_func
     ts->nargs = 0;

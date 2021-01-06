@@ -50,3 +50,4 @@ def bench_spectral_norm(loops):
 
 
 bench_spectral_norm(10)
+# print(bench_spectral_norm(1))
