@@ -9940,6 +9940,9 @@ PyInit__ast(void)
     if (PyModule_AddIntMacro(m, PyCF_ONLY_AST) < 0) {
         goto error;
     }
+    if (PyModule_AddIntMacro(m, PyCF_OPTIMIZE_AST) < 0) {
+        goto error;
+    }
     if (PyModule_AddIntMacro(m, PyCF_TYPE_COMMENTS) < 0) {
         goto error;
     }
