@@ -74,8 +74,7 @@ AS_INT32(Register r)
 static inline PyObject *
 AS_OBJ(Register r)
 {
-    r.as_int64 &= ~REFCOUNT_TAG;
-    return r.obj;
+    return (PyObject *)(r.as_int64 & ~REFCOUNT_TAG);
 }
 
 static inline Register
@@ -92,6 +91,9 @@ PACK_OBJ(PyObject *o)
 struct _ts;
 
 struct ThreadState {
+    // registers for current function (points within stack)
+    Register *regs;
+
     const uint32_t *pc;
 
     // true bottom of stack
@@ -99,9 +101,6 @@ struct ThreadState {
 
     // top of stack
     Register *maxstack;
-
-    // registers for current function (points within stack)
-    Register *regs;
 
     // Retained objects
     PyObject **maxrefs;

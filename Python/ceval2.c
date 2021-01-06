@@ -40,12 +40,18 @@
    __asm__ volatile(".TARGET_" #name ":");
 
 
-#define COLD_TARGET(name) \
-    TARGET_##name: __attribute__((cold))
+#if defined(__clang__)
+#define COLD_TARGET(name) TARGET_##name:
+#elif defined(__GNUC__)
+#define COLD_TARGET(name) TARGET_##name: __attribute__((cold));
+#else
+#define COLD_TARGET(name) TARGET_##name:
+#endif
 
 #define CALL_VM(call) \
     call; \
     regs = ts->regs;
+
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
@@ -650,14 +656,13 @@ _PyEval_Fast(struct ThreadState *ts)
 
     #include "unimplemented_opcodes.h"
     {
-        // CALL_VM(acc = vm_unknown_opcode(opcode));
+        CALL_VM(acc = vm_unknown_opcode(opcode));
         // opcode = 0;
         __builtin_unreachable();
     }
 //
 
-    TARGET(debug_regs) {
-        // int foo;
+    COLD_TARGET(debug_regs) {
         // __asm__ volatile (
         //     "# REGISTER ASSIGNMENT \n\t"
         //     "# opcode = %0 \n\t"

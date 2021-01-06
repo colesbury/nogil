@@ -120,17 +120,6 @@ vm_free_autorelease(struct ThreadState *ts)
     }
 }
 
-static Register
-FROM_OBJ(PyObject *obj)
-{
-    Register r;
-    r.obj = obj;
-    if (obj && !_PyObject_IS_IMMORTAL(obj)) {
-        r.as_int64 |= REFCOUNT_TAG;
-    }
-    return r;
-}
-
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
@@ -193,12 +182,12 @@ Register vm_inplace_add(Register a, Register acc)
         assert(res != NULL);
     }
     DECREF(acc);
-    return FROM_OBJ(res);
+    return PACK_OBJ(res);
 }
 
 Register vm_sub(Register a, Register b)
 {
-    printf("vm_sub: %p %p\n", a.as_int64, b.as_int64);
+    printf("vm_sub\n");
     abort();
 }
 
@@ -208,7 +197,7 @@ Register vm_mul(Register a, Register acc)
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_Multiply(o1, o2);
     DECREF(acc);
-    return FROM_OBJ(res);
+    return PACK_OBJ(res);
 }
 
 Register vm_true_div(Register a, Register acc)
@@ -217,7 +206,7 @@ Register vm_true_div(Register a, Register acc)
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_TrueDivide(o1, o2);
     DECREF(acc);
-    return FROM_OBJ(res);
+    return PACK_OBJ(res);
 }
 
 Register vm_floor_div(Register a, Register acc)
@@ -226,7 +215,7 @@ Register vm_floor_div(Register a, Register acc)
     PyObject *o2 = vm_object(acc);
     PyObject *res = PyNumber_FloorDivide(o1, o2);
     DECREF(acc);
-    return FROM_OBJ(res);
+    return PACK_OBJ(res);
 }
 
 
@@ -298,7 +287,6 @@ PyFunc_New(PyCodeObject2 *code, PyObject *globals);
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
 {
-    Register ret;
     PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyObject *globals = this_func->globals;
     PyFunc *func = PyFunc_New(code, globals);
@@ -315,7 +303,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
         func->freevars[i] = cell;
     }
 
-    return PACK_OBJ(func);
+    return PACK_OBJ((PyObject *)func);
 }
 
 Register
