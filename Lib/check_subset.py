@@ -192,8 +192,15 @@ class Checker(ast.NodeVisitor):
             elif isinstance(t.ctx, ast.Store): pass
             else: assert False, "Only loads and stores are supported: %r" % (t,)
             self(t.slice.value)
+        elif isinstance(t.slice, ast.Slice):
+            self(t.slice)
         else:
-            assert False, "Only simple subscripts are supported: %r" % (t,)
+            assert False, "Only simple subscripts are supported: %r" % (t.s,)
+
+    def visit_Slice(self, t):
+        for r in (t.lower, t.upper, t.step):
+            if r is not None:
+                self(r)
 
     def visit_NameConstant(self, t):
         pass

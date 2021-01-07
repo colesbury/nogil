@@ -438,6 +438,15 @@ class CodeGen(ast.NodeVisitor):
                 return visitor.store(t.id)
         return NameRef()
 
+    def reference_Subscript(self, t):
+        visitor = self
+        class SubscrRef:
+            def load(self, reg):
+                return visitor.load(t.id, reg)
+            def store(self):
+                return visitor.store(t.id)
+        return SubscrRef()
+
     def visit_Assign(self, t):
         assert len(t.targets) == 1
         return self.assign(t.targets[0], t.value)
@@ -464,10 +473,20 @@ class CodeGen(ast.NodeVisitor):
     def visit_Subscript(self, t):
         reg = self.register()
         return (  reg(t.value)
-                + self(t.slice.value)
+                + self(t.slice)
                 + self.subscr_ops[type(t.ctx)](reg)
                 + reg.clear())
     subscr_ops = {ast.Load: op.BINARY_SUBSCR, ast.Store: op.STORE_SUBSCR}
+
+    def visit_Index(self, t):
+        return self(t.value)
+
+    def visit_Slice(self, t):
+        regs = self.register_list()
+        return (regs[0](t.lower or ast.Constant(None)) +
+                regs[1](t.upper or ast.Constant(None)) +
+                regs[2](t.step or ast.Constant(None)) +
+                op.BUILD_SLICE(regs[0]))
 
     def visit_Attribute(self, t):
         reg = self.register()
@@ -633,7 +652,8 @@ def load_file(filename, module_name):
     f = open(filename)
     source = f.read()
     f.close()
-    return module_from_ast(module_name, filename, ast.parse(source))
+    astobj = compile(source, filename, 'exec', ast.PyCF_ONLY_AST|ast.PyCF_OPTIMIZE_AST)
+    return module_from_ast(module_name, filename, astobj)
 
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)

@@ -582,6 +582,18 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BINARY_FLOOR_DIVIDE);
     }
 
+    TARGET(BINARY_SUBSCR) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *container = AS_OBJ(regs[opA]);
+        PyObject *sub = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyObject_GetItem(container, sub));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_SUBSCR);
+    }
+
     TARGET(GET_ITER) {
         assert(IS_OBJ(acc));
         PyObject *obj = AS_OBJ(acc);
@@ -623,6 +635,12 @@ _PyEval_Fast(struct ThreadState *ts)
             next_instr += opD - 0x8000;
         }
         DISPATCH(FOR_ITER);
+    }
+
+    TARGET(BUILD_SLICE) {
+        CALL_VM(acc = vm_build_slice(&regs[opA]));
+        assert(acc.as_int64 != 0);
+        DISPATCH(BUILD_SLICE);
     }
 
     TARGET(BUILD_LIST) {

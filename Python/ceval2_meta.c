@@ -341,6 +341,19 @@ vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
     return NULL_REGISTER;
 }
 
+Register vm_build_slice(Register *regs)
+{
+    PyObject *slice = PySlice_New(AS_OBJ(regs[0]), AS_OBJ(regs[1]), AS_OBJ(regs[2]));
+    DECREF(regs[2]);
+    regs[2].as_int64 = 0;
+    DECREF(regs[1]);
+    regs[1].as_int64 = 0;
+    DECREF(regs[0]);
+    regs[0].as_int64 = 0;
+    Register ret;
+    ret.as_int64 = (intptr_t)slice;
+    return ret;
+}
 
 Register vm_build_list(Register *regs, Py_ssize_t n)
 {

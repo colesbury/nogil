@@ -121,7 +121,7 @@ def_op('IMPORT_FROM', 109, 'str')      # Index in name list
 def_op('IMPORT_STAR', 84, 'str')
 
 # build built-in objects
-def_op('BUILD_SLICE', 133, 'lit')      # Number of items
+def_op('BUILD_SLICE', 133, 'reg')      # Number of items
 def_op('BUILD_TUPLE', 102, 'reg', 'lit')      # Number of tuple items
 def_op('BUILD_LIST', 103, 'reg', 'lit')       # Number of list items
 def_op('BUILD_SET', 104, 'reg', 'lit')        # Number of set items

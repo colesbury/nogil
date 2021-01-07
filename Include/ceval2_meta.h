@@ -167,6 +167,7 @@ Register vm_store_global(PyObject *dict, PyObject *name, Register value);
 
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);
+Register vm_build_slice(Register *regs);
 Register vm_list_append(Register list, Register item);
 
 Register vm_call_cfunction(struct ThreadState *ts, Register *regs, int nargs);
