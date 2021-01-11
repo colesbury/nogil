@@ -70,7 +70,8 @@ class Checker(ast.NodeVisitor):
     def visit_While(self, t):
         self(t.test)
         Checker(self.scope_type, in_loop=True)(t.body)
-        assert not t.orelse
+        if t.orelse is not None:
+            self(t.orelse)
 
     def visit_If(self, t):
         self(t.test)
@@ -105,7 +106,7 @@ class Checker(ast.NodeVisitor):
         pass
 
     def visit_Break(self, t):
-        assert False, "break not supported"
+        pass
 
     def visit_BoolOp(self, t):
         assert type(t.op) in self.ops_bool, "Unsupported boolean op: %r" % (t,)
@@ -187,15 +188,14 @@ class Checker(ast.NodeVisitor):
 
     def visit_Subscript(self, t):
         self(t.value)
-        if isinstance(t.slice, ast.Index):
-            if   isinstance(t.ctx, ast.Load):  pass
-            elif isinstance(t.ctx, ast.Store): pass
-            else: assert False, "Only loads and stores are supported: %r" % (t,)
-            self(t.slice.value)
-        elif isinstance(t.slice, ast.Slice):
-            self(t.slice)
-        else:
-            assert False, "Only simple subscripts are supported: %r" % (t.s,)
+        if   isinstance(t.ctx, ast.Load):  pass
+        elif isinstance(t.ctx, ast.Store): pass
+        else: assert False, "Only loads and stores are supported: %r" % (t,)
+        self(t.slice)
+        # elif isinstance(t.slice, ast.Slice):
+        #     self(t.slice)
+        # else:
+        #     assert False, "Only simple subscripts are supported: %r" % (t.s,)
 
     def visit_Slice(self, t):
         for r in (t.lower, t.upper, t.step):

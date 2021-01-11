@@ -151,6 +151,64 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
+__attribute__((noinline))
+static const uint32_t *
+vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
+{
+    int err = PyObject_IsTrue(AS_OBJ(acc));
+    if (UNLIKELY(err < 0)) {
+        abort();
+    }
+    if (err == exp) {
+        return next_instr + opD - 0x8000;
+    }
+    else {
+        return next_instr;
+    }
+}
+
+const uint32_t *
+vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
+{
+    if (acc.obj == Py_True) {
+        return next_instr + opD - 0x8000;
+    }
+    else if (_PY_LIKELY(acc.obj == Py_False || acc.obj == Py_None)) {
+        return next_instr;
+    }
+    return vm_is_bool_slow(acc, next_instr, opD, 1);
+}
+
+const uint32_t *
+vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD)
+{
+    if (acc.obj == Py_True) {
+        return next_instr;
+    }
+    else if (_PY_LIKELY(acc.obj == Py_False || acc.obj == Py_None)) {
+        return next_instr + opD - 0x8000;
+    }
+    return vm_is_bool_slow(acc, next_instr, opD, 0);
+}
+
+void
+vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
+{
+    if (PyTuple_CheckExact(AS_OBJ(acc))) {
+        PyObject *tuple = AS_OBJ(acc);
+        for (Py_ssize_t i = 0; i < n; i++) {
+            PyObject *item = PyTuple_GET_ITEM(tuple, i);
+            assert(base[i].as_int64 == 0);
+            base[i] = PACK_INCREF(item);
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+    }
+    else {
+        abort();
+    }
+}
+
 Register vm_to_bool(Register x)
 {
     printf("vm_to_bool\n");
@@ -351,7 +409,7 @@ Register vm_build_slice(Register *regs)
     DECREF(regs[0]);
     regs[0].as_int64 = 0;
     Register ret;
-    ret.as_int64 = (intptr_t)slice;
+    ret.as_int64 = (intptr_t)slice | REFCOUNT_TAG;
     return ret;
 }
 

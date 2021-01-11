@@ -10,8 +10,6 @@
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 
-#include "ceval2_meta.h"
-
 // An individual register can have an owning or non-owning reference
 // Deferred and immortal objects always have non-owning references (immortal for correctness, deferred for perf, helps)
 // A regular object *may* have a non-owning reference for aliases
@@ -246,6 +244,9 @@ code_richcompare(PyObject *self, PyObject *other, int op)
 
     return (self == other) ^ (op == Py_NE) ? Py_True : Py_False;
 }
+
+extern PyObject *
+exec_code2(PyCodeObject2 *code, PyObject *globals);
 
 static PyObject *
 code_exec(PyCodeObject2 *co, PyObject *args)

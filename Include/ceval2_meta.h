@@ -22,6 +22,9 @@ PyObject *empty_tuple;
 // number of extra words in a function frame
 #define FRAME_EXTRA 3
 
+#define UNLIKELY _PY_UNLIKELY
+#define LIKELY _PY_LIKELY
+
 static inline Register
 PACK_INT32(int32_t value)
 {
@@ -85,6 +88,26 @@ PACK_OBJ(PyObject *o)
 {
     Register r;
     r.as_int64 = (intptr_t)o | !_PyObject_IS_IMMORTAL(o);
+    return r;
+}
+
+static inline Register
+PACK_INCREF(PyObject *obj)
+{
+    Register r;
+    r.obj = obj;
+    if ((obj->ob_ref_local & 0x3) == 0) {
+        _Py_INCREF_TOTAL
+        r.as_int64 |= REFCOUNT_TAG;
+        if (LIKELY(_Py_ThreadLocal(obj))) {
+            uint32_t refcount = obj->ob_ref_local;
+            refcount += 4;
+            obj->ob_ref_local = refcount;
+        }
+        else {
+            _Py_atomic_add_uint32(&obj->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+        }
+    }
     return r;
 }
 
@@ -152,6 +175,13 @@ Register vm_unknown_opcode(intptr_t opcode);
 
 // decrefs x!
 Register vm_to_bool(Register x);
+const uint32_t *
+vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD);
+const uint32_t *
+vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD);
+
+void
+vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
 // decrefs acc!
 Register vm_add(Register x, Register acc);

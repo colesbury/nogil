@@ -163,6 +163,12 @@ class Reference:
     def store(self, value):
         return no_op
 
+class Loop:
+    def __init__(self):
+        self.top = Label()      # iteration
+        self.next = Label()     # loop test (continue target)
+        self.anchor = Label()   # before "orelse" block
+        self.exit = Label()     # break target
 
 def denotation(defn):
     opcode = defn.opcode
@@ -208,6 +214,7 @@ class CodeGen(ast.NodeVisitor):
         self.nlocals = len(self.scope.local_defs)
         self.next_register = len(self.varnames)
         self.max_registers = self.next_register
+        self.loops = []
 
     def compile_module(self, t, name):
         assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
@@ -284,10 +291,8 @@ class CodeGen(ast.NodeVisitor):
             return self.copy_register(reg, t)
         return self(t) + op.STORE_FAST(reg.allocate())
 
-    def visit_NameConstant(self, t): return self.load_const(t.value)
-    def visit_Num(self, t):          return self.load_const(t.n)
-    def visit_Str(self, t):          return self.load_const(t.s)
-    visit_Bytes = visit_Str
+    def visit_Constant(self, t):
+        return self.load_const(t.value)
 
     def visit_Name(self, t):
         assert isinstance(t.ctx, ast.Load)
@@ -320,10 +325,10 @@ class CodeGen(ast.NodeVisitor):
         access = self.scope.access(name)
         if isinstance(value, Register):
             if access == 'fast':
-                opcode = (op.MOVE if value.is_temporary() else
-                          op.COPY)
-                return opcode(self.varnames[name], value.reg)
-            return op.LOAD_FAST(reg) + reg.clear() + self.store(name)
+                if value.is_temporary():
+                    return op.MOVE(self.varnames[name], value.reg)
+                else:
+                    return op.LOAD_FAST(value.reg) + op.STORE_FAST(self.varnames[name])
         if   access == 'fast':   return op.STORE_FAST(self.varnames[name])
         elif access == 'deref':  return op.STORE_DEREF(self.varnames[name])
         elif access == 'name':   return op.STORE_NAME(self.names[name])
@@ -394,11 +399,12 @@ class CodeGen(ast.NodeVisitor):
         reg2 = self.register()
         # FIXME: clear regs if temporary ???
         # FIXME: target.slice.value ???
-        return (  reg1(value) + reg2(target.value)
-                + self(target.slice)
+        return (  reg1(target.value)
+                + reg2(target.slice)
+                + self(value)
                 + op.STORE_SUBSCR(reg1, reg2)
-                + reg2.clear() + reg1.clear())
-
+                + reg2.clear()
+                + reg1.clear())
 
     def assign_List(self, target, value): return self.assign_sequence(target, value)
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
@@ -440,11 +446,21 @@ class CodeGen(ast.NodeVisitor):
 
     def reference_Subscript(self, t):
         visitor = self
+        # foo[bar()] += baz()
+        # foo -> reg
+        rvalue = self.register()
+        rslice = self.register()
         class SubscrRef:
-            def load(self, reg):
-                return visitor.load(t.id, reg)
+            def load(self, dst):
+                return (  rvalue(t.value)
+                        + rslice(t.slice)
+                        + op.LOAD_FAST(rslice)
+                        + op.BINARY_SUBSCR(rvalue)
+                        + op.STORE_FAST(dst.allocate()))
             def store(self):
-                return visitor.store(t.id)
+                return (  op.STORE_SUBSCR(rvalue, rslice)
+                        + rslice.clear()
+                        + rvalue.clear())
         return SubscrRef()
 
     def visit_Assign(self, t):
@@ -471,21 +487,32 @@ class CodeGen(ast.NodeVisitor):
                           for k, v in zip(t.keys, t.values)]))
 
     def visit_Subscript(self, t):
+        assert type(t.ctx) == ast.Load
         reg = self.register()
         return (  reg(t.value)
                 + self(t.slice)
-                + self.subscr_ops[type(t.ctx)](reg)
+                + op.BINARY_SUBSCR(reg)
                 + reg.clear())
-    subscr_ops = {ast.Load: op.BINARY_SUBSCR, ast.Store: op.STORE_SUBSCR}
 
     def visit_Index(self, t):
         return self(t.value)
 
+    def as_constant(self, arg):
+        if arg is None:
+            return ast.Constant(None)
+        return arg
+
     def visit_Slice(self, t):
+        lower, upper, step = (
+            ast.Constant(None) if x is None else x
+            for x in (t.lower, t.upper, t.step)
+        )
+        if all(isinstance(x, ast.Constant) for x in (lower, upper, step)):
+            return self.load_const(slice(lower.value, upper.value, step.value))
         regs = self.register_list()
-        return (regs[0](t.lower or ast.Constant(None)) +
-                regs[1](t.upper or ast.Constant(None)) +
-                regs[2](t.step or ast.Constant(None)) +
+        return (regs[0](lower) +
+                regs[1](upper) +
+                regs[2](step) +
                 op.BUILD_SLICE(regs[0]))
 
     def visit_Attribute(self, t):
@@ -540,7 +567,7 @@ class CodeGen(ast.NodeVisitor):
         op_jump = self.ops_bool[type(t.op)]
         def compose(left, right):
             after = Label()
-            return left + op_jump(after) + right + after
+            return left + op_jump(after) + op.CLEAR_ACC + right + after
         return reduce(compose, map(self, t.values))
     ops_bool = {ast.And: op.JUMP_IF_FALSE,
                 ast.Or:  op.JUMP_IF_TRUE}
@@ -573,21 +600,38 @@ class CodeGen(ast.NodeVisitor):
                 + op.IMPORT_NAME(self.names[name]))
 
     def visit_While(self, t):
-        loop, end = Label(), Label()
-        return (  loop + self(t.test) + op.POP_JUMP_IF_FALSE(end)
-                       + self(t.body) + op.JUMP(loop)
-                + end)
+        with self.loop() as loop:
+            return (  op.JUMP(loop.next)
+                    + loop.top
+                    + self(t.body)
+                    + loop.next + self(t.test) + op.POP_JUMP_IF_TRUE(loop.top)
+                    + loop.anchor + (self(t.orelse) if t.orelse else no_op)
+                    + loop.exit)
 
     def visit_For(self, t):
+        # top, next, anchor, exit
         reg = self.register()
-        start, loop = Label(), Label()
-        return (self(t.iter) + op.GET_ITER(reg.allocate())
-                + op.JUMP(start) + loop + self.assign(t.target, Accumulator()) + self(t.body)
-                + start + op.FOR_ITER(reg, loop))
+        with self.loop() as loop:
+            return (  self(t.iter) + op.GET_ITER(reg.allocate())
+                    + op.JUMP(loop.next)
+                    + loop.top + self.assign(t.target, Accumulator())
+                    + self(t.body)
+                    + loop.next + op.FOR_ITER(reg, loop.top)
+                    + loop.anchor + (self(t.orelse) if t.orelse else no_op)
+                    + loop.exit)
 
     def visit_Return(self, t):
         return ((self(t.value) if t.value else self.load_const(None))
                 + op.RETURN_VALUE)
+
+    @contextlib.contextmanager
+    def loop(self):
+        self.loops.append(Loop())
+        yield self.loops[-1]
+        self.loops.pop()
+
+    def visit_Break(self, t):
+        return op.JUMP(self.loops[-1].exit)
 
     def visit_Function(self, t):
         code = self.sprout(t).compile_function(t)
@@ -633,13 +677,24 @@ class CodeGen(ast.NodeVisitor):
                     + self.load_const(None) + op.RETURN_VALUE)
         return self.make_code(assembly, t.name, 0, False, False)
 
+def unpack(key, tp):
+    if tp == slice:
+        return slice(*key)
+    return key
+
+def pack(key):
+    tp = type(key)
+    if isinstance(key, slice):
+        key = (key.start, key.stop, key.step)
+    return (key, tp)
+
 class constants(collections.defaultdict):
     def __init__(self):
         super().__init__(lambda: len(self))
     def __getitem__(self, key):
-        return super().__getitem__((key, type(key)))
+        return super().__getitem__(pack(key))
     def collect(self):
-        return tuple(key for key,_ in self.keys())
+        return tuple(unpack(key, tp) for key,tp in self.keys())
 
 def make_table():
     table = collections.defaultdict(lambda: len(table))
@@ -705,6 +760,10 @@ class Desugarer(ast.NodeTransformer):
     @rewriter
     def visit_Lambda(self, t):
         return Function('<lambda>', t.args, [ast.Return(t.body)])
+
+    @rewriter
+    def visit_Index(self, t):
+        return t.value
 
     @rewriter
     def visit_FunctionDef(self, t):

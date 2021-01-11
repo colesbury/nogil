@@ -326,18 +326,24 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
             argrepr = '.t' + str(reg - len(varnames))
         return argrepr
 
-    def get_const(reg):
-        return _get_const_info(reg, constants)[1]
+    def get_const(idx):
+        return _get_const_info(idx, constants)[1]
 
+    def get_str(idx):
+        return _get_const_info(idx, constants)[0]
 
     def get_repr(bytecode, argA, argD):
         argreprs = []
         if bytecode.name == 'CALL_FUNCTION':
             return f'{format_reg(argA)} to {format_reg(argA+argD)}'
         elif bytecode.name == 'LOAD_ATTR':
-             return f"{format_reg(argA)}[{get_const(argD)}]"
+             return f"{format_reg(argA)}.{get_str(argD)}"
         elif bytecode.name == 'STORE_ATTR':
-             return f"acc.{get_const(argD)}={format_reg(argA)}"
+             return f"acc.{get_str(argD)}={format_reg(argA)}"
+        elif bytecode.name == 'BINARY_SUBSCR':
+             return f"{format_reg(argA)}[acc]"
+        elif bytecode.name == 'STORE_SUBSCR':
+             return f"{format_reg(argA)}[{format_reg(argD)}]=acc"
         elif bytecode.name == 'MOVE':
              return f"{format_reg(argA)} <- {format_reg(argD)}"
         elif bytecode.name == 'COPY':

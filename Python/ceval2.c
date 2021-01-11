@@ -22,9 +22,6 @@
 
 #include <ctype.h>
 
-#define UNLIKELY _PY_UNLIKELY
-#define LIKELY _PY_LIKELY
-
 // tt  = type
 //   r = refcounted
 //     .. [ttr]
@@ -37,7 +34,7 @@
 
 #define TARGET(name) \
     TARGET_##name: \
-   __asm__ volatile(".TARGET_" #name ":");
+   __asm__ volatile("# TARGET_" #name ":");
 
 
 #if defined(__clang__)
@@ -71,8 +68,6 @@
     } \
 } while (0)
 
-#define USE_RC(obj) ((obj->ob_ref_local & 0x3) == 0)
-
 #define INCREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_INCREF_TOTAL \
@@ -102,50 +97,11 @@
     } \
 } while(0)
 
-
-// static inline void
-// _Py_INCREF(PyObject *op)
-// {
-//     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
-//     if (_Py_REF_IS_IMMORTAL(local)) {
-//         return;
-//     }
-
-//     _Py_INCREF_TOTAL
-//     if (_PY_LIKELY(_Py_ThreadLocal(op))) {
-//         local += (1 << _Py_REF_LOCAL_SHIFT);
-//         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
-//     }
-//     else {
-//         vm_incref_shared(obj);
-//     }
-// }
-
 static PyObject *primitives[3] = {
     Py_None,
     Py_False,
     Py_True
 };
-
-static inline Register
-PACK_INCREF(PyObject *obj)
-{
-    Register r;
-    r.obj = obj;
-    if ((obj->ob_ref_local & 0x3) == 0) {
-        _Py_INCREF_TOTAL
-        r.as_int64 |= REFCOUNT_TAG;
-        if (LIKELY(_Py_ThreadLocal(obj))) {
-            uint32_t refcount = obj->ob_ref_local;
-            refcount += 4;
-            obj->ob_ref_local = refcount;
-        }
-        else {
-            _Py_atomic_add_uint32(&obj->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
-        }
-    }
-    return r;
-}
 
 #define USE_REGISTER(value, reg) do { \
         register __typeof__(value) reg asm(#reg) = value; \
@@ -269,42 +225,22 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(POP_JUMP_IF_FALSE) {
-        if (acc.obj == Py_False) {
-            next_instr += opD - 0x8000;
-        }
-        else if (LIKELY(acc.obj == Py_True)) {
-            next_instr += 0;
-        }
-        else {
-            int err;
-            CALL_VM(err = PyObject_IsTrue(AS_OBJ(acc)));
-            if (err == 0) {
-                next_instr += opD - 0x8000;
-            }
-            DECREF(acc);
-            acc.as_int64 = 0;
-        }
+        CALL_VM(next_instr = vm_is_false(acc, next_instr, opD));
+        DECREF(acc);
+        acc.as_int64 = 0;
         DISPATCH(POP_JUMP_IF_FALSE);
     }
 
+    TARGET(POP_JUMP_IF_TRUE) {
+        CALL_VM(next_instr = vm_is_true(acc, next_instr, opD));
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(POP_JUMP_IF_TRUE);
+    }
+
     TARGET(JUMP_IF_FALSE) {
-        if (_PY_LIKELY(IS_PRI(acc))) {
-            if ((AS_PRI(acc) & PRI_TRUE) == 0) {
-                next_instr += opD - 0x8000;
-                DISPATCH(JUMP_IF_FALSE);
-            }
-            else {
-                DISPATCH(JUMP_IF_FALSE);
-            }
-        }
-        else {
-            CALL_VM(acc = vm_to_bool(acc));
-            if ((AS_PRI(acc) & PRI_TRUE) == 0) {
-                opD = next_instr[-1] >> 16;
-                next_instr += opD - 0x8000;
-            }
-            DISPATCH(JUMP_IF_FALSE);
-        }
+        CALL_VM(next_instr = vm_is_false(acc, next_instr, opD));
+        DISPATCH(JUMP_IF_FALSE);
     }
 
     TARGET(FUNC_HEADER) {
@@ -319,6 +255,7 @@ _PyEval_Fast(struct ThreadState *ts)
             // todo: check for errors!
         }
         Py_ssize_t nargs = AS_INT32(acc);
+        acc.as_int64 = 0;
         if (UNLIKELY(nargs != this_code->co_argcount)) {
             // error!
             // well... we might have set-up a try-catch, so we can't just return
@@ -361,6 +298,7 @@ _PyEval_Fast(struct ThreadState *ts)
         // opsA - 1 = func
         // opsA + 0 = arg0
         // opsA + opsD = argsN
+        assert(!IS_RC(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         if (UNLIKELY(!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE))) {
             CALL_VM(acc = vm_call_function(ts, opA, opD));
@@ -402,11 +340,23 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *name = CONSTANTS()[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
+        assert(!IS_RC(acc));
         CALL_VM(acc = vm_load_name((PyObject *)globals, name));
         DISPATCH(LOAD_NAME);
     }
 
+    TARGET(LOAD_ATTR) {
+        assert(!IS_RC(acc));
+        PyObject *name = CONSTANTS()[opD];
+        PyObject *owner = AS_OBJ(regs[opA]);
+        PyObject *res;
+        CALL_VM(res = _PyObject_GetAttrFast(owner, name));
+        acc = PACK_OBJ(res);
+        DISPATCH(LOAD_ATTR);
+    }
+
     TARGET(LOAD_GLOBAL) {
+        assert(!IS_RC(acc));
         PyObject *name = CONSTANTS()[opA];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         PyDictKeysObject *keys = globals->ma_keys;
@@ -428,17 +378,32 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(STORE_NAME) {
         PyObject *name = CONSTANTS()[opA];
         PyObject *globals = THIS_FUNC()->globals;
-        CALL_VM(acc = vm_store_global(globals, name, acc));
+        CALL_VM(vm_store_global(globals, name, acc));
+        acc.as_int64 = 0;
         DISPATCH(STORE_NAME);
     }
+
     TARGET(STORE_GLOBAL) {
         PyObject *name = CONSTANTS()[opA];
         PyObject *globals = THIS_FUNC()->globals;
-        CALL_VM(acc = vm_store_global(globals, name, acc));
+        CALL_VM(vm_store_global(globals, name, acc));
+        acc.as_int64 = 0;
         DISPATCH(STORE_GLOBAL);
     }
 
+    TARGET(STORE_SUBSCR) {
+        PyObject *container = AS_OBJ(regs[opA]);
+        PyObject *sub = AS_OBJ(regs[opD]);
+        PyObject *value = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyObject_SetItem(container, sub, value));
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(STORE_SUBSCR);
+    }
+
     TARGET(LOAD_FAST) {
+        assert(!IS_RC(acc));
         acc = regs[opA];
         INCREF(acc);
         DISPATCH(LOAD_FAST);
@@ -461,6 +426,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(COPY) {
+        assert(!IS_RC(regs[opA]));
         // FIXME: is this only used for aliases???
         regs[opA].as_int64 = regs[opD].as_int64 & ~REFCOUNT_TAG;
         DISPATCH(COPY);
@@ -481,6 +447,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_DEREF) {
+        assert(!IS_RC(acc));
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = PyCell_GET(cell);
         acc = PACK_INCREF(value);
@@ -519,7 +486,7 @@ _PyEval_Fast(struct ThreadState *ts)
         CALL_VM(res = PyNumber_Add(left, right));
         DECREF(acc);
         acc = PACK_OBJ(res);
-        DISPATCH(INPLACE_ADD);
+        DISPATCH(BINARY_ADD);
     }
 
     TARGET(INPLACE_ADD) {
@@ -544,6 +511,18 @@ _PyEval_Fast(struct ThreadState *ts)
         DECREF(acc);
         acc = PACK_OBJ(res);
         DISPATCH(BINARY_SUBTRACT);
+    }
+
+    TARGET(INPLACE_SUBTRACT) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_InPlaceSubtract(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(INPLACE_SUBTRACT);
     }
 
     TARGET(BINARY_MULTIPLY) {
@@ -666,18 +645,8 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(UNPACK_SEQUENCE) {
         // opA = reg, opD = N
-        if (IS_OBJ(acc) && PyTuple_CheckExact(AS_OBJ(acc))) {
-            PyObject *tuple = AS_OBJ(acc);
-            for (Py_ssize_t i = 0; i < opD; i++) {
-                PyObject *item = PyTuple_GET_ITEM(tuple, i);
-                assert(regs[opA+i].as_int64 == 0);
-                regs[opA+i] = PACK_INCREF(item);
-            }
-            DECREF(acc);
-        }
-        else {
-            abort();
-        }
+        CALL_VM(vm_unpack_sequence(acc, &regs[opA], opD));
+        acc.as_int64 = 0;
         DISPATCH(UNPACK_SEQUENCE);
     }
 
