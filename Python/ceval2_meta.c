@@ -151,10 +151,11 @@ vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
 const uint32_t *
 vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
 {
-    if (acc.obj == Py_True) {
+    PyObject *obj = (PyObject *)(acc.as_int64 & ~NO_REFCOUNT_TAG);
+    if (obj == Py_True) {
         return next_instr + opD - 0x8000;
     }
-    else if (_PY_LIKELY(acc.obj == Py_False || acc.obj == Py_None)) {
+    else if (_PY_LIKELY(obj == Py_False || obj == Py_None)) {
         return next_instr;
     }
     return vm_is_bool_slow(acc, next_instr, opD, 1);
@@ -163,10 +164,11 @@ vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
 const uint32_t *
 vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD)
 {
-    if (acc.obj == Py_True) {
+    PyObject *obj = (PyObject *)(acc.as_int64 & ~NO_REFCOUNT_TAG);
+    if (obj == Py_True) {
         return next_instr;
     }
-    else if (_PY_LIKELY(acc.obj == Py_False || acc.obj == Py_None)) {
+    else if (_PY_LIKELY(obj == Py_False || obj == Py_None)) {
         return next_instr + opD - 0x8000;
     }
     return vm_is_bool_slow(acc, next_instr, opD, 0);
@@ -200,30 +202,28 @@ Register vm_load_name(PyObject *dict, PyObject *name)
     return PACK_OBJ(value);
 }
 
-Register vm_store_global(PyObject *dict, PyObject *name, Register acc)
+int vm_store_global(PyObject *dict, PyObject *name, Register acc)
 {
     PyObject *value = vm_object(acc);
     int err = PyDict_SetItem(dict, name, value);
     Register ret;
     if (err < 0) {
-        ret.as_int64 = 0;
         abort();
-        return ret;
     }
     DECREF(acc);
-    ret.obj = Py_None;
-    return ret;
+    return 0;
 }
 
 Register
 vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
 {
+    PyObject **oargs = (PyObject **)args;
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
-        args[i].obj = vm_object_autorelease(ts, args[i]);
+        oargs[i] = vm_object_autorelease(ts, args[i]);
     }
-    PyCFunctionObject *func = (PyCFunctionObject *)(args[-1].obj);
-    PyObject *res = func->vectorcall((PyObject *)func, (PyObject *const*)args, nargs, empty_tuple);
+    PyCFunctionObject *func = (PyCFunctionObject *)(oargs[-1]);
+    PyObject *res = func->vectorcall((PyObject *)func, (PyObject *const*)oargs, nargs, empty_tuple);
     for (int i = -1; i != nargs; i++) {
         args[i].as_int64 = 0;
     }
@@ -236,15 +236,13 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
 {
     PyObject *callable = AS_OBJ(ts->regs[base-1]);
     Register *args = &ts->regs[base];
-    
+    PyObject **oargs = (PyObject **)args;
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
-        args[i].obj = vm_object_autorelease(ts, args[i]);
+        oargs[i] = vm_object_autorelease(ts, args[i]);
     }
-
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
-    PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)args, nargsf, NULL);
-
+    PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)oargs, nargsf, NULL);
     for (int i = -FRAME_EXTRA; i != nargs; i++) {
         args[i].as_int64 = 0;
     }
@@ -307,8 +305,7 @@ vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
         Py_ssize_t r = code->co_free2reg[i*2+1];
         PyObject *cell = this_func->freevars[i];
         assert(PyCell_Check(cell));
-
-        regs[r].obj = cell;
+        regs[r] = PACK(cell, NO_REFCOUNT_TAG);
     }
     return NULL_REGISTER;
 }
@@ -356,7 +353,7 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n)
             abort();
         }
         PyTuple_SET_ITEM(obj, n, item);
-        regs[n].obj = NULL;
+        regs[n].as_int64 = 0;
     }
     Register r;
     r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
@@ -542,7 +539,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     ts->regs += FRAME_EXTRA;
     ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromInstr(func->func_base.first_instr)->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
-    ts->regs[-1].obj = (PyObject *)func; // this_func
+    ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     ts->nargs = 0;
     PyObject *ret = _PyEval_Fast(ts);
 

@@ -7,13 +7,16 @@ extern "C" {
 
 typedef union _Register {
     int64_t as_int64;
-    PyObject *obj;
 } Register;
 
 PyObject *empty_tuple;
 
 #define INT32_TAG 0x2
+
 #define REFCOUNT_TAG 0x1
+#define NO_REFCOUNT_TAG 0x0
+#define REFCOUNT_MASK 0x1
+
 #define PRI_TAG 0x4
 #define PRI_TRUE 0x2
 
@@ -80,8 +83,10 @@ AS_INT32(Register r)
 static inline PyObject *
 AS_OBJ(Register r)
 {
-    return (PyObject *)(r.as_int64 & ~REFCOUNT_TAG);
+    return (PyObject *)(r.as_int64 & ~REFCOUNT_MASK);
 }
+
+#define PACK(o, tag) ((Register)((intptr_t)o | tag))
 
 static inline Register
 PACK_OBJ(PyObject *o)
@@ -95,7 +100,7 @@ static inline Register
 PACK_INCREF(PyObject *obj)
 {
     Register r;
-    r.obj = obj;
+    r.as_int64 = (intptr_t)obj;
     if ((obj->ob_ref_local & 0x3) == 0) {
         _Py_INCREF_TOTAL
         r.as_int64 |= REFCOUNT_TAG;
@@ -185,7 +190,7 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
 // decrefs acc!
 Register vm_load_name(PyObject *dict, PyObject *name);
-Register vm_store_global(PyObject *dict, PyObject *name, Register value);
+int vm_store_global(PyObject *dict, PyObject *name, Register value);
 
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);

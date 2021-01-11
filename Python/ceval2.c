@@ -202,7 +202,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_CONST) {
-        acc.obj = CONSTANTS()[opA];
+        acc = PACK(CONSTANTS()[opA], NO_REFCOUNT_TAG);
         DISPATCH(LOAD_CONST);
     }
 
