@@ -184,14 +184,6 @@ void
 vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
 // decrefs acc!
-Register vm_add(Register x, Register acc);
-Register vm_add_slow(Register x, Register acc);
-Register vm_inplace_add(Register x, Register acc);
-Register vm_sub(Register x, Register acc);
-Register vm_mul(Register a, Register acc);
-Register vm_true_div(Register a, Register acc);
-Register vm_floor_div(Register a, Register acc);
-
 Register vm_load_name(PyObject *dict, PyObject *name);
 Register vm_store_global(PyObject *dict, PyObject *name, Register value);
 

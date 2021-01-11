@@ -68,25 +68,6 @@ vm_object_steal(Register r) {
 }
 
 static PyObject *
-vm_object_borrow(struct ThreadState *ts, Register r) {
-    if (IS_OBJ(r)) {
-        return AS_OBJ(r);
-    }
-    else if (IS_INT32(r)) {
-        PyObject *obj = PyLong_FromLong(AS_INT32(r));
-        *ts->maxrefs = obj;
-        ts->maxrefs++;
-        return obj;
-    }
-    else if (IS_PRI(r)) {
-        return primitives[AS_PRI(r)];
-    }
-    else {
-        __builtin_unreachable();
-    }
-}
-
-static PyObject *
 vm_object_autorelease(struct ThreadState *ts, Register r) {
     if (IS_OBJ(r)) {
         PyObject *obj = AS_OBJ(r);
@@ -207,73 +188,6 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
     else {
         abort();
     }
-}
-
-Register vm_to_bool(Register x)
-{
-    printf("vm_to_bool\n");
-    abort();
-}
-
-Register vm_add_slow(Register a, Register acc)
-{
-    printf("vm_add_slow\n");
-    abort();
-}
-
-// Register vm_add(Register a, Register acc)
-// {
-//     PyObject *left = AS_OBJ(a);
-//     PyObject *right = AS_OBJ(acc);
-//     PyObject *res = PyNumber_Add(left, right);
-//     DECREF(acc);
-//     return PACK_OBJ(res);
-// }
-
-Register vm_inplace_add(Register a, Register acc)
-{
-    PyObject *o1 = vm_object(a);
-    PyObject *o2 = vm_object(acc);
-    PyObject *res = PyNumber_InPlaceAdd(o1, o2);
-    if (res == NULL) {
-        PyErr_Print();
-        assert(res != NULL);
-    }
-    DECREF(acc);
-    return PACK_OBJ(res);
-}
-
-Register vm_sub(Register a, Register b)
-{
-    printf("vm_sub\n");
-    abort();
-}
-
-Register vm_mul(Register a, Register acc)
-{
-    PyObject *o1 = vm_object(a);
-    PyObject *o2 = vm_object(acc);
-    PyObject *res = PyNumber_Multiply(o1, o2);
-    DECREF(acc);
-    return PACK_OBJ(res);
-}
-
-Register vm_true_div(Register a, Register acc)
-{
-    PyObject *o1 = vm_object(a);
-    PyObject *o2 = vm_object(acc);
-    PyObject *res = PyNumber_TrueDivide(o1, o2);
-    DECREF(acc);
-    return PACK_OBJ(res);
-}
-
-Register vm_floor_div(Register a, Register acc)
-{
-    PyObject *o1 = vm_object(a);
-    PyObject *o2 = vm_object(acc);
-    PyObject *res = PyNumber_FloorDivide(o1, o2);
-    DECREF(acc);
-    return PACK_OBJ(res);
 }
 
 
@@ -584,7 +498,9 @@ make_globals() {
             ((PyFuncBase *)value)->first_instr = &func_vector_call;
         }
         int err = PyDict_SetItem(globals, key, value);
-        assert(err == 0);
+        if (err < 0) {
+            abort();
+        }
     }
 
     Py_DECREF(builtins);
