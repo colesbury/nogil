@@ -22,16 +22,6 @@
 
 #include <ctype.h>
 
-// tt  = type
-//   r = refcounted
-//     .. [ttr]
-// 000 ..  000 NULL
-// aaa ..  000 non-RC OBJ
-// aaa ..  001 RC obj
-//     ..  010 int
-//     ..  100 pri (True, False, None)
-
-
 #define TARGET(name) \
     TARGET_##name: \
    __asm__ volatile("# TARGET_" #name ":");
@@ -184,39 +174,19 @@ _PyEval_Fast(struct ThreadState *ts)
     // next_instr (pc) -- webkit splits this in two: PB/PC PB is saved, PC is returned on calls
     // constants -- webkit sticks this in frame?
     // opcode_targets
-    // ts (?)
-    // OBJ_MASK
-    // INT32_TAG
+    // ts
 
     void **opcode_targets = ts->opcode_targets;
     uint16_t *metadata = ts->metadata;
 
     // NOTE: after memcpy call!
     Register *regs = ts->regs;
-    acc = PACK_INT32(ts->nargs);
+    acc.as_int64 = ts->nargs;
     DISPATCH(INITIAL);
-
-    TARGET(LOAD_INT) {
-        acc = PACK_INT32(opD);
-        DISPATCH(LOAD_INT);
-    }
 
     TARGET(LOAD_CONST) {
         acc = PACK(CONSTANTS()[opA], NO_REFCOUNT_TAG);
         DISPATCH(LOAD_CONST);
-    }
-
-    TARGET(TEST_LESS_THAN) {
-        // is register less than accumulator
-        Register r = regs[opA];
-        if (IS_INT32(acc) && IS_INT32(r)) {
-            // FIXME: to boolean?
-            acc = PACK_BOOL(r.as_int64 < acc.as_int64);
-        }
-        else {
-            CALL_VM(acc = vm_compare(r, acc));
-        }
-        DISPATCH(TEST_LESS_THAN);
     }
 
     TARGET(JUMP) {
@@ -254,7 +224,7 @@ _PyEval_Fast(struct ThreadState *ts)
             CALL_VM(vm_resize_stack(ts, opA));
             // todo: check for errors!
         }
-        Py_ssize_t nargs = AS_INT32(acc);
+        Py_ssize_t nargs = acc.as_int64;
         acc.as_int64 = 0;
         if (UNLIKELY(nargs != this_code->co_argcount)) {
             // error!
@@ -273,7 +243,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(CFUNC_HEADER) {
-        Py_ssize_t nargs = AS_INT32(acc);
+        Py_ssize_t nargs = acc.as_int64;
         CALL_VM(acc = vm_call_cfunction(ts, regs, nargs));
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
@@ -309,7 +279,7 @@ _PyEval_Fast(struct ThreadState *ts)
         regs = &regs[opA];
         ts->regs = regs;
         regs[-2].as_int64 = (intptr_t)next_instr;
-        acc = PACK_INT32(opD);
+        acc.as_int64 = opD;
         next_instr = func->first_instr;
         DISPATCH(CALL_FUNCTION);
     }
@@ -653,12 +623,6 @@ _PyEval_Fast(struct ThreadState *ts)
     return_to_c: {
         if (IS_OBJ(acc)) {
             return AS_OBJ(acc);
-        }
-        else if (IS_INT32(acc)) {
-            return PyLong_FromLong(AS_INT32(acc));
-        }
-        else if (IS_PRI(acc)) {
-            return primitives[AS_PRI(acc)];
         }
         else {
             __builtin_unreachable();

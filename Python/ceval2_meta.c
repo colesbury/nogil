@@ -35,12 +35,6 @@ vm_object(Register r) {
     if (IS_OBJ(r)) {
         return AS_OBJ(r);
     }
-    else if (IS_INT32(r)) {
-        return PyLong_FromLong(AS_INT32(r));
-    }
-    else if (IS_PRI(r)) {
-        return primitives[AS_PRI(r)];
-    }
     else {
         __builtin_unreachable();
     }
@@ -56,12 +50,6 @@ vm_object_steal(Register r) {
         Py_INCREF(obj);
         return obj;
     }
-    else if (IS_INT32(r)) {
-        return PyLong_FromLong(AS_INT32(r));
-    }
-    else if (IS_PRI(r)) {
-        return primitives[AS_PRI(r)];
-    }
     else {
         __builtin_unreachable();
     }
@@ -76,15 +64,6 @@ vm_object_autorelease(struct ThreadState *ts, Register r) {
             ts->maxrefs++;
         }
         return obj;
-    }
-    else if (IS_INT32(r)) {
-        PyObject *obj = PyLong_FromLong(AS_INT32(r));
-        *ts->maxrefs = obj;
-        ts->maxrefs++;
-        return obj;
-    }
-    else if (IS_PRI(r)) {
-        return primitives[AS_PRI(r)];
     }
     else {
         __builtin_unreachable();

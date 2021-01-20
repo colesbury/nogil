@@ -11,8 +11,6 @@ typedef union _Register {
 
 PyObject *empty_tuple;
 
-#define INT32_TAG 0x2
-
 #define REFCOUNT_TAG 0x1
 #define NO_REFCOUNT_TAG 0x0
 #define REFCOUNT_MASK 0x1
@@ -27,14 +25,6 @@ PyObject *empty_tuple;
 
 #define UNLIKELY _PY_UNLIKELY
 #define LIKELY _PY_LIKELY
-
-static inline Register
-PACK_INT32(int32_t value)
-{
-    Register r;
-    r.as_int64 = INT32_TAG | ((int64_t)value << 32);
-    return r;
-}
 
 static inline Register
 PACK_BOOL(bool value)
@@ -59,25 +49,13 @@ AS_PRI(Register r)
 static inline bool
 IS_OBJ(Register r)
 {
-    return (r.as_int64 & INT32_TAG) == 0;
+    return (r.as_int64 & 0x2) == 0;
 }
 
 static inline bool
 IS_RC(Register r)
 {
     return (r.as_int64 & REFCOUNT_TAG) != 0;
-}
-
-static inline bool
-IS_INT32(Register r)
-{
-    return (r.as_int64 & INT32_TAG) != 0;
-}
-
-static inline int32_t
-AS_INT32(Register r)
-{
-    return (r.as_int64 >> 32);
 }
 
 static inline PyObject *
