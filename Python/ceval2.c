@@ -43,7 +43,7 @@
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
-        PyObject *obj = AS_OBJ(reg); \
+        PyObject *obj = (PyObject *)reg.as_int64; \
         if (LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount -= 4; \
@@ -61,7 +61,7 @@
 #define INCREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_INCREF_TOTAL \
-        PyObject *obj = AS_OBJ(reg); \
+        PyObject *obj = (PyObject *)reg.as_int64; \
         if (LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount += 4; \
@@ -383,7 +383,9 @@ _PyEval_Fast(struct ThreadState *ts)
         Register old = regs[opA];
         regs[opA] = acc;
         acc.as_int64 = 0;
-        DECREF(old);
+        if (old.as_int64) {
+            DECREF(old);
+        }
         DISPATCH(STORE_FAST);
     }
 
@@ -391,28 +393,31 @@ _PyEval_Fast(struct ThreadState *ts)
         Register r = regs[opA];
         regs[opA] = regs[opD];
         regs[opD].as_int64 = 0;
-        DECREF(r);
+        if (r.as_int64)
+            DECREF(r);
         DISPATCH(MOVE);
     }
 
     TARGET(COPY) {
         assert(!IS_RC(regs[opA]));
         // FIXME: is this only used for aliases???
-        regs[opA].as_int64 = regs[opD].as_int64 & ~REFCOUNT_TAG;
+        regs[opA].as_int64 = regs[opD].as_int64 | NO_REFCOUNT_TAG;
         DISPATCH(COPY);
     }
 
     TARGET(CLEAR_FAST) {
         Register r = regs[opA];
         regs[opA].as_int64 = 0;
-        DECREF(r);
+        if (r.as_int64)
+            DECREF(r);
         DISPATCH(CLEAR_FAST);
     }
 
     TARGET(CLEAR_ACC) {
         Register r = acc;
         acc.as_int64 = 0;
-        DECREF(r);
+        if (r.as_int64)
+            DECREF(r);
         DISPATCH(CLEAR_ACC);
     }
 
@@ -621,12 +626,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     return_to_c: {
-        if (IS_OBJ(acc)) {
-            return AS_OBJ(acc);
-        }
-        else {
-            __builtin_unreachable();
-        }
+        return AS_OBJ(acc);
     }
 
     error: {
@@ -635,7 +635,7 @@ _PyEval_Fast(struct ThreadState *ts)
 
     #include "unimplemented_opcodes.h"
     {
-        CALL_VM(acc = vm_unknown_opcode(opcode));
+        // CALL_VM(acc = vm_unknown_opcode(opcode));
         // opcode = 0;
         __builtin_unreachable();
     }
@@ -650,10 +650,8 @@ _PyEval_Fast(struct ThreadState *ts)
         //     "# regs = %5 \n\t"
         //     "# acc = %3 \n\t"
         //     "# next_instr = %4 \n\t"
-        //     "# constants = %6 \n\t"
-        //     "# ts = %7 \n\t"
-        //     "# opcode_targets = %8 \n\t"
-        //     "# metadata = %9 \n\t"
+        //     "# ts = %6 \n\t"
+        //     "# opcode_targets = %7 \n\t"
         // ::
         //     "r" (opcode),
         //     "r" (opA),
@@ -661,10 +659,8 @@ _PyEval_Fast(struct ThreadState *ts)
         //     "r" (acc),
         //     "r" (next_instr),
         //     "r" (regs),
-        //     "r" (constants),
         //     "r" (ts),
-        //     "r" (opcode_targets),
-        //     "r" (foo));
+        //     "r" (opcode_targets));
         DISPATCH(debug_regs);
     }
 

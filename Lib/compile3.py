@@ -556,6 +556,7 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Compare(self, t):
         [operator], [right] = t.ops, t.comparators
+        print(operator, type(operator))
         cmp_index = dis.cmp_op.index(self.ops_cmp[type(operator)])
         reg = self.register()
         return reg(t.left) + self(right) + op.COMPARE_OP(cmp_index, reg) + reg.clear()

@@ -11,8 +11,8 @@ typedef union _Register {
 
 PyObject *empty_tuple;
 
-#define REFCOUNT_TAG 0x1
-#define NO_REFCOUNT_TAG 0x0
+#define REFCOUNT_TAG 0x0
+#define NO_REFCOUNT_TAG 0x1
 #define REFCOUNT_MASK 0x1
 
 #define PRI_TAG 0x4
@@ -55,7 +55,7 @@ IS_OBJ(Register r)
 static inline bool
 IS_RC(Register r)
 {
-    return (r.as_int64 & REFCOUNT_TAG) != 0;
+    return (r.as_int64 & REFCOUNT_MASK) == REFCOUNT_TAG;
 }
 
 static inline PyObject *
@@ -70,7 +70,7 @@ static inline Register
 PACK_OBJ(PyObject *o)
 {
     Register r;
-    r.as_int64 = (intptr_t)o | !_PyObject_IS_IMMORTAL(o);
+    r.as_int64 = (intptr_t)o | _PyObject_IS_IMMORTAL(o);
     return r;
 }
 
@@ -81,7 +81,6 @@ PACK_INCREF(PyObject *obj)
     r.as_int64 = (intptr_t)obj;
     if ((obj->ob_ref_local & 0x3) == 0) {
         _Py_INCREF_TOTAL
-        r.as_int64 |= REFCOUNT_TAG;
         if (LIKELY(_Py_ThreadLocal(obj))) {
             uint32_t refcount = obj->ob_ref_local;
             refcount += 4;
@@ -90,6 +89,9 @@ PACK_INCREF(PyObject *obj)
         else {
             _Py_atomic_add_uint32(&obj->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
         }
+    }
+    else {
+        r.as_int64 |= NO_REFCOUNT_TAG;
     }
     return r;
 }

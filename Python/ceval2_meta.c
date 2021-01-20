@@ -130,7 +130,7 @@ vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
 const uint32_t *
 vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
 {
-    PyObject *obj = (PyObject *)(acc.as_int64 & ~NO_REFCOUNT_TAG);
+    PyObject *obj = AS_OBJ(acc);
     if (obj == Py_True) {
         return next_instr + opD - 0x8000;
     }
@@ -143,7 +143,7 @@ vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
 const uint32_t *
 vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD)
 {
-    PyObject *obj = (PyObject *)(acc.as_int64 & ~NO_REFCOUNT_TAG);
+    PyObject *obj = AS_OBJ(acc);
     if (obj == Py_True) {
         return next_instr;
     }
@@ -269,7 +269,7 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
         }
 
         DECREF(regs[idx]);
-        regs[idx].as_int64 = (intptr_t)cell | REFCOUNT_TAG;
+        regs[idx] = PACK(cell, REFCOUNT_TAG);
     }
     return NULL_REGISTER;
 }
@@ -298,9 +298,7 @@ Register vm_build_slice(Register *regs)
     regs[1].as_int64 = 0;
     DECREF(regs[0]);
     regs[0].as_int64 = 0;
-    Register ret;
-    ret.as_int64 = (intptr_t)slice | REFCOUNT_TAG;
-    return ret;
+    return PACK(slice, REFCOUNT_TAG);
 }
 
 Register vm_build_list(Register *regs, Py_ssize_t n)
@@ -313,9 +311,7 @@ Register vm_build_list(Register *regs, Py_ssize_t n)
         n--;
         PyList_SET_ITEM(obj, n, vm_object_steal(regs[n]));
     }
-    Register r;
-    r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
-    return r;
+    return PACK(obj, REFCOUNT_TAG);
 }
 
 
@@ -334,9 +330,7 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n)
         PyTuple_SET_ITEM(obj, n, item);
         regs[n].as_int64 = 0;
     }
-    Register r;
-    r.as_int64 = (intptr_t)obj | REFCOUNT_TAG;
-    return r;
+    return PACK(obj, REFCOUNT_TAG);
 }
 
 Register vm_list_append(Register a, Register b)
