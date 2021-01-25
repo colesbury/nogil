@@ -104,6 +104,8 @@ struct ThreadState {
 
     const uint32_t *pc;
 
+    Py_ssize_t cframe_size;
+
     // true bottom of stack
     Register *stack;
 
@@ -128,20 +130,6 @@ struct ThreadState {
 
     void **opcode_targets;//[256];
 };
-
-// basically PyCodeObject ?
-// typedef struct _PyFunc {
-//     PyObject_HEAD;
-//     // frame size
-//     // number of parameters?
-//     Code *code;
-//     Register *constants;
-//     intptr_t nargs;
-//     Py_ssize_t framesize;
-//     PyObject *globals;
-//     // code
-//     // constants
-// } PyFunc;
 
 
 // ceval2.c
@@ -168,8 +156,7 @@ vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD);
 void
 vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
-// decrefs acc!
-Register vm_load_name(PyObject *dict, PyObject *name);
+Register vm_load_name(Register *regs, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);
 
 Register vm_build_list(Register *regs, Py_ssize_t n);
@@ -184,6 +171,9 @@ Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
 Register vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
 Register vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code);
+
+Register
+vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 

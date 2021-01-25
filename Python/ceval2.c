@@ -35,10 +35,20 @@
 #define COLD_TARGET(name) TARGET_##name:
 #endif
 
+// typedef Register intrinsic_fn(struct ThreadState *ts, Register *regs, Py_ssize_t n);
+
+// static Register
+// build_list(struct ThreadState *ts, Register *regs, Py_ssize_t n);
+
+// static intrinsic_fn *intrinsics[] = {
+//     &build_list
+// };
+
 #define CALL_VM(call) \
     call; \
     regs = ts->regs;
 
+#define IS_EMPTY(acc) (acc.as_int64 == 0 || !IS_RC(acc))
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
@@ -123,6 +133,12 @@ static PyObject *primitives[3] = {
 
 #define CONSTANTS() \
     ((PyObject **)regs[-3].as_int64)
+
+// Frame layout:
+// regs[-3] = constants
+// regs[-2] = <frame_link>
+// regs[-1] = <function>
+// regs[0] = first local | locals dict
 
 // LLINT (JSCORE)
 // Call Frame points to regs
@@ -268,7 +284,7 @@ _PyEval_Fast(struct ThreadState *ts)
         // opsA - 1 = func
         // opsA + 0 = arg0
         // opsA + opsD = argsN
-        assert(!IS_RC(acc));
+        assert(IS_EMPTY(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         if (UNLIKELY(!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE))) {
             CALL_VM(acc = vm_call_function(ts, opA, opD));
@@ -307,16 +323,32 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_NAME) {
+        assert(IS_EMPTY(acc));
         PyObject *name = CONSTANTS()[opA];
-        PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
-        PyDictKeysObject *keys = globals->ma_keys;
-        assert(!IS_RC(acc));
-        CALL_VM(acc = vm_load_name((PyObject *)globals, name));
+        CALL_VM(acc = vm_load_name(regs, name));
         DISPATCH(LOAD_NAME);
     }
 
+    TARGET(LOAD_GLOBAL) {
+        assert(IS_EMPTY(acc));
+        PyObject *name = CONSTANTS()[opA];
+        PyObject *globals = THIS_FUNC()->globals;
+        PyObject *value;
+        // FIXME: need to check errors and that globals/builtins are exactly dicts
+        CALL_VM(value = PyDict_GetItemWithError2(globals, name));
+        if (value == NULL) {
+            PyObject *builtins = THIS_FUNC()->builtins;
+            CALL_VM(value = PyDict_GetItemWithError2(builtins, name));
+            if (value == NULL) {
+                // ????
+            }
+        }
+        acc = PACK_OBJ(value);
+        DISPATCH(LOAD_GLOBAL);
+    }
+
     TARGET(LOAD_ATTR) {
-        assert(!IS_RC(acc));
+        assert(IS_EMPTY(acc));
         PyObject *name = CONSTANTS()[opD];
         PyObject *owner = AS_OBJ(regs[opA]);
         PyObject *res;
@@ -325,30 +357,10 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(LOAD_ATTR);
     }
 
-    TARGET(LOAD_GLOBAL) {
-        assert(!IS_RC(acc));
-        PyObject *name = CONSTANTS()[opA];
-        PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
-        PyDictKeysObject *keys = globals->ma_keys;
-
-        // intptr_t guess = metadata[opA];
-        // guess &= keys->dk_size;
-        // PyDictKeyEntry *entry = &keys->dk_entries[guess];
-        // if (entry->me_key == name) {
-        //     // printf("guess found\n");
-        //     PyObject *value = entry->me_value;
-        //     acc.obj = value;
-        //     DISPATCH();
-        // }
-
-        CALL_VM(acc = vm_load_name((PyObject *)globals, name));
-        DISPATCH(LOAD_GLOBAL);
-    }
-
     TARGET(STORE_NAME) {
         PyObject *name = CONSTANTS()[opA];
-        PyObject *globals = THIS_FUNC()->globals;
-        CALL_VM(vm_store_global(globals, name, acc));
+        PyObject *locals = AS_OBJ(regs[0]);
+        CALL_VM(vm_store_global(locals, name, acc));
         acc.as_int64 = 0;
         DISPATCH(STORE_NAME);
     }
@@ -373,7 +385,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_FAST) {
-        assert(!IS_RC(acc));
+        assert(IS_EMPTY(acc));
         acc = regs[opA];
         INCREF(acc);
         DISPATCH(LOAD_FAST);
@@ -399,7 +411,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(COPY) {
-        assert(!IS_RC(regs[opA]));
+        assert(IS_EMPTY(regs[opA]));
         // FIXME: is this only used for aliases???
         regs[opA].as_int64 = regs[opD].as_int64 | NO_REFCOUNT_TAG;
         DISPATCH(COPY);
@@ -422,7 +434,7 @@ _PyEval_Fast(struct ThreadState *ts)
     }
 
     TARGET(LOAD_DEREF) {
-        assert(!IS_RC(acc));
+        assert(IS_EMPTY(acc));
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = PyCell_GET(cell);
         acc = PACK_INCREF(value);
@@ -623,6 +635,12 @@ _PyEval_Fast(struct ThreadState *ts)
         CALL_VM(vm_unpack_sequence(acc, &regs[opA], opD));
         acc.as_int64 = 0;
         DISPATCH(UNPACK_SEQUENCE);
+    }
+
+    TARGET(LOAD_BUILD_CLASS) {
+        PyObject *builtins = THIS_FUNC()->builtins;
+        CALL_VM(vm_load_build_class(ts, builtins, opA));
+        DISPATCH(LOAD_BUILD_CLASS);
     }
 
     return_to_c: {

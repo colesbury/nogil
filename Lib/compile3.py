@@ -211,8 +211,13 @@ class CodeGen(ast.NodeVisitor):
         self.constants = constants()
         self.names     = self.constants
         self.varnames  = scope.regs
-        self.nlocals = len(self.scope.local_defs)
-        self.next_register = len(self.varnames)
+        if self.scope.scope_type in ('module', 'class'):
+            assert len(self.scope.local_defs) == 0
+            self.nlocals = 1
+            self.next_register = 1
+        else:
+            self.nlocals = len(self.scope.local_defs)
+            self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         self.loops = []
 
@@ -662,10 +667,15 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_ClassDef(self, t):
         code = self.sprout(t).compile_class(t)
-        return (op.LOAD_BUILD_CLASS + self.make_closure(code, t.name)
-                                    + self.load_const(t.name)
-                                    + self(t.bases)
-                + op.CALL_FUNCTION(2 + len(t.bases))
+        regs = self.register_list()
+        FRAME_EXTRA = 3
+        return (  op.LOAD_BUILD_CLASS(regs[2])
+                + self.make_closure(code, t.name)
+                + op.STORE_FAST(regs[3])
+                + self.load_const(t.name)
+                + op.STORE_FAST(regs[4])
+                + concat([regs[5+i](base) for i,base in enumerate(t.bases)])
+                + op.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
                 + self.store(t.name))
 
     def compile_class(self, t):
@@ -717,7 +727,7 @@ def module_from_ast(module_name, filename, t):
     print(dis.dis(code))
     import time
     start = time.perf_counter()
-    code.exec()
+    code.exec(module.__dict__)
     end = time.perf_counter()
     print(end - start)
     # exec(code, module.__dict__)

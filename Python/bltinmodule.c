@@ -113,7 +113,7 @@ builtin___build_class__(PyObject *self, PyObject *const *args, Py_ssize_t nargs,
         return NULL;
     }
     func = args[0];   /* Better be callable */
-    if (!PyFunction_Check(func)) {
+    if (!PyFunction_Check(func) && !PyFunc_Check(func)) {
         PyErr_SetString(PyExc_TypeError,
                         "__build_class__: func must be a function");
         return NULL;
@@ -220,9 +220,15 @@ builtin___build_class__(PyObject *self, PyObject *const *args, Py_ssize_t nargs,
                      Py_TYPE(ns)->tp_name);
         goto error;
     }
-    cell = PyEval_EvalCodeEx(PyFunction_GET_CODE(func), PyFunction_GET_GLOBALS(func), ns,
-                             NULL, 0, NULL, 0, NULL, 0, NULL,
-                             PyFunction_GET_CLOSURE(func));
+    if (PyFunc_Check(func)) {
+        cell = _PyEval_FastCall((PyFunc *)func, ns);
+    }
+    else {
+        // printf("here: %zd\n", PyDict_GET_SIZE(ns));
+        cell = PyEval_EvalCodeEx(PyFunction_GET_CODE(func), PyFunction_GET_GLOBALS(func), ns,
+                                NULL, 0, NULL, 0, NULL, 0, NULL,
+                                PyFunction_GET_CLOSURE(func));
+    }
     if (cell != NULL) {
         if (bases != orig_bases) {
             if (PyMapping_SetItemString(ns, "__orig_bases__", orig_bases) < 0) {

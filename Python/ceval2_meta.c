@@ -172,13 +172,72 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
 }
 
 
-Register vm_load_name(PyObject *dict, PyObject *name)
+Register vm_load_name(Register *regs, PyObject *name)
 {
-    PyObject *value = PyDict_GetItemWithError2(dict, name);
-    if (value == NULL) {
-        abort();
+    PyObject *locals = AS_OBJ(regs[0]);
+    assert(PyDict_Check(locals));
+    PyObject *value = PyDict_GetItemWithError2(locals, name);
+    if (value != NULL) {
+        return PACK_OBJ(value);
     }
-    return PACK_OBJ(value);
+
+    PyFunc *this_func = (PyFunc *)AS_OBJ(regs[-1]);
+    PyObject *globals = this_func->globals;
+    value = PyDict_GetItemWithError2(globals, name);
+    if (value != NULL) {
+        return PACK_OBJ(value);
+    }
+
+    PyObject *builtins = this_func->builtins;
+    value = PyDict_GetItemWithError2(builtins, name);
+    if (value != NULL) {
+        return PACK_OBJ(value);
+    }
+
+    abort();
+    return NULL_REGISTER;
+}
+
+Register
+vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
+{
+    _Py_IDENTIFIER(__build_class__);
+
+    PyObject *bc;
+    if (PyDict_CheckExact(builtins)) {
+        bc = _PyDict_GetItemIdWithError(builtins, &PyId___build_class__);
+        if (bc != NULL) {
+            // FIXME: might get deleted oh well
+            ts->regs[opA] = PACK(bc, NO_REFCOUNT_TAG);
+            return NULL_REGISTER;
+        }
+
+        if (bc == NULL) {
+            if (!_PyErr_Occurred(ts->ts)) {
+                _PyErr_SetString(ts->ts, PyExc_NameError,
+                                    "__build_class__ not found");
+            }
+            goto error;
+        }
+    }
+    else {
+        PyObject *build_class_str = _PyUnicode_FromId(&PyId___build_class__);
+        if (build_class_str == NULL)
+            goto error;
+        bc = PyObject_GetItem(builtins, build_class_str);
+        if (bc == NULL) {
+            if (_PyErr_ExceptionMatches(ts->ts, PyExc_KeyError))
+                _PyErr_SetString(ts->ts, PyExc_NameError,
+                                    "__build_class__ not found");
+            goto error;
+        }
+        ts->regs[opA] = PACK_OBJ(bc);
+        return NULL_REGISTER;
+    }
+
+error:
+    abort();
+    return NULL_REGISTER;
 }
 
 int vm_store_global(PyObject *dict, PyObject *name, Register acc)
@@ -196,6 +255,7 @@ int vm_store_global(PyObject *dict, PyObject *name, Register acc)
 Register
 vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
 {
+    ts->cframe_size = nargs;
     PyObject **oargs = (PyObject **)args;
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
@@ -203,6 +263,7 @@ vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
     }
     PyCFunctionObject *func = (PyCFunctionObject *)(oargs[-1]);
     PyObject *res = func->vectorcall((PyObject *)func, (PyObject *const*)oargs, nargs, empty_tuple);
+    // FIXME: args may no longer be valid
     for (int i = -1; i != nargs; i++) {
         args[i].as_int64 = 0;
     }
@@ -213,8 +274,11 @@ vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
 Register
 vm_call_function(struct ThreadState *ts, int base, int nargs)
 {
-    PyObject *callable = AS_OBJ(ts->regs[base-1]);
-    Register *args = &ts->regs[base];
+    ts->regs += base;
+    ts->cframe_size = nargs;
+
+    PyObject *callable = AS_OBJ(ts->regs[-1]);
+    Register *args = ts->regs;
     PyObject **oargs = (PyObject **)args;
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
@@ -222,10 +286,11 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
     }
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
     PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)oargs, nargsf, NULL);
+    // FIXME: args may no longer be valid
     for (int i = -FRAME_EXTRA; i != nargs; i++) {
-        args[i].as_int64 = 0;
+        ts->regs[i].as_int64 = 0;
     }
-
+    ts->regs -= base;
     vm_free_autorelease(ts);
     return PACK_OBJ(obj);
 }
@@ -242,6 +307,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     if (func == NULL) {
         return NULL_REGISTER;
     }
+    func->builtins = this_func->builtins;
 
     for (Py_ssize_t i = 0; i < code->co_nfreevars; i++) {
         Py_ssize_t r = code->co_free2reg[i*2];
@@ -408,7 +474,6 @@ err:
     return NULL;
 }
 
-static PyTypeObject PyFunc_Type;
 // static PyTypeObject PyCFunc_Type;
 
 // static PyCFunc *
@@ -444,8 +509,9 @@ PyFunc_New(PyCodeObject2 *code, PyObject *globals)
     return func;
 }
 
-static struct ThreadState *ts;
+static struct ThreadState *gts;
 _Py_IDENTIFIER(builtins);
+_Py_IDENTIFIER(__builtins__);
 
 static PyObject *
 make_globals() {
@@ -458,8 +524,8 @@ make_globals() {
         CFUNC_HEADER
     };
 
-    PyObject *name = _PyUnicode_FromId(&PyId_builtins);
-    PyObject *builtins = PyImport_GetModule(name);
+    PyObject *builtins_name = _PyUnicode_FromId(&PyId_builtins);
+    PyObject *builtins = PyImport_GetModule(builtins_name);
     PyObject *builtins_dict = PyModule_GetDict(builtins);
     Py_ssize_t i = 0;
     PyObject *key, *value;
@@ -472,20 +538,82 @@ make_globals() {
             abort();
         }
     }
+    int err = _PyDict_SetItemId(globals, &PyId___builtins__, builtins);
+    if (err < 0) {
+        abort();
+    }
 
     Py_DECREF(builtins);
     return globals;
 }
 
+static PyObject *
+builtins_from_globals2(PyObject *globals)
+{
+    PyObject *builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
+    if (!builtins) {
+        abort();
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+        /* No builtins! Make up a minimal one
+           Give them 'None', at least. */
+        builtins = PyDict_New();
+        if (!builtins) {
+            return NULL;
+        }
+        if (PyDict_SetItemString(builtins, "None", Py_None) < 0) {
+            Py_DECREF(builtins);
+            return NULL;
+        }
+        _PyObject_SET_DEFERRED_RC(builtins);
+        Py_DECREF(builtins);
+        return builtins;
+    }
+    if (PyModule_Check(builtins)) {
+        builtins = PyModule_GetDict(builtins);
+    }
+    Py_INCREF_STACK(builtins);
+    return builtins;
+}
+
+PyObject *
+_PyEval_FastCall(PyFunc *func, PyObject *locals)
+{
+    struct ThreadState *ts = gts;
+    Py_ssize_t frame_size;
+    if (PyFunc_Check(AS_OBJ(ts->regs[-1]))) {
+        PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+        frame_size = PyCode2_FromFunc(this_func)->co_framesize;
+    }
+    else {
+        frame_size = ts->cframe_size;
+    }
+
+    ts->regs += frame_size + FRAME_EXTRA;
+
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+    ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
+    ts->regs[-2].as_int64 = FRAME_C;
+    ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
+    ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
+    ts->pc = PyCode2_GET_CODE(code);
+    ts->nargs = 0;
+    PyObject *ret = _PyEval_Fast(ts);
+    ts->regs -= frame_size + FRAME_EXTRA;
+    return ret;
+}
+
 PyObject *
 exec_code2(PyCodeObject2 *code, PyObject *globals)
 {
-    if (ts == NULL) {
-        ts = new_threadstate();
-        if (ts == NULL) {
+    if (gts == NULL) {
+        gts = new_threadstate();
+        if (gts == NULL) {
             return NULL;
         }
     }
+    struct ThreadState *ts = gts;
 
     ts->pc = PyCode2_GET_CODE(code);
 
@@ -500,19 +628,27 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
         }
     }
 
+    if (PyDict_GetItemString(globals, "__builtins__") == NULL) {
+        int err = PyDict_SetItemString(globals, "__builtins__", PyEval_GetBuiltins());
+        assert(err == 0);
+    }
+
+
     PyFunc *func = PyFunc_New(code, globals);
     if (func == NULL) {
         return NULL;
     }
+    func->builtins = builtins_from_globals2(globals);
 
 #ifdef Py_REF_DEBUG
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
 #endif
 
     ts->regs += FRAME_EXTRA;
-    ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromInstr(func->func_base.first_instr)->co_constants;
+    ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromFunc(func)->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
+    ts->regs[0] = PACK(globals, NO_REFCOUNT_TAG);
     ts->nargs = 0;
     PyObject *ret = _PyEval_Fast(ts);
 
@@ -558,7 +694,7 @@ PyFunc_dealloc(PyFunc *func)
     PyObject_Del(func);
 }
 
-static PyTypeObject PyFunc_Type = {
+PyTypeObject PyFunc_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "PyFunc",
     .tp_doc = "PyFunc",

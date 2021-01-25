@@ -160,6 +160,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_ncells = (uint8_t)ncells;
     co->co_nfreevars = (uint8_t)nfreevars;
     co->co_flags = flags;
+    co->co_framesize = framesize;
     Py_XINCREF(varnames);
     co->co_varnames = varnames;
     Py_XINCREF(freevars);

@@ -41,7 +41,7 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
 {
     /* Figure out correct vectorcall function to use */
     vectorcallfunc vectorcall;
-    uint32_t *first_instr = 0;
+    uint32_t *first_instr = func_vector_call;
     switch (ml->ml_flags & (METH_VARARGS | METH_FASTCALL | METH_NOARGS | METH_O | METH_KEYWORDS))
     {
         case METH_VARARGS:
@@ -52,7 +52,6 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
             break;
         case METH_FASTCALL:
             vectorcall = cfunction_vectorcall_FASTCALL;
-            first_instr = func_vector_call;
             break;
         case METH_FASTCALL | METH_KEYWORDS:
             vectorcall = cfunction_vectorcall_FASTCALL_KEYWORDS;

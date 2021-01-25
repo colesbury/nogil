@@ -1,9 +1,6 @@
 DEFAULT_N = 130
 
 
-DEFAULT_N = 130
-
-
 def eval_A(i, j):
     return 1.0 / ((i + j) * (i + j + 1) // 2 + i + 1)
 

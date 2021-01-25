@@ -42,8 +42,8 @@ class Checker(ast.NodeVisitor):
         self.check_identifier(t.name)
         self(t.bases)
         assert not t.keywords
-        assert not t.starargs
-        assert not t.kwargs
+        # assert not t.starargs
+        # assert not t.kwargs
         assert not t.decorator_list
         Checker('class', in_loop=False)(t.body)
 
