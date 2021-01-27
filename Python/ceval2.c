@@ -300,9 +300,15 @@ _PyEval_Fast(struct ThreadState *ts)
 
     TARGET(CALL_METHOD) {
         assert(IS_EMPTY(acc));
-        if (regs[opA - 1].as_int64 == 0) {
-            // bound method (i.e. LOAD_METHOD optimization bailed out)
-            opA += 1;
+        if (regs[opA].as_int64 == 0) {
+            // If the LOAD_METHOD didn't provide us with a "self" then we
+            // need to shift each argument down one. Note that opD >= 1.
+            Register *low = &regs[opA];
+            Register *hi = &regs[opA + opD];
+            do {
+                *low = *(low +1);
+                low++;
+            } while (low != hi);
             opD -= 1;
         }
         goto TARGET_CALL_FUNCTION;
@@ -338,12 +344,13 @@ _PyEval_Fast(struct ThreadState *ts)
             top->as_int64 = 0;
             DECREF(r);
         }
-        next_instr = (const uint32_t *)regs[-2].as_int64;
+        uintptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
-        if ((((uintptr_t)next_instr) & FRAME_C) != 0) {
+        if ((frame_link & FRAME_C) != 0) {
             goto return_to_c;
         }
+        next_instr = (const uint32_t *)frame_link;
         // this is the call that dispatched to us
         uint32_t call = next_instr[-1];
         intptr_t offset = (call >> 8) & 0xFF;
@@ -392,6 +399,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *owner = AS_OBJ(acc);
         int err;
         CALL_VM(err = vm_load_method(ts, owner, name, opA));
+        assert(err == 0);
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(LOAD_ATTR);

@@ -871,7 +871,7 @@ class Scope(ast.NodeVisitor):
         for stmt in t.body: subscope.visit(stmt)
 
     def define(self, name):
-        if name not in self.defs:
+        if name not in self.defs and name not in self.globals:
             self.defs[name] = len(self.defs)
 
     def visit_Import(self, t):

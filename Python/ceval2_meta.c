@@ -278,14 +278,15 @@ int vm_store_global(PyObject *dict, PyObject *name, Register acc)
 int
 vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
 {
+    assert(ts->regs[opA].as_int64 == 0);
+    assert(ts->regs[opA+1].as_int64 == 0);
     PyObject *descr;
     if (Py_TYPE(obj)->tp_getattro != PyObject_GenericGetAttr) {
         PyObject *value = PyObject_GetAttr(obj, name);
         if (value == NULL) {
             return -1;
         }
-        ts->regs[opA].as_int64 = 0;
-        ts->regs[opA+1] = PACK_INCREF(value);
+        ts->regs[opA] = PACK_INCREF(value);
         return 0;
     }
 
@@ -302,8 +303,7 @@ vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
     Py_INCREF(dict);
     PyObject *attr = PyDict_GetItemWithError2(dict, name);
     if (attr != NULL) {
-        ts->regs[opA].as_int64 = 0;
-        ts->regs[opA+1] = PACK_OBJ(attr);
+        ts->regs[opA] = PACK_OBJ(attr);
         Py_DECREF(dict);
         return 0;
     }
@@ -328,13 +328,11 @@ lookup_type:
     descrgetfunc f = Py_TYPE(descr)->tp_descr_get;
     if (f != NULL) {
         PyObject *value = f(descr, obj, (PyObject *)Py_TYPE(obj));
-        ts->regs[opA].as_int64 = 0;
-        ts->regs[opA+1] = PACK_OBJ(value);
+        ts->regs[opA] = PACK_OBJ(value);
         return 0;
     }
     else {
-        ts->regs[opA].as_int64 = 0;
-        ts->regs[opA+1] = PACK_INCREF(descr);
+        ts->regs[opA] = PACK_INCREF(descr);
         return 0;
     }
 
@@ -821,6 +819,14 @@ PyFunc_dealloc(PyFunc *func)
     PyObject_Del(func);
 }
 
+static PyObject*
+func_repr(PyFunc *op)
+{
+    PyCodeObject2 *code = PyCode2_FromFunc(op);
+    return PyUnicode_FromFormat("<function %U at %p>",
+                               code->co_name, op);
+}
+
 static PyObject *
 func_call(PyObject *func, PyObject *args, PyObject *kwds)
 {
@@ -855,6 +861,7 @@ PyTypeObject PyFunc_Type = {
     .tp_itemsize = sizeof(PyObject*),
     .tp_call = func_call,
     .tp_descr_get = func_descr_get,
+    .tp_repr = (reprfunc)func_repr,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR,
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) NULL,
