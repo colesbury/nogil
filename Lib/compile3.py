@@ -346,14 +346,23 @@ class CodeGen(ast.NodeVisitor):
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
         assert len(t.keywords) == 0
+        FRAME_EXTRA = 3
+        regs = self.register_list()
+
+        if len(t.keywords) == 0 and isinstance(t.func, ast.Attribute):
+            assert type(t.func.ctx) == ast.Load
+            reg = self.register()
+            return (self(t.func.value)
+                    + op.LOAD_METHOD(regs[2], self.names[t.func.attr])
+                    + concat([regs[4+i](arg) for i,arg in enumerate(t.args)])
+                    + op.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1))
+
         # FIXME base register
         opcode = (
                   # op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
                   # op.CALL_FUNCTION_VAR    if t.starargs else
                   # op.CALL_FUNCTION_KW     if t.kwargs else
                   op.CALL_FUNCTION)
-        FRAME_EXTRA = 3
-        regs = self.register_list()
         return (regs[2](t.func) +
                 concat([regs[3+i](arg) for i,arg in enumerate(t.args)]) +
                 opcode(regs.base + FRAME_EXTRA, len(t.args)))

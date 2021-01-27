@@ -298,6 +298,16 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(MAKE_FUNCTION);
     }
 
+    TARGET(CALL_METHOD) {
+        assert(IS_EMPTY(acc));
+        if (regs[opA - 1].as_int64 == 0) {
+            // bound method (i.e. LOAD_METHOD optimization bailed out)
+            opA += 1;
+            opD -= 1;
+        }
+        goto TARGET_CALL_FUNCTION;
+    }
+
     TARGET(CALL_FUNCTION) {
         // opsD = nargs
         // opsA - 2 = <empty> (frame link)
@@ -374,6 +384,16 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *res;
         CALL_VM(res = _PyObject_GetAttrFast(owner, name));
         acc = PACK_OBJ(res);
+        DISPATCH(LOAD_ATTR);
+    }
+
+    TARGET(LOAD_METHOD) {
+        PyObject *name = CONSTANTS()[opD];
+        PyObject *owner = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = vm_load_method(ts, owner, name, opA));
+        DECREF(acc);
+        acc.as_int64 = 0;
         DISPATCH(LOAD_ATTR);
     }
 

@@ -268,12 +268,81 @@ int vm_store_global(PyObject *dict, PyObject *name, Register acc)
 {
     PyObject *value = vm_object(acc);
     int err = PyDict_SetItem(dict, name, value);
-    Register ret;
     if (err < 0) {
         abort();
     }
     DECREF(acc);
     return 0;
+}
+
+int
+vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
+{
+    PyObject *descr;
+    if (Py_TYPE(obj)->tp_getattro != PyObject_GenericGetAttr) {
+        PyObject *value = PyObject_GetAttr(obj, name);
+        if (value == NULL) {
+            return -1;
+        }
+        ts->regs[opA].as_int64 = 0;
+        ts->regs[opA+1] = PACK_INCREF(value);
+        return 0;
+    }
+
+    PyObject **dictptr = _PyObject_GetDictPtr(obj);
+    if (dictptr == NULL) {
+        goto lookup_type;
+    }
+
+    PyObject *dict = *dictptr;
+    if (dict == NULL) {
+        goto lookup_type;
+    }
+
+    Py_INCREF(dict);
+    PyObject *attr = PyDict_GetItemWithError2(dict, name);
+    if (attr != NULL) {
+        ts->regs[opA].as_int64 = 0;
+        ts->regs[opA+1] = PACK_OBJ(attr);
+        Py_DECREF(dict);
+        return 0;
+    }
+    else if (UNLIKELY(_PyErr_Occurred(ts->ts) != NULL)) {
+        Py_DECREF(dict);
+        return -1;
+    }
+    Py_DECREF(dict);
+
+lookup_type:
+    descr = _PyType_Lookup(Py_TYPE(obj), name);
+    if (descr == NULL) {
+        goto err;
+    }
+
+    if (PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
+        ts->regs[opA] = PACK_INCREF(descr);
+        ts->regs[opA+1] = PACK_INCREF(obj);
+        return 0;
+    }
+
+    descrgetfunc f = Py_TYPE(descr)->tp_descr_get;
+    if (f != NULL) {
+        PyObject *value = f(descr, obj, (PyObject *)Py_TYPE(obj));
+        ts->regs[opA].as_int64 = 0;
+        ts->regs[opA+1] = PACK_OBJ(value);
+        return 0;
+    }
+    else {
+        ts->regs[opA].as_int64 = 0;
+        ts->regs[opA+1] = PACK_INCREF(descr);
+        return 0;
+    }
+
+err:
+    PyErr_Format(PyExc_AttributeError,
+                 "'%.50s' object has no attribute '%U'",
+                 Py_TYPE(obj)->tp_name, name);
+    return -1;
 }
 
 Register
