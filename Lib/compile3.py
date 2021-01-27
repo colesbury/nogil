@@ -601,9 +601,8 @@ class CodeGen(ast.NodeVisitor):
                 + op.CLEAR_ACC)
 
     def import_name(self, level, fromlist, name):
-        return (self.load_const(level)
-                + self.load_const(fromlist)
-                + op.IMPORT_NAME(self.names[name]))
+        arg = (name, fromlist, level)
+        return op.IMPORT_NAME(self.constants[arg])
 
     def visit_While(self, t):
         with self.loop() as loop:

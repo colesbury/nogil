@@ -560,6 +560,13 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BINARY_SUBSCR);
     }
 
+    TARGET(IMPORT_NAME) {
+        PyFunc *this_func = THIS_FUNC();
+        PyObject *arg = CONSTANTS()[opA];
+        CALL_VM(acc = vm_import_name(ts, this_func, arg));
+        DISPATCH(IMPORT_NAME);
+    }
+
     TARGET(GET_ITER) {
         assert(IS_OBJ(acc));
         PyObject *obj = AS_OBJ(acc);

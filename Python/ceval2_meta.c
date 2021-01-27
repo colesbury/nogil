@@ -199,6 +199,30 @@ Register vm_load_name(Register *regs, PyObject *name)
 }
 
 Register
+vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
+{
+    assert(PyTuple_CheckExact(arg) && PyTuple_GET_SIZE(arg) == 3);
+    PyObject *name = PyTuple_GET_ITEM(arg, 0);
+    PyObject *fromlist = PyTuple_GET_ITEM(arg, 1);
+    PyObject *level = PyTuple_GET_ITEM(arg, 2);
+    PyObject *res;
+    int ilevel = _PyLong_AsInt(level);
+    if (ilevel == -1 && _PyErr_Occurred(ts->ts)) {
+        return NULL_REGISTER;
+    }
+    res = PyImport_ImportModuleLevelObject(
+        name,
+        this_func->globals,
+        Py_None,
+        fromlist,
+        ilevel);
+    if (res == NULL) {
+        return NULL_REGISTER;
+    }
+    return PACK_OBJ(res);
+}
+
+Register
 vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
 {
     _Py_IDENTIFIER(__build_class__);
@@ -292,6 +316,10 @@ vm_call_function(struct ThreadState *ts, int base, int nargs)
     }
     ts->regs -= base;
     vm_free_autorelease(ts);
+    if (obj == NULL) {
+        PyErr_Print();
+        abort();
+    }
     return PACK_OBJ(obj);
 }
 

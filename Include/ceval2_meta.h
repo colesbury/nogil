@@ -159,6 +159,8 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 Register vm_load_name(Register *regs, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);
 
+Register
+vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);
 Register vm_build_slice(Register *regs);
