@@ -97,12 +97,6 @@
     } \
 } while(0)
 
-static PyObject *primitives[3] = {
-    Py_None,
-    Py_False,
-    Py_True
-};
-
 #define USE_REGISTER(value, reg) do { \
         register __typeof__(value) reg asm(#reg) = value; \
         __asm__ volatile("" :: "r"(reg)); \
@@ -134,6 +128,12 @@ static PyObject *primitives[3] = {
 #define CONSTANTS() \
     ((PyObject **)regs[-3].as_int64)
 
+static const Register primitives[3] = {
+    {(intptr_t)Py_False + NO_REFCOUNT_TAG},
+    {(intptr_t)Py_True + NO_REFCOUNT_TAG},
+    {(intptr_t)Py_None + NO_REFCOUNT_TAG},
+};
+
 // Frame layout:
 // regs[-3] = constants
 // regs[-2] = <frame_link>
@@ -162,7 +162,7 @@ PyObject*
 _PyEval_Fast(struct ThreadState *ts)
 {
     #include "opcode_targets2.h"
-    if (!ts->opcode_targets[0]) {
+    if (UNLIKELY(!ts->opcode_targets[0])) {
         memcpy(ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
     }
 
@@ -405,8 +405,9 @@ _PyEval_Fast(struct ThreadState *ts)
         Register r = regs[opA];
         regs[opA] = regs[opD];
         regs[opD].as_int64 = 0;
-        if (r.as_int64)
+        if (r.as_int64 != 0) {
             DECREF(r);
+        }
         DISPATCH(MOVE);
     }
 
@@ -462,6 +463,32 @@ _PyEval_Fast(struct ThreadState *ts)
         DECREF(acc);
         acc = PACK_OBJ(res);
         DISPATCH(COMPARE_OP);
+    }
+
+    TARGET(IS_OP) {
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        Register res = primitives[(left == right)];
+        DECREF(acc);
+        acc = res;
+        DISPATCH(IS_OP);
+    }
+
+    TARGET(CONTAINS_OP) {
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        int cmp;
+        CALL_VM(cmp = PySequence_Contains(right, left));
+        DECREF(acc);
+        acc = primitives[cmp];
+        DISPATCH(CONTAINS_OP);
+    }
+
+    TARGET(UNARY_NOT_FAST) {
+        assert(PyBool_Check(AS_OBJ(acc)) && !IS_RC(acc));
+        int is_false = (acc.as_int64 == primitives[0].as_int64);
+        acc = primitives[is_false];
+        DISPATCH(UNARY_NOT_FAST);
     }
 
     TARGET(BINARY_ADD) {

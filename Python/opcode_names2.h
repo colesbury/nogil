@@ -12,7 +12,7 @@ static const char *opcode_names[256] = {
     "UNARY_POSITIVE",
     "UNARY_NEGATIVE",
     "UNARY_NOT",
-    "unknown_opcode",
+    "UNARY_NOT_FAST",
     "unknown_opcode",
     "UNARY_INVERT",
     "BINARY_MATRIX_MULTIPLY",
