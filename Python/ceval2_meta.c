@@ -605,10 +605,9 @@ builtins_from_globals2(PyObject *globals)
     return builtins;
 }
 
-PyObject *
-_PyEval_FastCall(PyFunc *func, PyObject *locals)
+static Py_ssize_t
+setup_frame(struct ThreadState *ts, PyFunc *func)
 {
-    struct ThreadState *ts = gts;
     Py_ssize_t frame_size;
     if (PyFunc_Check(AS_OBJ(ts->regs[-1]))) {
         PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
@@ -624,9 +623,37 @@ _PyEval_FastCall(PyFunc *func, PyObject *locals)
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
-    ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
     ts->pc = PyCode2_GET_CODE(code);
+    return frame_size;
+}
+
+PyObject *
+_PyEval_FastCall(PyFunc *func, PyObject *locals)
+{
+    struct ThreadState *ts = gts;
+    Py_ssize_t frame_size = setup_frame(ts, func);
+    ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
     ts->nargs = 0;
+    PyObject *ret = _PyEval_Fast(ts);
+    ts->regs -= frame_size + FRAME_EXTRA;
+    return ret;
+}
+
+PyObject *
+_PyEval_FastCallArgs(PyFunc *func, PyObject *args)
+{
+    struct ThreadState *ts = gts;
+    Py_ssize_t frame_size = setup_frame(ts, func);
+    if (args != NULL) {
+        Py_ssize_t n = PyTuple_GET_SIZE(args);
+        ts->nargs = n;
+        for (Py_ssize_t i = 0; i != n; i++) {
+            ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i), NO_REFCOUNT_TAG);
+        }
+    }
+    else {
+        ts->nargs = 0;
+    }
     PyObject *ret = _PyEval_Fast(ts);
     ts->regs -= frame_size + FRAME_EXTRA;
     return ret;
@@ -693,6 +720,9 @@ PyObject *vm_new_func(void)
     if (PyType_Ready(&PyFunc_Type) < 0) {
         return NULL;
     }
+    if (PyType_Ready(&PyMeth_Type) < 0) {
+        return NULL;
+    }
     PyObject *func = (PyObject *)PyObject_New(PyFunc, &PyFunc_Type);
     if (!func) {
         return NULL;
@@ -722,16 +752,86 @@ PyFunc_dealloc(PyFunc *func)
     PyObject_Del(func);
 }
 
+static PyObject *
+func_call(PyObject *func, PyObject *args, PyObject *kwds)
+{
+    assert(kwds == NULL);
+    return _PyEval_FastCallArgs((PyFunc *)func, args);
+}
+
+/* Bind a function to an object */
+static PyObject *
+func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
+{
+    static uint32_t meth_instr = METHOD_HEADER;
+    PyMethod *method = PyObject_New(PyMethod, &PyMeth_Type);
+    if (method == NULL) {
+        return NULL;
+    }
+    // _PyObject_SET_DEFERRED_RC((PyObject *)method);
+    method->func_base.first_instr = &meth_instr;
+    Py_INCREF(func);
+    method->im_func = func;
+    Py_INCREF(obj);
+    method->im_self = obj;
+    method->im_weakreflist = NULL;
+    return method;
+}
+
 PyTypeObject PyFunc_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "PyFunc",
-    .tp_doc = "PyFunc",
+    .tp_doc = "PyFunc doc",
     .tp_basicsize = sizeof(PyFunc),
     .tp_itemsize = sizeof(PyObject*),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE,
+    .tp_call = func_call,
+    .tp_descr_get = func_descr_get,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR,
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) NULL,
     .tp_dealloc = (destructor) PyFunc_dealloc,
+    .tp_members = NULL,
+    .tp_methods = NULL,
+};
+
+static PyObject *
+method_call(PyObject *method, PyObject *args, PyObject *kwds)
+{
+    printf("method_call NYI\n");
+    abort();
+    return NULL;
+}
+
+static PyObject *
+method_descr_get(PyObject *meth, PyObject *obj, PyObject *cls)
+{
+    Py_INCREF(meth);
+    return meth;
+}
+
+static void
+method_dealloc(PyMethod *im)
+{
+    // _PyObject_GC_UNTRACK(im);
+    if (im->im_weakreflist != NULL)
+        PyObject_ClearWeakRefs((PyObject *)im);
+    Py_DECREF(im->im_func);
+    Py_XDECREF(im->im_self);
+    // PyObject_GC_Del(im);
+    PyObject_Del(im);
+}
+
+PyTypeObject PyMeth_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "method",
+    .tp_doc = "method doc",
+    .tp_basicsize = sizeof(PyMethod),
+    .tp_call = method_call,
+    .tp_descr_get = method_descr_get,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc) NULL,
+    .tp_dealloc = (destructor)method_dealloc,
     .tp_members = NULL,
     .tp_methods = NULL,
 };

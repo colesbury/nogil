@@ -159,6 +159,7 @@ static const Register primitives[3] = {
 // tmp = load tmp[N]
 
 PyObject*
+__attribute__((optimize("-fno-tree-loop-distribute-patterns")))
 _PyEval_Fast(struct ThreadState *ts)
 {
     #include "opcode_targets2.h"
@@ -256,6 +257,25 @@ _PyEval_Fast(struct ThreadState *ts)
         }
 
         DISPATCH(FUNC_HEADER);
+    }
+
+    TARGET(METHOD_HEADER) {
+        PyMethod *meth = (PyMethod *)AS_OBJ(regs[-1]);
+        // insert "self" as first argument
+        Py_ssize_t n = acc.as_int64;
+        while (n != 0) {
+            regs[n] = regs[n - 1];
+            n--;
+        }
+        regs[0] = PACK_INCREF(meth->im_self);
+        acc.as_int64 += 1;
+        // tail call dispatch to underlying func
+        PyObject *func = meth->im_func;
+        next_instr = ((PyFuncBase *)func)->first_instr;
+        Register tmp = regs[-1];
+        regs[-1] = PACK_INCREF(func);
+        DECREF(tmp);
+        DISPATCH(METHOD_HEADER);
     }
 
     TARGET(CFUNC_HEADER) {

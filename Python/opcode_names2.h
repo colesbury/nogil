@@ -2,7 +2,7 @@ static const char *opcode_names[256] = {
     "unknown_opcode",
     "CLEAR_ACC",
     "FUNC_HEADER",
-    "unknown_opcode",
+    "METHOD_HEADER",
     "unknown_opcode",
     "unknown_opcode",
     "CFUNC_HEADER",

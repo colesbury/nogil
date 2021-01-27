@@ -26,6 +26,7 @@ def def_op(name, opcode, opA=None, opD=None):
 
 def_op('CLEAR_ACC', 1)
 def_op('FUNC_HEADER', 2, 'lit')
+def_op('METHOD_HEADER', 3)
 def_op('CFUNC_HEADER', 6)
 def_op('NOP', 9)
 # unary math operations

@@ -2,7 +2,7 @@ static void *opcode_targets_base[256] = {
     &&_unknown_opcode,
     &&TARGET_CLEAR_ACC,
     &&TARGET_FUNC_HEADER,
-    &&_unknown_opcode,
+    &&TARGET_METHOD_HEADER,
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&TARGET_CFUNC_HEADER,
