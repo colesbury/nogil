@@ -384,6 +384,17 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(STORE_SUBSCR);
     }
 
+    TARGET(STORE_ATTR) {
+        PyObject *owner = AS_OBJ(regs[opA]);
+        PyObject *name = CONSTANTS()[opD];
+        PyObject *value = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyObject_SetAttr(owner, name, value));
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(STORE_ATTR);
+    }
+
     TARGET(LOAD_FAST) {
         assert(IS_EMPTY(acc));
         acc = regs[opA];
@@ -655,6 +666,14 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BUILD_TUPLE);
     }
 
+    TARGET(BUILD_MAP) {
+        assert(IS_EMPTY(acc));
+        PyObject *res;
+        CALL_VM(res = _PyDict_NewPresized(opA));
+        acc = PACK(res, REFCOUNT_TAG);
+        DISPATCH(BUILD_MAP);
+    }
+
     TARGET(LIST_APPEND) {
         PyObject *list = AS_OBJ(regs[opA]);
         PyObject *item = AS_OBJ(acc);
@@ -689,6 +708,10 @@ _PyEval_Fast(struct ThreadState *ts)
     {
         // CALL_VM(acc = vm_unknown_opcode(opcode));
         // opcode = 0;
+#ifdef Py_DEBUG
+        printf("unimplemented opcode: %zd\n", opcode);
+#endif
+        abort();
         __builtin_unreachable();
     }
 //

@@ -136,7 +136,7 @@ class Register:
         if self.reg is None:
             self.reg = visitor.new_register()
         else:
-            assert visitor.next_register <= self.reg
+            # assert visitor.next_register <= self.reg
             while visitor.next_register <= self.reg:
                 visitor.new_register()
         return self.reg
@@ -397,7 +397,7 @@ class CodeGen(ast.NodeVisitor):
         reg = self.register()
         attr = self.constants[target.attr]
         # FIXME: clear reg if temporary ???
-        return reg(value) + self(target.value) + op.STORE_ATTR(reg, attr) + reg.clear()
+        return reg(target.value) + self(value) + op.STORE_ATTR(reg, attr) + reg.clear()
 
     def assign_Subscript(self, target, value):
         reg1 = self.register()
@@ -443,11 +443,24 @@ class CodeGen(ast.NodeVisitor):
     def reference_Name(self, t):
         visitor = self
         class NameRef:
-            def load(self, reg):
-                return visitor.load(t.id, reg)
+            def load(self, dst):
+                return visitor.load(t.id, dst)
             def store(self):
                 return visitor.store(t.id)
         return NameRef()
+
+    def reference_Attribute(self, t):
+        visitor = self
+        rvalue = self.register()
+        class AttributeRef:
+            def load(self, dst):
+                return (  rvalue(t.value)
+                        + op.LOAD_ATTR(rvalue, visitor.names[t.attr])
+                        + op.STORE_FAST(dst.allocate()))
+            def store(self):
+                return (  op.STORE_ATTR(rvalue, visitor.names[t.attr])
+                        + rvalue.clear())
+        return AttributeRef()
 
     def reference_Subscript(self, t):
         visitor = self
@@ -487,9 +500,15 @@ class CodeGen(ast.NodeVisitor):
                 + after)
 
     def visit_Dict(self, t):
-        return (op.BUILD_MAP(min(0xFFFF, len(t.keys)))
-                + concat([self(v) + self(k) + op.STORE_MAP
-                          for k, v in zip(t.keys, t.values)]))
+        regs = self.register_list(2)
+        return (  op.BUILD_MAP(min(0xFFFF, len(t.keys)))
+                + op.STORE_FAST(regs[0])
+                + concat([regs[1](k) + self(v) +
+                          op.STORE_SUBSCR(regs[0], regs[1]) +
+                          regs[1].clear()
+                          for k, v in zip(t.keys, t.values)])
+                + op.LOAD_FAST(regs[0])
+                + op.CLEAR_FAST(regs[0]))
 
     def visit_Subscript(self, t):
         assert type(t.ctx) == ast.Load
@@ -522,11 +541,9 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Attribute(self, t):
         reg = self.register()
-        sub_op = self.attr_ops[type(t.ctx)]
         return (  reg(t.value)
-                + sub_op(reg, self.names[t.attr])
+                + op.LOAD_ATTR(reg, self.names[t.attr])
                 + reg.clear())
-    attr_ops = {ast.Load: op.LOAD_ATTR, ast.Store: op.STORE_ATTR}
 
     def visit_List(self, t):  return self.visit_sequence(t, op.BUILD_LIST)
     def visit_Tuple(self, t): return self.visit_sequence(t, op.BUILD_TUPLE)

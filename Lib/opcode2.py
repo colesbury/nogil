@@ -79,7 +79,7 @@ def_op('LOAD_METHOD', 160, 'reg', 'str')
 
 def_op('STORE_FAST', 125, 'reg')       # Local variable number
 def_op('STORE_NAME', 90, 'str')        # Index in name list
-def_op('STORE_ATTR', 95, 'reg', 'str') # acc[str] = reg
+def_op('STORE_ATTR', 95, 'reg', 'str') # reg.name = acc
 def_op('STORE_GLOBAL', 97, 'str')      # ""
 def_op('STORE_SUBSCR', 60, 'reg', 'reg') # reg1[reg2] = acc
 
@@ -123,7 +123,7 @@ def_op('BUILD_SLICE', 133, 'reg')      # Number of items
 def_op('BUILD_TUPLE', 102, 'reg', 'lit')      # Number of tuple items
 def_op('BUILD_LIST', 103, 'reg', 'lit')       # Number of list items
 def_op('BUILD_SET', 104, 'reg', 'lit')        # Number of set items
-def_op('BUILD_MAP', 105, 'reg', 'lit')        # Number of dict entries
+def_op('BUILD_MAP', 105, 'lit')               # Number of dict entries
 
 
 # ----

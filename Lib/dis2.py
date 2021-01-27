@@ -339,7 +339,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         elif bytecode.name == 'LOAD_ATTR':
              return f"{format_reg(argA)}.{get_str(argD)}"
         elif bytecode.name == 'STORE_ATTR':
-             return f"acc.{get_str(argD)}={format_reg(argA)}"
+             return f"{format_reg(argA)}.{get_str(argD)}=acc"
         elif bytecode.name == 'BINARY_SUBSCR':
              return f"{format_reg(argA)}[acc]"
         elif bytecode.name == 'STORE_SUBSCR':
