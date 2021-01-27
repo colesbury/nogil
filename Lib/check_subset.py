@@ -161,23 +161,12 @@ class Checker(ast.NodeVisitor):
         self.check_identifier(t.arg)
         self(t.value)
 
-    def visit_Num(self, t):
-        # -0.0 is distinct from +0.0, but my compiler would mistakenly
-        # coalesce the two, if both appear among the constants. Likewise
-        # for -0.0 as a component of a complex number. As a hack, instead
-        # of handling this case correctly in the compiler, we just forbid
-        # it. It's especially unlikely to crop up because the parser even
-        # parses -0.0 as UnaryOp(op=USub(), operand=Num(0.0)) -- you'd
-        # have to build the AST some other way, to get Num(-0.0).
-        assert not has_negzero(t.n), "Negative-zero literals not supported: %r" % (t,)
-
-    def visit_Str(self, t):
-        pass
+    def visit_Constant(self, t):
+        if isinstance(t.value, float):
+            assert not has_negzero(t.value), "Negative-zero literals not supported: %r" % (t,)
 
     def visit_ListAppend(self, t):
         pass
-
-    visit_Bytes = visit_Str
 
     def visit_Attribute(self, t):
         self(t.value)
