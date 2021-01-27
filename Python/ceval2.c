@@ -554,18 +554,6 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BINARY_ADD);
     }
 
-    TARGET(INPLACE_ADD) {
-        assert(IS_OBJ(regs[opA]));
-        assert(IS_OBJ(acc));
-        PyObject *left = AS_OBJ(regs[opA]);
-        PyObject *right = AS_OBJ(acc);
-        PyObject *res;
-        CALL_VM(res = PyNumber_InPlaceAdd(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
-        DISPATCH(INPLACE_ADD);
-    }
-
     TARGET(BINARY_SUBTRACT) {
         assert(IS_OBJ(regs[opA]));
         assert(IS_OBJ(acc));
@@ -578,18 +566,6 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BINARY_SUBTRACT);
     }
 
-    TARGET(INPLACE_SUBTRACT) {
-        assert(IS_OBJ(regs[opA]));
-        assert(IS_OBJ(acc));
-        PyObject *left = AS_OBJ(regs[opA]);
-        PyObject *right = AS_OBJ(acc);
-        PyObject *res;
-        CALL_VM(res = PyNumber_InPlaceSubtract(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
-        DISPATCH(INPLACE_SUBTRACT);
-    }
-
     TARGET(BINARY_MULTIPLY) {
         assert(IS_OBJ(regs[opA]));
         assert(IS_OBJ(acc));
@@ -600,6 +576,18 @@ _PyEval_Fast(struct ThreadState *ts)
         DECREF(acc);
         acc = PACK_OBJ(res);
         DISPATCH(BINARY_MULTIPLY);
+    }
+
+    TARGET(BINARY_MODULO) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Remainder(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_MODULO);
     }
 
     TARGET(BINARY_TRUE_DIVIDE) {
@@ -624,6 +612,126 @@ _PyEval_Fast(struct ThreadState *ts)
         DECREF(acc);
         acc = PACK_OBJ(res);
         DISPATCH(BINARY_FLOOR_DIVIDE);
+    }
+
+    TARGET(BINARY_POWER) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Power(left, right, Py_None));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_POWER);
+    }
+
+    TARGET(BINARY_MATRIX_MULTIPLY) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_MatrixMultiply(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_MATRIX_MULTIPLY);
+    }
+
+    TARGET(BINARY_LSHIFT) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Lshift(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_LSHIFT);
+    }
+
+    TARGET(BINARY_RSHIFT) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Rshift(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_RSHIFT);
+    }
+
+    TARGET(BINARY_AND) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_And(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_AND);
+    }
+
+    TARGET(BINARY_XOR) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Xor(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_XOR);
+    }
+
+    TARGET(BINARY_OR) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Or(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(BINARY_OR);
+    }
+
+    TARGET(INPLACE_ADD) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_InPlaceAdd(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(INPLACE_ADD);
+    }
+
+    TARGET(INPLACE_SUBTRACT) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_InPlaceSubtract(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(INPLACE_SUBTRACT);
+    }
+
+    TARGET(INPLACE_MODULO) {
+        assert(IS_OBJ(regs[opA]));
+        assert(IS_OBJ(acc));
+        PyObject *left = AS_OBJ(regs[opA]);
+        PyObject *right = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_InPlaceRemainder(left, right));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(INPLACE_MODULO);
     }
 
     TARGET(BINARY_SUBSCR) {
