@@ -230,6 +230,11 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(JUMP_IF_FALSE);
     }
 
+    TARGET(JUMP_IF_TRUE) {
+        CALL_VM(next_instr = vm_is_true(acc, next_instr, opD));
+        DISPATCH(JUMP_IF_FALSE);
+    }
+
     TARGET(FUNC_HEADER) {
         // opA contains framesize
         // acc contains nargs from call
