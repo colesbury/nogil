@@ -248,11 +248,6 @@ class CodeGen(ast.NodeVisitor):
                  | (0x00 if self.scope.freevars      else 0)
                  | (0x10 if self.scope.nested        else 0))
 
-        print('varnames', dict(self.varnames), 'regs', self.scope.regs, 'nlocals', nlocals, 'framesize', framesize)
-        print('cell2reg', cell2reg, self.scope.cellvars)
-        print('free2reg', free2reg, self.scope.freevars)
-        print('free2reg', self.scope.free2reg)
-        print()
         return types.Code2Type(code,
                                self.constants.collect(),
                                argcount=argcount,
@@ -764,7 +759,7 @@ def load_file(filename, module_name):
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
-    print(dis.dis(code))
+    # print(dis.dis(code))
     import time
     start = time.perf_counter()
     code.exec(module.__dict__)
