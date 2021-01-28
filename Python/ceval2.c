@@ -543,6 +543,43 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(CONTAINS_OP);
     }
 
+    TARGET(UNARY_POSITIVE) {
+        PyObject *value = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Positive(value));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(UNARY_POSITIVE);
+    }
+
+    TARGET(UNARY_NEGATIVE) {
+        PyObject *value = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Negative(value));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(UNARY_NEGATIVE);
+    }
+
+    TARGET(UNARY_INVERT) {
+        PyObject *value = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = PyNumber_Invert(value));
+        DECREF(acc);
+        acc = PACK_OBJ(res);
+        DISPATCH(UNARY_INVERT);
+    }
+
+    TARGET(UNARY_NOT) {
+        PyObject *value = AS_OBJ(acc);
+        int is_true;
+        CALL_VM(is_true = PyObject_IsTrue(value));
+        DECREF(acc);
+        assert(is_true >= 0);
+        acc = primitives[!is_true];
+        DISPATCH(UNARY_NOT);
+    }
+
     TARGET(UNARY_NOT_FAST) {
         assert(PyBool_Check(AS_OBJ(acc)) && !IS_RC(acc));
         int is_false = (acc.as_int64 == primitives[0].as_int64);
