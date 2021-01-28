@@ -87,6 +87,10 @@ class Instruction(Assembly):
 
     def __init__(self, opcode, arg, arg2):
         self.opcode = opcode
+        if isinstance(arg, Register):
+            assert arg.reg is not None
+        if isinstance(arg2, Register):
+            assert arg2.reg is not None
         self.arg    = arg
         self.arg2   = arg2
     def encode(self, start, addresses):
@@ -353,7 +357,7 @@ class CodeGen(ast.NodeVisitor):
             assert type(t.func.ctx) == ast.Load
             reg = self.register()
             return (self(t.func.value)
-                    + op.LOAD_METHOD(regs[2], self.names[t.func.attr])
+                    + op.LOAD_METHOD((regs[2].allocate(), regs[3].allocate())[0], self.names[t.func.attr])
                     + concat([regs[4+i](arg) for i,arg in enumerate(t.args)])
                     + op.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1))
 

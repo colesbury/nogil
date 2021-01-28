@@ -342,7 +342,9 @@ _PyEval_Fast(struct ThreadState *ts)
             top--;
             Register r = *top;
             top->as_int64 = 0;
-            DECREF(r);
+            if (r.as_int64 != 0) {
+                DECREF(r);
+            }
         }
         uintptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
