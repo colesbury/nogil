@@ -687,6 +687,7 @@ Register vm_build_list(Register *regs, Py_ssize_t n)
     while (n) {
         n--;
         PyList_SET_ITEM(obj, n, vm_object_steal(regs[n]));
+        regs[n].as_int64 = 0;
     }
     return PACK(obj, REFCOUNT_TAG);
 }

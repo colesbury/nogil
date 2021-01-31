@@ -694,7 +694,13 @@ class CodeGen(ast.NodeVisitor):
                     + loop.exit)
 
     def visit_Return(self, t):
+        def clear_temporaries():
+            return sum((op.CLEAR_FAST(i)
+                        for i in reversed(range(self.nlocals, self.next_register))),
+                       no_op)
+
         return ((self(t.value) if t.value else self.load_const(None))
+                + clear_temporaries()
                 + op.RETURN_VALUE)
 
     def visit_Try(self, t):
