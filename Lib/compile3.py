@@ -27,15 +27,16 @@ from itertools import chain
 from check_subset import check_conformity
 
 def assemble(assembly, addresses):
-    return bytes(iter(assembly.encode(0, addresses)))
+    return b''.join(instr.encode(None, addresses) for instr,_ in assembly)
 
 def make_ehtable(assembly, addresses):
-    return assembly.eh_table(addresses)
+    return sum((instr.eh_table(addresses) for instr,_ in assembly), ())
 
 def make_lnotab(assembly):
     firstlineno, lnotab = None, []
     byte, line = 0, None
-    for next_byte, next_line in assembly.line_nos(0):
+    next_byte = 0
+    for instr, next_line in assembly:
         if firstlineno is None:
             firstlineno = line = next_line
         elif line < next_line:
@@ -51,15 +52,18 @@ def make_lnotab(assembly):
             if (byte, line) != (next_byte, next_line):
                 lnotab.extend([next_byte-byte, next_line-line])
                 byte, line = next_byte, next_line
+        next_byte += instr.length
     return firstlineno or 1, bytes(lnotab)
 
-def concat(assemblies):
-    return sum(assemblies, no_op)
+def make_addresses(instrs):
+    addresses = {}
+    offset = 0
+    for instr, _ in instrs:
+        addresses[instr] = offset
+        offset += instr.length
+    return addresses
 
 class Assembly:
-    def __add__(self, other):
-        assert isinstance(other, Assembly), other
-        return Chain(self, other)
     length = 0
     def resolve(self, start):
         return ()
@@ -88,12 +92,6 @@ class ExceptHandler(Label):
     def eh_table(self, addresses):
         return ((addresses[self] // 4, addresses[self.handler] // 4, self.reg.reg),)
 
-class SetLineNo(Assembly):
-    def __init__(self, line):
-        self.line = line
-    def line_nos(self, start):
-        return ((start, self.line),)
-
 class Instruction(Assembly):
     length = 4
 
@@ -106,6 +104,7 @@ class Instruction(Assembly):
         self.arg    = arg
         self.arg2   = arg2
     def encode(self, start, addresses):
+        start = addresses[self]
         arg, arg2 = self.arg, self.arg2
         if dis.opcodes[self.opcode].is_jump():
             arg2 = (addresses[arg2] - start) // 4 - 1
@@ -120,24 +119,6 @@ class Instruction(Assembly):
         argB = arg2 & 0xFF
         argC = (arg2 >> 8)
         return bytes([self.opcode, argA, argB, argC])
-
-class Chain(Assembly):
-    def __init__(self, assembly1, assembly2):
-        self.part1 = assembly1
-        self.part2 = assembly2
-        self.length = assembly1.length + assembly2.length
-    def resolve(self, start):
-        return chain(self.part1.resolve(start),
-                     self.part2.resolve(start + self.part1.length))
-    def encode(self, start, addresses):
-        return chain(self.part1.encode(start, addresses),
-                     self.part2.encode(start + self.part1.length, addresses))
-    def line_nos(self, start):
-        return chain(self.part1.line_nos(start),
-                     self.part2.line_nos(start + self.part1.length))
-    def eh_table(self, addresses):
-        return chain(self.part1.eh_table(addresses),
-                     self.part2.eh_table(addresses))
 
 class Register:
     def __init__(self, visitor, reg):
@@ -161,7 +142,8 @@ class Register:
         return self.reg
     def clear(self):
         assert self.reg is not None
-        return op.CLEAR_FAST(self.reg) if self.is_temporary() else no_op
+        if self.is_temporary():
+            self.visitor.CLEAR_FAST(self.reg)
     def __call__(self, t):
         return self.visitor.to_register(t, self)
 
@@ -172,7 +154,8 @@ class RegisterList:
     def __getitem__(self, i):
         return self.visitor.register(self.base + i)
     def __call__(self, seq):
-        return concat([self[i](t) for i,t in enumerate(seq)])
+        for i,t in enumerate(seq):
+            self[i](t)
 
 class Reference:
     def __init__(self, visitor):
@@ -181,6 +164,13 @@ class Reference:
         return no_op
     def store(self, value):
         return no_op
+
+class Block:
+    pass
+
+class Finally(Block):
+    def __init__(self, handler):
+        self.handler = handler
 
 class Loop:
     def __init__(self):
@@ -215,21 +205,43 @@ def as_load(t):
             attrs.append(ast.Load())
     return type(t)(*attrs)
 
-def register_scope(visitor):
-    def visit(self, t):
-        top = self.next_register
-        ret = visitor(self, t)
-        self.next_register = top
-        return ret
-    return visit
+
+def make_instruction(bytecode):
+    opcode = bytecode.opcode
+    opA = bytecode.opA
+    opD = bytecode.opD
+    if opA is None and opD is None:
+        def func(self):
+            self.emit(Instruction(opcode, None, None))
+        return func
+    elif opD is None:
+        def func(self, arg):
+            self.emit(Instruction(opcode, arg, None))
+        return func
+    elif opA is None:
+        def func(self, arg):
+            self.emit(Instruction(opcode, None, arg))
+        return func
+    else:
+        def func(self, arg, arg2):
+            self.emit(Instruction(opcode, arg, arg2))
+        return func
+
+class ops:
+    for bytecode in dis.bytecodes:
+        locals()[bytecode.name] = make_instruction(bytecode)
 
 class CodeGen(ast.NodeVisitor):
+    for bytecode in dis.bytecodes:
+        locals()[bytecode.name] = make_instruction(bytecode)
+
     def __init__(self, filename, scope):
         self.filename  = filename
         self.scope     = scope
         self.constants = constants()
         self.names     = self.constants
         self.varnames  = scope.regs
+        self.instrs    = []
         if self.scope.scope_type in ('module', 'class'):
             assert len(self.scope.local_defs) == 0
             self.nlocals = 1
@@ -238,22 +250,29 @@ class CodeGen(ast.NodeVisitor):
             self.nlocals = len(self.scope.local_defs)
             self.next_register = len(self.varnames)
         self.max_registers = self.next_register
-        self.loops = []
+        self.blocks = []
+        self.last_lineno = None
 
     def compile_module(self, t, name):
-        assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
-        return self.make_code(assembly, name, 0, False, False)
+        self.FUNC_HEADER(0)
+        self(t.body)
+        self.load_const(None)
+        self.RETURN_VALUE()
+        return self.make_code(name, 0, False, False)
 
-    def make_code(self, assembly, name, argcount, has_varargs, has_varkws):
+    def make_code(self, name, argcount, has_varargs, has_varkws, debug=False):
+        first_instr = self.instrs[0][0]
+        assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
+        first_instr.arg = self.max_registers
+
         posonlyargcount = 0
         kwonlyargcount = 0
-        # stacksize = plumb_depths(assembly)
         nlocals = self.nlocals
         framesize = self.max_registers
-        firstlineno, lnotab = make_lnotab(assembly)
-        addresses = dict(assembly.resolve(0))
-        code = assemble(assembly, addresses)
-        eh_table = tuple(make_ehtable(assembly, addresses))
+        firstlineno, lnotab = make_lnotab(self.instrs)
+        addresses = make_addresses(self.instrs)
+        code = assemble(self.instrs, addresses)
+        eh_table = tuple(make_ehtable(self.instrs, addresses))
         cell2reg = tuple(reg for name, reg in self.varnames.items() if name in self.scope.cellvars)
         assert len(cell2reg) == len(self.scope.cellvars)
 
@@ -283,15 +302,17 @@ class CodeGen(ast.NodeVisitor):
                                cellvars=(),
                                cell2reg=cell2reg,
                                free2reg=free2reg)
-        # return types.Code2Type(argcount, posonlyargcount, kwonlyargcount,
-        #                       nlocals, stacksize, flags, code,
-        #                       self.collect_constants(),
-        #                       collect(self.names), collect(self.varnames),
-        #                       self.filename, name, firstlineno, lnotab,
-        #                       self.scope.freevars, self.scope.cellvars)
+
+    def emit(self, instr):
+        assert isinstance(instr, (Instruction, Label))
+        self.instrs.append((instr, self.last_lineno))
+
+    def LABEL(self, label):
+        assert isinstance(label, Label)
+        self.emit(label)
 
     def load_const(self, constant):
-        return op.LOAD_CONST(self.constants[constant])
+        self.LOAD_CONST(self.constants[constant])
 
     def new_register(self, n=1):
         reg = self.next_register
@@ -311,23 +332,24 @@ class CodeGen(ast.NodeVisitor):
             return self.load(t.id, reg)
         elif isinstance(t, Register):
             return self.copy_register(reg, t)
-        return self(t) + op.STORE_FAST(reg.allocate())
+        else:
+            self(t)
+            self.STORE_FAST(reg.allocate())
 
     def visit_Constant(self, t):
-        return self.load_const(t.value)
+        self.load_const(t.value)
 
     def visit_Name(self, t):
         assert isinstance(t.ctx, ast.Load)
-        return self.load(t.id)
+        self.load(t.id)
 
     def copy_register(self, dst, src):
         if dst.is_placeholder():
             dst.reg = src.reg
-            return no_op
         elif src.is_temporary():
-            return op.MOVE(dst.allocate(), src.reg)
+            self.MOVE(dst.allocate(), src.reg)
         else:
-            return op.COPY(dst.allocate(), src.reg)
+            self.COPY(dst.allocate(), src.reg)
 
     def load(self, name, dst=None):
         access = self.scope.access(name)
@@ -335,12 +357,14 @@ class CodeGen(ast.NodeVisitor):
             if access == 'fast':
                 src = Register(self, self.varnames[name])
                 return self.copy_register(dst, src)
-            return self.load(name) + op.STORE_FAST(dst.allocate())
+            self.load(name)
+            self.STORE_FAST(dst.allocate())
+            return
 
-        if   access == 'fast':   return op.LOAD_FAST(self.varnames[name])
-        elif access == 'deref':  return op.LOAD_DEREF(self.varnames[name])
-        elif access == 'name':   return op.LOAD_NAME(self.names[name])
-        elif access == 'global': return op.LOAD_GLOBAL(self.names[name])
+        if   access == 'fast':   self.LOAD_FAST(self.varnames[name])
+        elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
+        elif access == 'name':   self.LOAD_NAME(self.names[name])
+        elif access == 'global': self.LOAD_GLOBAL(self.names[name])
         else: assert False
 
     def store(self, name, value=None):
@@ -348,28 +372,32 @@ class CodeGen(ast.NodeVisitor):
         if isinstance(value, Register):
             if access == 'fast':
                 if value.is_temporary():
-                    return op.MOVE(self.varnames[name], value.reg)
+                    return self.MOVE(self.varnames[name], value.reg)
                 else:
-                    return op.LOAD_FAST(value.reg) + op.STORE_FAST(self.varnames[name])
-        if   access == 'fast':   return op.STORE_FAST(self.varnames[name])
-        elif access == 'deref':  return op.STORE_DEREF(self.varnames[name])
-        elif access == 'name':   return op.STORE_NAME(self.names[name])
-        elif access == 'global': return op.STORE_GLOBAL(self.names[name])
+                    self.LOAD_FAST(value.reg)
+                    self.STORE_FAST(self.varnames[name])
+                    return
+        if   access == 'fast':   self.STORE_FAST(self.varnames[name])
+        elif access == 'deref':  self.STORE_DEREF(self.varnames[name])
+        elif access == 'name':   self.STORE_NAME(self.names[name])
+        elif access == 'global': self.STORE_GLOBAL(self.names[name])
         else: assert False
 
     def delete(self, name):
         access = self.scope.access(name)
-        if   access == 'fast':   return op.DELETE_FAST(self.varnames[name])
-        elif access == 'deref':  return op.DELETE_DEREF(self.varnames[name])
-        elif access == 'name':   return op.DELETE_NAME(self.names[name])
-        elif access == 'global': return op.DELETE_GLOBAL(self.names[name])
+        if   access == 'fast':   self.DELETE_FAST(self.varnames[name])
+        elif access == 'deref':  self.DELETE_DEREF(self.varnames[name])
+        elif access == 'name':   self.DELETE_NAME(self.names[name])
+        elif access == 'global': self.DELETE_GLOBAL(self.names[name])
         else: assert False
 
     def clear(self, name):
         access = self.scope.access(name)
-        if access == 'fast':
-            return op.CLEAR_FAST(self.varnames[name])
-        return self.store(name, None) + self.delete(name)
+        if access != 'fast':
+            self.CLEAR_FAST(self.varnames[name])
+        else:
+            self.store(name, None)
+            self.delete(name)
 
     def cell_index(self, name):
         return self.scope.derefvars.index(name)
@@ -382,38 +410,43 @@ class CodeGen(ast.NodeVisitor):
 
         if len(t.keywords) == 0 and isinstance(t.func, ast.Attribute):
             assert type(t.func.ctx) == ast.Load
-            reg = self.register()
-            return (self(t.func.value)
-                    + op.LOAD_METHOD((regs[2].allocate(), regs[3].allocate())[0], self.names[t.func.attr])
-                    + concat([regs[4+i](arg) for i,arg in enumerate(t.args)])
-                    + op.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1))
+            self(t.func.value)
+            regs[2].allocate()
+            regs[3].allocate()
+            self.LOAD_METHOD(regs[2], self.names[t.func.attr])
+            for i, arg in enumerate(t.args):
+                regs[4+i](arg)
+            self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
+            return
 
         # FIXME base register
-        opcode = (
-                  # op.CALL_FUNCTION_VAR_KW if t.starargs and t.kwargs else
-                  # op.CALL_FUNCTION_VAR    if t.starargs else
-                  # op.CALL_FUNCTION_KW     if t.kwargs else
-                  op.CALL_FUNCTION)
-        return (regs[2](t.func) +
-                concat([regs[3+i](arg) for i,arg in enumerate(t.args)]) +
-                opcode(regs.base + FRAME_EXTRA, len(t.args)))
+        regs[2](t.func)
+        for i, arg in enumerate(t.args):
+            regs[3+i](arg)
+        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.args))
 
     def visit_keyword(self, t):
-        return self.load_const(t.arg) + self(t.value)
+        self.load_const(t.arg)
+        self(t.value)
 
     def __call__(self, t):
-        if isinstance(t, list): return concat(map(self, t))
+        if isinstance(t, list):
+            for c in t:
+                self(c)
+            return
+        if hasattr(t, 'lineno'):
+            self.last_lineno = t.lineno
         top = self.next_register
         assembly = self.visit(t)
         self.next_register = top
-        return SetLineNo(t.lineno) + assembly if hasattr(t, 'lineno') else assembly
 
     def generic_visit(self, t):
         assert False, t
 
     def visit_Expr(self, t):
         # TODO: skip constants as optimization
-        return self(t.value) + op.CLEAR_ACC
+        self(t.value)
+        self.CLEAR_ACC()
 
     def resolve(self, t):
         if isinstance(t, ast.Name):
@@ -431,49 +464,55 @@ class CodeGen(ast.NodeVisitor):
         value = self.resolve(value)
         if isinstance(value, Register):
             return self.store(target.id, value)
-        return self(value) + self.store(target.id)
+
+        self(value)
+        self.store(target.id)
 
     def assign_Attribute(self, target, value):
         reg = self.register()
         attr = self.constants[target.attr]
         # FIXME: clear reg if temporary ???
-        return reg(target.value) + self(value) + op.STORE_ATTR(reg, attr) + reg.clear()
+        reg(target.value)
+        self(value)
+        self.STORE_ATTR(reg, attr)
+        reg.clear()
 
     def assign_Subscript(self, target, value):
         reg1 = self.register()
         reg2 = self.register()
         # FIXME: clear regs if temporary ???
         # FIXME: target.slice.value ???
-        return (  reg1(target.value)
-                + reg2(target.slice)
-                + self(value)
-                + op.STORE_SUBSCR(reg1, reg2)
-                + reg2.clear()
-                + reg1.clear())
+        reg1(target.value)
+        reg2(target.slice)
+        self(value)
+        self.STORE_SUBSCR(reg1, reg2)
+        reg2.clear()
+        reg1.clear()
 
     def assign_List(self, target, value): return self.assign_sequence(target, value)
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
     def assign_sequence(self, target, value):
         reg = self.register_list()
         n = len(target.elts)
-        return (  self(value)
-                + op.UNPACK_SEQUENCE(reg.base, len(target.elts))
-                + concat([self.assign(target.elts[i], reg[i]) for i in range(n)]))
+        self(value)
+        self.UNPACK_SEQUENCE(reg.base, len(target.elts))
+        for i in range(n):
+            self.assign(target.elts[i], reg[i])
 
     def visit_AugAssign(self, t):
         ref = self.reference(t.target)
         reg = self.register()
-        return (  ref.load(reg)
-                + self(t.value)
-                + self.aug_ops[type(t.op)](reg)
-                + reg.clear()
-                + ref.store())
-    aug_ops = {ast.Pow:    op.INPLACE_POWER,  ast.Add:  op.INPLACE_ADD,
-               ast.LShift: op.INPLACE_LSHIFT, ast.Sub:  op.INPLACE_SUBTRACT,
-               ast.RShift: op.INPLACE_RSHIFT, ast.Mult: op.INPLACE_MULTIPLY,
-               ast.BitOr:  op.INPLACE_OR,     ast.Mod:  op.INPLACE_MODULO,
-               ast.BitAnd: op.INPLACE_AND,    ast.Div:  op.INPLACE_TRUE_DIVIDE,
-               ast.BitXor: op.INPLACE_XOR,    ast.FloorDiv: op.INPLACE_FLOOR_DIVIDE}
+        ref.load(reg)
+        self(t.value)
+        self.aug_ops[type(t.op)](self, reg)
+        reg.clear()
+        ref.store()
+    aug_ops = {ast.Pow:    ops.INPLACE_POWER,  ast.Add:  ops.INPLACE_ADD,
+               ast.LShift: ops.INPLACE_LSHIFT, ast.Sub:  ops.INPLACE_SUBTRACT,
+               ast.RShift: ops.INPLACE_RSHIFT, ast.Mult: ops.INPLACE_MULTIPLY,
+               ast.BitOr:  ops.INPLACE_OR,     ast.Mod:  ops.INPLACE_MODULO,
+               ast.BitAnd: ops.INPLACE_AND,    ast.Div:  ops.INPLACE_TRUE_DIVIDE,
+               ast.BitXor: ops.INPLACE_XOR,    ast.FloorDiv: ops.INPLACE_FLOOR_DIVIDE}
 
     def reference(self, target):
         method = 'reference_' + target.__class__.__name__
@@ -494,31 +533,30 @@ class CodeGen(ast.NodeVisitor):
         rvalue = self.register()
         class AttributeRef:
             def load(self, dst):
-                return (  rvalue(t.value)
-                        + op.LOAD_ATTR(rvalue, visitor.names[t.attr])
-                        + op.STORE_FAST(dst.allocate()))
+                rvalue(t.value)
+                visitor.LOAD_ATTR(rvalue, visitor.names[t.attr])
+                visitor.STORE_FAST(dst.allocate())
             def store(self):
-                return (  op.STORE_ATTR(rvalue, visitor.names[t.attr])
-                        + rvalue.clear())
+                visitor.STORE_ATTR(rvalue, visitor.names[t.attr])
+                rvalue.clear()
         return AttributeRef()
 
     def reference_Subscript(self, t):
-        visitor = self
         # foo[bar()] += baz()
         # foo -> reg
         rvalue = self.register()
         rslice = self.register()
         class SubscrRef:
-            def load(self, dst):
-                return (  rvalue(t.value)
-                        + rslice(t.slice)
-                        + op.LOAD_FAST(rslice)
-                        + op.BINARY_SUBSCR(rvalue)
-                        + op.STORE_FAST(dst.allocate()))
-            def store(self):
-                return (  op.STORE_SUBSCR(rvalue, rslice)
-                        + rslice.clear()
-                        + rvalue.clear())
+            def load(ref, dst):
+                rvalue(t.value)
+                rslice(t.slice)
+                self.LOAD_FAST(rslice)
+                self.BINARY_SUBSCR(rvalue)
+                self.STORE_FAST(dst.allocate())
+            def store(ref):
+                self.STORE_SUBSCR(rvalue, rslice)
+                rslice.clear()
+                rvalue.clear()
         return SubscrRef()
 
     def visit_Assign(self, t):
@@ -527,248 +565,280 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_If(self, t):
         orelse, after = Label(), Label()
-        return (           self(t.test) + op.POP_JUMP_IF_FALSE(orelse)
-                         + self(t.body) + op.JUMP(after)
-                + orelse + self(t.orelse)
-                + after)
+        self(t.test)
+        self.POP_JUMP_IF_FALSE(orelse)
+        self(t.body)
+        self.JUMP(after)
+        self.LABEL(orelse)
+        self(t.orelse)
+        self.LABEL(after)
 
     def visit_IfExp(self, t):
         orelse, after = Label(), Label()
-        return (           self(t.test) + op.POP_JUMP_IF_FALSE(orelse)
-                         + self(t.body) + op.JUMP(after)
-                + orelse + self(t.orelse)
-                + after)
+        self(t.test)
+        self.POP_JUMP_IF_FALSE(orelse)
+        self(t.body)
+        self.JUMP(after)
+        self.LABEL(orelse)
+        self(t.orelse)
+        self.LABEL(after)
 
     def visit_Dict(self, t):
         regs = self.register_list(2)
-        return (  op.BUILD_MAP(min(0xFFFF, len(t.keys)))
-                + op.STORE_FAST(regs[0])
-                + concat([regs[1](k) + self(v) +
-                          op.STORE_SUBSCR(regs[0], regs[1]) +
-                          regs[1].clear()
-                          for k, v in zip(t.keys, t.values)])
-                + op.LOAD_FAST(regs[0])
-                + op.CLEAR_FAST(regs[0]))
+        self.BUILD_MAP(min(0xFFFF, len(t.keys)))
+        self.STORE_FAST(regs[0])
+        for k, v in zip(t.keys, t.values):
+            regs[1](k)
+            self(v)
+            self.STORE_SUBSCR(regs[0], regs[1])
+            regs[1].clear()
+        self.LOAD_FAST(regs[0])
+        self.CLEAR_FAST(regs[0])
 
     def visit_Subscript(self, t):
         assert type(t.ctx) == ast.Load
         reg = self.register()
-        return (  reg(t.value)
-                + self(t.slice)
-                + op.BINARY_SUBSCR(reg)
-                + reg.clear())
+        reg(t.value)
+        self(t.slice)
+        self.BINARY_SUBSCR(reg)
+        reg.clear()
 
     def visit_Index(self, t):
-        return self(t.value)
-
-    def as_constant(self, arg):
-        if arg is None:
-            return ast.Constant(None)
-        return arg
+        assert False, "isn't Index gone???"
+        self(t.value)
 
     def visit_Slice(self, t):
         lower, upper, step = (
             ast.Constant(None) if x is None else x
             for x in (t.lower, t.upper, t.step)
         )
+
         if all(isinstance(x, ast.Constant) for x in (lower, upper, step)):
-            return self.load_const(slice(lower.value, upper.value, step.value))
+            self.load_const(slice(lower.value, upper.value, step.value))
+            return
+
         regs = self.register_list()
-        return (regs[0](lower) +
-                regs[1](upper) +
-                regs[2](step) +
-                op.BUILD_SLICE(regs[0]))
+        regs[0](lower)
+        regs[1](upper)
+        regs[2](step)
+        self.BUILD_SLICE(regs[0])
 
     def visit_Attribute(self, t):
         reg = self.register()
-        return (  reg(t.value)
-                + op.LOAD_ATTR(reg, self.names[t.attr])
-                + reg.clear())
+        reg(t.value)
+        self.LOAD_ATTR(reg, self.names[t.attr])
+        reg.clear()
 
-    def visit_List(self, t):  return self.visit_sequence(t, op.BUILD_LIST)
-    def visit_Tuple(self, t): return self.visit_sequence(t, op.BUILD_TUPLE)
-
-    def visit_sequence(self, t, build_op):
+    def visit_List(self, t):
         assert isinstance(t.ctx, ast.Load)
         regs = self.register_list()
-        return regs(t.elts) + build_op(regs[0], len(t.elts))
+        regs(t.elts)
+        self.BUILD_LIST(regs[0], len(t.elts))
+
+    def visit_Tuple(self, t):
+        assert isinstance(t.ctx, ast.Load)
+        regs = self.register_list()
+        regs(t.elts)
+        self.BUILD_TUPLE(regs[0], len(t.elts))
 
     def visit_ListAppend(self, t):
         reg = self.register()
-        return reg(t.list) + self(t.item) + op.LIST_APPEND(reg) + reg.clear()
+        reg(t.list)
+        self(t.item)
+        self.LIST_APPEND(reg)
+        reg.clear()
 
     def visit_UnaryOp(self, t):
-        return self(t.operand) + self.ops1[type(t.op)]
-    ops1 = {ast.UAdd: op.UNARY_POSITIVE,  ast.Invert: op.UNARY_INVERT,
-            ast.USub: op.UNARY_NEGATIVE,  ast.Not:    op.UNARY_NOT}
+        self(t.operand)
+        self.ops1[type(t.op)](self)
+    ops1 = {ast.UAdd: ops.UNARY_POSITIVE,  ast.Invert: ops.UNARY_INVERT,
+            ast.USub: ops.UNARY_NEGATIVE,  ast.Not:    ops.UNARY_NOT}
 
     def visit_Accumulator(self, t):
         return no_op
 
     def visit_BinOp(self, t):
         reg = self.register()
-        return reg(t.left) + self(t.right) + self.ops2[type(t.op)](reg) + reg.clear()
-
-    ops2 = {ast.Pow:    op.BINARY_POWER,  ast.Add:  op.BINARY_ADD,
-            ast.LShift: op.BINARY_LSHIFT, ast.Sub:  op.BINARY_SUBTRACT,
-            ast.RShift: op.BINARY_RSHIFT, ast.Mult: op.BINARY_MULTIPLY,
-            ast.BitOr:  op.BINARY_OR,     ast.Mod:  op.BINARY_MODULO,
-            ast.BitAnd: op.BINARY_AND,    ast.Div:  op.BINARY_TRUE_DIVIDE,
-            ast.BitXor: op.BINARY_XOR,    ast.FloorDiv: op.BINARY_FLOOR_DIVIDE}
+        reg(t.left)
+        self(t.right)
+        self.ops2[type(t.op)](self, reg)
+        reg.clear()
+    ops2 = {ast.Pow:    ops.BINARY_POWER,  ast.Add:  ops.BINARY_ADD,
+            ast.LShift: ops.BINARY_LSHIFT, ast.Sub:  ops.BINARY_SUBTRACT,
+            ast.RShift: ops.BINARY_RSHIFT, ast.Mult: ops.BINARY_MULTIPLY,
+            ast.BitOr:  ops.BINARY_OR,     ast.Mod:  ops.BINARY_MODULO,
+            ast.BitAnd: ops.BINARY_AND,    ast.Div:  ops.BINARY_TRUE_DIVIDE,
+            ast.BitXor: ops.BINARY_XOR,    ast.FloorDiv: ops.BINARY_FLOOR_DIVIDE}
 
     def visit_Compare(self, t):
         [operator], [right] = t.ops, t.comparators
         optype = type(operator)
 
+        reg = self.register()
+        reg(t.left)
+        self(right)
         if optype == ast.Is:
-            opcode = lambda reg: op.IS_OP(reg)
+            self.IS_OP(reg)
         elif optype == ast.IsNot:
-            opcode = lambda reg: op.IS_OP(reg) + op.UNARY_NOT_FAST
+            self.IS_OP(reg)
+            self.UNARY_NOT_FAST()
         elif optype == ast.In:
-            opcode = lambda reg: op.CONTAINS_OP(reg)
+            self.CONTAINS_OP(reg)
         elif optype == ast.NotIn:
-            opcode = lambda reg: op.CONTAINS_OP(reg) + op.UNARY_NOT_FAST
+            self.CONTAINS_OP(reg)
+            self.UNARY_NOT_FAST()
         else:
             cmp_index = dis.cmp_op.index(self.ops_cmp[type(operator)])
-            opcode = lambda reg: op.COMPARE_OP(cmp_index, reg)
-        reg = self.register()
-        return reg(t.left) + self(right) + opcode(reg) + reg.clear()
+            self.COMPARE_OP(cmp_index, reg)
+        reg.clear()
     ops_cmp = {ast.Eq: '==', ast.NotEq: '!=', ast.Is: 'is', ast.IsNot: 'is not',
                ast.Lt: '<',  ast.LtE:   '<=', ast.In: 'in', ast.NotIn: 'not in',
                ast.Gt: '>',  ast.GtE:   '>='}
 
     def visit_BoolOp(self, t):
-        op_jump = self.ops_bool[type(t.op)]
-        def compose(left, right):
-            after = Label()
-            return left + op_jump(after) + op.CLEAR_ACC + right + after
-        return reduce(compose, map(self, t.values))
-    ops_bool = {ast.And: op.JUMP_IF_FALSE,
-                ast.Or:  op.JUMP_IF_TRUE}
+        after = Label()
+        for i, value in enumerate(t.values):
+            if i != 0:
+                self.CLEAR_ACC()
+            self(value)
+            if type(t.op) == ast.And:
+                self.JUMP_IF_FALSE(after)
+            elif type(t.op) == ast.Or:
+                self.JUMP_IF_TRUE(after)
+            else:
+                assert False, type(t.op)
+        self.LABEL(after)
 
     def visit_Pass(self, t):
         return no_op
 
     def visit_Raise(self, t):
-        return self(t.exc) + op.RAISE
+        self(t.exc)
+        self.RAISE()
 
     def visit_Global(self, t):
         return no_op
 
     def visit_Import(self, t):
-        return concat([self.import_name(0, None, alias.name)
-                       + self.store(alias.asname or alias.name.split('.')[0])
-                       for alias in t.names])
+        for alias in t.names:
+            self.import_name(0, None, alias.name)
+            self.store(alias.asname or alias.name.split('.')[0])
 
     def visit_ImportFrom(self, t):
+        assert False, 'nyi'
         fromlist = tuple([alias.name for alias in t.names])
-        return (self.import_name(t.level, fromlist, t.module)
-                + concat([op.IMPORT_FROM(self.names[alias.name])
-                          + self.store(alias.asname or alias.name)
-                         for alias in t.names])
-                + op.CLEAR_ACC)
+        self.import_name(t.level, fromlist, t.module)
+        for alias in t.names:
+            self.IMPORT_FROM(self.names[alias.name])
+            self.store(alias.asname or alias.name)
+        self.CLEAR_ACC()
 
     def import_name(self, level, fromlist, name):
         arg = (name, fromlist, level)
-        return op.IMPORT_NAME(self.constants[arg])
+        self.IMPORT_NAME(self.constants[arg])
 
     def visit_While(self, t):
-        with self.loop() as loop:
-            return (  op.JUMP(loop.next)
-                    + loop.top
-                    + self(t.body)
-                    + loop.next + self(t.test) + op.POP_JUMP_IF_TRUE(loop.top)
-                    + loop.anchor + (self(t.orelse) if t.orelse else no_op)
-                    + loop.exit)
+        with self.block(Loop()) as loop:
+            self.JUMP(loop.next)
+            self.LABEL(loop.top)
+            self(t.body)
+            self.LABEL(loop.next)
+            self(t.test)
+            self.POP_JUMP_IF_TRUE(loop.top)
+            self.LABEL(loop.anchor)
+            if t.orelse:
+                self(t.orelse)
+            self.LABEL(loop.exit)
 
     def visit_For(self, t):
         # top, next, anchor, exit
         reg = self.register()
-        with self.loop() as loop:
-            return (  self(t.iter) + op.GET_ITER(reg.allocate())
-                    + op.JUMP(loop.next)
-                    + loop.top + self.assign(t.target, Accumulator())
-                    + self(t.body)
-                    + loop.next + op.FOR_ITER(reg, loop.top)
-                    + loop.anchor + (self(t.orelse) if t.orelse else no_op)
-                    + loop.exit)
+        with self.block(Loop()) as loop:
+            self(t.iter)
+            self.GET_ITER(reg.allocate())
+            self.JUMP(loop.next)
+            self.LABEL(loop.top)
+            self.assign(t.target, Accumulator())
+            self(t.body)
+            self.LABEL(loop.next)
+            self.FOR_ITER(reg, loop.top)
+            self.LABEL(loop.anchor)
+            if t.orelse:
+                self(t.orelse)
+            self.LABEL(loop.exit)
 
     def visit_Return(self, t):
-        def clear_temporaries():
-            return sum((op.CLEAR_FAST(i)
-                        for i in reversed(range(self.nlocals, self.next_register))),
-                       no_op)
-
-        return ((self(t.value) if t.value else self.load_const(None))
-                + clear_temporaries()
-                + op.RETURN_VALUE)
+        if t.value:
+            self(t.value)
+        else:
+            self.load_const(None)
+        for i in reversed(range(self.nlocals, self.next_register)):
+            self.CLEAR_FAST(i)
+        self.RETURN_VALUE()
 
     def visit_Try(self, t):
         if t.finalbody:
-            return self.try_finally(t)
+            self.try_finally(t)
         else:
-            return self.try_except(t)
+            self.try_except(t)
 
     def try_finally(self, t):
-        final, end = Label(), Label()
+        final = Label()
         err = self.register()
         body = ExceptHandler(final, err)
-        return (  body
-                + self.try_except(t)
-                + (err.allocate(), final)[1]
-                + self(t.finalbody)
-                + op.RERAISE(err)
-                + end)
+
+        with self.block(Finally()) as finally_:
+            self.LABEL(body)
+            self.try_except(t)
+            err.allocate()
+            self.LABEL(final)
+            self(t.finalbody)
+            self.RERAISE(err)
+            self.LABEL(end)
 
     def try_except(self, t):
-        orelse, end = Label(), Label()
         labels = [Label() for _ in range(len(t.handlers)+1)]
+        orelse, end = Label(), Label()
         err = self.register()
-        body = ExceptHandler(labels[0], err)
 
-        def compile_body(handler):
+        self.LABEL(ExceptHandler(labels[0], err))
+        self(t.body)
+        self.JUMP(orelse)
+        err.allocate()
+        for i,handler in enumerate(t.handlers):
+            self.LABEL(labels[i])
+            if handler.type:
+                self.JUMP_IF_NOT_EXC_MATCH(labels[i+1])
             if handler.name:
-                clean_up = Label()
-                # eh = ExceptHandler(clean_up)
-                return (  no_op # eh
-                        + op.LOAD_EXC
-                        + self.store(handler.name)
-                        + self(handler.body)
-                        # + clean_up
-                        + self.clear(handler.name))
+                self.LOAD_EXC()
+                self.store(handler.name)
+                self.clear(handler.name)
             else:
-                return self(handler.body)
-
-        def compile_handler(handler, label, next_label):
-            return (  label
-                    + ((self(handler.type) + op.JUMP_IF_NOT_EXC_MATCH(next_label)) if handler.type else no_op)
-                    + compile_body(handler)
-                    + op.END_EXCEPT(err)
-                    + op.JUMP(end))
-
-        def compile_handlers():
-            err.allocate()
-            return (sum((compile_handler(h, labels[i], labels[i+1])
-                         for i,h in enumerate(t.handlers)), no_op)
-                    + labels[-1]
-                    + op.RERAISE(err))
-
-        return (  body
-                + self(t.body)
-                + op.JUMP(orelse)
-                + compile_handlers()
-                + orelse
-                + self(t.orelse)
-                + end)
+                self(handler.body)
+            self.END_EXCEPT(err)
+            self.JUMP(end)
+        self.LABEL(labels[-1])
+        self.RERAISE(err)
+        self.LABEL(orelse)
+        if t.orelse:
+            self(t.orelse)
+        self.LABEL(end)
 
     @contextlib.contextmanager
-    def loop(self):
-        self.loops.append(Loop())
-        yield self.loops[-1]
-        self.loops.pop()
+    def block(self, block):
+        self.blocks.append(block)
+        yield block
+        assert block == self.blocks[-1]
+        self.blocks.pop()
 
     def visit_Break(self, t):
-        return op.JUMP(self.loops[-1].exit)
+        for block in reversed(self.blocks):
+            if isinstance(block, Loop):
+                self.JUMP(block.exit)
+                return
+            else:
+                assert isinstance(block, Finally)
+                assert False, "break out of finally NYI"
 
     def visit_Function(self, t):
         code = self.sprout(t).compile_function(t)
@@ -778,37 +848,46 @@ class CodeGen(ast.NodeVisitor):
         return CodeGen(self.filename, self.scope.children[t])
 
     def make_closure(self, code, name):
-        return op.MAKE_FUNCTION(self.constants[code])
+        return self.MAKE_FUNCTION(self.constants[code])
 
     def compile_function(self, t):
-        self.load_const(ast.get_docstring(t))
-        assembly = self(t.body) + self.load_const(None) + op.RETURN_VALUE
-        assembly = op.FUNC_HEADER(self.max_registers) + assembly
-        return self.make_code(assembly, t.name,
-                              len(t.args.args), t.args.vararg, t.args.kwarg)
+        # self.load_const(ast.get_docstring(t))
+        self.FUNC_HEADER(0)
+        self(t.body)
+        self.load_const(None)
+        self.RETURN_VALUE()
+
+        return self.make_code(t.name, len(t.args.args), t.args.vararg, t.args.kwarg)
 
     def visit_ClassDef(self, t):
         code = self.sprout(t).compile_class(t)
         regs = self.register_list()
         FRAME_EXTRA = 3
-        return (  op.LOAD_BUILD_CLASS(regs[2])
-                + self.make_closure(code, t.name)
-                + op.STORE_FAST(regs[3])
-                + self.load_const(t.name)
-                + op.STORE_FAST(regs[4])
-                + concat([regs[5+i](base) for i,base in enumerate(t.bases)])
-                + op.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
-                + self.store(t.name))
+
+        self.LOAD_BUILD_CLASS(regs[2])
+        self.make_closure(code, t.name)
+        self.STORE_FAST(regs[3])
+        self.load_const(t.name)
+        self.STORE_FAST(regs[4])
+        for i,base in enumerate(t.bases):
+            regs[5+i](base)
+        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
+        self.store(t.name)
 
     def compile_class(self, t):
         docstring = ast.get_docstring(t)
-        assembly = (  self.load('__name__')      + self.store('__module__')
-                    + self.load_const(t.name)    + self.store('__qualname__')
-                    + (no_op if docstring is None else
-                       self.load_const(docstring) + self.store('__doc__'))
-                    + self(t.body)
-                    + self.load_const(None) + op.RETURN_VALUE)
-        return self.make_code(assembly, t.name, 0, False, False)
+        self.FUNC_HEADER(0)
+        self.load('__name__')
+        self.store('__module__')
+        self.load_const(t.name)
+        self.store('__qualname__')
+        if docstring is not None:
+            self.load_const(docstring)
+            self.store('__doc__')
+        self(t.body)
+        self.load_const(None)
+        self.RETURN_VALUE()
+        return self.make_code(t.name, 0, False, False)
 
 def unpack(key, tp):
     if tp == slice:
@@ -847,12 +926,7 @@ def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
     print(dis.dis(code))
-    import time
-    start = time.perf_counter()
     code.exec(module.__dict__)
-    end = time.perf_counter()
-    print(end - start)
-    # exec(code, module.__dict__)
     return module
 
 def code_for_module(module_name, filename, t):
