@@ -200,6 +200,19 @@ class Checker(ast.NodeVisitor):
         elif isinstance(t.ctx, ast.Store): pass
         else: assert False, "Only loads and stores are supported: %r" % (t,)
 
+    def visit_Try(self, t):
+        self(t.body)
+        self(t.handlers)
+        self(t.orelse)
+        self(t.finalbody)
+
+    def visit_ExceptHandler(self, t):
+        if t.type is not None:
+            self(t.type)
+        if t.name is not None:
+            self.check_identifier(t.name)
+        self(t.body)
+
     def visit_sequence(self, t):
         self(t.elts)
         # XXX make sure there are no stars in elts

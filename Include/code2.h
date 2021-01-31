@@ -10,6 +10,8 @@ extern "C" {
 
 PyAPI_DATA(PyTypeObject) PyCode2_Type;
 
+struct _PyHandlerTable;
+
 typedef struct _PyCodeObject2 {
     PyObject_HEAD
     uint8_t co_argcount;
@@ -24,6 +26,8 @@ typedef struct _PyCodeObject2 {
     PyObject **co_constants;    /* pointer to constants array */
     Py_ssize_t *co_cell2reg;
     Py_ssize_t *co_free2reg;
+
+    struct _PyHandlerTable *co_exc_handlers;
 
     PyObject *co_weakreflist;
 

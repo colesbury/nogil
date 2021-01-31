@@ -17,6 +17,18 @@ struct _PyOpcache {
     char optimized;
 };
 
+typedef struct {
+    Py_ssize_t start;   /* start instr for try block range */
+    Py_ssize_t handler; /* end instr try block AND start of handler range */
+    Py_ssize_t handler_end; /* end of handler block */
+    Py_ssize_t reg;     /* temporary register to store active exception */
+} ExceptionHandler;
+
+struct _PyHandlerTable {
+    Py_ssize_t size;
+    ExceptionHandler entries[];
+};
+
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
 

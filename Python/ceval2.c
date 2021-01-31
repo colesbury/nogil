@@ -97,6 +97,24 @@
     } \
 } while(0)
 
+#define _Py_DECREF(op) do { \
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
+    if (!_Py_REF_IS_IMMORTAL(local)) { \
+        _Py_DECREF_TOTAL \
+        if (LIKELY(_Py_ThreadLocal(op))) { \
+            uint32_t refcount = op->ob_ref_local; \
+            refcount -= 4; \
+            op->ob_ref_local = refcount; \
+            if (UNLIKELY(refcount == 0)) { \
+                CALL_VM(_Py_MergeZeroRefcount(op)); \
+            } \
+        } \
+        else { \
+            CALL_VM(vm_decref_shared(op)); \
+        } \
+    } \
+} while(0)
+
 #define USE_REGISTER(value, reg) do { \
         register __typeof__(value) reg asm(#reg) = value; \
         __asm__ volatile("" :: "r"(reg)); \
@@ -348,6 +366,7 @@ _PyEval_Fast(struct ThreadState *ts)
             Register r = *top;
             top->as_int64 = 0;
             if (r.as_int64 != 0) {
+                // FIXME: top may no longer be valid!
                 DECREF(r);
             }
         }
@@ -487,8 +506,9 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(CLEAR_FAST) {
         Register r = regs[opA];
         regs[opA].as_int64 = 0;
-        if (r.as_int64)
+        if (r.as_int64 != 0) {
             DECREF(r);
+        }
         DISPATCH(CLEAR_FAST);
     }
 
@@ -1016,12 +1036,71 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(LOAD_BUILD_CLASS);
     }
 
+    TARGET(LOAD_EXC) {
+        assert(IS_EMPTY(acc));
+        acc = PACK_INCREF(ts->handled_exc);
+        DISPATCH(LOAD_EXC);
+    }
+
+    TARGET(RAISE) {
+        PyObject *exc = AS_OBJ(acc);
+        acc.as_int64 = 0;
+        CALL_VM(vm_raise(ts, exc));
+        goto exception_unwind;
+    }
+
+    TARGET(RERAISE) {
+        PyObject *exc = ts->handled_exc;
+        ts->handled_exc = AS_OBJ(regs[opA]);
+        regs[opA].as_int64 = 0;
+        CALL_VM(vm_raise(ts, exc));
+        goto exception_unwind;
+    }
+
+    TARGET(JUMP_IF_NOT_EXC_MATCH) {
+        PyObject *exc = AS_OBJ(acc);
+        const uint32_t *target;
+        CALL_VM(target = vm_exc_match(ts, exc, next_instr, opD));
+        if (target == NULL) {
+            goto error;
+        }
+        next_instr = target;
+        DECREF(acc);
+        DISPATCH(JUMP_IF_NOT_EXC_MATCH);
+    }
+
+    TARGET(END_EXCEPT) {
+        PyObject *prev = ts->handled_exc;
+        ts->handled_exc = AS_OBJ(regs[opA]);
+        regs[opA].as_int64 = 0;
+        if (prev != NULL) {
+            _Py_DECREF(prev);
+        }
+        DISPATCH(END_EXCEPT);
+    }
+
+    TARGET(END_FINALLY) {
+        DISPATCH(END_FINALLY);
+    }
+
     return_to_c: {
-        return AS_OBJ(acc);
+        PyObject *obj = AS_OBJ(acc);
+        if (!IS_RC(acc)) {
+            _Py_INCREF(obj);
+        }
+        return obj;
     }
 
     error: {
         CALL_VM(vm_handle_error(ts));
+    }
+
+    exception_unwind: {
+        CALL_VM(next_instr = vm_exception_unwind(ts, next_instr));
+        if (next_instr == 0) {
+            return NULL;
+        }
+        DISPATCH(exception_unwind);
     }
 
     #include "unimplemented_opcodes.h"

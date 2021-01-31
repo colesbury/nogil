@@ -26,8 +26,11 @@ from functools import reduce
 from itertools import chain
 from check_subset import check_conformity
 
-def assemble(assembly):
-    return bytes(iter(assembly.encode(0, dict(assembly.resolve(0)))))
+def assemble(assembly, addresses):
+    return bytes(iter(assembly.encode(0, addresses)))
+
+def make_ehtable(assembly, addresses):
+    return assembly.eh_table(addresses)
 
 def make_lnotab(assembly):
     firstlineno, lnotab = None, []
@@ -64,8 +67,8 @@ class Assembly:
         return b''
     def line_nos(self, start):
         return ()
-    def plumb(self, depths):
-        pass
+    def eh_table(self, addresses):
+        return ()
 
 no_op = Assembly()
 
@@ -75,6 +78,15 @@ class Accumulator:
 class Label(Assembly):
     def resolve(self, start):
         return ((self, start),)
+
+class ExceptHandler(Label):
+    def __init__(self, handler, reg):
+        self.handler = handler
+        self.reg = reg
+    def resolve(self, start):
+        return ((self, start),)
+    def eh_table(self, addresses):
+        return ((addresses[self] // 4, addresses[self.handler] // 4, self.reg.reg),)
 
 class SetLineNo(Assembly):
     def __init__(self, line):
@@ -123,6 +135,9 @@ class Chain(Assembly):
     def line_nos(self, start):
         return chain(self.part1.line_nos(start),
                      self.part2.line_nos(start + self.part1.length))
+    def eh_table(self, addresses):
+        return chain(self.part1.eh_table(addresses),
+                     self.part2.eh_table(addresses))
 
 class Register:
     def __init__(self, visitor, reg):
@@ -236,7 +251,9 @@ class CodeGen(ast.NodeVisitor):
         nlocals = self.nlocals
         framesize = self.max_registers
         firstlineno, lnotab = make_lnotab(assembly)
-        code = assemble(assembly)
+        addresses = dict(assembly.resolve(0))
+        code = assemble(assembly, addresses)
+        eh_table = tuple(make_ehtable(assembly, addresses))
         cell2reg = tuple(reg for name, reg in self.varnames.items() if name in self.scope.cellvars)
         assert len(cell2reg) == len(self.scope.cellvars)
 
@@ -261,6 +278,7 @@ class CodeGen(ast.NodeVisitor):
                                name=name,
                                firstlineno=firstlineno,
                                linetable=lnotab,
+                               eh_table=eh_table,
                                freevars=(),
                                cellvars=(),
                                cell2reg=cell2reg,
@@ -338,6 +356,20 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'name':   return op.STORE_NAME(self.names[name])
         elif access == 'global': return op.STORE_GLOBAL(self.names[name])
         else: assert False
+
+    def delete(self, name):
+        access = self.scope.access(name)
+        if   access == 'fast':   return op.DELETE_FAST(self.varnames[name])
+        elif access == 'deref':  return op.DELETE_DEREF(self.varnames[name])
+        elif access == 'name':   return op.DELETE_NAME(self.names[name])
+        elif access == 'global': return op.DELETE_GLOBAL(self.names[name])
+        else: assert False
+
+    def clear(self, name):
+        access = self.scope.access(name)
+        if access == 'fast':
+            return op.CLEAR_FAST(self.varnames[name])
+        return self.store(name, None) + self.delete(name)
 
     def cell_index(self, name):
         return self.scope.derefvars.index(name)
@@ -618,7 +650,7 @@ class CodeGen(ast.NodeVisitor):
         return no_op
 
     def visit_Raise(self, t):
-        return self(t.exc) + op.RAISE_VARARGS(1)
+        return self(t.exc) + op.RAISE
 
     def visit_Global(self, t):
         return no_op
@@ -665,6 +697,64 @@ class CodeGen(ast.NodeVisitor):
         return ((self(t.value) if t.value else self.load_const(None))
                 + op.RETURN_VALUE)
 
+    def visit_Try(self, t):
+        if t.finalbody:
+            return self.try_finally(t)
+        else:
+            return self.try_except(t)
+
+    def try_finally(self, t):
+        final, end = Label(), Label()
+        err = self.register()
+        body = ExceptHandler(final, err)
+        return (  body
+                + self.try_except(t)
+                + (err.allocate(), final)[1]
+                + self(t.finalbody)
+                + op.RERAISE(err)
+                + end)
+
+    def try_except(self, t):
+        orelse, end = Label(), Label()
+        labels = [Label() for _ in range(len(t.handlers)+1)]
+        err = self.register()
+        body = ExceptHandler(labels[0], err)
+
+        def compile_body(handler):
+            if handler.name:
+                clean_up = Label()
+                # eh = ExceptHandler(clean_up)
+                return (  no_op # eh
+                        + op.LOAD_EXC
+                        + self.store(handler.name)
+                        + self(handler.body)
+                        # + clean_up
+                        + self.clear(handler.name))
+            else:
+                return self(handler.body)
+
+        def compile_handler(handler, label, next_label):
+            return (  label
+                    + ((self(handler.type) + op.JUMP_IF_NOT_EXC_MATCH(next_label)) if handler.type else no_op)
+                    + compile_body(handler)
+                    + op.END_EXCEPT(err)
+                    + op.JUMP(end))
+
+        def compile_handlers():
+            err.allocate()
+            return (sum((compile_handler(h, labels[i], labels[i+1])
+                         for i,h in enumerate(t.handlers)), no_op)
+                    + labels[-1]
+                    + op.RERAISE(err))
+
+        return (  body
+                + self(t.body)
+                + op.JUMP(orelse)
+                + compile_handlers()
+                + orelse
+                + self(t.orelse)
+                + end)
+
     @contextlib.contextmanager
     def loop(self):
         self.loops.append(Loop())
@@ -683,15 +773,6 @@ class CodeGen(ast.NodeVisitor):
 
     def make_closure(self, code, name):
         return op.MAKE_FUNCTION(self.constants[code])
-        # if code.co_freevars:
-        #     return (concat([op.LOAD_CLOSURE(self.cell_index(freevar))
-        #                     for freevar in code.co_freevars])
-        #             + op.BUILD_TUPLE(255, len(code.co_freevars))
-        #             + self.load_const(code) + self.load_const(name)
-        #             + op.MAKE_FUNCTION(0x08))
-        # else:
-        #     return (self.load_const(code) + self.load_const(name)
-        #             + op.MAKE_FUNCTION(0))
 
     def compile_function(self, t):
         self.load_const(ast.get_docstring(t))
@@ -759,7 +840,7 @@ def load_file(filename, module_name):
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
-    # print(dis.dis(code))
+    print(dis.dis(code))
     import time
     start = time.perf_counter()
     code.exec(module.__dict__)
@@ -880,6 +961,10 @@ class Scope(ast.NodeVisitor):
     def visit_ImportFrom(self, t):
         for alias in t.names:
             self.define(alias.asname or alias.name)
+
+    def visit_ExceptHandler(self, t):
+        if t.name:
+            self.define(t.name)
 
     def visit_Name(self, t):
         if   isinstance(t.ctx, ast.Load):  self.uses.add(t.id)

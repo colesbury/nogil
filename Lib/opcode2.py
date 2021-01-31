@@ -77,6 +77,7 @@ def_op('LOAD_CONST', 100, 'const')     # Index in const list
 def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
 def_op('LOAD_GLOBAL', 116, 'str')      # Index in name list
 def_op('LOAD_METHOD', 160, 'reg', 'str')
+def_op('LOAD_EXC', 30)
 
 def_op('STORE_FAST', 125, 'reg')       # Local variable number
 def_op('STORE_NAME', 90, 'str')        # Index in name list
@@ -97,8 +98,8 @@ def_op('CALL_FUNCTION_EX', 142, 'base', 'lit')  # Flags
 def_op('CALL_METHOD', 161, 'base', 'lit')
 
 def_op('RETURN_VALUE', 83)
-def_op('RERAISE', 48)
-def_op('RAISE_VARARGS', 130, 'lit')     # Number of raise arguments (1, 2, or 3)
+def_op('RERAISE', 48, 'reg')
+def_op('RAISE', 130)
 def_op('YIELD_VALUE', 86)
 def_op('YIELD_FROM', 72)
 
@@ -137,6 +138,9 @@ def_op('DELETE_DEREF', 138, 'reg')
 def_op('FORMAT_VALUE', 155, 'lit')
 def_op('BUILD_STRING', 157, 'lit')
 
+def_op('END_EXCEPT', 89, 'reg')
+def_op('END_FINALLY', 122, 'reg')
+
 def_op('PRINT_EXPR', 70)
 def_op('LOAD_BUILD_CLASS', 71, 'reg')
 def_op('LOAD_ASSERTION_ERROR', 74)
@@ -146,13 +150,11 @@ def_op('GET_ANEXT', 51)
 def_op('LIST_TO_TUPLE', 82)
 def_op('SETUP_ANNOTATIONS', 85)
 def_op('POP_BLOCK', 87)
-def_op('POP_EXCEPT', 89)
 def_op('WITH_EXCEPT_START', 49)
 def_op('BEFORE_ASYNC_WITH', 52)
 def_op('END_ASYNC_FOR', 54)
 def_op('UNPACK_SEQUENCE', 92, 'base', 'lit')   # Number of tuple items
 def_op('UNPACK_EX', 94)
-def_op('SETUP_FINALLY', 122)   # Distance to target address
 def_op('MAKE_FUNCTION', 132, 'const')    # Flags
 def_op('SETUP_WITH', 143)
 def_op('LOAD_CLASSDEREF', 148)

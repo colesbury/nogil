@@ -29,6 +29,7 @@ extern "C" {
 #define BINARY_TRUE_DIVIDE       27
 #define INPLACE_FLOOR_DIVIDE     28
 #define INPLACE_TRUE_DIVIDE      29
+#define LOAD_EXC                 30
 #define RERAISE                  48
 #define WITH_EXCEPT_START        49
 #define GET_AITER                50
@@ -65,7 +66,7 @@ extern "C" {
 #define SETUP_ANNOTATIONS        85
 #define YIELD_VALUE              86
 #define POP_BLOCK                87
-#define POP_EXCEPT               89
+#define END_EXCEPT               89
 #define STORE_NAME               90
 #define DELETE_NAME              91
 #define UNPACK_SEQUENCE          92
@@ -94,11 +95,11 @@ extern "C" {
 #define IS_OP                   117
 #define CONTAINS_OP             118
 #define JUMP_IF_NOT_EXC_MATCH   121
-#define SETUP_FINALLY           122
+#define END_FINALLY             122
 #define LOAD_FAST               124
 #define STORE_FAST              125
 #define DELETE_FAST             126
-#define RAISE_VARARGS           130
+#define RAISE                   130
 #define CALL_FUNCTION           131
 #define MAKE_FUNCTION           132
 #define BUILD_SLICE             133

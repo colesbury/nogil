@@ -64,7 +64,8 @@ class code "PyCodeObject2 *" "&PyCode2_Type"
 
 
 PyCodeObject2 *
-PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t nfreevars)
+PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t nfreevars,
+            Py_ssize_t nexc_handlers)
 {
     Py_ssize_t ninstrs = PyBytes_Size(bytecode) / sizeof(uint32_t);
     Py_ssize_t nconsts = PyTuple_GET_SIZE(consts);
@@ -72,7 +73,9 @@ PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t 
                        ninstrs * sizeof(uint32_t) +
                        nconsts * sizeof(PyObject *) +
                        ncells * sizeof(Py_ssize_t) +
-                       nfreevars * 2 * sizeof(Py_ssize_t));
+                       nfreevars * 2 * sizeof(Py_ssize_t) +
+                       sizeof(struct _PyHandlerTable) +
+                       nexc_handlers * sizeof(ExceptionHandler));
 
     PyCodeObject2 *co = (PyCodeObject2 *)_PyObject_GC_Malloc(size);
     if (co == NULL) {
@@ -103,6 +106,9 @@ PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t 
     ptr += ncells * sizeof(Py_ssize_t);
 
     co->co_free2reg = (nfreevars == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += nfreevars * 2 * sizeof(Py_ssize_t);
+
+    co->co_exc_handlers = (struct _PyHandlerTable *)ptr;
 
     return co;
 }
@@ -131,6 +137,7 @@ code.__new__ as code_new
     name: unicode = None
     firstlineno: int = 0
     linetable: object(subclass_of="&PyBytes_Type") = None
+    eh_table: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     freevars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
@@ -144,14 +151,16 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int argcount, int posonlyargcount, int kwonlyargcount,
               int nlocals, int framesize, int flags, PyObject *names,
               PyObject *varnames, PyObject *filename, PyObject *name,
-              int firstlineno, PyObject *linetable, PyObject *freevars,
-              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg)
-/*[clinic end generated code: output=a6acfb0a71a3930b input=21eff6647cc5fba8]*/
+              int firstlineno, PyObject *linetable, PyObject *eh_table,
+              PyObject *freevars, PyObject *cellvars, PyObject *cell2reg,
+              PyObject *free2reg)
+/*[clinic end generated code: output=d5a059e53fa5a823 input=f6957d3272e59a40]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t nfreevars = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
+    Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
 
-    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, nfreevars);
+    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, nfreevars, nexc_handlers);
     if (co == NULL) {
         return NULL;
     }
@@ -182,6 +191,16 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         PyObject *pair = PyTuple_GET_ITEM(free2reg, i);
         co->co_free2reg[i*2+0] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 0));
         co->co_free2reg[i*2+1] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 1));
+    }
+
+    struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
+    exc_handlers->size = nexc_handlers;
+    for (Py_ssize_t i = 0; i < nexc_handlers; i++) {
+        PyObject *entry = PyTuple_GET_ITEM(eh_table, i);
+        ExceptionHandler *handler = &exc_handlers->entries[i];
+        handler->start = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 0));
+        handler->handler = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 1));
+        handler->reg = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 2));
     }
 
     return (PyObject *)co;

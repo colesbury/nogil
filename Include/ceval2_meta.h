@@ -121,6 +121,9 @@ struct ThreadState {
     // Base of retained object
     PyObject **refs_base;
 
+    // Currently handled exception
+    PyObject *handled_exc;
+
     Py_ssize_t nargs;
 
     // current metadata ???
@@ -145,6 +148,12 @@ exec_code2(PyCodeObject2 *code, PyObject *globals);
 Register vm_compare(Register a, Register b);
 
 Register vm_unknown_opcode(intptr_t opcode);
+
+int
+vm_raise(struct ThreadState *ts, PyObject *err);
+
+const uint32_t *
+vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr);
 
 // decrefs x!
 Register vm_to_bool(Register x);
@@ -186,6 +195,8 @@ PyObject *vm_args_error(struct ThreadState *ts);
 
 PyObject *vm_error_not_callable(struct ThreadState *ts);
 void vm_handle_error(struct ThreadState *ts);
+const uint32_t *
+vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, int opD);
 
 // void vm_zero_refcount(PyObject *op);
 void vm_decref_shared(PyObject *op);
