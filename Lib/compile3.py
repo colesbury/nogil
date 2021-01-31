@@ -76,9 +76,6 @@ class Assembly:
 
 no_op = Assembly()
 
-class Accumulator:
-    pass
-
 class Label(Assembly):
     def resolve(self, start):
         return ((self, start),)
@@ -460,6 +457,16 @@ class CodeGen(ast.NodeVisitor):
         visitor = getattr(self, method)
         return visitor(target, value)
 
+    def assign_accumulator(self, target):
+        if isinstance(target, ast.Name):
+            self.store(target.id)
+        else:
+            # FIXME: optimize don't always need to store to reg
+            reg = self.register()
+            self.STORE_FAST(reg.allocate())
+            self.assign(target, reg)
+            reg.clear()
+
     def assign_Name(self, target, value):
         value = self.resolve(value)
         if isinstance(value, Register):
@@ -477,10 +484,12 @@ class CodeGen(ast.NodeVisitor):
         self.STORE_ATTR(reg, attr)
         reg.clear()
 
+    def visit_Register(self, t):
+        self.LOAD_FAST(t)
+
     def assign_Subscript(self, target, value):
         reg1 = self.register()
         reg2 = self.register()
-        # FIXME: clear regs if temporary ???
         # FIXME: target.slice.value ???
         reg1(target.value)
         reg2(target.slice)
@@ -492,12 +501,12 @@ class CodeGen(ast.NodeVisitor):
     def assign_List(self, target, value): return self.assign_sequence(target, value)
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
     def assign_sequence(self, target, value):
-        reg = self.register_list()
-        n = len(target.elts)
         self(value)
-        self.UNPACK_SEQUENCE(reg.base, len(target.elts))
+        n = len(target.elts)
+        regs = self.register_list(n)
+        self.UNPACK_SEQUENCE(regs.base, n)
         for i in range(n):
-            self.assign(target.elts[i], reg[i])
+            self.assign(target.elts[i], regs[i])
 
     def visit_AugAssign(self, t):
         ref = self.reference(t.target)
@@ -584,8 +593,10 @@ class CodeGen(ast.NodeVisitor):
         self.LABEL(after)
 
     def visit_Dict(self, t):
-        regs = self.register_list(2)
         self.BUILD_MAP(min(0xFFFF, len(t.keys)))
+        if len(t.keys) == 0:
+            return
+        regs = self.register_list(2)
         self.STORE_FAST(regs[0])
         for k, v in zip(t.keys, t.values):
             regs[1](k)
@@ -602,10 +613,6 @@ class CodeGen(ast.NodeVisitor):
         self(t.slice)
         self.BINARY_SUBSCR(reg)
         reg.clear()
-
-    def visit_Index(self, t):
-        assert False, "isn't Index gone???"
-        self(t.value)
 
     def visit_Slice(self, t):
         lower, upper, step = (
@@ -653,9 +660,6 @@ class CodeGen(ast.NodeVisitor):
         self.ops1[type(t.op)](self)
     ops1 = {ast.UAdd: ops.UNARY_POSITIVE,  ast.Invert: ops.UNARY_INVERT,
             ast.USub: ops.UNARY_NEGATIVE,  ast.Not:    ops.UNARY_NOT}
-
-    def visit_Accumulator(self, t):
-        return no_op
 
     def visit_BinOp(self, t):
         reg = self.register()
@@ -758,7 +762,7 @@ class CodeGen(ast.NodeVisitor):
             self.GET_ITER(reg.allocate())
             self.JUMP(loop.next)
             self.LABEL(loop.top)
-            self.assign(t.target, Accumulator())
+            self.assign_accumulator(t.target)
             self(t.body)
             self.LABEL(loop.next)
             self.FOR_ITER(reg, loop.top)
