@@ -714,6 +714,30 @@ Register vm_build_list(Register *regs, Py_ssize_t n)
     return PACK(obj, REFCOUNT_TAG);
 }
 
+Register
+vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
+{
+    PyObject *set = PySet_New(NULL);
+    if (UNLIKELY(set == NULL)) {
+        return NULL_REGISTER;
+    }
+
+    for (Py_ssize_t i = 0; i != n; i++) {
+        PyObject *item = AS_OBJ(ts->regs[base + i]);
+        int err = PySet_Add(set, item);
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        Register r = ts->regs[base + i];
+        ts->regs[base + i].as_int64 = 0;
+        DECREF(r);
+    }
+    return PACK(set, REFCOUNT_TAG);
+
+error:
+    Py_DECREF(set);
+    return NULL_REGISTER;
+}
 
 Register vm_build_tuple(Register *regs, Py_ssize_t n)
 {
@@ -765,6 +789,7 @@ PyObject *vm_error_not_callable(struct ThreadState *ts)
 
 void vm_handle_error(struct ThreadState *ts)
 {
+    // TODO: fill in exception stack trace
     printf("vm_handle_error\n");
     abort();
 }

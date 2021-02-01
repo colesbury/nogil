@@ -636,6 +636,12 @@ class CodeGen(ast.NodeVisitor):
         self.LOAD_FAST(regs[0])
         self.CLEAR_FAST(regs[0])
 
+    def visit_Set(self, t):
+        regs = self.register_list()
+        for i, value in enumerate(t.elts):
+            regs[i](value)
+        self.BUILD_SET(regs.base, len(t.elts))
+
     def visit_Subscript(self, t):
         assert type(t.ctx) == ast.Load
         reg = self.register()

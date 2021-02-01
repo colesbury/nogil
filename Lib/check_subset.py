@@ -142,7 +142,7 @@ class Checker(ast.NodeVisitor):
             self(k)
 
     def visit_Set(self, t):
-        assert False, "Set constructor not supported: %r" % (t,)
+        self(t.elts)
 
     def visit_Compare(self, t):
         self(t.left)

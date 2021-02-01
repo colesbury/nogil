@@ -173,6 +173,7 @@ int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int 
 Register
 vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 Register vm_build_list(Register *regs, Py_ssize_t n);
+Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);
 Register vm_build_slice(Register *regs);
 Register vm_list_append(Register list, Register item);

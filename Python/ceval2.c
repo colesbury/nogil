@@ -1073,6 +1073,15 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(BUILD_LIST);
     }
 
+    TARGET(BUILD_SET) {
+        // opA = reg, opD = N
+        CALL_VM(acc = vm_build_set(ts, opA, opD));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
+        DISPATCH(BUILD_SET);
+    }
+
     TARGET(BUILD_TUPLE) {
         // opA = reg, opD = N
         CALL_VM(acc = vm_build_tuple(&regs[opA], opD));
@@ -1166,6 +1175,7 @@ _PyEval_Fast(struct ThreadState *ts)
 
     error: {
         CALL_VM(vm_handle_error(ts));
+        goto exception_unwind;
     }
 
     exception_unwind: {
