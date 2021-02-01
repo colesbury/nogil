@@ -604,11 +604,12 @@ class CodeGen(ast.NodeVisitor):
     def visit_If(self, t):
         orelse, after = Label(), Label()
         self(t.test)
-        self.POP_JUMP_IF_FALSE(orelse)
+        self.POP_JUMP_IF_FALSE(orelse if t.orelse else after)
         self(t.body)
-        self.JUMP(after)
-        self.LABEL(orelse)
-        self(t.orelse)
+        if t.orelse:
+            self.JUMP(after)
+            self.LABEL(orelse)
+            self(t.orelse)
         self.LABEL(after)
 
     def visit_IfExp(self, t):
