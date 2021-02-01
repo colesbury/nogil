@@ -524,7 +524,7 @@ vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
         if (value == NULL) {
             return -1;
         }
-        ts->regs[opA] = PACK_INCREF(value);
+        ts->regs[opA] = PACK_OBJ(value);
         return 0;
     }
 
