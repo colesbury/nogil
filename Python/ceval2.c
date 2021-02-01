@@ -48,6 +48,26 @@
     call; \
     regs = ts->regs;
 
+// I HAVE DEFEATED COMPILER.
+#if defined(__GNUC__)
+#define BREAK_LIVE_RANGE(a) __asm__ volatile ("" : "=r"(a) : "0"(a));
+#else
+#define BREAK_LIVE_RANGE(a) ((void)(a))
+#endif
+
+// Existing (c. 2021) compilers (gcc, clang, icc, msvc) generate poor
+// code for the combination of assignment to the accumulator and decref
+// of the previous value. This macro works around the issue by splitting
+// the live ranges of the relevant variables. By inhibiting some
+// optimizations, we improve the generated code (!).
+#define SET_ACC(val) do {   \
+    Register _old = acc;    \
+    BREAK_LIVE_RANGE(_old); \
+    acc = val;              \
+    BREAK_LIVE_RANGE(acc);  \
+    DECREF(_old);           \
+} while (0)
+
 #define IS_EMPTY(acc) (acc.as_int64 == 0 || !IS_RC(acc))
 
 #define DECREF(reg) do { \
@@ -262,6 +282,8 @@ _PyEval_Fast(struct ThreadState *ts)
         if (UNLIKELY(regs + opA > ts->maxstack)) {
             // resize stack
             CALL_VM(vm_resize_stack(ts, opA));
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
             // todo: check for errors!
         }
         Py_ssize_t nargs = acc.as_int64;
@@ -274,6 +296,8 @@ _PyEval_Fast(struct ThreadState *ts)
         }
         if (this_code->co_ncells != 0) {
             CALL_VM(vm_setup_cells(ts, this_code));
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
         }
         if (this_code->co_nfreevars != 0) {
             CALL_VM(vm_setup_freevars(ts, this_code));
@@ -515,8 +539,9 @@ _PyEval_Fast(struct ThreadState *ts)
     TARGET(CLEAR_ACC) {
         Register r = acc;
         acc.as_int64 = 0;
-        if (r.as_int64)
+        if (r.as_int64 != 0) {
             DECREF(r);
+        }
         DISPATCH(CLEAR_ACC);
     }
 
@@ -619,8 +644,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyObject_RichCompare(left, right, opA));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(COMPARE_OP);
     }
 
@@ -628,8 +652,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *left = AS_OBJ(regs[opA]);
         PyObject *right = AS_OBJ(acc);
         Register res = primitives[(left == right)];
-        DECREF(acc);
-        acc = res;
+        SET_ACC(res);
         DISPATCH(IS_OP);
     }
 
@@ -638,8 +661,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         int cmp;
         CALL_VM(cmp = PySequence_Contains(right, left));
-        DECREF(acc);
-        acc = primitives[cmp];
+        SET_ACC(primitives[cmp]);
         DISPATCH(CONTAINS_OP);
     }
 
@@ -647,8 +669,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Positive(value));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_POSITIVE);
     }
 
@@ -656,8 +677,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Negative(value));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_NEGATIVE);
     }
 
@@ -665,8 +685,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Invert(value));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_INVERT);
     }
 
@@ -674,9 +693,8 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *value = AS_OBJ(acc);
         int is_true;
         CALL_VM(is_true = PyObject_IsTrue(value));
-        DECREF(acc);
         assert(is_true >= 0);
-        acc = primitives[!is_true];
+        SET_ACC(primitives[!is_true]);
         DISPATCH(UNARY_NOT);
     }
 
@@ -694,8 +712,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Add(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_ADD);
     }
 
@@ -706,8 +723,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Subtract(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_SUBTRACT);
     }
 
@@ -718,8 +734,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Multiply(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MULTIPLY);
     }
 
@@ -730,8 +745,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Remainder(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MODULO);
     }
 
@@ -742,8 +756,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_TrueDivide(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_TRUE_DIVIDE);
     }
 
@@ -754,8 +767,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_FloorDivide(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_FLOOR_DIVIDE);
     }
 
@@ -766,8 +778,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Power(left, right, Py_None));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_POWER);
     }
 
@@ -778,8 +789,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_MatrixMultiply(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MATRIX_MULTIPLY);
     }
 
@@ -790,8 +800,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Lshift(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_LSHIFT);
     }
 
@@ -802,8 +811,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Rshift(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_RSHIFT);
     }
 
@@ -814,8 +822,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_And(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_AND);
     }
 
@@ -826,8 +833,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Xor(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_XOR);
     }
 
@@ -838,8 +844,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Or(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_OR);
     }
 
@@ -850,8 +855,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceAdd(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_ADD);
     }
 
@@ -862,8 +866,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceSubtract(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_SUBTRACT);
     }
 
@@ -874,8 +877,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceMultiply(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MULTIPLY);
     }
 
@@ -886,8 +888,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceRemainder(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MODULO);
     }
 
@@ -898,8 +899,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceTrueDivide(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_TRUE_DIVIDE);
     }
 
@@ -910,8 +910,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceFloorDivide(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_FLOOR_DIVIDE);
     }
 
@@ -922,8 +921,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlacePower(left, right, Py_None));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_POWER);
     }
 
@@ -934,8 +932,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceMatrixMultiply(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MATRIX_MULTIPLY);
     }
 
@@ -946,8 +943,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceLshift(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_LSHIFT);
     }
 
@@ -958,8 +954,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceRshift(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_RSHIFT);
     }
 
@@ -970,8 +965,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceAnd(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_AND);
     }
 
@@ -982,8 +976,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceXor(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_XOR);
     }
 
@@ -994,8 +987,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceOr(left, right));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_OR);
     }
 
@@ -1006,8 +998,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *sub = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyObject_GetItem(container, sub));
-        DECREF(acc);
-        acc = PACK_OBJ(res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_SUBSCR);
     }
 
@@ -1147,7 +1138,9 @@ _PyEval_Fast(struct ThreadState *ts)
             goto error;
         }
         next_instr = target;
+        BREAK_LIVE_RANGE(next_instr);
         DECREF(acc);
+        acc.as_int64 = 0;
         DISPATCH(JUMP_IF_NOT_EXC_MATCH);
     }
 
