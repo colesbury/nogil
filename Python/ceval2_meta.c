@@ -24,12 +24,6 @@
 
 static const Register NULL_REGISTER;
 
-static PyObject *primitives[3] = {
-    Py_None,
-    Py_False,
-    Py_True
-};
-
 static PyObject *
 vm_object(Register r) {
     if (IS_OBJ(r)) {
@@ -246,7 +240,7 @@ vm_raise(struct ThreadState *ts, PyObject *exc)
             return 0;
         }
         ts->handled_exc = NULL;
-        PyObject *type = Py_TYPE(exc);
+        PyObject *type = (PyObject *)Py_TYPE(exc);
         Py_INCREF(type);
         PyObject *tb = PyException_GetTraceback(exc);
         _PyErr_Restore(tstate, type, exc, tb);
@@ -879,7 +873,7 @@ make_globals() {
         return NULL;
     }
 
-    static const uint32_t func_vector_call[] = {
+    static uint32_t func_vector_call[] = {
         CFUNC_HEADER
     };
 
@@ -890,7 +884,7 @@ make_globals() {
     PyObject *key, *value;
     while (PyDict_Next(builtins_dict, &i, &key, &value)) {
         if (PyCFunction_Check(value)) {
-            ((PyFuncBase *)value)->first_instr = &func_vector_call;
+            ((PyFuncBase *)value)->first_instr = &func_vector_call[0];
         }
         int err = PyDict_SetItem(globals, key, value);
         if (err < 0) {
@@ -1016,6 +1010,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
 
     if (PyDict_GetItemString(globals, "__builtins__") == NULL) {
         int err = PyDict_SetItemString(globals, "__builtins__", PyEval_GetBuiltins());
+        (void)err;
         assert(err == 0);
     }
 
@@ -1114,7 +1109,7 @@ func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
     Py_INCREF(obj);
     method->im_self = obj;
     method->im_weakreflist = NULL;
-    return method;
+    return (PyObject *)method;
 }
 
 PyTypeObject PyFunc_Type = {

@@ -1143,7 +1143,7 @@ _PyEval_Fast(struct ThreadState *ts)
         PyObject *exc = AS_OBJ(acc);
         const uint32_t *target;
         CALL_VM(target = vm_exc_match(ts, exc, next_instr, opD));
-        if (target == NULL) {
+        if (UNLIKELY(target == NULL)) {
             goto error;
         }
         next_instr = target;
