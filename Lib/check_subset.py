@@ -61,6 +61,10 @@ class Checker(ast.NodeVisitor):
         self(t.targets)
         self(t.value)
 
+    def visit_Delete(self, t):
+        assert t.targets, "At least one target required: %r" % (t,)
+        self(t.targets)
+
     def visit_For(self, t):
         self(t.target)
         self(t.iter)
@@ -171,20 +175,12 @@ class Checker(ast.NodeVisitor):
     def visit_Attribute(self, t):
         self(t.value)
         self.check_identifier(t.attr)
-        if   isinstance(t.ctx, ast.Load):  pass
-        elif isinstance(t.ctx, ast.Store): pass
-        else: assert False, "Only loads and stores are supported: %r" % (t,)
+        assert isinstance(t.ctx, (ast.Load, ast.Store, ast.Del)), "Unsupported context: %r" % (t.ctx,)
 
     def visit_Subscript(self, t):
         self(t.value)
-        if   isinstance(t.ctx, ast.Load):  pass
-        elif isinstance(t.ctx, ast.Store): pass
-        else: assert False, "Only loads and stores are supported: %r" % (t,)
+        assert isinstance(t.ctx, (ast.Load, ast.Store, ast.Del)), "Unsupported context: %r" % (t.ctx,)
         self(t.slice)
-        # elif isinstance(t.slice, ast.Slice):
-        #     self(t.slice)
-        # else:
-        #     assert False, "Only simple subscripts are supported: %r" % (t.s,)
 
     def visit_Slice(self, t):
         for r in (t.lower, t.upper, t.step):
@@ -196,9 +192,7 @@ class Checker(ast.NodeVisitor):
 
     def visit_Name(self, t):
         self.check_identifier(t.id)
-        if   isinstance(t.ctx, ast.Load):  pass
-        elif isinstance(t.ctx, ast.Store): pass
-        else: assert False, "Only loads and stores are supported: %r" % (t,)
+        assert isinstance(t.ctx, (ast.Load, ast.Store, ast.Del)), "Unsupported context: %r" % (t.ctx,)
 
     def visit_Try(self, t):
         self(t.body)

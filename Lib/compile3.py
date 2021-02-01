@@ -452,6 +452,9 @@ class CodeGen(ast.NodeVisitor):
                 return Register(self, self.varnames[t.id])
         return t
 
+    def visit_Register(self, t):
+        self.LOAD_FAST(t)
+
     def assign(self, target, value):
         method = 'assign_' + target.__class__.__name__
         visitor = getattr(self, method)
@@ -483,9 +486,6 @@ class CodeGen(ast.NodeVisitor):
         self(value)
         self.STORE_ATTR(reg, attr)
         reg.clear()
-
-    def visit_Register(self, t):
-        self.LOAD_FAST(t)
 
     def assign_Subscript(self, target, value):
         reg1 = self.register()
@@ -571,6 +571,35 @@ class CodeGen(ast.NodeVisitor):
     def visit_Assign(self, t):
         assert len(t.targets) == 1
         return self.assign(t.targets[0], t.value)
+
+    def visit_Delete(self, t):
+        for target in t.targets:
+            self.delete(target)
+
+    def delete(self, target):
+        method = 'delete_' + target.__class__.__name__
+        visitor = getattr(self, method)
+        return visitor(target)
+
+    def delete_Name(self, t):
+        name = t.id
+        access = self.scope.access(name)
+        if   access == 'fast':   self.DELETE_FAST(self.varnames[name])
+        elif access == 'deref':  self.DELETE_DEREF(self.varnames[name])
+        elif access == 'name':   self.DELETE_NAME(self.names[name])
+        elif access == 'global': self.DELETE_GLOBAL(self.names[name])
+        else: assert False
+
+    def delete_Attribute(self, t):
+        self(t.value)
+        self.DELETE_ATTR(self.names[t.attr])
+
+    def delete_Subscript(self, t):
+        reg = self.register()
+        reg(t.value)
+        self(t.slice)
+        self.DELETE_SUBSCR(reg)
+        reg.clear()
 
     def visit_If(self, t):
         orelse, after = Label(), Label()
@@ -930,7 +959,11 @@ def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
     print(dis.dis(code))
+    import time
+    start = time.perf_counter()
     code.exec(module.__dict__)
+    end = time.perf_counter()
+    print(end - start)
     return module
 
 def code_for_module(module_name, filename, t):
@@ -1051,7 +1084,7 @@ class Scope(ast.NodeVisitor):
             self.define(t.name)
 
     def visit_Name(self, t):
-        if   isinstance(t.ctx, ast.Load):  self.uses.add(t.id)
+        if   isinstance(t.ctx, (ast.Load, ast.Del)):  self.uses.add(t.id)
         elif isinstance(t.ctx, ast.Store): self.define(t.id)
         else: assert False
 

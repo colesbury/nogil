@@ -166,6 +166,7 @@ void
 vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
 Register vm_load_name(Register *regs, PyObject *name);
+int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);
 int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
 

@@ -387,7 +387,6 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
     }
 }
 
-
 Register vm_load_name(Register *regs, PyObject *name)
 {
     PyObject *locals = AS_OBJ(regs[0]);
@@ -412,6 +411,29 @@ Register vm_load_name(Register *regs, PyObject *name)
 
     abort();
     return NULL_REGISTER;
+}
+
+static int
+format_name_error(struct ThreadState *ts, PyObject *name)
+{
+    const char *obj_str = PyUnicode_AsUTF8(name);
+    if (obj_str == NULL) {
+        return -1;
+    }
+    _PyErr_Format(ts->ts, PyExc_NameError, "name '%.200s' is not defined", obj_str);
+    return -1;
+}
+
+int
+vm_delete_name(struct ThreadState *ts, PyObject *name)
+{
+    PyObject *locals = AS_OBJ(ts->regs[0]);
+    assert(PyDict_Check(locals));
+    int err = PyObject_DelItem(locals, name);
+    if (UNLIKELY(err != 0)) {
+        return format_name_error(ts, name);
+    }
+    return 0;
 }
 
 Register

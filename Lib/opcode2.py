@@ -86,10 +86,11 @@ def_op('STORE_GLOBAL', 97, 'str')      # ""
 def_op('STORE_SUBSCR', 60, 'reg', 'reg') # reg1[reg2] = acc
 
 def_op('DELETE_FAST', 126, 'reg')      # Local variable number
-def_op('DELETE_NAME', 91, 'reg')       # ""
-def_op('DELETE_ATTR', 96, 'reg')       # ""
-def_op('DELETE_GLOBAL', 98, 'reg')     # ""
-def_op('DELETE_SUBSCR', 61, 'reg')
+def_op('DELETE_NAME', 91, 'str')       # del name
+def_op('DELETE_ATTR', 96, 'str')       # del acc.name
+def_op('DELETE_GLOBAL', 98, 'str')     # del name
+def_op('DELETE_SUBSCR', 61, 'reg')     # del reg[acc]
+def_op('DELETE_DEREF', 138, 'reg')     # del <reg>?
 
 # call / return / yield
 def_op('CALL_FUNCTION', 131, 'base', 'lit')     # #args
@@ -132,7 +133,6 @@ def_op('BUILD_MAP', 105, 'lit')               # Number of dict entries
 def_op('LOAD_CLOSURE', 135, 'cell')
 def_op('LOAD_DEREF', 136, 'reg')
 def_op('STORE_DEREF', 137, 'reg')
-def_op('DELETE_DEREF', 138, 'reg')
 
 # f-strings
 def_op('FORMAT_VALUE', 155, 'lit')

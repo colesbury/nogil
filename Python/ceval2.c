@@ -540,6 +540,79 @@ _PyEval_Fast(struct ThreadState *ts)
         DISPATCH(STORE_DEREF);
     }
 
+    TARGET(DELETE_FAST) {
+        Register r = regs[opA];
+        if (UNLIKELY(r.as_int64 == 0)) {
+            // FIXME: name error
+            goto error;
+        }
+        regs[opA].as_int64 = 0;
+        DECREF(r);
+        DISPATCH(DELETE_FAST);
+    }
+
+    TARGET(DELETE_NAME) {
+        assert(IS_EMPTY(acc));
+        PyObject *name = CONSTANTS()[opA];
+        int err;
+        CALL_VM(err = vm_delete_name(ts, name));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DISPATCH(DELETE_NAME);
+    }
+
+    TARGET(DELETE_GLOBAL) {
+        PyObject *globals = THIS_FUNC()->globals;
+        PyObject *name = CONSTANTS()[opA];
+        int err;
+        CALL_VM(err = PyDict_DelItem(globals, name));
+        if (UNLIKELY(err != 0)) {
+            // FIXME: convert KeyError to NameError
+            goto error;
+        }
+        DISPATCH(DELETE_GLOBAL);
+    }
+
+    TARGET(DELETE_ATTR) {
+        PyObject *owner = AS_OBJ(acc);
+        PyObject *name = CONSTANTS()[opA];
+        int err;
+        CALL_VM(err = PyObject_SetAttr(owner, name, (PyObject *)NULL));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(DELETE_ATTR);
+    }
+
+    TARGET(DELETE_SUBSCR) {
+        PyObject *container = AS_OBJ(regs[opA]);
+        PyObject *sub = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyObject_DelItem(container, sub));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(DELETE_SUBSCR);
+    }
+
+    TARGET(DELETE_DEREF) {
+        PyObject *cell = AS_OBJ(regs[opA]);
+        assert(PyCell_Check(cell));
+        PyObject *old = PyCell_GET(cell);
+        if (UNLIKELY(old == NULL)) {
+            // TODO: name error
+            goto error;
+        }
+        PyCell_SET(cell, NULL);
+        _Py_DECREF(old);
+        DISPATCH(DELETE_DEREF);
+    }
+
     TARGET(COMPARE_OP) {
         assert(opA <= Py_GE);
         PyObject *left = AS_OBJ(regs[opD]);
