@@ -450,10 +450,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         PyObject *owner = AS_OBJ(acc);
         int err;
         CALL_VM(err = vm_load_method(ts, owner, name, opA));
-        assert(err == 0);
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
         DECREF(acc);
         acc.as_int64 = 0;
-        DISPATCH(LOAD_ATTR);
+        DISPATCH(LOAD_METHOD);
     }
 
     TARGET(STORE_NAME) {
@@ -478,6 +480,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         int err;
         CALL_VM(err = PyObject_SetItem(container, sub, value));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(STORE_SUBSCR);
@@ -489,6 +494,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         int err;
         CALL_VM(err = PyObject_SetAttr(owner, name, value));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(STORE_ATTR);
