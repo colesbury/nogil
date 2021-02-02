@@ -102,8 +102,6 @@ struct ThreadState {
     // registers for current function (points within stack)
     Register *regs;
 
-    const uint32_t *pc;
-
     Py_ssize_t cframe_size;
 
     // true bottom of stack
@@ -124,8 +122,6 @@ struct ThreadState {
     // Currently handled exception
     PyObject *handled_exc;
 
-    Py_ssize_t nargs;
-
     // current metadata ???
     uint16_t *metadata;
 
@@ -136,7 +132,7 @@ struct ThreadState {
 
 
 // ceval2.c
-PyObject* _PyEval_Fast(struct ThreadState *ts);
+PyObject* _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
 
 struct _PyCodeObject2;
 typedef struct _PyCodeObject2 PyCodeObject2;

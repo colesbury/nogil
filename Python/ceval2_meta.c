@@ -948,7 +948,6 @@ setup_frame(struct ThreadState *ts, PyFunc *func)
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
-    ts->pc = PyCode2_GET_CODE(code);
     return frame_size;
 }
 
@@ -956,10 +955,15 @@ PyObject *
 _PyEval_FastCall(PyFunc *func, PyObject *locals)
 {
     struct ThreadState *ts = gts;
+    Py_ssize_t nargs = 0;
+    const uint32_t *pc;
+
     Py_ssize_t frame_size = setup_frame(ts, func);
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
-    ts->nargs = 0;
-    PyObject *ret = _PyEval_Fast(ts);
+
+    pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
+    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
+
     ts->regs -= frame_size + FRAME_EXTRA;
     return ret;
 }
@@ -968,18 +972,17 @@ PyObject *
 _PyEval_FastCallArgs(PyFunc *func, PyObject *args)
 {
     struct ThreadState *ts = gts;
+    Py_ssize_t nargs = 0;
     Py_ssize_t frame_size = setup_frame(ts, func);
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
     if (args != NULL) {
         Py_ssize_t n = PyTuple_GET_SIZE(args);
-        ts->nargs = n;
+        nargs = n;
         for (Py_ssize_t i = 0; i != n; i++) {
             ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i), NO_REFCOUNT_TAG);
         }
     }
-    else {
-        ts->nargs = 0;
-    }
-    PyObject *ret = _PyEval_Fast(ts);
+    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
     ts->regs -= frame_size + FRAME_EXTRA;
     return ret;
 }
@@ -994,8 +997,6 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
         }
     }
     struct ThreadState *ts = gts;
-
-    ts->pc = PyCode2_GET_CODE(code);
 
     if (empty_tuple == NULL) {
         empty_tuple = PyTuple_New(0);
@@ -1030,8 +1031,11 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     ts->regs[0] = PACK(globals, NO_REFCOUNT_TAG);
-    ts->nargs = 0;
-    PyObject *ret = _PyEval_Fast(ts);
+
+    Py_ssize_t nargs = 0;
+    const uint32_t *pc = PyCode2_GET_CODE(code);
+
+    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
 
 #ifdef Py_REF_DEBUG
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;

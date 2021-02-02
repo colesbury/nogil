@@ -198,19 +198,23 @@ static const Register primitives[3] = {
 
 PyObject*
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
-_PyEval_Fast(struct ThreadState *ts)
+_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 {
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->opcode_targets[0])) {
         memcpy(ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
     }
 
-    const uint32_t *next_instr = ts->pc;
+    const uint32_t *next_instr = pc;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
-    Register acc;
-    // callee saved: rbx,rbp,r12,r13,r14,r15 6 usable registers + rsp
+    Register acc = {nargs};
+    Register *regs = ts->regs;
+    void **opcode_targets = ts->opcode_targets;
+    // uint16_t *metadata = ts->metadata;
+    // callee saved: rbx,rbp,r12,r13,r14,r15
+    // 6 usable registers (+ rsp, which isn't directly usable)
 
     // WebKit Saved:
     // regs (cfr)
@@ -226,17 +230,14 @@ _PyEval_Fast(struct ThreadState *ts)
     // opcode_targets
 
     // We want saved:
-    // next_instr (pc) -- webkit splits this in two: PB/PC PB is saved, PC is returned on calls
-    // constants -- webkit sticks this in frame?
+    // next_instr (pc)
     // opcode_targets
     // ts
-
-    void **opcode_targets = ts->opcode_targets;
-    uint16_t *metadata = ts->metadata;
+    // acc
+    // maybe: tid
+    // maybe: constants/metadata
 
     // NOTE: after memcpy call!
-    Register *regs = ts->regs;
-    acc.as_int64 = ts->nargs;
     DISPATCH(INITIAL);
 
     TARGET(LOAD_CONST) {
