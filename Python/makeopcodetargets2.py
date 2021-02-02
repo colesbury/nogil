@@ -51,6 +51,23 @@ def write_names(opcode, f):
     f.write("\n};\n")
 
 
+def write_intrinsics(opcode, f):
+    """Write C code contents to the target file object.
+    """
+    names = ['unknown_opcode'] * 256
+    names[255] = 'debug_regs'
+    f.write("union intrinsic intrinsics_table[] = {\n")
+    for i, intrinsic in enumerate(opcode.intrinsics):
+        if i != 0:
+            f.write(',\n')
+        if intrinsic is None:
+            f.write('    { &vm_unimplemented }')
+        else:
+            attr = 'intrinsic1' if intrinsic.nargs == 1 else 'intrinsicN'
+            f.write(f'    {{ .{attr} = &{intrinsic.name} }}')
+    f.write("\n};\n")
+
+
 def main():
     if len(sys.argv) >= 3:
         sys.exit("Too many arguments")
@@ -61,6 +78,9 @@ def main():
     with open("Python/opcode_names2.h", "w") as f:
         write_names(opcode, f)
         print("Name table written into Python/opcode_names2.h")
+    with open("Python/ceval_intrinsics.h", "w") as f:
+        write_intrinsics(opcode, f)
+        print("Intrinsic table written into Python/ceval_intrinsics.h")
 
 
 if __name__ == "__main__":

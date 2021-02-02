@@ -16,13 +16,6 @@ del _opcodes_all
 _have_code = (types.MethodType, types.FunctionType, types.CodeType,
               classmethod, staticmethod, type)
 
-FORMAT_VALUE = opmap['FORMAT_VALUE']
-FORMAT_VALUE_CONVERTERS = (
-    (None, ''),
-    (str, 'str'),
-    (repr, 'repr'),
-    (ascii, 'ascii'),
-)
 MAKE_FUNCTION = opmap['MAKE_FUNCTION']
 MAKE_FUNCTION_FLAGS = ('defaults', 'kwdefaults', 'annotations', 'closure')
 
@@ -358,6 +351,8 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
                 argval, argrepr = _get_const_info(arg, constants)
             elif fmt == 'reg':
                 argrepr = format_reg(arg)
+            elif fmt == 'intrinsic':
+                argrepr = intrinsics[arg].name
             elif fmt == 'const':
                 argval, argrepr = _get_const_info(arg, constants)
             elif fmt == 'cell':

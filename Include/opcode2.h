@@ -30,6 +30,9 @@ extern "C" {
 #define INPLACE_FLOOR_DIVIDE     28
 #define INPLACE_TRUE_DIVIDE      29
 #define LOAD_EXC                 30
+#define LOAD_INTRINSIC           34
+#define CALL_INTRINSIC_1         35
+#define CALL_INTRINSIC_N         36
 #define RERAISE                  48
 #define WITH_EXCEPT_START        49
 #define GET_AITER                50
@@ -116,9 +119,7 @@ extern "C" {
 #define MAP_ADD                 147
 #define LOAD_CLASSDEREF         148
 #define SETUP_ASYNC_WITH        154
-#define FORMAT_VALUE            155
 #define BUILD_CONST_KEY_MAP     156
-#define BUILD_STRING            157
 #define LOAD_METHOD             160
 #define CALL_METHOD             161
 #define LIST_EXTEND             162

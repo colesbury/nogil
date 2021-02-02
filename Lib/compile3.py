@@ -333,13 +333,6 @@ class CodeGen(ast.NodeVisitor):
             self(t)
             self.STORE_FAST(reg.allocate())
 
-    def visit_Constant(self, t):
-        self.load_const(t.value)
-
-    def visit_Name(self, t):
-        assert isinstance(t.ctx, ast.Load)
-        self.load(t.id)
-
     def copy_register(self, dst, src):
         if dst.is_placeholder():
             dst.reg = src.reg
@@ -398,6 +391,52 @@ class CodeGen(ast.NodeVisitor):
 
     def cell_index(self, name):
         return self.scope.derefvars.index(name)
+
+    def visit_Constant(self, t):
+        self.load_const(t.value)
+
+    def visit_Name(self, t):
+        assert isinstance(t.ctx, ast.Load)
+        self.load(t.id)
+
+    def call_intrinsic(self, name, base=None, nargs=None):
+        assert (base is None) == (nargs is None)
+        intrinsic = dis.intrinsic_map[name]
+        if base is None:
+            assert intrinsic.nargs == 1
+            self.CALL_INTRINSIC_1(intrinsic.code)
+        else:
+            assert intrinsic.nargs == nargs or intrinsic.nargs == 'N'
+            self.LOAD_INTRINSIC(intrinsic.code)
+            self.CALL_INTRINSIC_N(base, nargs)
+
+    def visit_FormattedValue(self, t):
+        if t.format_spec is None:
+            self(t.value)
+            if t.conversion != -1:
+                self.call_intrinsic(self.conv_fns[chr(t.conversion)])
+            self.call_intrinsic('vm_format_value')
+        else:
+            regs = self.register_list(2)
+            if t.conversion != -1:
+                self(t.value)
+                self.call_intrinsic(self.conv_fns[chr(t.conversion)])
+                self.STORE_FAST(regs[0].allocate())
+            else:
+                regs[0](t.value)
+            regs[1](t.format_spec)
+            self.call_intrinsic('vm_format_value_spec', regs.base, 2)
+    conv_fns = {'s': 'PyObject_Str', 'r': 'PyObject_Repr', 'a': 'PyObject_ASCII'}
+
+    def visit_JoinedStr(self, t):
+        if len(t.values) == 1:
+            self(t.values[0])
+            return
+
+        reg = self.register_list()
+        for i, value in enumerate(t.values):
+            reg[i](value)
+        self.call_intrinsic('vm_build_string', reg.base, len(t.values))
 
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256

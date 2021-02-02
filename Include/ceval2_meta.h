@@ -161,6 +161,17 @@ vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD);
 void
 vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
 
+typedef PyObject* (*intrinsic1)(PyObject *arg);
+typedef PyObject* (*intrinsicN)(PyObject *const *args, Py_ssize_t n);
+
+extern union intrinsic {
+    intrinsic1 intrinsic1;
+    intrinsicN intrinsicN;
+} intrinsics_table[];
+
+PyObject *
+vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssize_t nargs);
+
 Register vm_load_name(Register *regs, PyObject *name);
 int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);

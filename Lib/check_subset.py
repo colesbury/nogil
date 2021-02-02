@@ -169,6 +169,14 @@ class Checker(ast.NodeVisitor):
         if isinstance(t.value, float):
             assert not has_negzero(t.value), "Negative-zero literals not supported: %r" % (t,)
 
+    def visit_FormattedValue(self, t):
+        self(t.value)
+        if t.format_spec is not None:
+            self(t.format_spec)
+
+    def visit_JoinedStr(self, t):
+        self(t.values)
+
     def visit_ListAppend(self, t):
         pass
 

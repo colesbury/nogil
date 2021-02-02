@@ -3,8 +3,13 @@ opname = ['<%r>' % (op,) for op in range(256)]
 cmp_op = ('<', '<=', '==', '!=', '>', '>=')
 bytecodes = []
 opcodes = [None] * 256
+intrinsics = [None] * 256
+intrinsic_map = {}
 
-__all__ = ["cmp_op", "opname", "opmap", "opcodes", "bytecodes"]
+__all__ = [
+    "cmp_op", "opname", "opmap", "opcodes", "bytecodes", "intrinsics",
+    "intrinsic_map",
+]
 
 class Bytecode:
     def __init__(self, name, opcode, opA, opD):
@@ -16,6 +21,12 @@ class Bytecode:
     def is_jump(self):
         return self.opD == 'jump'
 
+class Intrinsic:
+    def __init__(self, name, code, nargs):
+        self.name = name
+        self.code = code
+        self.nargs = nargs
+
 def def_op(name, opcode, opA=None, opD=None):
     bytecode = Bytecode(name, opcode, opA, opD)
     bytecodes.append(bytecode)
@@ -23,6 +34,11 @@ def def_op(name, opcode, opA=None, opD=None):
     opname[opcode] = name
     opcodes[opcode] = bytecode
 
+def def_intrinsic(name, code, nargs=1):
+    assert nargs == 'N' or isinstance(nargs, int)
+    intrinsic = Intrinsic(name, code, nargs)
+    intrinsics[code] = intrinsic
+    intrinsic_map[name] = intrinsic
 
 def_op('CLEAR_ACC', 1)
 def_op('FUNC_HEADER', 2, 'lit')
@@ -78,6 +94,7 @@ def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
 def_op('LOAD_GLOBAL', 116, 'str')      # Index in name list
 def_op('LOAD_METHOD', 160, 'reg', 'str')
 def_op('LOAD_EXC', 30)
+def_op('LOAD_INTRINSIC', 34, 'intrinsic')
 
 def_op('STORE_FAST', 125, 'reg')       # Local variable number
 def_op('STORE_NAME', 90, 'str')        # Index in name list
@@ -97,6 +114,8 @@ def_op('CALL_FUNCTION', 131, 'base', 'lit')     # #args
 def_op('CALL_FUNCTION_KW', 141, 'base', 'lit')  # #args + #kwargs
 def_op('CALL_FUNCTION_EX', 142, 'base', 'lit')  # Flags
 def_op('CALL_METHOD', 161, 'base', 'lit')
+def_op('CALL_INTRINSIC_1', 35, 'intrinsic')
+def_op('CALL_INTRINSIC_N', 36, 'base', 'lit')
 
 def_op('RETURN_VALUE', 83)
 def_op('RERAISE', 48, 'reg')
@@ -134,10 +153,6 @@ def_op('LOAD_CLOSURE', 135, 'cell')
 def_op('LOAD_DEREF', 136, 'reg')
 def_op('STORE_DEREF', 137, 'reg')
 
-# f-strings
-def_op('FORMAT_VALUE', 155, 'lit')
-def_op('BUILD_STRING', 157, 'lit')
-
 def_op('END_EXCEPT', 89, 'reg')
 def_op('END_FINALLY', 122, 'reg')
 
@@ -173,4 +188,11 @@ def_op('CLEAR_FAST', 168, 'reg')     # Index in name list
 def_op('COPY', 169, 'reg', 'reg')
 def_op('MOVE', 170, 'reg', 'reg')
 
-del def_op
+def_intrinsic('PyObject_Str', 1)
+def_intrinsic('PyObject_Repr', 2)
+def_intrinsic('PyObject_ASCII', 3)
+def_intrinsic('vm_format_value', 4)
+def_intrinsic('vm_format_value_spec', 5, nargs=2)
+def_intrinsic('vm_build_string', 6, nargs='N')
+
+del def_op, def_intrinsic

@@ -1159,6 +1159,36 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(END_FINALLY);
     }
 
+    TARGET(LOAD_INTRINSIC) {
+        assert(IS_EMPTY(acc));
+        acc = PACK((opA << 1), NO_REFCOUNT_TAG);
+        DISPATCH(LOAD_INTRINSIC);
+    }
+
+    TARGET(CALL_INTRINSIC_1) {
+        intrinsic1 fn = intrinsics_table[opA].intrinsic1;
+        PyObject *value = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = fn(value));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
+        SET_ACC(PACK_OBJ(res));
+        DISPATCH(CALL_INTRINSIC_1);
+    }
+
+    TARGET(CALL_INTRINSIC_N) {
+        PyObject *res;
+        intptr_t id = (acc.as_int64 >> 1);
+        CALL_VM(res = vm_call_intrinsic(ts, id, opA, opD));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        DISPATCH(CALL_INTRINSIC_N);
+    }
+
     return_to_c: {
         PyObject *obj = AS_OBJ(acc);
         if (!IS_RC(acc)) {

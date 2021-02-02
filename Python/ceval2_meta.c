@@ -21,6 +21,7 @@
 #include "opcode_names2.h"
 
 #include <ctype.h>
+#include <alloca.h>
 
 static const Register NULL_REGISTER;
 
@@ -760,6 +761,58 @@ Register vm_list_append(Register a, Register b)
     return NULL_REGISTER;
 }
 
+static PyObject *
+vm_unimplemented(/*intentionally empty*/)
+{
+    printf("calling unimplemented intrinsic!\n");
+    abort();
+}
+
+static PyObject *
+vm_format_value(PyObject *value)
+{
+    if (PyUnicode_CheckExact(value)) {
+        Py_INCREF(value);
+        return value;
+    }
+    return PyObject_Format(value, NULL);
+}
+
+static PyObject *
+vm_format_value_spec(PyObject **args, Py_ssize_t nargs)
+{
+    assert(nargs == 2);
+    return PyObject_Format(args[0], args[1]);
+}
+
+static PyObject *
+vm_build_string(PyObject **args, Py_ssize_t nargs)
+{
+    PyObject *empty = PyUnicode_New(0, 0);
+    assert(empty != NULL && _PyObject_IS_IMMORTAL(empty));
+    return _PyUnicode_JoinArray(empty, args, nargs);
+}
+
+PyObject *
+vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssize_t nargs)
+{
+    intrinsicN fn = intrinsics_table[id].intrinsicN;
+    PyObject **args = alloca(nargs * sizeof(PyObject *));
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        args[i] = AS_OBJ(ts->regs[opA + i]);
+    }
+    PyObject *res = fn(args, nargs);
+    if (UNLIKELY(res == NULL)) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        Register prev = ts->regs[opA + i];
+        ts->regs[opA + i].as_int64 = 0;
+        DECREF(prev);
+    }
+    return res;
+}
+
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
 {
     printf("vm_resize_stack\n");
@@ -1174,3 +1227,5 @@ PyTypeObject PyMeth_Type = {
     .tp_members = NULL,
     .tp_methods = NULL,
 };
+
+#include "ceval_intrinsics.h"
