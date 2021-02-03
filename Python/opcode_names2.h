@@ -134,7 +134,7 @@ static const char *opcode_names[256] = {
     "MAKE_FUNCTION",
     "BUILD_SLICE",
     "unknown_opcode",
-    "LOAD_CLOSURE",
+    "unknown_opcode",
     "LOAD_DEREF",
     "STORE_DEREF",
     "DELETE_DEREF",

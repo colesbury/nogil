@@ -149,7 +149,6 @@ def_op('BUILD_MAP', 105, 'lit')               # Number of dict entries
 
 
 # ----
-def_op('LOAD_CLOSURE', 135, 'cell')
 def_op('LOAD_DEREF', 136, 'reg')
 def_op('STORE_DEREF', 137, 'reg')
 
