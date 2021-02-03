@@ -112,6 +112,9 @@ class Checker(ast.NodeVisitor):
     def visit_Break(self, t):
         pass
 
+    def visit_Continue(self, t):
+        pass
+
     def visit_BoolOp(self, t):
         assert type(t.op) in self.ops_bool, "Unsupported boolean op: %r" % (t,)
         self(t.values)

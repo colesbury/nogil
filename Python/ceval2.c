@@ -1154,16 +1154,42 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(END_EXCEPT) {
-        PyObject *prev = ts->handled_exc;
-        ts->handled_exc = AS_OBJ(regs[opA]);
-        regs[opA].as_int64 = 0;
-        if (prev != NULL) {
-            _Py_DECREF(prev);
+        if (regs[opA].as_int64 == -1) {
+            PyObject *prev = ts->handled_exc;
+            ts->handled_exc = AS_OBJ(regs[opA + 1]);
+            regs[opA].as_int64 = 0;
+            if (prev != NULL) {
+                _Py_DECREF(prev);
+            }
         }
         DISPATCH(END_EXCEPT);
     }
 
+    TARGET(CALL_FINALLY) {
+        regs[opA] = PACK(next_instr, NO_REFCOUNT_TAG);
+        next_instr += opD - 0x8000;
+        DISPATCH(CALL_FINALLY);
+    }
+
     TARGET(END_FINALLY) {
+        int64_t link_addr = regs[opA].as_int64;
+        acc = regs[opA + 1];
+        regs[opA].as_int64 = 0;
+        regs[opA + 1].as_int64 = 0;
+        if (link_addr != 0) {
+            if (UNLIKELY(link_addr == -1)) {
+                // re-raise the exception that caused us to enter the
+                // finally block.
+                PyObject *exc = ts->handled_exc;
+                ts->handled_exc = AS_OBJ(acc);
+                acc.as_int64 = 0;
+                CALL_VM(vm_reraise(ts, exc));
+                goto exception_unwind;
+            }
+            else {
+                next_instr = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
+            }
+        }
         DISPATCH(END_FINALLY);
     }
 

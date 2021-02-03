@@ -122,7 +122,7 @@ static void *opcode_targets_base[256] = {
     &&_unknown_opcode,
     &&TARGET_JUMP_IF_NOT_EXC_MATCH,
     &&TARGET_END_FINALLY,
-    &&_unknown_opcode,
+    &&TARGET_CALL_FINALLY,
     &&TARGET_LOAD_FAST,
     &&TARGET_STORE_FAST,
     &&TARGET_DELETE_FAST,

@@ -81,13 +81,14 @@ class Label(Assembly):
         return ((self, start),)
 
 class ExceptHandler(Label):
-    def __init__(self, handler, reg):
-        self.handler = handler
+    def __init__(self, start, reg):
+        self.start = start
         self.reg = reg
+        assert isinstance(reg, int)
     def resolve(self, start):
         return ((self, start),)
     def eh_table(self, addresses):
-        return ((addresses[self] // 4, addresses[self.handler] // 4, self.reg.reg),)
+        return ((addresses[self.start] // 4, addresses[self] // 4, self.reg),)
 
 class Instruction(Assembly):
     length = 4
@@ -165,16 +166,46 @@ class Reference:
 class Block:
     pass
 
-class Finally(Block):
-    def __init__(self, handler):
+class TryFinally(Block):
+    def __init__(self, handler, reg):
         self.handler = handler
+        self.reg = reg
+
+    def on_exit(self, v):
+        assert v.next_register == self.reg
+        v.CALL_FINALLY(self.reg, self.handler)
+
+class Finally(Block):
+    def __init__(self, reg):
+        self.reg = reg
+
+    def on_exit(self, v):
+        assert v.next_register == self.reg + 2
+        v.END_EXCEPT(self.reg)
+        v.next_register -= 2
+
+class ExceptBlock(Block):
+    def __init__(self, reg):
+        self.reg = reg
+
+    def on_exit(self, v):
+        assert v.next_register == self.reg + 2
+        v.END_EXCEPT(self.reg)
+        v.next_register -= 2
 
 class Loop:
-    def __init__(self):
+    def __init__(self, reg=None):
         self.top = Label()      # iteration
         self.next = Label()     # loop test (continue target)
         self.anchor = Label()   # before "orelse" block
         self.exit = Label()     # break target
+        self.reg = reg
+
+    def on_exit(self, v):
+        if self.reg is not None:
+            assert v.next_register == self.reg + 1
+            v.CLEAR_FAST(self.reg)
+            v.next_register -= 1
 
 def denotation(defn):
     opcode = defn.opcode
@@ -417,7 +448,7 @@ class CodeGen(ast.NodeVisitor):
                 self.call_intrinsic(self.conv_fns[chr(t.conversion)])
             self.call_intrinsic('vm_format_value')
         else:
-            regs = self.register_list(2)
+            regs = self.register_list()
             if t.conversion != -1:
                 self(t.value)
                 self.call_intrinsic(self.conv_fns[chr(t.conversion)])
@@ -473,8 +504,11 @@ class CodeGen(ast.NodeVisitor):
         if hasattr(t, 'lineno'):
             self.last_lineno = t.lineno
         top = self.next_register
+        block_top = len(self.blocks)
         assembly = self.visit(t)
         self.next_register = top
+        while len(self.blocks) > block_top:
+            self.blocks.pop()
 
     def generic_visit(self, t):
         assert False, t
@@ -817,42 +851,50 @@ class CodeGen(ast.NodeVisitor):
         self.IMPORT_NAME(self.constants[arg])
 
     def visit_While(self, t):
-        with self.block(Loop()) as loop:
-            self.JUMP(loop.next)
-            self.LABEL(loop.top)
-            self(t.body)
-            self.LABEL(loop.next)
-            self(t.test)
-            self.POP_JUMP_IF_TRUE(loop.top)
-            self.LABEL(loop.anchor)
-            if t.orelse:
-                self(t.orelse)
-            self.LABEL(loop.exit)
+        loop = self.push_loop()
+        self.JUMP(loop.next)
+        self.LABEL(loop.top)
+        self(t.body)
+        self.LABEL(loop.next)
+        self(t.test)
+        self.POP_JUMP_IF_TRUE(loop.top)
+        self.LABEL(loop.anchor)
+        if t.orelse:
+            self(t.orelse)
+        self.LABEL(loop.exit)
 
     def visit_For(self, t):
         # top, next, anchor, exit
-        reg = self.register()
-        with self.block(Loop()) as loop:
-            self(t.iter)
-            self.GET_ITER(reg.allocate())
-            self.JUMP(loop.next)
-            self.LABEL(loop.top)
-            self.assign_accumulator(t.target)
-            self(t.body)
-            self.LABEL(loop.next)
-            self.FOR_ITER(reg, loop.top)
-            self.LABEL(loop.anchor)
-            if t.orelse:
-                self(t.orelse)
-            self.LABEL(loop.exit)
+        self(t.iter)
+        loop = self.push_loop(self.new_register())
+        self.GET_ITER(loop.reg)
+        self.JUMP(loop.next)
+        self.LABEL(loop.top)
+        self.assign_accumulator(t.target)
+        self(t.body)
+        self.LABEL(loop.next)
+        self.FOR_ITER(loop.reg, loop.top)
+        self.LABEL(loop.anchor)
+        if t.orelse:
+            self(t.orelse)
+        self.LABEL(loop.exit)
+
+    def push_loop(self, reg=None):
+        loop = Loop(reg)
+        self.blocks.append(loop)
+        return loop
 
     def visit_Return(self, t):
         if t.value:
             self(t.value)
         else:
             self.load_const(None)
-        for i in reversed(range(self.nlocals, self.next_register)):
-            self.CLEAR_FAST(i)
+
+        for block in reversed(self.blocks):
+            if isinstance(block, TryFinally):
+                self.STORE_FAST(block.reg + 1)
+            block.on_exit(self)
+
         self.RETURN_VALUE()
 
     def visit_Try(self, t):
@@ -862,62 +904,76 @@ class CodeGen(ast.NodeVisitor):
             self.try_except(t)
 
     def try_finally(self, t):
-        final = Label()
-        err = self.register()
-        body = ExceptHandler(final, err)
+        start = Label()
+        link_reg = self.next_register
+        handler = ExceptHandler(start, link_reg)
 
-        with self.block(Finally()) as finally_:
-            self.LABEL(body)
+        self.LABEL(start)
+        self.blocks.append(TryFinally(handler, link_reg))
+        if len(t.handlers) > 0:
             self.try_except(t)
-            err.allocate()
-            self.LABEL(final)
-            self(t.finalbody)
-            self.RERAISE(err)
-            self.LABEL(end)
+        else:
+            self(t.body)
+        self.blocks.pop()  # pop try-finally block
+        self.next_register = link_reg # no scoping in try_except because we don't go through __call__
+        self.LABEL(handler)
+        self.blocks.append(Finally(link_reg))
+        r = self.new_register(2)  # actually allocate token register
+        assert r == link_reg, (r, link_reg)
+        self(t.finalbody)
+        self.END_FINALLY(link_reg)
+        self.blocks.pop()
 
     def try_except(self, t):
-        labels = [Label() for _ in range(len(t.handlers)+1)]
+        start = Label()
+        labels = [Label() for _ in range(len(t.handlers))]
         orelse, end = Label(), Label()
-        err = self.register()
+        link_reg = self.next_register
 
-        self.LABEL(ExceptHandler(labels[0], err))
+        self.LABEL(start)
         self(t.body)
         self.JUMP(orelse)
-        err.allocate()
+        r = self.new_register(2)  # actually allocate token register
+        assert r == link_reg
+        self.LABEL(ExceptHandler(start, link_reg))
+        self.blocks.append(ExceptBlock(link_reg))
         for i,handler in enumerate(t.handlers):
-            self.LABEL(labels[i])
             if handler.type:
-                self.JUMP_IF_NOT_EXC_MATCH(labels[i+1])
+                self(handler.type)
+                self.JUMP_IF_NOT_EXC_MATCH(labels[i])
             if handler.name:
+                # FIXME: we need to wrap another exception handler
+                # here to clear the name. Also another exception block
+                # to clear the name on control flow out of it.
                 self.LOAD_EXC()
                 self.store(handler.name)
+                self(handler.body)
                 self.clear(handler.name)
             else:
                 self(handler.body)
-            self.END_EXCEPT(err)
+            self.END_EXCEPT(link_reg)
             self.JUMP(end)
-        self.LABEL(labels[-1])
-        self.RERAISE(err)
+            self.LABEL(labels[i])
+        self.RERAISE(link_reg)
+        self.blocks.pop()
         self.LABEL(orelse)
         if t.orelse:
             self(t.orelse)
         self.LABEL(end)
 
-    @contextlib.contextmanager
-    def block(self, block):
-        self.blocks.append(block)
-        yield block
-        assert block == self.blocks[-1]
-        self.blocks.pop()
-
     def visit_Break(self, t):
         for block in reversed(self.blocks):
+            block.on_exit(self)
             if isinstance(block, Loop):
                 self.JUMP(block.exit)
                 return
-            else:
-                assert isinstance(block, Finally)
-                assert False, "break out of finally NYI"
+
+    def visit_Continue(self, t):
+        for block in reversed(self.blocks):
+            if isinstance(block, Loop):
+                self.JUMP(block.next)
+                return
+            block.on_exit(self)
 
     def visit_Function(self, t):
         code = self.sprout(t).compile_function(t)

@@ -148,6 +148,9 @@ Register vm_unknown_opcode(intptr_t opcode);
 int
 vm_raise(struct ThreadState *ts, PyObject *err);
 
+void
+vm_reraise(struct ThreadState *ts, PyObject *err);
+
 const uint32_t *
 vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr);
 

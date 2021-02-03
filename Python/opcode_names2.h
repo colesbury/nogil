@@ -122,7 +122,7 @@ static const char *opcode_names[256] = {
     "unknown_opcode",
     "JUMP_IF_NOT_EXC_MATCH",
     "END_FINALLY",
-    "unknown_opcode",
+    "CALL_FINALLY",
     "LOAD_FAST",
     "STORE_FAST",
     "DELETE_FAST",

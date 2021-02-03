@@ -164,22 +164,24 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
     }
 }
 
+/* Finds the inner most exception handler for the current instruction.
+   Exception handlers are stored in inner-most to outer-most order.
+*/
 static ExceptionHandler *
 vm_exception_handler(PyCodeObject2 *code, const uint32_t *next_instr)
 {
     const uint32_t *first_instr = PyCode2_GET_CODE(code);
     Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
 
-    ExceptionHandler *handler = NULL;
     struct _PyHandlerTable *table = code->co_exc_handlers;
     for (Py_ssize_t i = 0, n = table->size; i < n; i++) {
         ExceptionHandler eh = table->entries[i];
         printf("instr_offset = %zd start = %zd handler = %zd\n", instr_offset, eh.start, eh.handler);
         if (eh.start <= instr_offset && instr_offset < eh.handler) {
-            handler = &table->entries[i];
+            return &table->entries[i];
         }
     }
-    return handler;
+    return NULL;
 }
 
 const uint32_t *
@@ -206,12 +208,22 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
                 PyException_SetTraceback(val, tb);
             else
                 PyException_SetTraceback(val, Py_None);
+            Py_ssize_t link_reg = handler->reg;
+            ts->regs[link_reg].as_int64 = -1;
+            if (ts->handled_exc != NULL) {
+                ts->regs[link_reg + 1] = PACK_OBJ(ts->handled_exc);
+            }
+            else {
+                ts->regs[link_reg + 1].as_int64 = 0;
+            }
             ts->handled_exc = val;
             Py_DECREF(exc);
+            Py_XDECREF(tb);
             return PyCode2_GET_CODE(code) + handler->handler;
         }
 
-        // clear the entire frame, including local variables and THIS_FUNC()
+        // No handler found in this call frame. Clears the entire frame and
+        // unwinds the call stack.
         vm_clear_regs(ts, -1, code->co_framesize);
         uintptr_t frame_link = ts->regs[-2].as_int64;
         ts->regs[-2].as_int64 = 0;
@@ -225,6 +237,14 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         intptr_t offset = (call >> 8) & 0xFF;
         ts->regs -= offset;
     }
+}
+
+void
+vm_reraise(struct ThreadState *ts, PyObject *exc)
+{
+    PyObject *tb = PyException_GetTraceback(exc);
+    PyObject *type = (PyObject *)Py_TYPE(exc);
+    _PyErr_Restore(ts->ts, type, exc, tb);
 }
 
 int
@@ -779,14 +799,14 @@ vm_format_value(PyObject *value)
 }
 
 static PyObject *
-vm_format_value_spec(PyObject **args, Py_ssize_t nargs)
+vm_format_value_spec(PyObject * const *args, Py_ssize_t nargs)
 {
     assert(nargs == 2);
     return PyObject_Format(args[0], args[1]);
 }
 
 static PyObject *
-vm_build_string(PyObject **args, Py_ssize_t nargs)
+vm_build_string(PyObject *const*args, Py_ssize_t nargs)
 {
     PyObject *empty = PyUnicode_New(0, 0);
     assert(empty != NULL && _PyObject_IS_IMMORTAL(empty));

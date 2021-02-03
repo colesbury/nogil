@@ -154,6 +154,7 @@ def_op('LOAD_DEREF', 136, 'reg')
 def_op('STORE_DEREF', 137, 'reg')
 
 def_op('END_EXCEPT', 89, 'reg')
+def_op('CALL_FINALLY', 123, 'reg', 'jump')
 def_op('END_FINALLY', 122, 'reg')
 
 def_op('PRINT_EXPR', 70)

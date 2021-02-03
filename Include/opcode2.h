@@ -99,6 +99,7 @@ extern "C" {
 #define CONTAINS_OP             118
 #define JUMP_IF_NOT_EXC_MATCH   121
 #define END_FINALLY             122
+#define CALL_FINALLY            123
 #define LOAD_FAST               124
 #define STORE_FAST              125
 #define DELETE_FAST             126
