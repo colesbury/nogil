@@ -151,6 +151,11 @@ vm_raise(struct ThreadState *ts, PyObject *err);
 void
 vm_reraise(struct ThreadState *ts, PyObject *err);
 
+Register
+vm_setup_with(struct ThreadState *ts, Py_ssize_t opA);
+int
+vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
+
 const uint32_t *
 vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr);
 

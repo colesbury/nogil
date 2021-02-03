@@ -82,6 +82,13 @@ class Checker(ast.NodeVisitor):
         self(t.body)
         self(t.orelse)
 
+    def visit_With(self, t):
+        for item in t.items:
+            self(item.context_expr)
+            if item.optional_vars:
+                self(item.optional_vars)
+        self(t.body)
+
     def visit_Raise(self, t):
         self(t.exc)
         assert not t.cause, "Cause argument not supported: %r" % (t,)

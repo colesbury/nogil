@@ -172,7 +172,8 @@ def_op('END_ASYNC_FOR', 54)
 def_op('UNPACK_SEQUENCE', 92, 'base', 'lit')   # Number of tuple items
 def_op('UNPACK_EX', 94)
 def_op('MAKE_FUNCTION', 132, 'const')    # Flags
-def_op('SETUP_WITH', 143)
+def_op('SETUP_WITH', 143, 'reg')
+def_op('END_WITH', 150, 'reg')
 def_op('LOAD_CLASSDEREF', 148)
 def_op('EXTENDED_ARG', 144)
 def_op('SETUP_ASYNC_WITH', 154)

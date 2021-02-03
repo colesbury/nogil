@@ -193,6 +193,15 @@ class ExceptBlock(Block):
         v.END_EXCEPT(self.reg)
         v.next_register -= 2
 
+class WithBlock(Block):
+    def __init__(self, reg):
+        self.reg = reg
+
+    def on_exit(self, v):
+        assert v.next_register == self.reg + 2
+        v.END_WITH(self.reg)
+        v.next_register -= 2
+
 class Loop:
     def __init__(self, reg=None):
         self.top = Label()      # iteration
@@ -695,6 +704,52 @@ class CodeGen(ast.NodeVisitor):
         self(t.orelse)
         self.LABEL(after)
 
+    def visit_With(self, t):
+        assert len(t.items) == 1, 'With not desurgared'
+        item = t.items[0]
+        start = Label()
+
+        # The register usage is:
+        # [ mgr, __exit__, <link>, <exc> ]
+        #   ^with_reg      ^link_reg
+        #
+        # The SETUP_WITH opcode sets mgr and __exit__
+        # The END_WITH opcode calls mgr.__exit__(<args>)
+        # If link is >=0 the args are (None, None, None)
+        # and the interpreter continues to the next instruction.
+        # If link is -1, args are *sys.exc_info(), and the
+        # interpreter reraises the exception or continues to
+        # the next instruction depending on if the bool(result) is
+        # true.
+
+        with_reg = self.new_register(2)
+        link_reg = self.next_register  # don't allocate it yet
+
+        self(item.context_expr)
+        # SETUP_WITH: does 3 things:
+        #  copies acc to regs[0]
+        #  loads acc.__exit__ and stores in regs[1]
+        #  calls acc.__enter__() and result is stored in acc
+        self.SETUP_WITH(with_reg)
+        # begin try?
+        self.LABEL(start)
+        self.blocks.append(WithBlock(link_reg))
+        if item.optional_vars:
+            self.assign_accumulator(item.optional_vars)
+        else:
+            self.CLEAR_ACC()
+        self(t.body)
+        self.blocks.pop()
+        r = self.new_register(2)
+        assert r == link_reg
+        self.LABEL(ExceptHandler(start, link_reg))
+        self.END_WITH(with_reg)  # uses all of wit
+
+
+        # SETUP_WITH: load __enter__ and __exit__, store __exit__, call __enter__
+        # optional: store value to name
+        # call exit with (None, None, None)
+
     def visit_Dict(self, t):
         self.BUILD_MAP(min(0xFFFF, len(t.keys)))
         if len(t.keys) == 0:
@@ -1110,6 +1165,12 @@ class Desugarer(ast.NodeTransformer):
     @rewriter
     def visit_Index(self, t):
         return t.value
+
+    @rewriter
+    def visit_With(self, t):
+        for item in reversed(t.items[1:]):
+            t.body = ast.With([item], t.body)
+        return t
 
     @rewriter
     def visit_FunctionDef(self, t):

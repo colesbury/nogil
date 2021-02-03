@@ -149,7 +149,7 @@ static const char *opcode_names[256] = {
     "MAP_ADD",
     "LOAD_CLASSDEREF",
     "unknown_opcode",
-    "unknown_opcode",
+    "END_WITH",
     "unknown_opcode",
     "unknown_opcode",
     "unknown_opcode",

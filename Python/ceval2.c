@@ -1193,6 +1193,25 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(END_FINALLY);
     }
 
+    TARGET(SETUP_WITH) {
+        regs[opA] = acc;
+        CALL_VM(acc = vm_setup_with(ts, opA));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
+        DISPATCH(SETUP_WITH);
+    }
+
+    TARGET(END_WITH) {
+        assert(IS_EMPTY(acc));
+        int err;
+        CALL_VM(err = vm_exit_with(ts, opA));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DISPATCH(END_WITH);
+    }
+
     TARGET(LOAD_INTRINSIC) {
         assert(IS_EMPTY(acc));
         acc = PACK((opA << 1), NO_REFCOUNT_TAG);
