@@ -47,7 +47,11 @@
 #define CALL_VM(call) \
     ts->next_instr = next_instr; \
     call; \
-    regs = ts->regs;
+    regs = ts->regs
+
+#define CALL_VM_DONT_SAVE_NEXT_INSTR(call) \
+    call; \
+    regs = ts->regs
 
 // I HAVE DEFEATED COMPILER.
 #if defined(__GNUC__)
@@ -71,7 +75,7 @@
 
 #define IS_EMPTY(acc) (acc.as_int64 == 0 || !IS_RC(acc))
 
-#define DECREF(reg) do { \
+#define DECREF_X(reg, CALL) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
         PyObject *obj = (PyObject *)reg.as_int64; \
@@ -80,14 +84,16 @@
             refcount -= 4; \
             obj->ob_ref_local = refcount; \
             if (UNLIKELY(refcount == 0)) { \
-                CALL_VM(_Py_MergeZeroRefcount(obj)); \
+                CALL(_Py_MergeZeroRefcount(obj)); \
             } \
         } \
         else { \
-            CALL_VM(vm_decref_shared(obj)); \
+            CALL(vm_decref_shared(obj)); \
         } \
     } \
 } while (0)
+
+#define DECREF(reg) DECREF_X(reg, CALL_VM)
 
 #define INCREF(reg) do { \
     if (IS_RC(reg)) { \
@@ -386,16 +392,22 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(RETURN_VALUE) {
-        Register *top = &regs[THIS_CODE()->co_nlocals];
-        while (top != regs - 1) {
-            top--;
-            Register r = *top;
-            top->as_int64 = 0;
+        // Save next_instr once before the decref loop.
+        // This allows us to skip saving it during the
+        // DECREF calls.
+        ts->next_instr = next_instr;
+
+        // clear regs[-1] ... regs[nlocals-1]
+        Py_ssize_t n = THIS_CODE()->co_nlocals;
+        do {
+            n--;
+            Register r = regs[n];
+            regs[n].as_int64 = 0;
             if (r.as_int64 != 0) {
-                // FIXME: top may no longer be valid!
-                DECREF(r);
+                DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);
             }
-        }
+        } while (n >= 0);
+
         intptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
