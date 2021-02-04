@@ -22,9 +22,17 @@
 
 #include <ctype.h>
 
+#if 1
+#define DEBUG_LABEL(name) __asm__ volatile("." #name ":" :: "r"(reserved));
+#else
+#define DEBUG_LABEL(name)
+#endif
+
+#define DEBUG_REGS 0
+
 #define TARGET(name) \
     TARGET_##name: \
-   __asm__ volatile("# TARGET_" #name ":");
+    DEBUG_LABEL(TARGET_##name);
 
 
 #if defined(__clang__)
@@ -79,7 +87,7 @@
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
         PyObject *obj = (PyObject *)reg.as_int64; \
-        if (LIKELY(_Py_ThreadLocal(obj))) { \
+        if (LIKELY(_Py_ThreadMatches(obj, tid))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount -= 4; \
             obj->ob_ref_local = refcount; \
@@ -99,7 +107,7 @@
     if (IS_RC(reg)) { \
         _Py_INCREF_TOTAL \
         PyObject *obj = (PyObject *)reg.as_int64; \
-        if (LIKELY(_Py_ThreadLocal(obj))) { \
+        if (LIKELY(_Py_ThreadMatches(obj, tid))) { \
             uint32_t refcount = obj->ob_ref_local; \
             refcount += 4; \
             obj->ob_ref_local = refcount; \
@@ -114,7 +122,7 @@
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
     if (!_Py_REF_IS_IMMORTAL(local)) { \
         _Py_INCREF_TOTAL \
-        if (_PY_LIKELY(_Py_ThreadLocal(op))) { \
+        if (_PY_LIKELY(_Py_ThreadMatches(op, tid))) { \
             local += (1 << _Py_REF_LOCAL_SHIFT); \
             _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local); \
         } \
@@ -128,7 +136,7 @@
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
     if (!_Py_REF_IS_IMMORTAL(local)) { \
         _Py_DECREF_TOTAL \
-        if (LIKELY(_Py_ThreadLocal(op))) { \
+        if (LIKELY(_Py_ThreadMatches(op, tid))) { \
             uint32_t refcount = op->ob_ref_local; \
             refcount -= 4; \
             op->ob_ref_local = refcount; \
@@ -219,6 +227,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     Register acc = {nargs};
     Register *regs = ts->regs;
     void **opcode_targets = ts->opcode_targets;
+    uintptr_t tid = _Py_ThreadId();
+    intptr_t reserved = 0;
     // uint16_t *metadata = ts->metadata;
     // callee saved: rbx,rbp,r12,r13,r14,r15
     // 6 usable registers (+ rsp, which isn't directly usable)
@@ -1294,25 +1304,31 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 //
 
     COLD_TARGET(debug_regs) {
-        // __asm__ volatile (
-        //     "# REGISTER ASSIGNMENT \n\t"
-        //     "# opcode = %0 \n\t"
-        //     "# opA = %1 \n\t"
-        //     "# opD = %2 \n\t"
-        //     "# regs = %5 \n\t"
-        //     "# acc = %3 \n\t"
-        //     "# next_instr = %4 \n\t"
-        //     "# ts = %6 \n\t"
-        //     "# opcode_targets = %7 \n\t"
-        // ::
-        //     "r" (opcode),
-        //     "r" (opA),
-        //     "r" (opD),
-        //     "r" (acc),
-        //     "r" (next_instr),
-        //     "r" (regs),
-        //     "r" (ts),
-        //     "r" (opcode_targets));
+#if DEBUG_REGS
+        __asm__ volatile (
+            "# REGISTER ASSIGNMENT \n\t"
+            "# opcode = %0 \n\t"
+            "# opA = %1 \n\t"
+            "# opD = %2 \n\t"
+            "# regs = %5 \n\t"
+            "# acc = %3 \n\t"
+            "# next_instr = %4 \n\t"
+            "# ts = %6 \n\t"
+            "# opcode_targets = %7 \n\t"
+            "# tid = %8 \n\t"
+            "# reserved = %9 \n\t"
+        ::
+            "r" (opcode),
+            "r" (opA),
+            "r" (opD),
+            "r" (acc),
+            "r" (next_instr),
+            "r" (regs),
+            "r" (ts),
+            "r" (opcode_targets),
+            "r" (tid),
+            "r" (reserved));
+#endif
         DISPATCH(debug_regs);
     }
 

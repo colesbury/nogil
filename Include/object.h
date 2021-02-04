@@ -466,6 +466,23 @@ _Py_ThreadLocal(PyObject *op)
 #endif
 }
 
+static inline int
+_Py_ThreadMatches(PyObject *op, uintptr_t tid)
+{
+    uintptr_t *ob_tid = &op->ob_tid;
+#if (defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__))
+    int out;
+    __asm__ (
+        "cmp    %[tid], %[ob_tid]"
+        : "=@ccz" (out)
+        : [tid] "r"(tid), [ob_tid] "m" (*ob_tid)
+        : );
+    return out;
+#else
+    return _Py_atomic_load_uintptr_relaxed(ob_tid) == tid;
+#endif
+}
+
 #define _Py_REF_LOCAL_SHIFT     2
 #define _Py_REF_IMMORTAL_MASK   0x1
 #define _Py_REF_DEFERRED_MASK   0x2
