@@ -43,15 +43,6 @@
 #define COLD_TARGET(name) TARGET_##name:
 #endif
 
-// typedef Register intrinsic_fn(struct ThreadState *ts, Register *regs, Py_ssize_t n);
-
-// static Register
-// build_list(struct ThreadState *ts, Register *regs, Py_ssize_t n);
-
-// static intrinsic_fn *intrinsics[] = {
-//     &build_list
-// };
-
 #define CALL_VM(call) \
     ts->next_instr = next_instr; \
     call; \
@@ -149,6 +140,26 @@
         } \
     } \
 } while(0)
+
+// Clears and DECREFs the regsters from [-1, N) where N is usually
+// the number of local variables.
+// NOTE: The next_instr MUST be saved before calling CLEAR_REGISTERS.
+// This allows us to skip saving it during the DECREF calls,
+// which typically allows the compiler to re-use the register
+// normally allocated to next_instr.
+#define CLEAR_REGISTERS(N) do {                             \
+    assert(ts->next_instr == next_instr);                   \
+    Py_ssize_t _n = (N);                                    \
+    do {                                                    \
+        _n--;                                               \
+        Register r = regs[_n];                              \
+        regs[_n].as_int64 = 0;                              \
+        if (r.as_int64 != 0) {                              \
+            DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);      \
+        }                                                   \
+    } while (_n >= 0);                                      \
+} while (0)
+
 
 #define USE_REGISTER(value, reg) do { \
         register __typeof__(value) reg asm(#reg) = value; \
@@ -253,6 +264,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     // acc
     // maybe: tid
     // maybe: constants/metadata
+    // intptr_t tid = _Py_ThreadId(), tid2 = _Py_ThreadId() * 99;
 
     // NOTE: after memcpy call!
     DISPATCH(INITIAL);
@@ -345,7 +357,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 
     TARGET(CFUNC_HEADER) {
         Py_ssize_t nargs = acc.as_int64;
-        CALL_VM(acc = vm_call_cfunction(ts, regs, nargs));
+        PyObject *res;
+        regs[-3].as_int64 = nargs;  // frame size
+        CALL_VM(res = vm_call_cfunction(ts, nargs));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(regs[-3].as_int64);
         next_instr = (const uint32_t *)regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
@@ -368,6 +388,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         if (regs[opA].as_int64 == 0) {
             // If the LOAD_METHOD didn't provide us with a "self" then we
             // need to shift each argument down one. Note that opD >= 1.
+            assert(opD >= 1);
             Register *low = &regs[opA];
             Register *hi = &regs[opA + opD];
             do {
@@ -387,37 +408,39 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         // opsA + opsD = argsN
         assert(IS_EMPTY(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
-        if (UNLIKELY(!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE))) {
-            CALL_VM(acc = vm_call_function(ts, opA, opD));
-            DISPATCH(CALL_FUNCTION2);
-        }
-
-        PyFuncBase *func = (PyFuncBase *)callable;
         regs = &regs[opA];
         ts->regs = regs;
         regs[-2].as_int64 = (intptr_t)next_instr;
+        if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
+            goto call_object;
+        }
         acc.as_int64 = opD;
-        next_instr = func->first_instr;
+        next_instr = ((PyFuncBase *)callable)->first_instr;
         DISPATCH(CALL_FUNCTION);
     }
 
+    call_object: {
+        DEBUG_LABEL(call_object);
+        regs[-3].as_int64 = opD;
+        PyObject *res;
+        CALL_VM(res = vm_call_function(ts, opD));
+        if (UNLIKELY(res == NULL)) {
+            // is this ok? do we need to adjust frame first?
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(regs[-3].as_int64);
+        next_instr = (const uint32_t *)regs[-2].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs -= RELOAD_OPA();
+        ts->regs = regs;
+        DISPATCH(call_object);
+    }
+
     TARGET(RETURN_VALUE) {
-        // Save next_instr once before the decref loop.
-        // This allows us to skip saving it during the
-        // DECREF calls.
         ts->next_instr = next_instr;
-
-        // clear regs[-1] ... regs[nlocals-1]
-        Py_ssize_t n = THIS_CODE()->co_nlocals;
-        do {
-            n--;
-            Register r = regs[n];
-            regs[n].as_int64 = 0;
-            if (r.as_int64 != 0) {
-                DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);
-            }
-        } while (n >= 0);
-
+        CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
         intptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;

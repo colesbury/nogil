@@ -50,31 +50,6 @@ vm_object_steal(Register r) {
     }
 }
 
-static PyObject *
-vm_object_autorelease(struct ThreadState *ts, Register r) {
-    if (IS_OBJ(r)) {
-        PyObject *obj = AS_OBJ(r);
-        if (IS_RC(r)) {
-            *ts->maxrefs = obj;
-            ts->maxrefs++;
-        }
-        return obj;
-    }
-    else {
-        __builtin_unreachable();
-    }
-}
-
-static void
-vm_free_autorelease(struct ThreadState *ts)
-{
-    while (ts->maxrefs != ts->refs) {
-        ts->maxrefs--;
-        PyObject *obj = *ts->maxrefs;
-        Py_DECREF(obj);
-    }
-}
-
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
@@ -703,51 +678,51 @@ err:
     return -1;
 }
 
-Register
-vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
+static PyObject * _Py_NO_INLINE
+vm_call_cfunction_argggg(struct ThreadState *ts, Py_ssize_t nargs)
 {
-    args[-3].as_int64 = nargs;  // frame size
-    PyObject **oargs = (PyObject **)args;
-    for (int i = -1; i != nargs; i++) {
-        assert(IS_OBJ(args[i]));
-        oargs[i] = vm_object_autorelease(ts, args[i]);
-    }
-    PyCFunctionObject *func = (PyCFunctionObject *)(oargs[-1]);
-    PyObject *res = func->vectorcall((PyObject *)func, (PyObject *const*)oargs, nargs, empty_tuple);
-    // FIXME: args may no longer be valid
-    for (int i = -1; i != nargs; i++) {
-        args[i].as_int64 = 0;
-    }
-    vm_free_autorelease(ts);
-    return PACK_OBJ(res);
-}   
-
-Register
-vm_call_function(struct ThreadState *ts, int base, int nargs)
-{
-    ts->regs += base;
-    ts->regs[-3].as_int64 = nargs;  // frame size
-
-    PyObject *callable = AS_OBJ(ts->regs[-1]);
-    Register *args = ts->regs;
-    PyObject **oargs = (PyObject **)args;
-    for (int i = -1; i != nargs; i++) {
-        assert(IS_OBJ(args[i]));
-        oargs[i] = vm_object_autorelease(ts, args[i]);
-    }
-    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
-    PyObject *obj = _PyObject_VectorcallTstate(ts->ts, callable, (PyObject *const *)oargs, nargsf, NULL);
-    // FIXME: args may no longer be valid
-    for (int i = -FRAME_EXTRA; i != nargs; i++) {
-        ts->regs[i].as_int64 = 0;
-    }
-    ts->regs -= base;
-    vm_free_autorelease(ts);
-    if (obj == NULL) {
-        PyErr_Print();
+    if (UNLIKELY(nargs > 255)) {
         abort();
     }
-    return PACK_OBJ(obj);
+    PyObject **args = alloca((nargs + 1) * sizeof(PyObject *));
+    for (int i = 0; i != nargs + 1; i++) {
+        args[i] = AS_OBJ(ts->regs[i - 1]);
+    }
+    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    return _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, NULL);
+}
+
+PyObject *
+vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs)
+{
+    if (UNLIKELY(nargs > 6)) {
+        return vm_call_cfunction_argggg(ts, nargs);
+    }
+
+    PyObject *args[7];
+    for (int i = 0; i != nargs + 1; i++) {
+        args[i] = AS_OBJ(ts->regs[i - 1]);
+    }
+
+    PyCFunctionObject *func = (PyCFunctionObject *)args[0];
+    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    return func->vectorcall(args[0], args + 1, nargsf, NULL);
+}
+
+PyObject *
+vm_call_function(struct ThreadState *ts, Py_ssize_t nargs)
+{
+    if (UNLIKELY(nargs > 6)) {
+        return vm_call_cfunction_argggg(ts, nargs);
+    }
+
+    PyObject *args[7];
+    for (int i = 0; i != nargs + 1; i++) {
+        args[i] = AS_OBJ(ts->regs[i - 1]);
+    }
+
+    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    return _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, NULL);
 }
 
 static PyFunc *
@@ -983,14 +958,6 @@ new_threadstate(void)
         goto err;
     }
     memset(stack, 0, stack_size * sizeof(Register));
-
-    ts->refs_base = malloc(sizeof(PyObject*) * 256);
-    if (!ts->refs_base) {
-        abort();
-    }
-    ts->refs = ts->refs_base;
-    ts->maxrefs = ts->refs_base;
-
     ts->stack = stack;
     ts->maxstack = &stack[stack_size];
     ts->regs = stack;
@@ -1184,10 +1151,6 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
         }
     }
     struct ThreadState *ts = gts;
-
-    if (empty_tuple == NULL) {
-        empty_tuple = PyTuple_New(0);
-    }
 
     if (globals == NULL) {
         globals = make_globals();

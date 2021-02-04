@@ -9,8 +9,6 @@ typedef union _Register {
     int64_t as_int64;
 } Register;
 
-PyObject *empty_tuple;
-
 #define REFCOUNT_TAG 0x0
 #define NO_REFCOUNT_TAG 0x1
 #define REFCOUNT_MASK 0x1
@@ -156,15 +154,6 @@ struct ThreadState {
     // top of stack
     Register *maxstack;
 
-    // Retained objects
-    PyObject **maxrefs;
-
-    // Base of retained object
-    PyObject **refs;
-
-    // Base of retained object
-    PyObject **refs_base;
-
     // Currently handled exception
     PyObject *handled_exc;
 
@@ -239,8 +228,8 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n);
 Register vm_build_slice(Register *regs);
 Register vm_list_append(Register list, Register item);
 
-Register vm_call_cfunction(struct ThreadState *ts, Register *regs, int nargs);
-Register vm_call_function(struct ThreadState *ts, int base, int nargs);
+PyObject *vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs);
+PyObject *vm_call_function(struct ThreadState *ts, Py_ssize_t nargs);
 
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
