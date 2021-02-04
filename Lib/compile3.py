@@ -302,6 +302,11 @@ class CodeGen(ast.NodeVisitor):
         assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
         first_instr.arg = self.max_registers
 
+        if self.scope.is_generator:
+            second_instr = self.instrs[1][0]
+            assert dis.opcodes[second_instr.opcode].name == 'GENERATOR_HEADER'
+            second_instr.arg = self.max_registers
+
         posonlyargcount = 0
         kwonlyargcount = 0
         nlocals = self.nlocals
@@ -1030,6 +1035,17 @@ class CodeGen(ast.NodeVisitor):
                 return
             block.on_exit(self)
 
+    def visit_Yield(self, t):
+        if t.value:
+            self(t.value)
+        else:
+            self.load_const(None)
+        self.YIELD_VALUE()
+        # assert False, "NYI"
+
+    def visit_YieldFrom(self, t):
+        assert False, "NYI"
+
     def visit_Function(self, t):
         code = self.sprout(t).compile_function(t)
         return self.make_closure(code, t.name)
@@ -1043,6 +1059,9 @@ class CodeGen(ast.NodeVisitor):
     def compile_function(self, t):
         # self.load_const(ast.get_docstring(t))
         self.FUNC_HEADER(0)
+        if self.scope.is_generator:
+            print('compiling generator!')
+            self.GENERATOR_HEADER(0)
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
@@ -1213,6 +1232,7 @@ class Scope(ast.NodeVisitor):
         self.uses = set()        # Variables referenced
         self.globals = set()
         self.scope_type = scope_type
+        self.is_generator = False
         self.nested = (parent_scope is not None and 
                        (parent_scope.nested or
                         parent_scope.scope_type == 'function'))
@@ -1250,6 +1270,12 @@ class Scope(ast.NodeVisitor):
         if   isinstance(t.ctx, (ast.Load, ast.Del)):  self.uses.add(t.id)
         elif isinstance(t.ctx, ast.Store): self.define(t.id)
         else: assert False
+
+    def visit_Yield(self, t):
+        self.is_generator = True
+
+    def visit_YieldFrom(self, t):
+        self.is_generator = True
 
     def visit_Global(self, t):
         for name in t.names:

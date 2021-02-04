@@ -10,6 +10,7 @@ extern "C" {
 #define CLEAR_ACC                 1
 #define FUNC_HEADER               2
 #define METHOD_HEADER             3
+#define GENERATOR_HEADER          4
 #define CFUNC_HEADER              6
 #define NOP                       9
 #define UNARY_POSITIVE           10

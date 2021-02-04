@@ -19,10 +19,9 @@ typedef union _Register {
 enum {
     FRAME_PYTHON = 0,
     FRAME_C = 1,
-    FRAME_MASK = 3
+    FRAME_GENERATOR = 3,
+    FRAME_TAG_MASK = 3
 };
-
-#define FRAME_C 0x1
 
 #define FRAME_EXTRA     3
 #define CFRAME_EXTRA    4
@@ -141,6 +140,18 @@ PACK_INCREF(PyObject *obj)
 
 struct _ts;
 
+// struct VirtualThread {};
+
+// typedef struct {
+//     struct PyVirtualThread thread;
+// } PyGenObject2;
+
+enum {
+    THREAD_THREAD = 1,
+    THREAD_GENERATOR = 2,
+    THREAD_COROUTINE = 3
+};
+
 struct ThreadState {
     // registers for current function (points within stack)
     Register *regs;
@@ -160,11 +171,15 @@ struct ThreadState {
     // current metadata ???
     uint16_t *metadata;
 
-    struct _ts *ts;
+    char thread_type;
 
-    void **opcode_targets;//[256];
+    struct _ts *ts;
 };
 
+struct PyVirtualThread {
+    PyObject_HEAD
+    struct ThreadState thread;
+};
 
 // ceval2.c
 PyObject* _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
@@ -255,6 +270,15 @@ void vm_decref_shared(PyObject *op);
 void vm_incref_shared(PyObject *op);
 
 PyObject *vm_new_func(void);
+
+struct ThreadState *
+new_threadstate(void);
+
+void vm_free_threadstate(struct ThreadState *ts);
+int vm_for_iter_exc(struct ThreadState *ts);
+
+int
+vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
 
 #ifdef __cplusplus
 }

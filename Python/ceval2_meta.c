@@ -50,6 +50,16 @@ vm_object_steal(Register r) {
     }
 }
 
+static Py_ssize_t
+vm_frame_size(struct ThreadState *ts)
+{
+    PyObject *this_func = AS_OBJ(ts->regs[-1]);
+    if (!PyFunc_Check(this_func)) {
+        return ts->regs[-3].as_int64;
+    }
+    return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
+}
+
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
@@ -268,6 +278,7 @@ vm_exception_handler(PyCodeObject2 *code, const uint32_t *next_instr)
 const uint32_t *
 vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
 {
+    assert(PyErr_Occurred());
     for (;;) {
         PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
         PyCodeObject2 *code = PyCode2_FromFunc(func);
@@ -309,7 +320,11 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         uintptr_t frame_link = ts->regs[-2].as_int64;
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
-        if ((frame_link & FRAME_MASK) != FRAME_PYTHON) {
+        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+            ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+            Py_ssize_t frame_delta = ts->regs[-4].as_int64;
+            ts->regs[-4].as_int64 = 0;
+            ts->regs -= frame_delta;
             return NULL;
         }
         next_instr = (const uint32_t *)frame_link;
@@ -943,36 +958,140 @@ void vm_handle_error(struct ThreadState *ts)
     abort();
 }
 
-static struct ThreadState *
+int
+vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
+{
+    Register *stack = mi_malloc(stack_size * sizeof(Register));
+    if (UNLIKELY(stack == NULL)) {
+        PyErr_SetNone(PyExc_MemoryError);
+        return -1;
+    }
+
+    memset(stack, 0, stack_size * sizeof(Register));
+    ts->stack = stack;
+    ts->regs = stack;
+    ts->maxstack = stack + stack_size;
+    return 0;
+}
+
+struct ThreadState *
 new_threadstate(void)
 {
     struct ThreadState *ts = malloc(sizeof(struct ThreadState));
     if (ts == NULL) {
+        PyErr_SetNone(PyExc_MemoryError);
         return NULL;
     }
     memset(ts, 0, sizeof(struct ThreadState));
 
     Py_ssize_t stack_size = 256;
-    Register *stack = malloc(stack_size * sizeof(Register));
-    if (stack == NULL) {
-        goto err;
+    if (UNLIKELY(vm_init_stack(ts, stack_size) != 0)) {
+        free(ts);
+        return NULL;
     }
-    memset(stack, 0, stack_size * sizeof(Register));
-    ts->stack = stack;
-    ts->maxstack = &stack[stack_size];
-    ts->regs = stack;
-    ts->opcode_targets = malloc(sizeof(void*) * 256);
     ts->ts = PyThreadState_GET();
-    if (ts->opcode_targets == NULL) {
-        goto err;
-    }
-    memset(ts->opcode_targets, 0, sizeof(void*) * 256);
     return ts;
-
-err:
-    free(ts);
-    return NULL;
 }
+
+void
+vm_free_stack(struct ThreadState *ts)
+{
+    // printf("vm_free_stack: %p %zd\n", ts);
+    assert(ts->regs > ts->stack);
+    for (;;) {
+        PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+        Py_ssize_t frame_size = vm_frame_size(ts);
+        for (Py_ssize_t i = frame_size - 1; i >= -1; --i) {
+            Register value = ts->regs[i];
+            if (value.as_int64 != 0) {
+                ts->regs[i].as_int64 = 0;
+                DECREF(value);
+            }
+        }
+        uintptr_t frame_link = ts->regs[-2].as_int64;
+        ts->regs[-2].as_int64 = 0;
+        ts->regs[-3].as_int64 = 0;
+        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+            Py_ssize_t frame_delta = ts->regs[-4].as_int64;
+            ts->regs[-4].as_int64 = 0;
+            ts->regs -= frame_delta;
+            break;
+        }
+        const uint32_t *next_instr = (const uint32_t *)frame_link;
+        // this is the call that dispatched to us
+        uint32_t call = next_instr[-1];
+        intptr_t offset = (call >> 8) & 0xFF;
+        printf("offset = %zd\n", offset);
+        ts->regs -= offset;
+    }
+    assert(ts->regs == ts->stack);
+}
+
+
+void vm_free_threadstate(struct ThreadState *ts)
+{
+    // printf("vm_free_threadstate: %p\n", ts);
+    if (ts->regs != ts->stack) {
+        vm_free_stack(ts);
+    }
+    mi_free(ts->stack);
+    ts->stack = ts->regs = ts->maxstack = NULL;
+}
+
+int
+vm_for_iter_exc(struct ThreadState *ts)
+{
+    assert(PyErr_Occurred());
+    PyThreadState *tstate = ts->ts;
+    if (!_PyErr_ExceptionMatches(tstate, PyExc_StopIteration)) {
+        return -1;
+    }
+    // else if (tstate->c_tracefunc != NULL) {
+    //     call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
+    // }
+    _PyErr_Clear(tstate);
+    return 0;
+}
+
+int
+vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
+{
+    memset(ts, 0, sizeof(*ts));
+
+    Py_ssize_t generator_stack_size = 256;
+    if (UNLIKELY(vm_init_stack(ts, generator_stack_size) != 0)) {
+        return -1;
+    }
+
+    ts->thread_type = THREAD_GENERATOR;
+
+    PyFunc *func = (PyFunc *)AS_OBJ(old->regs[-1]);
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+    // copy over func and arguments
+    Py_ssize_t frame_delta = CFRAME_EXTRA;
+    ts->regs += frame_delta;
+    ts->regs[-4].as_int64 = frame_delta;
+    ts->regs[-3] = old->regs[-3];   // copy constants
+    ts->regs[-2].as_int64 = FRAME_GENERATOR;
+    ts->regs[-1] = old->regs[-1];   // copy func
+
+    // The new thread-state takes ownership of the "func" and constants.
+    // We can't clear the old thread states values because they will be
+    // referenced (and cleared) by RETURN_VALUE momentarily. Instead, just
+    // mark them as non-refcounted references -- the generator owns them now.
+    old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
+    old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
+
+    Py_ssize_t nargs = code->co_argcount;
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        ts->regs[i] = old->regs[i];
+        old->regs[i].as_int64 = 0;
+    }
+    ts->ts = PyThreadState_GET();
+    return 0;
+}
+
 
 // static PyTypeObject PyCFunc_Type;
 
@@ -1083,16 +1202,6 @@ PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
     Register r;
     r.as_int64 = (intptr_t)next_instr + tag;
     return r;
-}
-
-static Py_ssize_t
-vm_frame_size(struct ThreadState *ts)
-{
-    PyObject *this_func = AS_OBJ(ts->regs[-1]);
-    if (!PyFunc_Check(this_func)) {
-        return ts->regs[-3].as_int64;
-    }
-    return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
 }
 
 static void

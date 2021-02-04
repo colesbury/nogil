@@ -400,6 +400,7 @@ OBJECT_OBJS=	\
 		Objects/enumobject.o \
 		Objects/exceptions.o \
 		Objects/genobject.o \
+		Objects/genobject2.o \
 		Objects/fileobject.o \
 		Objects/floatobject.o \
 		Objects/frameobject.o \
@@ -1016,6 +1017,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/frameobject.h \
 		$(srcdir)/Include/funcobject.h \
 		$(srcdir)/Include/genobject.h \
+		$(srcdir)/Include/genobject2.h \
 		$(srcdir)/Include/import.h \
 		$(srcdir)/Include/interpreteridobject.h \
 		$(srcdir)/Include/intrcheck.h \

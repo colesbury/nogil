@@ -19,6 +19,7 @@
 #include "structmember.h"
 #include "opcode2.h"
 #include "ceval2_meta.h"
+#include "genobject2.h"
 
 #include <ctype.h>
 
@@ -227,8 +228,8 @@ __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
 _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 {
     #include "opcode_targets2.h"
-    if (UNLIKELY(!ts->opcode_targets[0])) {
-        memcpy(ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
+    if (UNLIKELY(!ts->ts->opcode_targets[0])) {
+        memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
     }
 
     const uint32_t *next_instr = pc;
@@ -237,7 +238,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     intptr_t opD;
     Register acc = {nargs};
     Register *regs = ts->regs;
-    void **opcode_targets = ts->opcode_targets;
+    void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
     intptr_t reserved = 0;
     // uint16_t *metadata = ts->metadata;
@@ -374,7 +375,26 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset;
         ts->regs = regs;
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(CFUNC_HEADER);
+    }
+
+    TARGET(GENERATOR_HEADER) {
+        // setup generator?
+        // copy arguments
+        // return
+        assert(IS_EMPTY(acc));
+        PyGenObject2 *gen;
+        CALL_VM(gen = PyGen2_NewWithSomething(ts));
+        if (gen == NULL) {
+            goto error;
+        }
+        PyGen2_SetNextInstr(gen, next_instr);
+        acc = PACK_OBJ((PyObject *)gen);
+        goto TARGET_RETURN_VALUE;
+        DISPATCH(GENERATOR_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -438,19 +458,37 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(call_object);
     }
 
+    TARGET(YIELD_VALUE) {
+        PyGenObject2 *gen = PyGen2_FromThread(ts);
+        gen->status = GEN_YIELD;
+        ts->next_instr = next_instr;
+        // assert((regs[-2].as_int64 & FRAME_C) != 0);
+        goto return_to_c;
+    }
+
     TARGET(RETURN_VALUE) {
         ts->next_instr = next_instr;
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
         intptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
-        if ((frame_link & FRAME_MASK) == FRAME_C) {
-            ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_MASK);
+        if (UNLIKELY((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON)) {
             Py_ssize_t frame_delta = regs[-4].as_int64;
             regs[-4].as_int64 = 0;
             regs -= frame_delta;
             ts->regs = regs;
-            goto return_to_c;
+
+            intptr_t tag = frame_link & FRAME_TAG_MASK;
+            if (tag == FRAME_C) {
+                ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+                goto return_to_c;
+            }
+            else if (tag == FRAME_GENERATOR) {
+                goto generator_return_to_c;
+            }
+            else {
+                __builtin_unreachable();
+            }
         }
         next_instr = (const uint32_t *)frame_link;
         // this is the call that dispatched to us
@@ -1099,6 +1137,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         PyObject *next;
         CALL_VM(next = (*Py_TYPE(iter)->tp_iternext)(iter));
         if (next == NULL) {
+            if (UNLIKELY(ts->ts->curexc_type != NULL)) {
+                int err;
+                CALL_VM(err = vm_for_iter_exc(ts));
+                if (err != 0) {
+                    goto error;
+                }
+            }
             opA = RELOAD_OPA();
             Register r = regs[opA];
             regs[opA].as_int64 = 0;
@@ -1293,6 +1338,18 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(CALL_INTRINSIC_N);
     }
 
+    generator_return_to_c: {
+        PyObject *obj = AS_OBJ(acc);
+        if (!IS_RC(acc)) {
+            _Py_INCREF(obj);
+        }
+        PyGenObject2 *gen = PyGen2_FromThread(ts);
+        assert(gen != NULL);
+        gen->status = GEN_FINISHED;
+        gen->return_value = obj;
+        return NULL;
+    }
+
     return_to_c: {
         PyObject *obj = AS_OBJ(acc);
         if (!IS_RC(acc)) {
@@ -1302,7 +1359,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     error: {
-        CALL_VM(vm_handle_error(ts));
+        // TODO: normalize exception and create traceback.
+        // CALL_VM(vm_handle_error(ts));
         goto exception_unwind;
     }
 
