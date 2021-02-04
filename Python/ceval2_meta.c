@@ -237,7 +237,7 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
     }
 
     PyObject *res;
-    PyObject *mgr = AS_OBJ(ts->regs[opA]);
+    // PyObject *mgr = AS_OBJ(ts->regs[opA]);
     PyObject *exit = AS_OBJ(ts->regs[opA + 1]);
 
     PyObject *stack[4] = {NULL, Py_None, Py_None, Py_None};
@@ -334,7 +334,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         uintptr_t frame_link = ts->regs[-2].as_int64;
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
-        if ((frame_link & FRAME_C) != 0) {
+        if ((frame_link & FRAME_MASK) != FRAME_PYTHON) {
             return NULL;
         }
         next_instr = (const uint32_t *)frame_link;
@@ -706,7 +706,7 @@ err:
 Register
 vm_call_cfunction(struct ThreadState *ts, Register *args, int nargs)
 {
-    ts->cframe_size = nargs;
+    args[-3].as_int64 = nargs;  // frame size
     PyObject **oargs = (PyObject **)args;
     for (int i = -1; i != nargs; i++) {
         assert(IS_OBJ(args[i]));
@@ -726,7 +726,7 @@ Register
 vm_call_function(struct ThreadState *ts, int base, int nargs)
 {
     ts->regs += base;
-    ts->cframe_size = nargs;
+    ts->regs[-3].as_int64 = nargs;  // frame size
 
     PyObject *callable = AS_OBJ(ts->regs[-1]);
     Register *args = ts->regs;
@@ -1110,25 +1110,37 @@ builtins_from_globals2(PyObject *globals)
     return builtins;
 }
 
+static inline Register
+PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
+{
+    Register r;
+    r.as_int64 = (intptr_t)next_instr + tag;
+    return r;
+}
+
 static Py_ssize_t
+vm_frame_size(struct ThreadState *ts)
+{
+    PyObject *this_func = AS_OBJ(ts->regs[-1]);
+    if (!PyFunc_Check(this_func)) {
+        return ts->regs[-3].as_int64;
+    }
+    return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
+}
+
+static void
 setup_frame(struct ThreadState *ts, PyFunc *func)
 {
-    Py_ssize_t frame_size;
-    if (PyFunc_Check(AS_OBJ(ts->regs[-1]))) {
-        PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-        frame_size = PyCode2_FromFunc(this_func)->co_framesize;
-    }
-    else {
-        frame_size = ts->cframe_size;
-    }
+    Py_ssize_t frame_delta = vm_frame_size(ts);
+    frame_delta += CFRAME_EXTRA;
 
-    ts->regs += frame_size + FRAME_EXTRA;
+    ts->regs += frame_delta;
 
     PyCodeObject2 *code = PyCode2_FromFunc(func);
+    ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
-    ts->regs[-2].as_int64 = FRAME_C;
+    ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
-    return frame_size;
 }
 
 PyObject *
@@ -1138,14 +1150,11 @@ _PyEval_FastCall(PyFunc *func, PyObject *locals)
     Py_ssize_t nargs = 0;
     const uint32_t *pc;
 
-    Py_ssize_t frame_size = setup_frame(ts, func);
+    setup_frame(ts, func);
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
     pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
-    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
-
-    ts->regs -= frame_size + FRAME_EXTRA;
-    return ret;
+    return _PyEval_Fast(ts, nargs, pc);
 }
 
 PyObject *
@@ -1153,7 +1162,7 @@ _PyEval_FastCallArgs(PyFunc *func, PyObject *args)
 {
     struct ThreadState *ts = gts;
     Py_ssize_t nargs = 0;
-    Py_ssize_t frame_size = setup_frame(ts, func);
+    setup_frame(ts, func);
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
     if (args != NULL) {
         Py_ssize_t n = PyTuple_GET_SIZE(args);
@@ -1162,9 +1171,7 @@ _PyEval_FastCallArgs(PyFunc *func, PyObject *args)
             ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i), NO_REFCOUNT_TAG);
         }
     }
-    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
-    ts->regs -= frame_size + FRAME_EXTRA;
-    return ret;
+    return _PyEval_Fast(ts, nargs, pc);
 }
 
 PyObject *
@@ -1205,10 +1212,12 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
 #ifdef Py_REF_DEBUG
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
 #endif
+    Py_ssize_t frame_delta = CFRAME_EXTRA;
 
-    ts->regs += FRAME_EXTRA;
+    ts->regs += frame_delta;
+    ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromFunc(func)->co_constants;
-    ts->regs[-2].as_int64 = FRAME_C;
+    ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     ts->regs[0] = PACK(globals, NO_REFCOUNT_TAG);
 
@@ -1220,6 +1229,7 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
 #ifdef Py_REF_DEBUG
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
     printf("RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
+    assert(ts->regs == ts->stack);
 #endif
 
     return ret;

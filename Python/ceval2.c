@@ -45,6 +45,7 @@
 // };
 
 #define CALL_VM(call) \
+    ts->next_instr = next_instr; \
     call; \
     regs = ts->regs;
 
@@ -395,10 +396,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
                 DECREF(r);
             }
         }
-        uintptr_t frame_link = regs[-2].as_int64;
+        intptr_t frame_link = regs[-2].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
-        if ((frame_link & FRAME_C) != 0) {
+        if ((frame_link & FRAME_MASK) == FRAME_C) {
+            ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_MASK);
+            Py_ssize_t frame_delta = regs[-4].as_int64;
+            regs[-4].as_int64 = 0;
+            regs -= frame_delta;
+            ts->regs = regs;
             goto return_to_c;
         }
         next_instr = (const uint32_t *)frame_link;

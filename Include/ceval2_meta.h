@@ -18,11 +18,56 @@ PyObject *empty_tuple;
 #define PRI_TAG 0x4
 #define PRI_TRUE 0x2
 
+enum {
+    FRAME_PYTHON = 0,
+    FRAME_C = 1,
+    FRAME_MASK = 3
+};
+
 #define FRAME_C 0x1
 
-// number of extra words in a function frame
-#define FRAME_EXTRA 3
+#define FRAME_EXTRA     3
+#define CFRAME_EXTRA    4
 
+/*
+
+  idx      Python frame
+       +-------------------+
+  -4   |   [frame delta]   |
+       |- - - - - - - - - -|
+  -3   |     constants     |
+       |- - - - - - - - - -|
+  -2   |  frame link | tag |
+       |- - - - - - - - - -|
+  -1   |      PyFunc       |
+  -----+-------------------+---
+   0   |     argument 0    | <- regs
+  ...  |        ...        |
+  n-1  |    argument n-1   |
+       |- - - - - - - - - -|
+   n   |      local 0      |
+  ...  |        ...        |
+  n+k  |     local k-1     |
+       |- - - - - - - - - -|
+ n+k+1 |    temporary 0    |
+  ...  |        ...        |
+ n+k+t |   temporary t-1   |
+  -----+-------------------+
+
+
+  idx     C function frame
+       +-------------------+
+  -3   |    frame size     |
+       |- - - - - - - - - -|
+  -2   |  frame link | tag |
+       |- - - - - - - - - -|
+  -1   |     PyObject      |
+  -----+-------------------+---
+   0   |     argument 0    | <- regs
+  ...  |        ...        |
+  n-1  |    argument n-1   |
+  -----+-------------------+
+*/
 #define UNLIKELY _PY_UNLIKELY
 #define LIKELY _PY_LIKELY
 
@@ -102,7 +147,8 @@ struct ThreadState {
     // registers for current function (points within stack)
     Register *regs;
 
-    Py_ssize_t cframe_size;
+    // Next instruction to be executed. Updated before calling into ceval_meta.
+    const uint32_t *next_instr;
 
     // true bottom of stack
     Register *stack;
