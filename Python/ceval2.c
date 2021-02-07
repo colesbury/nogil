@@ -1181,6 +1181,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     TARGET(BUILD_TUPLE) {
         // opA = reg, opD = N
         CALL_VM(acc = vm_build_tuple(&regs[opA], opD));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(BUILD_TUPLE);
     }
 

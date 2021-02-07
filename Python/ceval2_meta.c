@@ -23,31 +23,13 @@
 #include <ctype.h>
 #include <alloca.h>
 
-static const Register NULL_REGISTER;
-
-static PyObject *
-vm_object(Register r) {
-    if (IS_OBJ(r)) {
-        return AS_OBJ(r);
-    }
-    else {
-        __builtin_unreachable();
-    }
-}
-
 static PyObject *
 vm_object_steal(Register r) {
-    if (IS_RC(r)) {
-        return AS_OBJ(r);
-    }
-    else if (IS_OBJ(r)) {
-        PyObject *obj  = AS_OBJ(r);
+    PyObject *obj = AS_OBJ(r);
+    if (!IS_RC(r)) {
         Py_INCREF(obj);
-        return obj;
     }
-    else {
-        __builtin_unreachable();
-    }
+    return obj;
 }
 
 static Py_ssize_t
@@ -97,8 +79,7 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
-__attribute__((noinline))
-static const uint32_t *
+ static const uint32_t * _Py_NO_INLINE
 vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
 {
     int err = PyObject_IsTrue(AS_OBJ(acc));
@@ -522,7 +503,7 @@ Register vm_load_name(Register *regs, PyObject *name)
     }
 
     abort();
-    return NULL_REGISTER;
+    return (Register){0};
 }
 
 static int
@@ -558,7 +539,7 @@ vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
     PyObject *res;
     int ilevel = _PyLong_AsInt(level);
     if (ilevel == -1 && _PyErr_Occurred(ts->ts)) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
     res = PyImport_ImportModuleLevelObject(
         name,
@@ -567,7 +548,7 @@ vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
         fromlist,
         ilevel);
     if (res == NULL) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
     return PACK_OBJ(res);
 }
@@ -583,7 +564,7 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
         if (bc != NULL) {
             // FIXME: might get deleted oh well
             ts->regs[opA] = PACK(bc, NO_REFCOUNT_TAG);
-            return NULL_REGISTER;
+            return (Register){0};
         }
 
         if (bc == NULL) {
@@ -606,17 +587,17 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
             goto error;
         }
         ts->regs[opA] = PACK_OBJ(bc);
-        return NULL_REGISTER;
+        return (Register){0};
     }
 
 error:
     abort();
-    return NULL_REGISTER;
+    return (Register){0};
 }
 
 int vm_store_global(PyObject *dict, PyObject *name, Register acc)
 {
-    PyObject *value = vm_object(acc);
+    PyObject *value = AS_OBJ(acc);
     int err = PyDict_SetItem(dict, name, value);
     if (err < 0) {
         abort();
@@ -750,7 +731,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     PyObject *globals = this_func->globals;
     PyFunc *func = PyFunc_New(code, globals);
     if (func == NULL) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
     func->builtins = this_func->builtins;
 
@@ -776,13 +757,13 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
         PyObject *cell = PyCell_New(AS_OBJ(regs[idx]));
         if (cell == NULL) {
             abort();
-            return NULL_REGISTER;
+            return (Register){0};
         }
 
         DECREF(regs[idx]);
         regs[idx] = PACK(cell, REFCOUNT_TAG);
     }
-    return NULL_REGISTER;
+    return (Register){0};
 }
 
 Register
@@ -797,7 +778,7 @@ vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
         assert(PyCell_Check(cell));
         regs[r] = PACK(cell, NO_REFCOUNT_TAG);
     }
-    return NULL_REGISTER;
+    return (Register){0};
 }
 
 Register vm_build_slice(Register *regs)
@@ -816,7 +797,7 @@ Register vm_build_list(Register *regs, Py_ssize_t n)
 {
     PyObject *obj = PyList_New(n);
     if (obj == NULL) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
     while (n) {
         n--;
@@ -831,7 +812,7 @@ vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
     PyObject *set = PySet_New(NULL);
     if (UNLIKELY(set == NULL)) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
 
     for (Py_ssize_t i = 0; i != n; i++) {
@@ -848,14 +829,15 @@ vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 
 error:
     Py_DECREF(set);
-    return NULL_REGISTER;
+    return (Register){0};
 }
 
-Register vm_build_tuple(Register *regs, Py_ssize_t n)
+Register
+vm_build_tuple(Register *regs, Py_ssize_t n)
 {
     PyObject *obj = PyTuple_New(n);
     if (obj == NULL) {
-        return NULL_REGISTER;
+        return (Register){0};
     }
     while (n) {
         n--;
@@ -867,15 +849,6 @@ Register vm_build_tuple(Register *regs, Py_ssize_t n)
         regs[n].as_int64 = 0;
     }
     return PACK(obj, REFCOUNT_TAG);
-}
-
-Register vm_list_append(Register a, Register b)
-{
-    PyObject *list = AS_OBJ(a);
-    PyObject *item = vm_object(b);
-    PyList_Append(list, item);
-    Py_DECREF(item);
-    return NULL_REGISTER;
 }
 
 static PyObject *

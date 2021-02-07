@@ -106,7 +106,7 @@ AS_OBJ(Register r)
     return (PyObject *)(r.as_int64 & ~REFCOUNT_MASK);
 }
 
-#define PACK(o, tag) ((Register)((intptr_t)o | tag))
+#define PACK(o, tag) ((Register){(intptr_t)o | tag})
 
 static inline Register
 PACK_OBJ(PyObject *o)
@@ -241,7 +241,6 @@ Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_build_tuple(Register *regs, Py_ssize_t n);
 Register vm_build_slice(Register *regs);
-Register vm_list_append(Register list, Register item);
 
 PyObject *vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs);
 PyObject *vm_call_function(struct ThreadState *ts, Py_ssize_t nargs);
