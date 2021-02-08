@@ -250,8 +250,7 @@ PyObject *vm_call_function(struct ThreadState *ts, Py_ssize_t nargs);
 
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
-Register vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
-Register vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code);
+int vm_setup_cells_freevars(struct ThreadState *ts, PyCodeObject2 *code);
 
 Register
 vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);

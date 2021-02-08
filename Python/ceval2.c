@@ -307,33 +307,44 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     TARGET(FUNC_HEADER) {
         // opA contains framesize
         // acc contains nargs from call
-        PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
-        regs[-3].as_int64 = (intptr_t)this_code->co_constants;
-        ts->regs = regs;
+        int err;
+        assert(ts->regs == regs);
+
         if (UNLIKELY(regs + opA > ts->maxstack)) {
-            // resize stack
-            CALL_VM(vm_resize_stack(ts, opA));
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
-            // todo: check for errors!
-        }
-        Py_ssize_t nargs = acc.as_int64;
-        acc.as_int64 = 0;
-        if (UNLIKELY(nargs != this_code->co_argcount)) {
-            // error!
-            // well... we might have set-up a try-catch, so we can't just return
-            ts->regs = regs;
-            return vm_args_error(ts);
-        }
-        if (this_code->co_ncells != 0) {
-            CALL_VM(vm_setup_cells(ts, this_code));
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
-        }
-        if (this_code->co_nfreevars != 0) {
-            CALL_VM(vm_setup_freevars(ts, this_code));
+            // resize the virtual stack
+            CALL_VM(err = vm_resize_stack(ts, opA));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
         }
 
+        PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
+        regs[-3].as_int64 = (intptr_t)this_code->co_constants;
+
+        // fast path if no keyword arguments, cells, or freevars and number
+        // of positional arguments exactly matches.
+        if (LIKELY((uint32_t)acc.as_int64 == this_code->co_packed_flags)) {
+            goto dispatch_func_header;
+        }
+
+        if (UNLIKELY(acc.as_int64 != this_code->co_argcount)) {
+            CALL_VM(vm_args_error(ts));
+            acc.as_int64 = 0;
+            goto error;
+        }
+
+        const uint32_t flags = CODE_FLAG_HAS_CELLS|CODE_FLAG_HAS_FREEVARS;
+        if ((this_code->co_packed_flags & flags) != 0) {
+            CALL_VM(err = vm_setup_cells_freevars(ts, this_code));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+        }
+
+    dispatch_func_header:
+        acc.as_int64 = 0;
         DISPATCH(FUNC_HEADER);
     }
 

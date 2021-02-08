@@ -748,38 +748,51 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     return PACK_OBJ((PyObject *)func);
 }
 
-Register
+static int
 vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
 {
-    Register *regs = ts->regs;
     Py_ssize_t ncells = code->co_ncells;
     for (Py_ssize_t i = 0; i < ncells; i++) {
         Py_ssize_t idx = code->co_cell2reg[i];
-        PyObject *cell = PyCell_New(AS_OBJ(regs[idx]));
-        if (cell == NULL) {
-            abort();
-            return (Register){0};
+        PyObject *cell = PyCell_New(AS_OBJ(ts->regs[idx]));
+        if (UNLIKELY(cell == NULL)) {
+            return -1;
         }
 
-        DECREF(regs[idx]);
-        regs[idx] = PACK(cell, REFCOUNT_TAG);
+        Register prev = ts->regs[idx];
+        ts->regs[idx] = PACK(cell, REFCOUNT_TAG);
+        DECREF(prev);
     }
-    return (Register){0};
+    return 0;
 }
 
-Register
+static void
 vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
 {
-    Register *regs = ts->regs;
     PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     Py_ssize_t nfreevars = code->co_nfreevars;
     for (Py_ssize_t i = 0; i < nfreevars; i++) {
         Py_ssize_t r = code->co_free2reg[i*2+1];
         PyObject *cell = this_func->freevars[i];
         assert(PyCell_Check(cell));
-        regs[r] = PACK(cell, NO_REFCOUNT_TAG);
+        ts->regs[r] = PACK(cell, NO_REFCOUNT_TAG);
     }
-    return (Register){0};
+}
+
+int
+vm_setup_cells_freevars(struct ThreadState *ts, PyCodeObject2 *code)
+{
+    int err;
+    if (code->co_ncells != 0) {
+        err = vm_setup_cells(ts, code);
+        if (UNLIKELY(err != 0)) {
+            return err;
+        }
+    }
+    if (code->co_nfreevars != 0) {
+        vm_setup_freevars(ts, code);
+    }
+    return 0;
 }
 
 Register vm_build_slice(Register *regs)
@@ -911,10 +924,10 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     return 0;
 }
 
-PyObject *vm_args_error(struct ThreadState *ts)
+PyObject *
+vm_args_error(struct ThreadState *ts)
 {
-    printf("vm_args_error\n");
-    abort();
+    PyErr_Format(PyExc_TypeError, "wrong number of arguments");
     return NULL;
 }
 

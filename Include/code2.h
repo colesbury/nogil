@@ -10,10 +10,55 @@ extern "C" {
 
 PyAPI_DATA(PyTypeObject) PyCode2_Type;
 
+enum {
+    // number of arguments excluding keyword-only args, *args, and **kwargs
+    // if more than 255 arguments, this value is zero and the overflow bit
+    // is set.
+    CODE_MASK_ARGS          = 0x0000ff, // bits 0-7
+
+    // bits 8-15 are always zero in code (keyword arguments in acc)
+    CODE_FLAG_UNUSED_1      = 0x020000, // bits 8-15 always zero
+
+    // set if the function has a *args parameter
+    CODE_FLAG_VARARGS       = 0x010000, // bit  16
+
+    CODE_FLAG_UNUSED_2      = 0x020000, // bit  17 always zero
+
+    // set if the function has a **kwargs parameter
+    CODE_FLAG_VARKEYWORDS   = 0x040000, // bit  18
+
+    // set if the code has cell variables (i.e. captured by other functions)
+    CODE_FLAG_HAS_CELLS     = 0x080000, // bit  19
+
+    // set if the code has free (captured) variables
+    CODE_FLAG_HAS_FREEVARS  = 0x100000, // bit  20
+
+    // set if there are ANY keyword only arguments
+    CODE_FLAG_KWD_ONLY_ARGS = 0x200000, // bit  21
+
+    // set if there more than 255 arguments
+    CODE_FLAG_OVERFLOW      = 0x400000, // bit  22
+};
+
+enum {
+    /* number of positional arguments */
+    ACC_MASK_ARGS           = 0x0000ff,  // bits 0-7
+
+    /* number of keyword arguments in call */
+    ACC_MASK_KWARGS         = 0x00ff00,  // bits 8-15
+
+    /* set if the caller uses *args */
+    ACC_FLAG_VARARGS        = 0x010000,  // bit  16
+
+    /* set if the caller uses **kwargs */
+    ACC_FLAG_VARKEYWORDS    = 0x020000,  // bit  17
+};
+
 struct _PyHandlerTable;
 
 typedef struct _PyCodeObject2 {
     PyObject_HEAD
+    uint32_t co_packed_flags;
     uint8_t co_argcount;
     uint8_t co_nlocals;
     uint8_t co_ncells;

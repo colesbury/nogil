@@ -205,6 +205,11 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         handler->reg = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 2));
     }
 
+    co->co_packed_flags = 0;
+    co->co_packed_flags |= (argcount < 256 ? argcount : CODE_FLAG_OVERFLOW);
+    co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
+    co->co_packed_flags |= (co->co_nfreevars > 0 ? CODE_FLAG_HAS_FREEVARS : 0);
+
     return (PyObject *)co;
 }
 
