@@ -6,7 +6,7 @@ static const char *opcode_names[256] = {
     "GENERATOR_HEADER",
     "unknown_opcode",
     "CFUNC_HEADER",
-    "unknown_opcode",
+    "FUNC_TPCALL_HEADER",
     "unknown_opcode",
     "NOP",
     "UNARY_POSITIVE",

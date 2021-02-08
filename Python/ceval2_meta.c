@@ -708,6 +708,36 @@ vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs)
     return func->vectorcall(args[0], args + 1, nargsf, NULL);
 }
 
+static PyObject *
+build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
+
+PyObject *
+vm_tpcall_function(struct ThreadState *ts, Py_ssize_t nargs)
+{
+    PyCFunctionObject *func = (PyCFunctionObject *)ts->regs[-1].as_int64;
+    int flags = PyCFunction_GET_FLAGS(func);
+    assert((flags & METH_VARARGS) != 0);
+
+    PyCFunction meth = PyCFunction_GET_FUNCTION(func);
+    PyObject *self = PyCFunction_GET_SELF(func);
+
+    PyObject *args = build_tuple(ts, 0, nargs);
+    if (UNLIKELY(args == NULL)) {
+        return NULL;
+    }
+
+    PyObject *result;
+    if ((flags & METH_KEYWORDS) != 0) {
+        result = (*(PyCFunctionWithKeywords)(void(*)(void))meth)(self, args, NULL);
+    }
+    else {
+        result = meth(self, args);
+    }
+
+    Py_DECREF(args);
+    return result;
+}
+
 PyObject *
 vm_call_function(struct ThreadState *ts, Py_ssize_t nargs)
 {
@@ -849,21 +879,35 @@ error:
     return (Register){0};
 }
 
-Register
-vm_build_tuple(Register *regs, Py_ssize_t n)
+static PyObject *
+build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
     PyObject *obj = PyTuple_New(n);
-    if (obj == NULL) {
-        return (Register){0};
+    if (UNLIKELY(obj == NULL)) {
+        return NULL;
     }
+    Register *regs = &ts->regs[base];
     while (n) {
         n--;
         PyObject *item = vm_object_steal(regs[n]);
-        if (item == NULL) {
-            abort();
-        }
+        assert(item != NULL);
         PyTuple_SET_ITEM(obj, n, item);
         regs[n].as_int64 = 0;
+    }
+    return obj;
+}
+
+Register
+vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
+{
+    if (n == 0) {
+        PyObject *obj = PyTuple_New(0);
+        assert(obj != NULL && _PyObject_IS_IMMORTAL(obj));
+        return PACK(obj, NO_REFCOUNT_TAG);
+    }
+    PyObject *obj = build_tuple(ts, base, n);
+    if (UNLIKELY(obj == NULL)) {
+        return (Register){0};
     }
     return PACK(obj, REFCOUNT_TAG);
 }
@@ -989,7 +1033,6 @@ vm_free_stack(struct ThreadState *ts)
     // printf("vm_free_stack: %p %zd\n", ts);
     assert(ts->regs > ts->stack);
     for (;;) {
-        PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
         Py_ssize_t frame_size = vm_frame_size(ts);
         for (Py_ssize_t i = frame_size - 1; i >= -1; --i) {
             Register value = ts->regs[i];

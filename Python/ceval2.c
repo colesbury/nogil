@@ -386,11 +386,32 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         intptr_t offset = (call >> 8) & 0xFF;
         regs -= offset;
         ts->regs = regs;
-        if (UNLIKELY(acc.as_int64 == 0)) {
-            goto error;
-        }
         DISPATCH(CFUNC_HEADER);
     }
+
+    TARGET(FUNC_TPCALL_HEADER) {
+        Py_ssize_t nargs = acc.as_int64;
+        PyObject *res;
+        regs[-3].as_int64 = nargs;  // frame size
+        // steals arguments
+        CALL_VM(res = vm_tpcall_function(ts, nargs));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(regs[-3].as_int64);
+        next_instr = (const uint32_t *)regs[-2].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        // this is the call that dispatched to us
+        uint32_t call = next_instr[-1];
+        intptr_t offset = (call >> 8) & 0xFF;
+        regs -= offset;
+        ts->regs = regs;
+        DISPATCH(FUNC_TPCALL_HEADER);
+    }
+
 
     TARGET(GENERATOR_HEADER) {
         // setup generator?
@@ -1203,7 +1224,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 
     TARGET(BUILD_TUPLE) {
         // opA = reg, opD = N
-        CALL_VM(acc = vm_build_tuple(&regs[opA], opD));
+        CALL_VM(acc = vm_build_tuple(ts, opA, opD));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
         }

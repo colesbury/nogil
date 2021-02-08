@@ -242,10 +242,11 @@ vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
 
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
-Register vm_build_tuple(Register *regs, Py_ssize_t n);
+Register vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_build_slice(Register *regs);
 
 PyObject *vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs);
+PyObject *vm_tpcall_function(struct ThreadState *ts, Py_ssize_t nargs);
 PyObject *vm_call_function(struct ThreadState *ts, Py_ssize_t nargs);
 
 Register

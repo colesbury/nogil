@@ -6,7 +6,7 @@ static void *opcode_targets_base[256] = {
     &&TARGET_GENERATOR_HEADER,
     &&_unknown_opcode,
     &&TARGET_CFUNC_HEADER,
-    &&_unknown_opcode,
+    &&TARGET_FUNC_TPCALL_HEADER,
     &&_unknown_opcode,
     &&TARGET_NOP,
     &&TARGET_UNARY_POSITIVE,

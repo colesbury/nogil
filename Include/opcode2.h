@@ -12,6 +12,7 @@ extern "C" {
 #define METHOD_HEADER             3
 #define GENERATOR_HEADER          4
 #define CFUNC_HEADER              6
+#define FUNC_TPCALL_HEADER        7
 #define NOP                       9
 #define UNARY_POSITIVE           10
 #define UNARY_NEGATIVE           11
