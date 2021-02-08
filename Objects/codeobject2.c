@@ -128,6 +128,7 @@ code.__new__ as code_new
     argcount: int = 0
     posonlyargcount: int = 0
     kwonlyargcount: int = 0
+    ndefaultargs: int = 0
     nlocals: int = 0
     framesize: int = 0
     flags: int = 0
@@ -149,25 +150,26 @@ Create a code object.  Not for the faint of heart.
 static PyObject *
 code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int argcount, int posonlyargcount, int kwonlyargcount,
-              int nlocals, int framesize, int flags, PyObject *names,
-              PyObject *varnames, PyObject *filename, PyObject *name,
-              int firstlineno, PyObject *linetable, PyObject *eh_table,
-              PyObject *freevars, PyObject *cellvars, PyObject *cell2reg,
-              PyObject *free2reg)
-/*[clinic end generated code: output=d5a059e53fa5a823 input=f6957d3272e59a40]*/
+              int ndefaultargs, int nlocals, int framesize, int flags,
+              PyObject *names, PyObject *varnames, PyObject *filename,
+              PyObject *name, int firstlineno, PyObject *linetable,
+              PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
+              PyObject *cell2reg, PyObject *free2reg)
+/*[clinic end generated code: output=251fce4e325a5022 input=ed23c26ac164e157]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
-    Py_ssize_t nfreevars = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
+    Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
 
-    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, nfreevars, nexc_handlers);
+    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, ncaptured, nexc_handlers);
     if (co == NULL) {
         return NULL;
     }
     co->co_argcount = argcount;
     co->co_nlocals = nlocals;
     co->co_ncells = (uint8_t)ncells;
-    co->co_nfreevars = (uint8_t)nfreevars;
+    co->co_nfreevars = (uint8_t)(ncaptured - ndefaultargs);
+    co->co_ndefaultargs = ndefaultargs;
     co->co_flags = flags;
     co->co_framesize = framesize;
     Py_XINCREF(varnames);
@@ -187,7 +189,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     for (Py_ssize_t i = 0; i < ncells; i++) {
         co->co_cell2reg[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(cell2reg, i));
     }
-    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+    for (Py_ssize_t i = 0; i < ncaptured; i++) {
         PyObject *pair = PyTuple_GET_ITEM(free2reg, i);
         co->co_free2reg[i*2+0] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 0));
         co->co_free2reg[i*2+1] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 1));

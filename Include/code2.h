@@ -19,6 +19,7 @@ typedef struct _PyCodeObject2 {
     uint8_t co_ncells;
     uint8_t co_nfreevars;
     int co_flags;
+    Py_ssize_t co_ndefaultargs;
     Py_ssize_t co_framesize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* number of instructions */
     Py_ssize_t co_nconsts;      /* number of constants */

@@ -250,7 +250,6 @@ class Checker(ast.NodeVisitor):
         if args.vararg: self.check_arg(args.vararg)
         assert not args.kwonlyargs, "Keyword-only args are not supported: %r" % (args,)
         if args.kwarg: self.check_arg(args.kwarg)
-        assert not args.defaults, "Default values are not supported: %r" % (args,)
         assert not args.kw_defaults, "Keyword default values are not supported: %r" % (args,)
 
     def check_arg(self, arg):

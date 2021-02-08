@@ -295,9 +295,9 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-        return self.make_code(name, 0, False, False)
+        return self.make_code(name)
 
-    def make_code(self, name, argcount, has_varargs, has_varkws, debug=False):
+    def make_code(self, name, argcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
         first_instr = self.instrs[0][0]
         assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
         first_instr.arg = self.max_registers
@@ -320,7 +320,7 @@ class CodeGen(ast.NodeVisitor):
 
         # ((upval0, reg0), (upval1, reg1), ...)
         free2reg = tuple(self.scope.free2reg.values())
-        assert len(free2reg) == len(self.scope.freevars)
+        # assert len(free2reg) == len(self.scope.freevars)
 
         flags = (  (0x00 if nlocals                  else 0)
                  | (0x00 if self.scope.freevars      else 0)
@@ -331,6 +331,7 @@ class CodeGen(ast.NodeVisitor):
                                argcount=argcount,
                                posonlyargcount=posonlyargcount,
                                kwonlyargcount=kwonlyargcount,
+                               ndefaultargs=ndefaultargs,
                                nlocals=nlocals,
                                framesize=framesize,
                                flags=flags,
@@ -1062,14 +1063,23 @@ class CodeGen(ast.NodeVisitor):
         assert False, "NYI"
 
     def visit_Function(self, t):
+        regs = self.register_list()
+        for i,arg in enumerate(t.args.defaults):
+            regs[i](arg)
+            scope = self.scope.children[t]
+            name = scope.argname(scope.default_idx(i))
+            scope.free2reg[name] = (regs.base + i, scope.free2reg[name][1])
+
         code = self.sprout(t).compile_function(t)
-        return self.make_closure(code, t.name)
+        self.make_closure(code, t.name)
+        for i in reversed(range(len(t.args.defaults))):
+            regs[i].clear()
 
     def sprout(self, t):
         return CodeGen(self.filename, self.scope.children[t])
 
     def make_closure(self, code, name):
-        return self.MAKE_FUNCTION(self.constants[code])
+        self.MAKE_FUNCTION(self.constants[code])
 
     def compile_function(self, t):
         # self.load_const(ast.get_docstring(t))
@@ -1081,7 +1091,7 @@ class CodeGen(ast.NodeVisitor):
         self.load_const(None)
         self.RETURN_VALUE()
 
-        return self.make_code(t.name, len(t.args.args), t.args.vararg, t.args.kwarg)
+        return self.make_code(t.name, len(t.args.args), len(t.args.defaults), t.args.vararg, t.args.kwarg)
 
     def visit_ClassDef(self, t):
         code = self.sprout(t).compile_class(t)
@@ -1111,7 +1121,7 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-        return self.make_code(t.name, 0, False, False)
+        return self.make_code(t.name, 0, 0, False, False)
 
 def unpack(key, tp):
     if tp == slice:
@@ -1288,6 +1298,7 @@ class Scope(ast.NodeVisitor):
         self.defs = {name: i for i, name in enumerate(defs)}  # Variables defined
         self.uses = set()        # Variables referenced
         self.globals = set()
+        self.free2reg = {}
         self.scope_type = scope_type
         self.is_generator = False
         self.nested = (parent_scope is not None and 
@@ -1301,9 +1312,25 @@ class Scope(ast.NodeVisitor):
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
+    def argname(self, i):
+        return self.t.args.args[i].arg
+
+    def default_idx(self, i):
+        return len(self.t.args.args) - len(self.t.args.defaults) + i
+
+    def assign_defaults(self, t):
+        for i,d in enumerate(t.args.defaults):
+            reg = self.default_idx(i)
+            # print(f'len(all_args)={len(all_args)} i={i} reg={reg} first_default_idx={first_default_idx}')
+            name = self.argname(reg)
+            # print('arg', t.args.args[i].arg)
+            upval = 'upvalTODO'
+            self.free2reg[name] = (upval, reg)
+
     def visit_Function(self, t):
         all_args = list(t.args.args) + [t.args.vararg, t.args.kwarg]
         subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg], self)
+        subscope.assign_defaults(t)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
 
@@ -1353,7 +1380,6 @@ class Scope(ast.NodeVisitor):
 
     def assign_regs(self, parent_regs):
         self.regs = self.defs.copy() if isinstance(self.t, Function) else {}
-        self.free2reg = {}
         for name, upval in parent_regs.items():
             if name in self.freevars:
                 assert name not in self.regs

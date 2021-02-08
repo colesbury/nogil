@@ -735,13 +735,14 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     }
     func->builtins = this_func->builtins;
 
-    for (Py_ssize_t i = 0; i < code->co_nfreevars; i++) {
+    Py_ssize_t ncaptured = code->co_ndefaultargs + code->co_nfreevars;
+    for (Py_ssize_t i = 0; i < ncaptured; i++) {
         Py_ssize_t r = code->co_free2reg[i*2];
-        PyObject *cell = AS_OBJ(ts->regs[r]);
-        assert(PyCell_Check(cell));
+        PyObject *var = AS_OBJ(ts->regs[r]);
+        assert(i < code->co_ndefaultargs || PyCell_Check(var));
 
-        Py_INCREF(cell);
-        func->freevars[i] = cell;
+        Py_INCREF(var);
+        func->freevars[i] = var;
     }
 
     return PACK_OBJ((PyObject *)func);
