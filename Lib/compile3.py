@@ -905,13 +905,14 @@ class CodeGen(ast.NodeVisitor):
             self.store(alias.asname or alias.name.split('.')[0])
 
     def visit_ImportFrom(self, t):
-        assert False, 'nyi'
         fromlist = tuple([alias.name for alias in t.names])
         self.import_name(t.level, fromlist, t.module)
+        reg = self.register()
+        self.STORE_FAST(reg.allocate())
         for alias in t.names:
-            self.IMPORT_FROM(self.names[alias.name])
+            self.IMPORT_FROM(reg, self.constants[alias.name])
             self.store(alias.asname or alias.name)
-        self.CLEAR_ACC()
+        reg.clear()
 
     def import_name(self, level, fromlist, name):
         arg = (name, fromlist, level)

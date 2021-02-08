@@ -1107,6 +1107,18 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(IMPORT_NAME);
     }
 
+    TARGET(IMPORT_FROM) {
+        PyObject *module = AS_OBJ(regs[opA]);
+        PyObject *name = CONSTANTS()[opD];
+        PyObject *res;
+        CALL_VM(res = vm_import_from(ts, module, name));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        DISPATCH(IMPORT_FROM);
+    }
+
     TARGET(GET_ITER) {
         assert(IS_OBJ(acc));
         PyObject *obj = AS_OBJ(acc);

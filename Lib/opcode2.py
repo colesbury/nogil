@@ -138,7 +138,7 @@ def_op('FOR_ITER', 93, 'reg', 'jump')
 
 # imports
 def_op('IMPORT_NAME', 108, 'str')      # Index in name list
-def_op('IMPORT_FROM', 109, 'str')      # Index in name list
+def_op('IMPORT_FROM', 109, 'reg', 'str')      # Index in name list
 def_op('IMPORT_STAR', 84, 'str')
 
 # build built-in objects
