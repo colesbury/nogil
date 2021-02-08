@@ -163,10 +163,10 @@ class Checker(ast.NodeVisitor):
 
     def visit_Compare(self, t):
         self(t.left)
-        assert 1 == len(t.ops), "Complex comparisons not supported: %r" % (t,)
-        assert type(t.ops[0]) in self.ops_cmp, "Unsupported compare op: %r" % (t,)
         assert len(t.ops) == len(t.comparators), "Wrong number of arguments: %r" % (t,)
-        self(t.comparators[0])
+        for op, comparator in zip(t.ops, t.comparators):
+            assert type(op) in self.ops_cmp, "Unsupported compare op: %r" % (op,)
+            self(comparator)
     ops_cmp = {ast.Eq,  ast.NotEq,  ast.Is,  ast.IsNot,
                ast.Lt,  ast.LtE,    ast.In,  ast.NotIn,
                ast.Gt,  ast.GtE}

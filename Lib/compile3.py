@@ -843,13 +843,8 @@ class CodeGen(ast.NodeVisitor):
             ast.BitAnd: ops.BINARY_AND,    ast.Div:  ops.BINARY_TRUE_DIVIDE,
             ast.BitXor: ops.BINARY_XOR,    ast.FloorDiv: ops.BINARY_FLOOR_DIVIDE}
 
-    def visit_Compare(self, t):
-        [operator], [right] = t.ops, t.comparators
+    def emit_compare(self, operator, reg):
         optype = type(operator)
-
-        reg = self.register()
-        reg(t.left)
-        self(right)
         if optype == ast.Is:
             self.IS_OP(reg)
         elif optype == ast.IsNot:
@@ -861,8 +856,20 @@ class CodeGen(ast.NodeVisitor):
             self.CONTAINS_OP(reg)
             self.UNARY_NOT_FAST()
         else:
-            cmp_index = dis.cmp_op.index(self.ops_cmp[type(operator)])
+            cmp_index = dis.cmp_op.index(self.ops_cmp[optype])
             self.COMPARE_OP(cmp_index, reg)
+
+    def visit_Compare(self, t):
+        label = Label()
+        reg = self.register()
+        reg(t.left)
+        for i, (operator, right) in enumerate(zip(t.ops, t.comparators)):
+            if i > 0:
+                self.JUMP_IF_FALSE(label)
+                self.STORE_FAST(reg)
+            self(right)
+            self.emit_compare(operator, reg)
+        self.LABEL(label)
         reg.clear()
     ops_cmp = {ast.Eq: '==', ast.NotEq: '!=', ast.Is: 'is', ast.IsNot: 'is not',
                ast.Lt: '<',  ast.LtE:   '<=', ast.In: 'in', ast.NotIn: 'not in',
