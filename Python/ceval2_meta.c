@@ -261,43 +261,46 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
 {
     assert(PyErr_Occurred());
     for (;;) {
-        PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-        PyCodeObject2 *code = PyCode2_FromFunc(func);
-        printf("checking func %p at %p\n", func, &ts->regs[-1]);
+        PyObject *callable = AS_OBJ(ts->regs[-1]);
+        if (PyFunc_Check(callable)) {
+            PyFunc *func = (PyFunc *)callable;
+            PyCodeObject2 *code = PyCode2_FromFunc(func);
+            ExceptionHandler *handler = vm_exception_handler(code, next_instr);
 
-        ExceptionHandler *handler = vm_exception_handler(code, next_instr);
-        if (handler != NULL) {
-            printf("found handler at %zd\n", handler->handler);
-            vm_clear_regs(ts, handler->reg, code->co_framesize);
+            if (handler != NULL) {
+                printf("found handler at %zd\n", handler->handler);
+                vm_clear_regs(ts, handler->reg, code->co_framesize);
 
-            PyObject *exc, *val, *tb;
-            _PyErr_Fetch(ts->ts, &exc, &val, &tb);
-            /* Make the raw exception data
-                available to the handler,
-                so a program can emulate the
-                Python main loop. */
-            _PyErr_NormalizeException(ts->ts, &exc, &val, &tb);
-            if (tb != NULL)
-                PyException_SetTraceback(val, tb);
-            else
-                PyException_SetTraceback(val, Py_None);
-            Py_ssize_t link_reg = handler->reg;
-            ts->regs[link_reg].as_int64 = -1;
-            if (ts->handled_exc != NULL) {
-                ts->regs[link_reg + 1] = PACK_OBJ(ts->handled_exc);
+                PyObject *exc, *val, *tb;
+                _PyErr_Fetch(ts->ts, &exc, &val, &tb);
+                /* Make the raw exception data
+                    available to the handler,
+                    so a program can emulate the
+                    Python main loop. */
+                _PyErr_NormalizeException(ts->ts, &exc, &val, &tb);
+                if (tb != NULL)
+                    PyException_SetTraceback(val, tb);
+                else
+                    PyException_SetTraceback(val, Py_None);
+                Py_ssize_t link_reg = handler->reg;
+                ts->regs[link_reg].as_int64 = -1;
+                if (ts->handled_exc != NULL) {
+                    ts->regs[link_reg + 1] = PACK_OBJ(ts->handled_exc);
+                }
+                else {
+                    ts->regs[link_reg + 1].as_int64 = 0;
+                }
+                ts->handled_exc = val;
+                Py_DECREF(exc);
+                Py_XDECREF(tb);
+                return PyCode2_GET_CODE(code) + handler->handler;
             }
-            else {
-                ts->regs[link_reg + 1].as_int64 = 0;
-            }
-            ts->handled_exc = val;
-            Py_DECREF(exc);
-            Py_XDECREF(tb);
-            return PyCode2_GET_CODE(code) + handler->handler;
         }
 
         // No handler found in this call frame. Clears the entire frame and
         // unwinds the call stack.
-        vm_clear_regs(ts, -1, code->co_framesize);
+        Py_ssize_t frame_size = vm_frame_size(ts);
+        vm_clear_regs(ts, -1, frame_size);
         uintptr_t frame_link = ts->regs[-2].as_int64;
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
