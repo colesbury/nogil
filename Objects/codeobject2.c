@@ -165,6 +165,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     if (co == NULL) {
         return NULL;
     }
+    co->co_posonlyargcount = 0;
     co->co_argcount = argcount;
     co->co_nlocals = nlocals;
     co->co_ncells = (uint8_t)ncells;

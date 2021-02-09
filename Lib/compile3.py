@@ -486,7 +486,6 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
-        assert len(t.keywords) == 0
         FRAME_EXTRA = 3
         regs = self.register_list()
 
@@ -505,7 +504,21 @@ class CodeGen(ast.NodeVisitor):
         regs[2](t.func)
         for i, arg in enumerate(t.args):
             regs[3+i](arg)
-        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.args))
+
+        opD = len(t.args)
+
+        if len(t.keywords) > 0:
+            pos = 3 + len(t.args)
+            opD += (len(t.keywords) << 8)
+            for i, kwd in enumerate(t.keywords):
+                regs[pos + i](kwd.value)
+            pos += len(t.keywords)
+            kwdnames = tuple(kwd.arg for kwd in t.keywords)
+            # TODO: load const directly into register
+            self.load_const(kwdnames)
+            self.STORE_FAST(regs[pos].allocate())
+
+        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, opD)
 
     def visit_keyword(self, t):
         self.load_const(t.arg)
@@ -1085,12 +1098,10 @@ class CodeGen(ast.NodeVisitor):
         # self.load_const(ast.get_docstring(t))
         self.FUNC_HEADER(0)
         if self.scope.is_generator:
-            print('compiling generator!')
             self.GENERATOR_HEADER(0)
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-
         return self.make_code(t.name, len(t.args.args), len(t.args.defaults), t.args.vararg, t.args.kwarg)
 
     def visit_ClassDef(self, t):
@@ -1159,7 +1170,7 @@ def load_file(filename, module_name):
 def module_from_ast(module_name, filename, t):
     code = code_for_module(module_name, filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
-    # print(dis.dis(code))
+    print(dis.dis(code))
     import time
     start = time.perf_counter()
     code.exec(module.__dict__)

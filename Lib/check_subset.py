@@ -174,7 +174,6 @@ class Checker(ast.NodeVisitor):
     def visit_Call(self, t):
         self(t.func)
         self(t.args)
-        assert len(t.keywords) == 0
         self(t.keywords)
         # if t.starargs: self(t.starargs)
         # if t.kwargs:   self(t.kwargs)

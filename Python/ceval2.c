@@ -328,10 +328,31 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
             goto dispatch_func_header;
         }
 
-        if (UNLIKELY(acc.as_int64 != this_code->co_argcount)) {
-            CALL_VM(vm_args_error(ts));
-            acc.as_int64 = 0;
-            goto error;
+        if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+            // call has keyword arguments
+            CALL_VM(err = vm_setup_kwargs(ts, this_code, acc.as_int64));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
+        }
+
+        // FIXME: condition is wrong
+        if ((acc.as_int64 & ACC_MASK_ARGS) !=
+            (this_code->co_packed_flags & (CODE_MASK_ARGS|CODE_FLAG_KWD_ONLY_ARGS)))
+        {
+            // If the number of arguments doesn't match or the function has keyword-only
+            // arguments then we need to check for too many or too few args and setup
+            // default arguments.
+            CALL_VM(err = vm_setup_default_args(ts, this_code, acc));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
         }
 
         const uint32_t flags = CODE_FLAG_HAS_CELLS|CODE_FLAG_HAS_FREEVARS;
