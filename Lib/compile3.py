@@ -268,6 +268,8 @@ class ops:
     for bytecode in dis.bytecodes:
         locals()[bytecode.name] = make_instruction(bytecode)
 
+FRAME_EXTRA = 3
+
 class CodeGen(ast.NodeVisitor):
     for bytecode in dis.bytecodes:
         locals()[bytecode.name] = make_instruction(bytecode)
@@ -484,23 +486,18 @@ class CodeGen(ast.NodeVisitor):
             reg[i](value)
         self.call_intrinsic('vm_build_string', reg.base, len(t.values))
 
+
     def visit_Call(self, t):
         assert len(t.args) < 256 and len(t.keywords) < 256
-        FRAME_EXTRA = 3
+        has_starargs = any(type(a) == ast.Starred for a in t.args)
+        has_kwargs = any(k.arg is None for k in t.keywords)
+
+        if has_starargs or has_kwargs or len(t.args) >= 256 or len(t.keywords) >= 256:
+            return self.call_function_ex(t)
+        elif len(t.keywords) == 0 and isinstance(t.func, ast.Attribute):
+            return self.call_method(t)
+
         regs = self.register_list()
-
-        if len(t.keywords) == 0 and isinstance(t.func, ast.Attribute):
-            assert type(t.func.ctx) == ast.Load
-            self(t.func.value)
-            regs[2].allocate()
-            regs[3].allocate()
-            self.LOAD_METHOD(regs[2], self.names[t.func.attr])
-            for i, arg in enumerate(t.args):
-                regs[4+i](arg)
-            self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
-            return
-
-        # FIXME base register
         regs[2](t.func)
         for i, arg in enumerate(t.args):
             regs[3+i](arg)
@@ -519,6 +516,23 @@ class CodeGen(ast.NodeVisitor):
             self.STORE_FAST(regs[pos].allocate())
 
         self.CALL_FUNCTION(regs.base + FRAME_EXTRA, opD)
+
+    def call_method(self, t):
+        assert len(t.keywords) == 0
+        assert isinstance(t.func, ast.Attribute) and type(t.func.ctx) == ast.Load
+
+        regs = self.register_list()
+        self(t.func.value)
+        regs[2].allocate()
+        regs[3].allocate()
+        self.LOAD_METHOD(regs[2], self.names[t.func.attr])
+        for i, arg in enumerate(t.args):
+            regs[4+i](arg)
+        self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
+
+    def call_function_ex(self, t):
+        print(ast.dump(t))
+        assert False, 'call_function_ex nyi'
 
     def visit_keyword(self, t):
         self.load_const(t.arg)

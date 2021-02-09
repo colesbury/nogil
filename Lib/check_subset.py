@@ -175,11 +175,13 @@ class Checker(ast.NodeVisitor):
         self(t.func)
         self(t.args)
         self(t.keywords)
-        # if t.starargs: self(t.starargs)
-        # if t.kwargs:   self(t.kwargs)
+
+    def visit_Starred(self, t):
+        self(t.value)
 
     def visit_keyword(self, t):
-        self.check_identifier(t.arg)
+        if t.arg is not None:
+            self.check_identifier(t.arg)
         self(t.value)
 
     def visit_Constant(self, t):
