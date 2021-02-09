@@ -1256,6 +1256,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         assert(IS_EMPTY(acc));
         PyObject *res;
         CALL_VM(res = _PyDict_NewPresized(opA));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         acc = PACK(res, REFCOUNT_TAG);
         DISPATCH(BUILD_MAP);
     }
@@ -1263,10 +1266,54 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     TARGET(LIST_APPEND) {
         PyObject *list = AS_OBJ(regs[opA]);
         PyObject *item = AS_OBJ(acc);
-        CALL_VM(PyList_Append(list, item));
+        int err;
+        CALL_VM(err = PyList_Append(list, item));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(LIST_APPEND);
+    }
+
+    TARGET(LIST_EXTEND) {
+        PyObject *list = AS_OBJ(regs[opA]);
+        PyObject *iterable = AS_OBJ(acc);
+        PyObject *res;
+        CALL_VM(res = _PyList_Extend((PyListObject *)list, iterable));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
+        assert(res == Py_None);
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(LIST_EXTEND);
+    }
+
+    TARGET(SET_ADD) {
+        PyObject *set = AS_OBJ(regs[opA]);
+        PyObject *item = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PySet_Add(set, item));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(SET_ADD);
+    }
+
+    TARGET(SET_UPDATE) {
+        PyObject *set = AS_OBJ(regs[opA]);
+        PyObject *iterable = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = _PySet_Update(set, iterable));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(SET_UPDATE);
     }
 
     TARGET(UNPACK_SEQUENCE) {
