@@ -185,7 +185,7 @@ def_op('SET_ADD', 146, 'reg')
 def_op('SET_UPDATE', 163, 'reg')
 def_op('MAP_ADD', 147)
 def_op('DICT_MERGE', 164)
-def_op('DICT_UPDATE', 165)
+def_op('DICT_UPDATE', 165, 'reg')
 
 def_op('CLEAR_FAST', 168, 'reg')     # Index in name list
 def_op('COPY', 169, 'reg', 'reg')

@@ -156,7 +156,8 @@ class Checker(ast.NodeVisitor):
     def visit_Dict(self, t):
         for k, v in zip(t.keys, t.values):
             self(v)
-            self(k)
+            if k:
+                self(k)
 
     def visit_Set(self, t):
         self(t.elts)

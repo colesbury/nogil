@@ -790,10 +790,14 @@ class CodeGen(ast.NodeVisitor):
         regs = self.register_list(2)
         self.STORE_FAST(regs[0])
         for k, v in zip(t.keys, t.values):
-            regs[1](k)
-            self(v)
-            self.STORE_SUBSCR(regs[0], regs[1])
-            regs[1].clear()
+            if k:
+                regs[1](k)
+                self(v)
+                self.STORE_SUBSCR(regs[0], regs[1])
+                regs[1].clear()
+            else:
+                self(v)
+                self.DICT_UPDATE(regs[0])
         self.LOAD_FAST(regs[0])
         self.CLEAR_FAST(regs[0])
 

@@ -1263,6 +1263,19 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(BUILD_MAP);
     }
 
+    TARGET(DICT_UPDATE) {
+        PyObject *dict = AS_OBJ(regs[opA]);
+        PyObject *update = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyDict_Update(dict, update));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(DICT_UPDATE);
+    }
+
     TARGET(LIST_APPEND) {
         PyObject *list = AS_OBJ(regs[opA]);
         PyObject *item = AS_OBJ(acc);
