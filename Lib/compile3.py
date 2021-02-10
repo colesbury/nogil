@@ -824,6 +824,13 @@ class CodeGen(ast.NodeVisitor):
         self.LIST_APPEND(reg)
         reg.clear()
 
+    def visit_SetAdd(self, t):
+        reg = self.register()
+        reg(t.set)
+        self(t.elt)
+        self.SET_ADD(reg)
+        reg.clear()
+
     def visit_UnaryOp(self, t):
         self(t.operand)
         self.ops1[type(t.op)](self)
@@ -1171,8 +1178,8 @@ class ListAppend(ast.stmt):
     _fields = ('list', 'item')
     pass
 
-class StoreSubcript(ast.stmt):
-    _fields = ('container', 'slice', 'value')
+class SetAdd(ast.stmt):
+    _fields = ('set', 'elt')
     pass
 
 class Desugarer(ast.NodeTransformer):
@@ -1235,6 +1242,20 @@ class Desugarer(ast.NodeTransformer):
 
         return Call(Function('<dictcomp>', args, fn),
                     [ast.Dict(keys=[], values=[])])
+
+    @rewriter
+    def visit_SetComp(self, t):
+        body = SetAdd(ast.Name('.0', load), t.elt)
+        for loop in reversed(t.generators):
+            for test in reversed(loop.ifs):
+                body = ast.If(test, [body], [])
+            body = ast.For(loop.target, loop.iter, [body], [])
+        fn = [body,
+              ast.Return(ast.Name('.0', load))]
+        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
+
+        return Call(Function('<setcomp>', args, fn),
+                    [ast.Set([])])
 
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')

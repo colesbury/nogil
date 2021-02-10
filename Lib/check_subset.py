@@ -197,6 +197,9 @@ class Checker(ast.NodeVisitor):
     def visit_ListAppend(self, t):
         pass
 
+    def visit_SetAdd(self, t):
+        pass
+
     def visit_Attribute(self, t):
         self(t.value)
         self.check_identifier(t.attr)
