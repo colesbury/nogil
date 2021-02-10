@@ -281,13 +281,13 @@ class CodeGen(ast.NodeVisitor):
         self.names     = self.constants
         self.varnames  = scope.regs
         self.instrs    = []
-        if self.scope.scope_type in ('module', 'class'):
-            assert len(self.scope.local_defs) == 0
-            self.nlocals = 1
-            self.next_register = 1
-        else:
-            self.nlocals = len(self.scope.local_defs)
-            self.next_register = len(self.varnames)
+        # if self.scope.scope_type in ('module', 'class'):
+        #     assert len(self.scope.local_defs) == 0
+        #     self.nlocals = 1
+        #     self.next_register = 1
+        # else:
+        self.nlocals = self.next_register = len(self.varnames)
+        # self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         self.blocks = []
         self.last_lineno = None
@@ -401,6 +401,7 @@ class CodeGen(ast.NodeVisitor):
 
         if   access == 'fast':   self.LOAD_FAST(self.varnames[name])
         elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
+        elif access == 'classderef':  self.LOAD_CLASSDEREF(self.varnames[name], self.names[name])
         elif access == 'name':   self.LOAD_NAME(self.names[name])
         elif access == 'global': self.LOAD_GLOBAL(self.names[name])
         else: assert False
@@ -419,7 +420,7 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'deref':  self.STORE_DEREF(self.varnames[name])
         elif access == 'name':   self.STORE_NAME(self.names[name])
         elif access == 'global': self.STORE_GLOBAL(self.names[name])
-        else: assert False
+        else: assert False, access
 
     def delete(self, name):
         access = self.scope.access(name)
@@ -713,7 +714,7 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'deref':  self.DELETE_DEREF(self.varnames[name])
         elif access == 'name':   self.DELETE_NAME(self.names[name])
         elif access == 'global': self.DELETE_GLOBAL(self.names[name])
-        else: assert False
+        else: assert False, access
 
     def delete_Attribute(self, t):
         self(t.value)
@@ -1422,9 +1423,7 @@ class Scope(ast.NodeVisitor):
     def assign_defaults(self, t):
         for i,d in enumerate(t.args.defaults):
             reg = self.default_idx(i)
-            # print(f'len(all_args)={len(all_args)} i={i} reg={reg} first_default_idx={first_default_idx}')
             name = self.argname(reg)
-            # print('arg', t.args.args[i].arg)
             upval = 'upvalTODO'
             self.free2reg[name] = (upval, reg)
 
@@ -1452,8 +1451,8 @@ class Scope(ast.NodeVisitor):
             self.define(t.name)
 
     def visit_Name(self, t):
-        if   isinstance(t.ctx, (ast.Load, ast.Del)):  self.uses.add(t.id)
-        elif isinstance(t.ctx, ast.Store): self.define(t.id)
+        if   isinstance(t.ctx, ast.Load):  self.uses.add(t.id)
+        elif isinstance(t.ctx, (ast.Store, ast.Del)): self.define(t.id)
         else: assert False
 
     def visit_Yield(self, t):
@@ -1476,25 +1475,25 @@ class Scope(ast.NodeVisitor):
                               for var in child.freevars])
         uses = self.uses | child_uses
         self.cellvars = child_uses & self.local_defs
-        self.freevars = (uses & (parent_defs - self.local_defs))
+        self.freevars = (uses & (parent_defs - set(self.defs.keys())))
         self.derefvars = self.cellvars | self.freevars
 
     def assign_regs(self, parent_regs):
-        self.regs = self.defs.copy() if isinstance(self.t, Function) else {}
+        self.regs = self.defs.copy() if isinstance(self.t, Function) else {'<locals>': 0}
         for name, upval in parent_regs.items():
             if name in self.freevars:
-                assert name not in self.regs
                 reg = len(self.regs)
                 self.regs[name] = reg
                 self.free2reg[name] = (upval, reg)
 
         assert(all(name in self.regs for name in self.freevars))
         for child in self.children.values():
-            child.assign_regs(self.regs)
+            child.assign_regs(self.regs if isinstance(self.t, Function) else parent_regs)
 
 
     def access(self, name):
-        return ('deref' if name in self.derefvars else
+        return ('classderef' if name in self.derefvars and self.scope_type == 'class' else
+                'deref' if name in self.derefvars else
                 'fast'  if name in self.local_defs else
                 'global' if name in self.globals or self.scope_type == 'function' else
                 'name')

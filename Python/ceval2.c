@@ -756,6 +756,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(STORE_DEREF);
     }
 
+    TARGET(LOAD_CLASSDEREF) {
+        assert(IS_EMPTY(acc));
+        PyObject *name = CONSTANTS()[opD];
+        CALL_VM(acc = vm_load_class_deref(ts, opA, name));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
+        DISPATCH(LOAD_CLASSDEREF);
+    }
+
     TARGET(DELETE_FAST) {
         Register r = regs[opA];
         if (UNLIKELY(r.as_int64 == 0)) {

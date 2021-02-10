@@ -483,7 +483,8 @@ vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
     }
 }
 
-Register vm_load_name(Register *regs, PyObject *name)
+Register
+vm_load_name(Register *regs, PyObject *name)
 {
     PyObject *locals = AS_OBJ(regs[0]);
     assert(PyDict_Check(locals));
@@ -507,6 +508,42 @@ Register vm_load_name(Register *regs, PyObject *name)
 
     abort();
     return (Register){0};
+}
+
+Register
+vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name)
+{
+    PyObject *locals = AS_OBJ(ts->regs[0]);
+    if (PyDict_CheckExact(locals)) {
+        PyObject *value = PyDict_GetItemWithError2(locals, name);
+        if (value != NULL) {
+            return PACK_OBJ(value);
+        }
+        else if (_PyErr_Occurred(ts->ts)) {
+            return (Register){0};
+        }
+    }
+    else {
+        PyObject *value = PyObject_GetItem(locals, name);
+        if (value != NULL) {
+            return PACK_OBJ(value);
+        }
+        else if (!_PyErr_ExceptionMatches(ts->ts, PyExc_KeyError)) {
+            return (Register){0};
+        }
+        else {
+            _PyErr_Clear(ts->ts);
+        }
+    }
+    PyObject *cell = AS_OBJ(ts->regs[opA]);
+    assert(cell != NULL && PyCell_Check(cell));
+    PyObject *value = PyCell_GET(cell);
+    if (value == NULL) {
+        PyErr_Format(PyExc_NameError,
+            "free variable '%U' referenced before assignment in enclosing scope", name);
+        return (Register){0};
+    }
+    return PACK_INCREF(value);
 }
 
 static int
@@ -1002,7 +1039,9 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
 
         Register prev = ts->regs[idx];
         ts->regs[idx] = PACK(cell, REFCOUNT_TAG);
-        DECREF(prev);
+        if (prev.as_int64 != 0) {
+            DECREF(prev);
+        }
     }
     return 0;
 }

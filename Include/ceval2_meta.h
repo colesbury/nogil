@@ -231,6 +231,7 @@ PyObject *
 vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssize_t nargs);
 
 Register vm_load_name(Register *regs, PyObject *name);
+Register vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name);
 int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);
 int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
@@ -254,7 +255,6 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
 int vm_setup_cells_freevars(struct ThreadState *ts, PyCodeObject2 *code);
 int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *code, int64_t flags);
 int vm_setup_default_args(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
-
 
 Register
 vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);

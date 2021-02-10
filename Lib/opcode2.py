@@ -153,6 +153,7 @@ def_op('BUILD_MAP', 105, 'lit')               # Number of dict entries
 # ----
 def_op('LOAD_DEREF', 136, 'reg')
 def_op('STORE_DEREF', 137, 'reg')
+def_op('LOAD_CLASSDEREF', 148, 'reg', 'str')
 
 def_op('END_EXCEPT', 89, 'reg')
 def_op('CALL_FINALLY', 123, 'reg', 'jump')
@@ -175,7 +176,6 @@ def_op('UNPACK_EX', 94)
 def_op('MAKE_FUNCTION', 132, 'const')    # Flags
 def_op('SETUP_WITH', 143, 'reg')
 def_op('END_WITH', 150, 'reg')
-def_op('LOAD_CLASSDEREF', 148)
 def_op('EXTENDED_ARG', 144)
 def_op('SETUP_ASYNC_WITH', 154)
 def_op('BUILD_CONST_KEY_MAP', 156)

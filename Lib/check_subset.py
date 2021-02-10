@@ -37,13 +37,9 @@ class Checker(ast.NodeVisitor):
         Checker('function', in_loop=False)(t.body)
 
     def visit_ClassDef(self, t):
-        assert self.scope_type == 'module', ("Nested classes are not supported %r"
-                                             % (t,))
         self.check_identifier(t.name)
         self(t.bases)
         assert not t.keywords
-        # assert not t.starargs
-        # assert not t.kwargs
         assert not t.decorator_list
         Checker('class', in_loop=False)(t.body)
 
