@@ -428,14 +428,15 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'deref':  self.DELETE_DEREF(self.varnames[name])
         elif access == 'name':   self.DELETE_NAME(self.names[name])
         elif access == 'global': self.DELETE_GLOBAL(self.names[name])
-        else: assert False
+        else: assert False, access
 
     def clear(self, name):
         access = self.scope.access(name)
-        if access != 'fast':
+        if access == 'fast':
             self.CLEAR_FAST(self.varnames[name])
         else:
-            self.store(name, None)
+            self.load_const(None)
+            self.store(name)
             self.delete(name)
 
     def cell_index(self, name):
@@ -700,27 +701,21 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Delete(self, t):
         for target in t.targets:
-            self.delete(target)
+            self.del_(target)
 
-    def delete(self, target):
-        method = 'delete_' + target.__class__.__name__
+    def del_(self, target):
+        method = 'del_' + target.__class__.__name__
         visitor = getattr(self, method)
         return visitor(target)
 
-    def delete_Name(self, t):
-        name = t.id
-        access = self.scope.access(name)
-        if   access == 'fast':   self.DELETE_FAST(self.varnames[name])
-        elif access == 'deref':  self.DELETE_DEREF(self.varnames[name])
-        elif access == 'name':   self.DELETE_NAME(self.names[name])
-        elif access == 'global': self.DELETE_GLOBAL(self.names[name])
-        else: assert False, access
+    def del_Name(self, t):
+        self.delete(t.id)
 
-    def delete_Attribute(self, t):
+    def del_Attribute(self, t):
         self(t.value)
         self.DELETE_ATTR(self.names[t.attr])
 
-    def delete_Subscript(self, t):
+    def del_Subscript(self, t):
         reg = self.register()
         reg(t.value)
         self(t.slice)
