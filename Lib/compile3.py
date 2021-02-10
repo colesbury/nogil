@@ -1220,6 +1220,22 @@ class Desugarer(ast.NodeTransformer):
         return Call(Function('<listcomp>', args, fn),
                     [ast.List([], load)])
 
+    @rewriter
+    def visit_DictComp(self, t):
+        body = ast.Assign(
+            targets=[ast.Subscript(value=ast.Name('.0', load), slice=t.key, ctx=store)],
+            value=[t.value])
+        for loop in reversed(t.generators):
+            for test in reversed(loop.ifs):
+                body = ast.If(test, [body], [])
+            body = ast.For(loop.target, loop.iter, [body], [])
+        fn = [body,
+              ast.Return(ast.Name('.0', load))]
+        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
+
+        return Call(Function('<dictcomp>', args, fn),
+                    [ast.Dict(keys=[], values=[])])
+
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')
 
