@@ -414,6 +414,10 @@ def disassemble(co, lasti=-1, *, file=None):
     linestarts = dict(findlinestarts(co))
     _disassemble_bytes(co.co_code, lasti, co.co_varnames, (),#co.co_names,
                        co.co_consts, cell_names, linestarts, file=file)
+    if len(co.co_cell2reg) > 0:
+        print(' ' * 2 + f'Cell variables: {list(co.co_cell2reg)}', file=file)
+    if len(co.co_free2reg) > 0:
+        print(' ' * 2 + f'Free variables: {list(co.co_free2reg)}', file=file)
 
 def _disassemble_recursive(co, *, file=None, depth=None):
     disassemble(co, file=file)

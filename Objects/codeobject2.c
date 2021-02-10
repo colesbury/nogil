@@ -319,6 +319,45 @@ code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
     return t;
 }
 
+static PyObject *
+code_getcell2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    PyObject *t = PyTuple_New(co->co_ncells);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != co->co_ncells; i++) {
+        PyObject *c = PyLong_FromSsize_t(co->co_cell2reg[i]);
+        if (c == NULL) {
+            Py_DECREF(t);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(t, i, c);
+    }
+    return t;
+}
+
+static PyObject *
+code_getfree2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    Py_ssize_t size = co->co_ndefaultargs + co->co_nfreevars;
+    PyObject *t = PyTuple_New(size);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != size; i++) {
+        PyObject *value = Py_BuildValue("(nn)",
+            co->co_free2reg[2 * i],
+            co->co_free2reg[2 * i + 1]);
+        if (value == NULL) {
+            Py_DECREF(t);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(t, i, value);
+    }
+    return t;
+}
+
 static struct PyMethodDef code_methods[] = {
     {"__sizeof__", (PyCFunction)code_sizeof, METH_NOARGS},
     {"exec", (PyCFunction)code_exec, METH_VARARGS},
@@ -342,6 +381,8 @@ static PyMemberDef code_memberlist[] = {
 static PyGetSetDef code_getset[] = {
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
+    {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "constants", NULL},
+    {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "constants", NULL},
     {NULL} /* sentinel */
 };
 
