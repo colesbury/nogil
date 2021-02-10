@@ -531,8 +531,18 @@ class CodeGen(ast.NodeVisitor):
         self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
 
     def call_function_ex(self, t):
-        print(ast.dump(t))
-        assert False, 'call_function_ex nyi'
+        regs = self.register_list()
+        regs[2](t.func)
+        regs[3](ast.Tuple(elts=t.args, ctx=load))
+
+        kwargs = ast.Dict(
+            keys=[ast.Constant(value=k.arg) if k.arg is not None else None for k in t.keywords],
+            values=[k.value for k in t.keywords]
+        )
+        kwargs.merge = self.DICT_MERGE  # yuck
+        regs[4](kwargs)
+
+        self.CALL_FUNCTION_EX(regs.base + FRAME_EXTRA)
 
     def visit_keyword(self, t):
         self.load_const(t.arg)
@@ -797,7 +807,10 @@ class CodeGen(ast.NodeVisitor):
                 regs[1].clear()
             else:
                 self(v)
-                self.DICT_UPDATE(regs[0])
+                if hasattr(t, 'merge'):
+                    t.merge(regs[0])
+                else:
+                    self.DICT_UPDATE(regs[0])
         self.LOAD_FAST(regs[0])
         self.CLEAR_FAST(regs[0])
 

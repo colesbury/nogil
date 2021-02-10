@@ -754,6 +754,16 @@ vm_call_function(struct ThreadState *ts, Py_ssize_t nargs)
     return _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, NULL);
 }
 
+PyObject *
+vm_call_function_ex(struct ThreadState *ts)
+{
+    PyObject *callable = AS_OBJ(ts->regs[-1]);
+    PyObject *args = AS_OBJ(ts->regs[0]);
+    PyObject *kwargs = AS_OBJ(ts->regs[1]);
+    PyObject *res = PyObject_Call(callable, args, kwargs);
+    return res;
+}
+
 static PyFunc *
 PyFunc_New(PyCodeObject2 *code, PyObject *globals);
 
@@ -895,14 +905,65 @@ vm_setup_kwargs_slow(struct ThreadState *ts, Py_ssize_t base, PyObject **kwnames
     return -1;
 }
 
+static int
+vm_setup_varkwargs(struct ThreadState *ts, PyCodeObject2 *co, int64_t flags)
+{
+    Register argsr = ts->regs[0];
+    Register kwargsr = ts->regs[1];
+    ts->regs[0].as_int64 = 0;
+    ts->regs[1].as_int64 = 0;
+
+    Py_ssize_t i;
+    PyObject *args = AS_OBJ(argsr);
+    Py_ssize_t n = PyTuple_GET_SIZE(args);
+    if (n >= co->co_argcount - co->co_kwonlyargcount) {
+        n = co->co_argcount - co->co_kwonlyargcount;
+    }
+    for (i = 0; i < n; i++) {
+        ts->regs[i] = PACK_INCREF(PyTuple_GetItem(args, i));
+    }
+    DECREF(argsr);
+
+    Py_ssize_t total_args = co->co_argcount + co->co_kwonlyargcount;
+    PyObject **co_varnames = ((PyTupleObject *)(co->co_varnames))->ob_item;
+
+    i = 0;
+    PyObject *kwargs = AS_OBJ(kwargsr);
+    PyObject *keyword, *value;
+    while (PyDict_Next(kwargs, &i, &keyword, &value)) {
+        Py_ssize_t j;
+        for (j = co->co_posonlyargcount; j < total_args; j++) {
+            PyObject *name = co_varnames[j];
+            if (name == keyword) {
+                goto kw_found;
+            }
+        }
+        // DECREF(kwargsr); FIXME: decref ... after error?
+        return unexpected_keyword_argument(ts, co, NULL/*FIXME*/, PyDict_GET_SIZE(kwargs));
+
+      kw_found:
+        if (UNLIKELY(ts->regs[j].as_int64 != 0)) {
+            // DECREF(kwargsr); FIXME: decref ... after error?
+            return duplicate_keyword_argument(ts, co, keyword);
+        }
+        ts->regs[j] = PACK_INCREF(value);
+    }
+    DECREF(kwargsr);
+
+    return 0;
+}
+
 int
 vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, int64_t flags)
 {
     Py_ssize_t argcount = (flags & ACC_MASK_ARGS);
     Py_ssize_t kwcount = (flags & ACC_MASK_KWARGS) >> 8;
+    if ((flags & ACC_FLAG_VARKEYWORDS) != 0) {
+        return vm_setup_varkwargs(ts, co, flags);
+    }
+    assert(!IS_RC(ts->regs[argcount + kwcount]));
     PyObject *names = AS_OBJ(ts->regs[argcount + kwcount]);
     ts->regs[argcount + kwcount].as_int64 = 0;
-    assert(!IS_RC(ts->regs[argcount + kwcount]));
     assert(kwcount == PyTuple_GET_SIZE(names));
 
     PyObject **co_varnames = ((PyTupleObject *)(co->co_varnames))->ob_item;

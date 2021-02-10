@@ -328,7 +328,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
             goto dispatch_func_header;
         }
 
-        if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+        if ((acc.as_int64 & (ACC_MASK_KWARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
             // call has keyword arguments
             CALL_VM(err = vm_setup_kwargs(ts, this_code, acc.as_int64));
             if (UNLIKELY(err != 0)) {
@@ -509,6 +509,46 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         regs -= RELOAD_OPA();
         ts->regs = regs;
         DISPATCH(call_object);
+    }
+
+    TARGET(CALL_FUNCTION_EX) {
+        // opsA - 2 = <empty> (frame link)
+        // opsA - 1 = func
+        // opsA + 0 = *args
+        // opsA + 1 = **kwargs
+        assert(IS_EMPTY(acc));
+        PyObject *callable = AS_OBJ(regs[opA - 1]);
+        regs = &regs[opA];
+        ts->regs = regs;
+        regs[-2].as_int64 = (intptr_t)next_instr;
+        if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
+            goto call_object_ex;
+        }
+        acc.as_int64 = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
+        next_instr = ((PyFuncBase *)callable)->first_instr;
+        DISPATCH(CALL_FUNCTION);
+    }
+
+    call_object_ex: {
+        DEBUG_LABEL(call_object_ex);
+        regs[-3].as_int64 = 2;
+        PyObject *callable = AS_OBJ(regs[-1]);
+        PyObject *args = AS_OBJ(regs[0]);
+        PyObject *kwargs = AS_OBJ(regs[1]);
+        PyObject *res;
+        CALL_VM(res = PyObject_Call(callable, args, kwargs));
+        if (UNLIKELY(res == NULL)) {
+            // is this ok? do we need to adjust frame first?
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(2);
+        next_instr = (const uint32_t *)regs[-2].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs -= RELOAD_OPA();
+        ts->regs = regs;
+        DISPATCH(call_object_ex);
     }
 
     TARGET(YIELD_VALUE) {
@@ -1269,11 +1309,26 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         int err;
         CALL_VM(err = PyDict_Update(dict, update));
         if (UNLIKELY(err != 0)) {
+            // TODO: update error message
             goto error;
         }
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(DICT_UPDATE);
+    }
+
+    TARGET(DICT_MERGE) {
+        PyObject *dict = AS_OBJ(regs[opA]);
+        PyObject *update = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = _PyDict_MergeEx(dict, update, 2));
+        if (UNLIKELY(err != 0)) {
+            // TODO: update error message
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(DICT_MERGE);
     }
 
     TARGET(LIST_APPEND) {
