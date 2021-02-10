@@ -449,6 +449,15 @@ class CodeGen(ast.NodeVisitor):
         assert isinstance(t.ctx, ast.Load)
         self.load(t.id)
 
+    def visit_Assert(self, t):
+        label = Label()
+        self(t.test)
+        self.POP_JUMP_IF_TRUE(label)
+        if t.msg is not None:
+            self(t.msg)
+        self.CALL_INTRINSIC1("vm_raise_assertion_error")
+        self.LABEL(label)
+
     def call_intrinsic(self, name, base=None, nargs=None):
         assert (base is None) == (nargs is None)
         intrinsic = dis.intrinsic_map[name]

@@ -198,5 +198,6 @@ def_intrinsic('vm_format_value', 4)
 def_intrinsic('vm_format_value_spec', 5, nargs=2)
 def_intrinsic('vm_build_string', 6, nargs='N')
 def_intrinsic('PyList_AsTuple', 7)
+def_intrinsic('vm_raise_assertion_error', 8)
 
 del def_op, def_intrinsic

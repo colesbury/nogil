@@ -1333,6 +1333,13 @@ vm_for_iter_exc(struct ThreadState *ts)
     return 0;
 }
 
+static PyObject *
+vm_raise_assertion_error(PyObject *msg)
+{
+    PyErr_SetObject(PyExc_AssertionError, msg);
+    return NULL;
+}
+
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 {
