@@ -36,11 +36,10 @@ class Checker(ast.NodeVisitor):
         self.check_arguments(t.args)
         Checker('function', in_loop=False)(t.body)
 
-    def visit_ClassDef(self, t):
+    def visit_Class(self, t):
         self.check_identifier(t.name)
         self(t.bases)
         assert not t.keywords
-        assert not t.decorator_list
         Checker('class', in_loop=False)(t.body)
 
     def visit_Return(self, t):

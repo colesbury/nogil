@@ -1223,7 +1223,7 @@ class CodeGen(ast.NodeVisitor):
         self.RETURN_VALUE()
         return self.make_code(t.name, len(t.args.args), len(t.args.defaults), t.args.vararg, t.args.kwarg)
 
-    def visit_ClassDef(self, t):
+    def visit_Class(self, t):
         code = self.sprout(t).compile_class(t)
         regs = self.register_list()
         FRAME_EXTRA = 3
@@ -1236,7 +1236,6 @@ class CodeGen(ast.NodeVisitor):
         for i,base in enumerate(t.bases):
             regs[5+i](base)
         self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
-        self.store(t.name)
 
     def compile_class(self, t):
         docstring = ast.get_docstring(t)
@@ -1354,6 +1353,13 @@ class Desugarer(ast.NodeTransformer):
         return ast.Assign([ast.Name(t.name, store)], fn)
 
     @rewriter
+    def visit_ClassDef(self, t):
+        cls = Class(t.name, t.bases, t.keywords, t.body)
+        for d in reversed(t.decorator_list):
+            cls = Call(d, [cls])
+        return ast.Assign([ast.Name(t.name, store)], cls)
+
+    @rewriter
     def visit_ListComp(self, t):
         body = ListAppend(ast.Name('.0', load), t.elt)
         for loop in reversed(t.generators):
@@ -1412,6 +1418,9 @@ class Desugarer(ast.NodeTransformer):
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')
 
+class Class(ast.ClassDef):
+    _fields = ('name', 'bases', 'keywords', 'body')
+
 load, store = ast.Load(), ast.Store()
 
 def top_scope(t):
@@ -1435,7 +1444,7 @@ class Scope(ast.NodeVisitor):
                        (parent_scope.nested or
                         parent_scope.scope_type == 'function'))
 
-    def visit_ClassDef(self, t):
+    def visit_Class(self, t):
         self.define(t.name)
         for expr in t.bases: self.visit(expr)
         subscope = Scope(t, 'class', (), self)
@@ -1516,7 +1525,7 @@ class Scope(ast.NodeVisitor):
 
         assert(all(name in self.regs for name in self.freevars))
         for child in self.children.values():
-            child.assign_regs(self.regs if isinstance(self.t, Function) else parent_regs)
+            child.assign_regs(self.regs)
 
 
     def access(self, name):
