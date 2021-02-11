@@ -62,16 +62,25 @@ class code "PyCodeObject2 *" "&PyCode2_Type"
 
 #include "clinic/codeobject2.c.h"
 
+/* align size to a multiple of a power-of-2 alignment */
+static Py_ssize_t
+align_up(Py_ssize_t size, Py_ssize_t align)
+{
+    assert((align & (align - 1)) == 0 && "align must be power of two");
+    return (size + (align - 1)) & -align;
+}
 
 PyCodeObject2 *
 PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t nfreevars,
+            Py_ssize_t num_iconstants,
             Py_ssize_t nexc_handlers)
 {
-    Py_ssize_t ninstrs = PyBytes_Size(bytecode) / sizeof(uint32_t);
+    Py_ssize_t instr_size = align_up(PyBytes_GET_SIZE(bytecode), sizeof(void*));
     Py_ssize_t nconsts = PyTuple_GET_SIZE(consts);
     Py_ssize_t size = (sizeof(PyCodeObject2) +
-                       ninstrs * sizeof(uint32_t) +
+                       instr_size +
                        nconsts * sizeof(PyObject *) +
+                       num_iconstants * sizeof(Py_ssize_t) +
                        ncells * sizeof(Py_ssize_t) +
                        nfreevars * 2 * sizeof(Py_ssize_t) +
                        sizeof(struct _PyHandlerTable) +
@@ -83,15 +92,15 @@ PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t 
     }
     memset(co, 0, sizeof(PyCodeObject2));
     PyObject_INIT(co, &PyCode2_Type);
-    co->co_size = ninstrs;
+    co->co_size = PyBytes_GET_SIZE(bytecode) / sizeof(uint32_t);
     co->co_nconsts = nconsts;
     co->co_ncells = (uint8_t)ncells;
 
     char *ptr = (char *)co + sizeof(PyCodeObject2);
 
     uint32_t *instrs = PyCode2_Code(co);
-    memcpy(instrs, PyBytes_AsString(bytecode), ninstrs * sizeof(uint32_t));
-    ptr += ninstrs * sizeof(uint32_t);
+    memcpy(instrs, PyBytes_AS_STRING(bytecode), PyBytes_GET_SIZE(bytecode));
+    ptr += instr_size;
 
     PyObject **co_constants = (PyObject **)ptr;
     co->co_constants = co_constants;
@@ -101,6 +110,9 @@ PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t 
         co_constants[i] = c;
     }
     ptr += nconsts * sizeof(PyObject *);
+
+    co->co_iconstants = (num_iconstants == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += num_iconstants * sizeof(Py_ssize_t);
 
     co->co_cell2reg = (ncells == 0 ? NULL : (Py_ssize_t *)ptr);
     ptr += ncells * sizeof(Py_ssize_t);
@@ -143,6 +155,7 @@ code.__new__ as code_new
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     free2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
+    iconstants: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
 
 Create a code object.  Not for the faint of heart.
 [clinic start generated code]*/
@@ -154,14 +167,15 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               PyObject *names, PyObject *varnames, PyObject *filename,
               PyObject *name, int firstlineno, PyObject *linetable,
               PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
-              PyObject *cell2reg, PyObject *free2reg)
-/*[clinic end generated code: output=251fce4e325a5022 input=ed23c26ac164e157]*/
+              PyObject *cell2reg, PyObject *free2reg, PyObject *iconstants)
+/*[clinic end generated code: output=c0cbfe340bd2be09 input=9bfb4899cbaacbcb]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
+    Py_ssize_t num_iconstants = iconstants ? PyTuple_GET_SIZE(iconstants) : 0;
 
-    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, ncaptured, nexc_handlers);
+    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, ncaptured, num_iconstants, nexc_handlers);
     if (co == NULL) {
         return NULL;
     }
@@ -194,6 +208,10 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         PyObject *pair = PyTuple_GET_ITEM(free2reg, i);
         co->co_free2reg[i*2+0] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 0));
         co->co_free2reg[i*2+1] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 1));
+    }
+    co->co_niconsts = num_iconstants;
+    for (Py_ssize_t i = 0; i < num_iconstants; i++) {
+        co->co_iconstants[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(iconstants, i));
     }
 
     struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
@@ -320,6 +338,24 @@ code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
+code_geticonsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    PyObject *t = PyTuple_New(co->co_niconsts);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != co->co_niconsts; i++) {
+        PyObject *c = PyLong_FromSsize_t(co->co_iconstants[i]);
+        if (c == NULL) {
+            Py_DECREF(t);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(t, i, c);
+    }
+    return t;
+}
+
+static PyObject *
 code_getcell2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     PyObject *t = PyTuple_New(co->co_ncells);
@@ -381,6 +417,7 @@ static PyMemberDef code_memberlist[] = {
 static PyGetSetDef code_getset[] = {
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
+    {"co_iconsts", (getter)code_geticonsts, (setter)NULL, "constants", NULL},
     {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "constants", NULL},
     {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "constants", NULL},
     {NULL} /* sentinel */

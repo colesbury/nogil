@@ -7,7 +7,7 @@ PyDoc_STRVAR(code_new__doc__,
 "     kwonlyargcount=0, ndefaultargs=0, nlocals=0, framesize=0, flags=0,\n"
 "     names=(), varnames=(), filename=None, name=None, firstlineno=0,\n"
 "     linetable=None, eh_table=(), freevars=(), cellvars=(),\n"
-"     cell2reg=(), free2reg=())\n"
+"     cell2reg=(), free2reg=(), iconstants=())\n"
 "--\n"
 "\n"
 "Create a code object.  Not for the faint of heart.");
@@ -19,15 +19,15 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               PyObject *names, PyObject *varnames, PyObject *filename,
               PyObject *name, int firstlineno, PyObject *linetable,
               PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
-              PyObject *cell2reg, PyObject *free2reg);
+              PyObject *cell2reg, PyObject *free2reg, PyObject *iconstants);
 
 static PyObject *
 code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     PyObject *return_value = NULL;
-    static const char * const _keywords[] = {"bytecode", "constants", "argcount", "posonlyargcount", "kwonlyargcount", "ndefaultargs", "nlocals", "framesize", "flags", "names", "varnames", "filename", "name", "firstlineno", "linetable", "eh_table", "freevars", "cellvars", "cell2reg", "free2reg", NULL};
+    static const char * const _keywords[] = {"bytecode", "constants", "argcount", "posonlyargcount", "kwonlyargcount", "ndefaultargs", "nlocals", "framesize", "flags", "names", "varnames", "filename", "name", "firstlineno", "linetable", "eh_table", "freevars", "cellvars", "cell2reg", "free2reg", "iconstants", NULL};
     static _PyArg_Parser _parser = {NULL, _keywords, "code", 0};
-    PyObject *argsbuf[20];
+    PyObject *argsbuf[21];
     PyObject * const *fastargs;
     Py_ssize_t nargs = PyTuple_GET_SIZE(args);
     Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 2;
@@ -51,8 +51,9 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     PyObject *cellvars = NULL;
     PyObject *cell2reg = NULL;
     PyObject *free2reg = NULL;
+    PyObject *iconstants = NULL;
 
-    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 2, 20, 0, argsbuf);
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 2, 21, 0, argsbuf);
     if (!fastargs) {
         goto exit;
     }
@@ -277,15 +278,25 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
             goto skip_optional_pos;
         }
     }
-    if (!PyTuple_Check(fastargs[19])) {
-        _PyArg_BadArgument("code", "argument 'free2reg'", "tuple", fastargs[19]);
+    if (fastargs[19]) {
+        if (!PyTuple_Check(fastargs[19])) {
+            _PyArg_BadArgument("code", "argument 'free2reg'", "tuple", fastargs[19]);
+            goto exit;
+        }
+        free2reg = fastargs[19];
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (!PyTuple_Check(fastargs[20])) {
+        _PyArg_BadArgument("code", "argument 'iconstants'", "tuple", fastargs[20]);
         goto exit;
     }
-    free2reg = fastargs[19];
+    iconstants = fastargs[20];
 skip_optional_pos:
-    return_value = code_new_impl(type, bytecode, consts, argcount, posonlyargcount, kwonlyargcount, ndefaultargs, nlocals, framesize, flags, names, varnames, filename, name, firstlineno, linetable, eh_table, freevars, cellvars, cell2reg, free2reg);
+    return_value = code_new_impl(type, bytecode, consts, argcount, posonlyargcount, kwonlyargcount, ndefaultargs, nlocals, framesize, flags, names, varnames, filename, name, firstlineno, linetable, eh_table, freevars, cellvars, cell2reg, free2reg, iconstants);
 
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=bf65f5c61499cc4b input=a9049054013a1b77]*/
+/*[clinic end generated code: output=b7442c16ac3b24b4 input=a9049054013a1b77]*/

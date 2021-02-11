@@ -278,6 +278,7 @@ class CodeGen(ast.NodeVisitor):
         self.filename  = filename
         self.scope     = scope
         self.constants = constants()
+        self.iconstants = []
         self.names     = self.constants
         self.varnames  = scope.regs
         self.instrs    = []
@@ -318,6 +319,7 @@ class CodeGen(ast.NodeVisitor):
         code = assemble(self.instrs, addresses)
         eh_table = tuple(make_ehtable(self.instrs, addresses))
         cell2reg = tuple(reg for name, reg in self.varnames.items() if name in self.scope.cellvars)
+        iconstants = tuple(self.iconstants)
         assert len(cell2reg) == len(self.scope.cellvars)
 
         # ((upval0, reg0), (upval1, reg1), ...)
@@ -345,6 +347,7 @@ class CodeGen(ast.NodeVisitor):
                                eh_table=eh_table,
                                freevars=(),
                                cellvars=(),
+                               iconstants=iconstants,
                                cell2reg=cell2reg,
                                free2reg=free2reg)
 
@@ -650,11 +653,24 @@ class CodeGen(ast.NodeVisitor):
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
     def assign_sequence(self, target, value):
         self(value)
-        n = len(target.elts)
-        regs = self.register_list(n)
-        self.UNPACK_SEQUENCE(regs.base, n)
-        for i in range(n):
-            self.assign(target.elts[i], regs[i])
+        regs = self.register_list(len(target.elts))
+
+        starred = [i for i,e in enumerate(target.elts) if type(e) == ast.Starred]
+        assert len(starred) <= 1
+        if len(starred) == 0:
+            argcnt = len(target.elts)
+            argcntafter = -1
+        else:
+            argcnt = starred[0]
+            argcntafter = len(target.elts) - argcnt - 1
+
+        c = len(self.iconstants)
+        self.iconstants.extend([regs.base, argcnt, argcntafter])
+        self.UNPACK(c)
+        for i, elt in enumerate(target.elts):
+            if type(elt) == ast.Starred:
+                elt = elt.value
+            self.assign(elt, regs[i])
 
     def visit_AugAssign(self, t):
         ref = self.reference(t.target)

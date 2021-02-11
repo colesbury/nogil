@@ -171,8 +171,7 @@ def_op('POP_BLOCK', 87)
 def_op('WITH_EXCEPT_START', 49)
 def_op('BEFORE_ASYNC_WITH', 52)
 def_op('END_ASYNC_FOR', 54)
-def_op('UNPACK_SEQUENCE', 92, 'base', 'lit')   # Number of tuple items
-def_op('UNPACK_EX', 94)
+def_op('UNPACK', 94, 'iconst')
 def_op('MAKE_FUNCTION', 132, 'const')    # Flags
 def_op('SETUP_WITH', 143, 'reg')
 def_op('END_WITH', 150, 'reg')

@@ -70,10 +70,12 @@ typedef struct _PyCodeObject2 {
     Py_ssize_t co_framesize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* number of instructions */
     Py_ssize_t co_nconsts;      /* number of constants */
+    Py_ssize_t co_niconsts;     /* number of integer constants */
     Py_ssize_t co_ncells;
     Py_ssize_t co_nfreevars;
 
     PyObject **co_constants;    /* pointer to constants array */
+    Py_ssize_t *co_iconstants;  /* integer constants */
     Py_ssize_t *co_cell2reg;
     Py_ssize_t *co_free2reg;
 
@@ -88,12 +90,6 @@ typedef struct _PyCodeObject2 {
     PyObject *co_filename;      /* unicode (where it was loaded from) */
     PyObject *co_name;          /* unicode (name, for reference) */
     PyObject *co_lnotab;        /* string (encoding addr<->lineno mapping) See */
-
-
-
-    // constants
-    // number of parameters
-    // stack size
 } PyCodeObject2;
 
 // PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);

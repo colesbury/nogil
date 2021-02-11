@@ -465,22 +465,95 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, i
     }
 }
 
-void
-vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n)
+int
+vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
+          Py_ssize_t argcnt, Py_ssize_t argcntafter)
 {
-    if (PyTuple_CheckExact(AS_OBJ(acc))) {
-        PyObject *tuple = AS_OBJ(acc);
-        for (Py_ssize_t i = 0; i < n; i++) {
-            PyObject *item = PyTuple_GET_ITEM(tuple, i);
-            assert(base[i].as_int64 == 0);
-            base[i] = PACK_INCREF(item);
+    int i = 0, j = 0;
+    Py_ssize_t ll = 0;
+    PyObject *it;  /* iter(v) */
+    PyObject *w;
+    PyObject *l = NULL; /* variable list */
+
+    assert(v != NULL);
+
+    if (UNLIKELY(Py_TYPE(v)->tp_iter == NULL && !PySequence_Check(v))) {
+        _PyErr_Format(ts->ts, PyExc_TypeError,
+                      "cannot unpack non-iterable %.200s object",
+                      Py_TYPE(v)->tp_name);
+        return -1;
+    }
+
+    it = PyObject_GetIter(v);
+    if (UNLIKELY(it == NULL)) {
+        return -1;
+    }
+
+    for (; i < argcnt; i++) {
+        w = PyIter_Next(it);
+        if (UNLIKELY(w == NULL)) {
+            /* Iterator done, via error or exhaustion. */
+            if (!_PyErr_Occurred(ts->ts)) {
+                if (argcntafter == -1) {
+                    _PyErr_Format(ts->ts, PyExc_ValueError,
+                                  "not enough values to unpack "
+                                  "(expected %d, got %d)",
+                                  argcnt, i);
+                }
+                else {
+                    _PyErr_Format(ts->ts, PyExc_ValueError,
+                                  "not enough values to unpack "
+                                  "(expected at least %d, got %d)",
+                                  argcnt + argcntafter, i);
+                }
+            }
+            goto Error;
         }
-        DECREF(acc);
-        acc.as_int64 = 0;
+        ts->regs[base + i] = PACK_OBJ(w);
     }
-    else {
-        abort();
+
+    if (argcntafter == -1) {
+        /* We better have exhausted the iterator now. */
+        w = PyIter_Next(it);
+        if (w == NULL) {
+            if (_PyErr_Occurred(ts->ts))
+                goto Error;
+            Py_DECREF(it);
+            return 0;
+        }
+        Py_DECREF(w);
+        _PyErr_Format(ts->ts, PyExc_ValueError,
+                      "too many values to unpack (expected %d)",
+                      argcnt);
+        goto Error;
     }
+
+    l = PySequence_List(it);
+    if (l == NULL)
+        goto Error;
+    ts->regs[base + i] = PACK_OBJ(l);
+    i++;
+
+    ll = PyList_GET_SIZE(l);
+    if (ll < argcntafter) {
+        _PyErr_Format(ts->ts, PyExc_ValueError,
+            "not enough values to unpack (expected at least %d, got %zd)",
+            argcnt + argcntafter, argcnt + ll);
+        goto Error;
+    }
+
+    /* Pop the "after-variable" args off the list. */
+    for (j = argcntafter; j > 0; j--, i++) {
+        ts->regs[base + i] = PACK_INCREF(PyList_GET_ITEM(l, ll - j));
+    }
+    /* Resize the list. */
+    Py_SET_SIZE(l, ll - argcntafter);
+    Py_DECREF(it);
+    return 0;
+
+Error:
+    Py_XDECREF(it);
+    return -1;
 }
 
 Register

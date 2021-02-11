@@ -74,9 +74,8 @@ extern "C" {
 #define END_EXCEPT               89
 #define STORE_NAME               90
 #define DELETE_NAME              91
-#define UNPACK_SEQUENCE          92
 #define FOR_ITER                 93
-#define UNPACK_EX                94
+#define UNPACK                   94
 #define STORE_ATTR               95
 #define DELETE_ATTR              96
 #define STORE_GLOBAL             97

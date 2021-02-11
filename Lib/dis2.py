@@ -418,6 +418,8 @@ def disassemble(co, lasti=-1, *, file=None):
         print(' ' * 2 + f'Cell variables: {list(co.co_cell2reg)}', file=file)
     if len(co.co_free2reg) > 0:
         print(' ' * 2 + f'Free variables: {list(co.co_free2reg)}', file=file)
+    if len(co.co_iconsts) > 0:
+        print(' ' * 2 + f'Integer constants: {list(co.co_iconsts)}', file=file)
 
 def _disassemble_recursive(co, *, file=None, depth=None):
     disassemble(co, file=file)

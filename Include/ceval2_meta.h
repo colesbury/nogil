@@ -216,8 +216,8 @@ vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD);
 const uint32_t *
 vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD);
 
-void
-vm_unpack_sequence(Register acc, Register *base, Py_ssize_t n);
+int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
+              Py_ssize_t argcnt, Py_ssize_t argcntafter);
 
 typedef PyObject* (*intrinsic1)(PyObject *arg);
 typedef PyObject* (*intrinsicN)(PyObject *const *args, Py_ssize_t n);

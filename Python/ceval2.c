@@ -1394,11 +1394,18 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         DISPATCH(SET_UPDATE);
     }
 
-    TARGET(UNPACK_SEQUENCE) {
+    TARGET(UNPACK) {
         // opA = reg, opD = N
-        CALL_VM(vm_unpack_sequence(acc, &regs[opA], opD));
+        PyObject *seq = AS_OBJ(acc);
+        Py_ssize_t *args = &THIS_CODE()->co_iconstants[opA];
+        int err;
+        CALL_VM(err = vm_unpack(ts, seq, args[0], args[1], args[2]));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
         acc.as_int64 = 0;
-        DISPATCH(UNPACK_SEQUENCE);
+        DISPATCH(UNPACK);
     }
 
     TARGET(LOAD_BUILD_CLASS) {
