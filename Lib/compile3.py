@@ -1257,6 +1257,18 @@ class Desugarer(ast.NodeTransformer):
         return Call(Function('<setcomp>', args, fn),
                     [ast.Set([])])
 
+    @rewriter
+    def visit_GeneratorExp(self, t):
+        body = ast.Yield(value=t.elt)
+        for loop in reversed(t.generators):
+            for test in reversed(loop.ifs):
+                body = ast.If(test, [body], [])
+            body = ast.For(loop.target, loop.iter, [body], [])
+        fn = [body]
+        args = ast.arguments(None, [], None, [], None, [], [])
+
+        return Call(Function('<genexpr>', args, fn), [])
+
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')
 
