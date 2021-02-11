@@ -591,6 +591,18 @@ class CodeGen(ast.NodeVisitor):
     def visit_Register(self, t):
         self.LOAD_FAST(t)
 
+    def visit_Assign(self, t):
+        if len(t.targets) == 1:
+            return self.assign(t.targets[0], t.value)
+
+        # TODO: optimize multi-assignment
+        reg = self.register()
+        reg(t.value)
+        for target in t.targets:
+            self.LOAD_FAST(reg.reg)
+            self.assign_accumulator(target)
+        reg.clear()
+
     def assign(self, target, value):
         method = 'assign_' + target.__class__.__name__
         visitor = getattr(self, method)
@@ -703,10 +715,6 @@ class CodeGen(ast.NodeVisitor):
                 rslice.clear()
                 rvalue.clear()
         return SubscrRef()
-
-    def visit_Assign(self, t):
-        assert len(t.targets) == 1
-        return self.assign(t.targets[0], t.value)
 
     def visit_Delete(self, t):
         for target in t.targets:
