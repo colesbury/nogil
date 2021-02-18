@@ -282,13 +282,7 @@ class CodeGen(ast.NodeVisitor):
         self.names     = self.constants
         self.varnames  = scope.regs
         self.instrs    = []
-        # if self.scope.scope_type in ('module', 'class'):
-        #     assert len(self.scope.local_defs) == 0
-        #     self.nlocals = 1
-        #     self.next_register = 1
-        # else:
         self.nlocals = self.next_register = len(self.varnames)
-        # self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         self.blocks = []
         self.last_lineno = None
@@ -300,7 +294,7 @@ class CodeGen(ast.NodeVisitor):
         self.RETURN_VALUE()
         return self.make_code(name)
 
-    def make_code(self, name, argcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
+    def make_code(self, name, argcount=0, posonlyargcount=0, kwonlyargcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
         first_instr = self.instrs[0][0]
         assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
         first_instr.arg = self.max_registers
@@ -310,8 +304,6 @@ class CodeGen(ast.NodeVisitor):
             assert dis.opcodes[second_instr.opcode].name == 'GENERATOR_HEADER'
             second_instr.arg = self.max_registers
 
-        posonlyargcount = 0
-        kwonlyargcount = 0
         nlocals = self.nlocals
         framesize = self.max_registers
         firstlineno, lnotab = make_lnotab(self.instrs)
@@ -328,7 +320,9 @@ class CodeGen(ast.NodeVisitor):
 
         flags = (  (0x00 if nlocals                  else 0)
                  | (0x00 if self.scope.freevars      else 0)
-                 | (0x10 if self.scope.nested        else 0))
+                 | (0x10 if self.scope.nested        else 0)
+                 | (0x010000 if has_varargs          else 0)
+                 | (0x040000 if has_varkws           else 0))
 
         return types.Code2Type(code,
                                self.constants.collect(),
@@ -1196,15 +1190,17 @@ class CodeGen(ast.NodeVisitor):
 
     def visit_Function(self, t):
         regs = self.register_list()
-        for i,arg in enumerate(t.args.defaults):
-            regs[i](arg)
+        defaults = t.args.defaults + t.args.kw_defaults
+        for i,arg in enumerate(defaults):
+            if arg is not None:
+                regs[i](arg)
             scope = self.scope.children[t]
             name = scope.argname(scope.default_idx(i))
             scope.free2reg[name] = (regs.base + i, scope.free2reg[name][1])
 
         code = self.sprout(t).compile_function(t)
         self.make_closure(code, t.name)
-        for i in reversed(range(len(t.args.defaults))):
+        for i in reversed(range(len(defaults))):
             regs[i].clear()
 
     def sprout(self, t):
@@ -1221,7 +1217,16 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-        return self.make_code(t.name, len(t.args.args), len(t.args.defaults), t.args.vararg, t.args.kwarg)
+
+        code = self.make_code(
+            t.name,
+            argcount=len(t.args.args) + len(t.args.posonlyargs),
+            posonlyargcount=len(t.args.posonlyargs),
+            kwonlyargcount=len(t.args.kwonlyargs),
+            ndefaultargs=len(t.args.defaults + t.args.kw_defaults),
+            has_varargs=t.args.vararg is not None,
+            has_varkws=t.args.kwarg is not None)
+        return code
 
     def visit_Class(self, t):
         code = self.sprout(t).compile_class(t)
@@ -1250,7 +1255,7 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-        return self.make_code(t.name, 0, 0, False, False)
+        return self.make_code(t.name)
 
 def unpack(key, tp):
     if tp == slice:
@@ -1368,7 +1373,7 @@ class Desugarer(ast.NodeTransformer):
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body,
               ast.Return(ast.Name('.0', load))]
-        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
+        args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
 
         return Call(Function('<listcomp>', args, fn),
                     [ast.List([], load)])
@@ -1384,7 +1389,7 @@ class Desugarer(ast.NodeTransformer):
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body,
               ast.Return(ast.Name('.0', load))]
-        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
+        args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
 
         return Call(Function('<dictcomp>', args, fn),
                     [ast.Dict(keys=[], values=[])])
@@ -1398,7 +1403,7 @@ class Desugarer(ast.NodeTransformer):
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body,
               ast.Return(ast.Name('.0', load))]
-        args = ast.arguments(None, [ast.arg('.0', None)], None, [], None, [], [])
+        args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
 
         return Call(Function('<setcomp>', args, fn),
                     [ast.Set([])])
@@ -1452,20 +1457,26 @@ class Scope(ast.NodeVisitor):
         for stmt in t.body: subscope.visit(stmt)
 
     def argname(self, i):
-        return self.t.args.args[i].arg
+        args = self.t.args
+        all_args = args.posonlyargs + args.args + args.kwonlyargs
+        return all_args[i].arg
 
     def default_idx(self, i):
-        return len(self.t.args.args) - len(self.t.args.defaults) + i
+        args = self.t.args
+        defaults = args.defaults + args.kw_defaults
+        return len(args.args) - len(defaults) + i
 
     def assign_defaults(self, t):
-        for i,d in enumerate(t.args.defaults):
+        defaults = t.args.defaults + t.args.kw_defaults
+        for i,d in enumerate(defaults):
             reg = self.default_idx(i)
             name = self.argname(reg)
             upval = 'upvalTODO'
             self.free2reg[name] = (upval, reg)
 
     def visit_Function(self, t):
-        all_args = list(t.args.args) + [t.args.vararg, t.args.kwarg]
+        args = t.args
+        all_args = args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
         subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg], self)
         subscope.assign_defaults(t)
         self.children[t] = subscope

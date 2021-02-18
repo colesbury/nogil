@@ -179,8 +179,9 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     if (co == NULL) {
         return NULL;
     }
-    co->co_posonlyargcount = 0;
     co->co_argcount = argcount;
+    co->co_posonlyargcount = posonlyargcount;
+    co->co_kwonlyargcount = kwonlyargcount;
     co->co_nlocals = nlocals;
     co->co_ncells = (uint8_t)ncells;
     co->co_nfreevars = (uint8_t)(ncaptured - ndefaultargs);
@@ -228,6 +229,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_packed_flags |= (argcount < 256 ? argcount : CODE_FLAG_OVERFLOW);
     co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
     co->co_packed_flags |= (co->co_nfreevars > 0 ? CODE_FLAG_HAS_FREEVARS : 0);
+    co->co_packed_flags |= (flags & (CODE_FLAG_VARARGS | CODE_FLAG_VARKEYWORDS));
 
     return (PyObject *)co;
 }

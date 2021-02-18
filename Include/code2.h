@@ -17,7 +17,7 @@ enum {
     CODE_MASK_ARGS          = 0x0000ff, // bits 0-7
 
     // bits 8-15 are always zero in code (keyword arguments in acc)
-    CODE_FLAG_UNUSED_1      = 0x020000, // bits 8-15 always zero
+    CODE_FLAG_UNUSED_1      = 0x00ff00, // bits 8-15 always zero
 
     // set if the function has a *args parameter
     CODE_FLAG_VARARGS       = 0x010000, // bit  16

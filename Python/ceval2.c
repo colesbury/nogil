@@ -328,8 +328,32 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
             goto dispatch_func_header;
         }
 
-        if ((acc.as_int64 & (ACC_MASK_KWARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
-            // call has keyword arguments
+        if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
+            // call passed arguments as tuple and keywords as dict
+            CALL_VM(err = vm_setup_varargs(ts, this_code));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
+        }
+        else if ((this_code->co_packed_flags & (CODE_FLAG_VARARGS|CODE_FLAG_VARKEYWORDS)) != 0) {
+            Py_ssize_t argcount = (acc.as_int64 & ACC_MASK_ARGS);
+            Py_ssize_t kwcount = (acc.as_int64 & ACC_MASK_KWARGS) >> 8;
+            PyObject *names = AS_OBJ(ts->regs[argcount + kwcount]);
+            PyObject **kwnames = ((PyTupleObject *)names)->ob_item;
+            ts->regs[argcount + kwcount].as_int64 = 0;
+            CALL_VM(err = vm_setup_kwargs_slow(ts, this_code, argcount, kwnames, kwcount));
+            if (UNLIKELY(err != 0)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+            BREAK_LIVE_RANGE(next_instr);
+            this_code = PyCode2_FromInstr(next_instr - 1);
+        }
+        else if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+            // call has keyword arguments (passed inline)
             CALL_VM(err = vm_setup_kwargs(ts, this_code, acc.as_int64));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
@@ -338,15 +362,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
             BREAK_LIVE_RANGE(next_instr);
             this_code = PyCode2_FromInstr(next_instr - 1);
         }
-
-        // FIXME: condition is wrong
-        if ((acc.as_int64 & ACC_MASK_ARGS) !=
-            (this_code->co_packed_flags & (CODE_MASK_ARGS|CODE_FLAG_KWD_ONLY_ARGS)))
-        {
-            // If the number of arguments doesn't match or the function has keyword-only
-            // arguments then we need to check for too many or too few args and setup
-            // default arguments.
-            CALL_VM(err = vm_setup_default_args(ts, this_code, acc));
+        else {
+            Py_ssize_t posargs = (acc.as_int64 & ACC_MASK_ARGS);
+            CALL_VM(err = vm_setup_default_args(ts, this_code, posargs));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
