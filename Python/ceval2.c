@@ -453,6 +453,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     TARGET(MAKE_FUNCTION) {
         PyCodeObject2 *code = (PyCodeObject2 *)CONSTANTS()[opA];
         CALL_VM(acc = vm_make_function(ts, code));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(MAKE_FUNCTION);
     }
 
@@ -623,6 +626,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         PyObject *owner = AS_OBJ(regs[opA]);
         PyObject *res;
         CALL_VM(res = _PyObject_GetAttrFast(owner, name));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         acc = PACK_OBJ(res);
         DISPATCH(LOAD_ATTR);
     }
@@ -1274,13 +1280,18 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
 
     TARGET(BUILD_SLICE) {
         CALL_VM(acc = vm_build_slice(&regs[opA]));
-        assert(acc.as_int64 != 0);
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(BUILD_SLICE);
     }
 
     TARGET(BUILD_LIST) {
         // opA = reg, opD = N
         CALL_VM(acc = vm_build_list(&regs[opA], opD));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(BUILD_LIST);
     }
 
