@@ -541,14 +541,20 @@ class CodeGen(ast.NodeVisitor):
     def call_function_ex(self, t):
         regs = self.register_list()
         regs[2](t.func)
-        regs[3](ast.Tuple(elts=t.args, ctx=load))
+        if len(t.args) == 1 and isinstance(t.args[0], ast.Starred):
+            regs[3](t.args[0].value)
+        else:
+            regs[3](ast.Tuple(elts=t.args, ctx=load))
 
-        kwargs = ast.Dict(
-            keys=[ast.Constant(value=k.arg) if k.arg is not None else None for k in t.keywords],
-            values=[k.value for k in t.keywords]
-        )
-        kwargs.merge = self.DICT_MERGE  # yuck
-        regs[4](kwargs)
+        if len(t.keywords) == 1 and t.keywords[0].arg is None:
+            regs[4](t.keywords[0].value)
+        else:
+            kwargs = ast.Dict(
+                keys=[ast.Constant(value=k.arg) if k.arg is not None else None for k in t.keywords],
+                values=[k.value for k in t.keywords]
+            )
+            kwargs.merge = self.DICT_MERGE  # yuck
+            regs[4](kwargs)
 
         self.CALL_FUNCTION_EX(regs.base + FRAME_EXTRA)
 
