@@ -971,11 +971,10 @@ vm_setup_default_args(struct ThreadState *ts, PyCodeObject2 *co, Py_ssize_t posa
 int
 vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
 {
-    PyObject *varargs = vm_object_steal(&ts->regs[0]);
-    PyObject *kwargs = vm_object_steal(&ts->regs[1]);
+    PyObject *varargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
+    PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
+    assert(PyTuple_Check(varargs) && PyDict_Check(kwargs));
     PyObject *kwdict = NULL;
-    assert(PyTuple_Check(varargs));
-    assert(PyDict_Check(kwargs));
 
     Py_ssize_t argcount = PyTuple_GET_SIZE(varargs);
     Py_ssize_t total_args = co->co_argcount + co->co_kwonlyargcount;
@@ -990,21 +989,21 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
     }
     if (co->co_packed_flags & CODE_FLAG_VARARGS) {
         PyObject *u = PyTuple_GetSlice(varargs, n, argcount);
-        if (u == NULL) {
-            goto fail;
+        if (UNLIKELY(u == NULL)) {
+            return -1;
         }
         ts->regs[total_args] = PACK_OBJ(u);
     }
     if (co->co_packed_flags & CODE_FLAG_VARKEYWORDS) {
         kwdict = PyDict_New();
-        if (kwdict == NULL) {
-            goto fail;
+        if (UNLIKELY(kwdict == NULL)) {
+            return -1;
         }
         Py_ssize_t j = total_args;
         if (co->co_packed_flags & CODE_FLAG_VARARGS) {
             j++;
         }
-        ts->regs[j] = PACK_OBJ(kwdict);
+        ts->regs[j] = PACK(kwdict, REFCOUNT_TAG);
     }
 
     Py_ssize_t i = 0;
@@ -1014,7 +1013,7 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
             _PyErr_Format(ts->ts, PyExc_TypeError,
                           "%U() keywords must be strings",
                           co->co_name);
-            goto fail;
+            return -1;
         }
 
         /* Speed hack: do raw pointer compares. As names are
@@ -1036,38 +1035,34 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
                 goto kw_found;
             }
             else if (cmp < 0) {
-                goto fail;
+                return -1;
             }
         }
 
         assert(j >= total_args);
         if (kwdict == NULL) {
-            unexpected_keyword_argument(ts, co, NULL, 0);
-            goto fail;
+            return unexpected_keyword_argument(ts, co, NULL, 0);
         }
 
         if (PyDict_SetItem(kwdict, keyword, value) == -1) {
-            goto fail;
+            return -1;
         }
         continue;
 
       kw_found:
         if (ts->regs[j].as_int64 != 0) {
-            duplicate_keyword_argument(ts, co, keyword);
-            goto fail;
+            return duplicate_keyword_argument(ts, co, keyword);
         }
         ts->regs[j] = PACK_INCREF(value);
     }
 
-    Py_DECREF(varargs);
-    Py_DECREF(kwargs);
+    for (Py_ssize_t i = 1; i <= 2; i++) {
+        Register r = ts->regs[-FRAME_EXTRA - i];
+        ts->regs[-FRAME_EXTRA - i].as_int64 = 0;
+        DECREF(r);
+    }
 
     return vm_setup_default_args(ts, co, n);
-
-  fail:
-    Py_DECREF(varargs);
-    Py_DECREF(kwargs);
-    return -1;
 }
 
 int
