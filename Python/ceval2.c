@@ -630,8 +630,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
         if (value == NULL) {
             PyObject *builtins = THIS_FUNC()->builtins;
             CALL_VM(value = PyDict_GetItemWithError2(builtins, name));
-            if (value == NULL) {
-                // ????
+            if (UNLIKELY(value == NULL)) {
+                CALL_VM(vm_name_error(ts, name));
+                // explicitly zero the accumulator value to allow the compiler
+                // to re-use the acc register for "name" (because the acc isn't
+                // used within LOAD_GLOBAL and overwritten at all exits.
+                acc.as_int64 = 0;
+                goto error;
             }
         }
         acc = PACK_OBJ(value);

@@ -621,8 +621,8 @@ vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name)
     return PACK_INCREF(value);
 }
 
-static int
-format_name_error(struct ThreadState *ts, PyObject *name)
+int
+vm_name_error(struct ThreadState *ts, PyObject *name)
 {
     const char *obj_str = PyUnicode_AsUTF8(name);
     if (obj_str == NULL) {
@@ -639,7 +639,7 @@ vm_delete_name(struct ThreadState *ts, PyObject *name)
     assert(PyDict_Check(locals));
     int err = PyObject_DelItem(locals, name);
     if (UNLIKELY(err != 0)) {
-        return format_name_error(ts, name);
+        return vm_name_error(ts, name);
     }
     return 0;
 }
