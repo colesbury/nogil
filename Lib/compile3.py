@@ -506,24 +506,24 @@ class CodeGen(ast.NodeVisitor):
             return self.call_method(t)
 
         regs = self.register_list()
-        regs[2](t.func)
-        for i, arg in enumerate(t.args):
-            regs[3+i](arg)
-
-        opD = len(t.args)
+        opD = len(t.args) + (len(t.keywords) << 8)
+        pos = 0
 
         if len(t.keywords) > 0:
-            pos = 3 + len(t.args)
-            opD += (len(t.keywords) << 8)
             for i, kwd in enumerate(t.keywords):
-                regs[pos + i](kwd.value)
+                regs[i](kwd.value)
             pos += len(t.keywords)
             kwdnames = tuple(kwd.arg for kwd in t.keywords)
             # TODO: load const directly into register
             self.load_const(kwdnames)
             self.STORE_FAST(regs[pos].allocate())
+            pos += 1
 
-        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, opD)
+        regs[pos + FRAME_EXTRA - 1](t.func)
+        for i, arg in enumerate(t.args):
+            regs[pos + FRAME_EXTRA + i](arg)
+
+        self.CALL_FUNCTION(regs.base + pos + FRAME_EXTRA, opD)
 
     def call_method(self, t):
         assert len(t.keywords) == 0

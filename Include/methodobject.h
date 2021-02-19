@@ -94,7 +94,7 @@ typedef struct {
     PyFuncBase func_base;
     PyObject *globals;
     PyObject *builtins;
-    PyObject *freevars[0];
+    PyObject *freevars[0];  // captured variables and default argument values
     // closure... LuaJit has closed-over variables as flexiable array member
 } PyFunc;
 

@@ -1,6 +1,6 @@
 import time
 
-# N = 100000
+# N = 1000
 N = 1000000
 UNROLL = 10
 loop_delta = 2.0 * N * UNROLL / 1e9
@@ -173,7 +173,26 @@ def benchmark_call_vararg_stararg():
     delta = (time.perf_counter() - start - loop_delta) * 1e9
     print(f'call_vararg_stararg {delta / (N * UNROLL):.1f} ns')
 
-def benchmark_call4_vararg():
+def benchmark_call_vararg4_stararg():
+    start = time.perf_counter()
+    f = call_vararg
+    args = (1, 2)
+    kwargs = {"c": 3, "d": 4}
+    for _ in range(N):
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+        f(*args, **kwargs)
+    delta = (time.perf_counter() - start - loop_delta) * 1e9
+    print(f'call_vararg4_stararg {delta / (N * UNROLL):.1f} ns')
+
+def benchmark_call_vararg4_kwd():
     start = time.perf_counter()
     f = call_vararg
     a, b, c, d = 0, 1, 2, 3
@@ -189,7 +208,7 @@ def benchmark_call4_vararg():
         f(a, b, c=c, d=d)
         f(a, b, c=c, d=d)
     delta = (time.perf_counter() - start - loop_delta) * 1e9
-    print(f'call4_vararg {delta / (N * UNROLL):.1f} ns')
+    print(f'call_vararg4_kwd {delta / (N * UNROLL):.1f} ns')
 
 def benchmark():
     benchmark_loop()
@@ -210,6 +229,8 @@ def benchmark():
     for _ in range(3):
         benchmark_call_vararg_stararg()
     for _ in range(3):
-        benchmark_call4_vararg()
+        benchmark_call_vararg4_stararg()
+    for _ in range(3):
+        benchmark_call_vararg4_kwd()
 
 benchmark()

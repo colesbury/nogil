@@ -253,11 +253,16 @@ PyObject *vm_call_function(struct ThreadState *ts, Py_ssize_t nargs);
 
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
-int vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co);
-int vm_setup_kwargs_slow(struct ThreadState *ts, PyCodeObject2 *co, Py_ssize_t base, PyObject **kwnames, Py_ssize_t kwcount);
-int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *code, int64_t flags);
-int vm_setup_default_args(struct ThreadState *ts, PyCodeObject2 *co, Py_ssize_t posargcount);
-int vm_setup_cells_freevars(struct ThreadState *ts, PyCodeObject2 *code);
+
+int duplicate_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *keyword);
+int missing_arguments(struct ThreadState *ts, Py_ssize_t posargcount);
+int too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount);
+
+
+int vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co);
+int vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
+int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObject **kwnames);
+int vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
 
 Register
 vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);

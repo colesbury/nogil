@@ -47,12 +47,16 @@ enum {
     /* number of keyword arguments in call */
     ACC_MASK_KWARGS         = 0x00ff00,  // bits 8-15
 
+    ACC_SHIFT_KWARGS        = 8,
+
     /* set if the caller uses *args */
     ACC_FLAG_VARARGS        = 0x010000,  // bit  16
 
     /* set if the caller uses **kwargs */
     ACC_FLAG_VARKEYWORDS    = 0x020000,  // bit  17
 };
+
+#define ACC_KWCOUNT(acc) (((acc.as_int64) & ACC_MASK_KWARGS) >> ACC_SHIFT_KWARGS)
 
 struct _PyHandlerTable;
 
@@ -65,7 +69,7 @@ typedef struct _PyCodeObject2 {
 
     Py_ssize_t co_ndefaultargs;
     Py_ssize_t co_posonlyargcount;
-    Py_ssize_t co_kwonlyargcount;
+    Py_ssize_t co_totalargcount;
 
     Py_ssize_t co_framesize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* number of instructions */

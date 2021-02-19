@@ -904,15 +904,24 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     return PACK_OBJ((PyObject *)func);
 }
 
-static int _Py_NO_INLINE
-unexpected_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject **kwnames, Py_ssize_t kwcount)
+static int
+positional_only_passed_as_keyword(struct ThreadState *ts, PyCodeObject2 *co,
+                                  Py_ssize_t kwcount, PyObject** kwnames)
 {
-    // todo
-    PyErr_Format(PyExc_TypeError, "unexpected_keyword_argument");
-    return -1;
+    // FIXME
+    return 0;
 }
 
 static int _Py_NO_INLINE
+unexpected_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *keyword)
+{
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+                  "%U() got an unexpected keyword argument '%S'",
+                  co->co_name, keyword);
+    return -1;
+}
+
+int _Py_NO_INLINE
 duplicate_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *keyword)
 {
     _PyErr_Format(ts->ts, PyExc_TypeError,
@@ -921,14 +930,14 @@ duplicate_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *
     return -1;
 }
 
-static int _Py_NO_INLINE
+int _Py_NO_INLINE
 missing_arguments(struct ThreadState *ts, Py_ssize_t posargcount)
 {
     PyErr_Format(PyExc_TypeError, "missing_arguments");
     return -1;
 }
 
-static int _Py_NO_INLINE
+int _Py_NO_INLINE
 too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount)
 {
     PyErr_Format(PyExc_TypeError, "too_many_positional");
@@ -936,40 +945,7 @@ too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount)
 }
 
 int
-vm_setup_default_args(struct ThreadState *ts, PyCodeObject2 *co, Py_ssize_t posargcount)
-{
-    /* Check the number of positional arguments */
-    if (UNLIKELY(posargcount > co->co_argcount &&
-                 (co->co_packed_flags & CODE_FLAG_VARARGS) == 0)) {
-        return too_many_positional(ts, posargcount);
-    }
-
-    Py_ssize_t total_args = co->co_argcount + co->co_kwonlyargcount;
-    Py_ssize_t co_required_args = total_args - co->co_ndefaultargs;
-
-    Py_ssize_t i = posargcount;
-    for (; i < co_required_args; i++) {
-        if (UNLIKELY(ts->regs[i].as_int64 == 0)) {
-            return missing_arguments(ts, posargcount);
-        }
-    }
-
-    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-    for (; i < total_args; i++) {
-        if (ts->regs[i].as_int64 == 0) {
-            PyObject *deflt = this_func->freevars[i - co_required_args];
-            if (UNLIKELY(deflt == NULL)) {
-                return missing_arguments(ts, posargcount); // fixme
-            }
-            ts->regs[i] = PACK(deflt, NO_REFCOUNT_TAG);
-        }
-    }
-
-    return 0;
-}
-
-int
-vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
+vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co)
 {
     PyObject *varargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
     PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
@@ -977,7 +953,7 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
     PyObject *kwdict = NULL;
 
     Py_ssize_t argcount = PyTuple_GET_SIZE(varargs);
-    Py_ssize_t total_args = co->co_argcount + co->co_kwonlyargcount;
+    Py_ssize_t total_args = co->co_totalargcount;
     Py_ssize_t n = argcount;
     if (n > co->co_argcount) {
         n = co->co_argcount;
@@ -1041,7 +1017,13 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
 
         assert(j >= total_args);
         if (kwdict == NULL) {
-            return unexpected_keyword_argument(ts, co, NULL, 0);
+            Py_ssize_t kwcount = 0;
+            // FIXME
+            if (co->co_posonlyargcount &&
+                positional_only_passed_as_keyword(ts, co, kwcount, NULL)) {
+                return -1;
+            }
+            return unexpected_keyword_argument(ts, co, keyword);
         }
 
         if (PyDict_SetItem(kwdict, keyword, value) == -1) {
@@ -1062,136 +1044,99 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co)
         DECREF(r);
     }
 
-    return vm_setup_default_args(ts, co, n);
+    // FIXME: check for too many positional arguments
+    return 0;
 }
 
 int
-vm_setup_kwargs_slow(struct ThreadState *ts, PyCodeObject2 *co, Py_ssize_t argcount, PyObject **kwnames, Py_ssize_t kwcount)
+vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 {
-    PyObject *varargs = NULL;
-    PyObject *kwdict = NULL;
-    Register *kwargs = NULL;
-
-    Py_ssize_t total_args = co->co_argcount + co->co_kwonlyargcount;
-    PyObject **co_varnames = ((PyTupleObject *)(co->co_varnames))->ob_item;
-
-    // Move keyword arguments onto C stack
-    if (kwcount > 0) {
-        kwargs = alloca(kwcount * sizeof(Register));
-        memcpy(kwargs, &ts->regs[argcount], kwcount * sizeof(Register));
-        memset(&ts->regs[argcount], 0, kwcount * sizeof(Register));
+    Py_ssize_t argcount = (acc.as_int64 & ACC_MASK_ARGS);
+    Py_ssize_t n = argcount - co->co_argcount;
+    Py_ssize_t total_args = co->co_totalargcount;
+    if (n <= 0) {
+        PyObject *varargs = PyTuple_New(0); // FIXME: get empty tuple directly?
+        assert(varargs != NULL && _PyObject_IS_IMMORTAL(varargs));
+        ts->regs[total_args] = PACK(varargs, NO_REFCOUNT_TAG);
     }
-
-    if ((co->co_packed_flags & CODE_FLAG_VARARGS) != 0) {
-        Py_ssize_t n = argcount - co->co_argcount;
-        if (n <= 0) {
-            varargs = PyTuple_New(0); // FIXME: get empty tuple directly?
-            assert(varargs != NULL && _PyObject_IS_IMMORTAL(varargs));
-            ts->regs[total_args] = PACK(varargs, NO_REFCOUNT_TAG);
+    else {
+        PyObject *varargs = PyTuple_New(n);
+        if (UNLIKELY(varargs == NULL)) {
+            return -1;
         }
-        else {
-            varargs = PyTuple_New(n);
-            if (UNLIKELY(varargs == NULL)) {
-                goto fail;
-            }
-            for (Py_ssize_t j = 0; j < n; j++) {
-                PyObject *item = vm_object_steal(&ts->regs[co->co_argcount + j]);
-                PyTuple_SET_ITEM(varargs, j, item);
-            }
-            ts->regs[total_args] = PACK(varargs, REFCOUNT_TAG);
+        for (Py_ssize_t j = 0; j < n; j++) {
+            PyObject *item = vm_object_steal(&ts->regs[co->co_argcount + j]);
+            PyTuple_SET_ITEM(varargs, j, item);
         }
+        ts->regs[total_args] = PACK(varargs, REFCOUNT_TAG);
     }
+    return 0;
+}
 
-    if ((co->co_packed_flags & CODE_FLAG_VARKEYWORDS) != 0) {
-        kwdict = PyDict_New();
-        if (UNLIKELY(kwdict == NULL)) {
-            goto fail;
-        }
-        Py_ssize_t pos = total_args;
-        if ((co->co_packed_flags & CODE_FLAG_VARARGS) != 0) {
-            pos += 1;
-        }
-        ts->regs[pos] = PACK_OBJ(kwdict);
-    }
+int
+vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObject **kwnames)
+{
+    Py_ssize_t total_args = co->co_totalargcount;
+    for (; ACC_KWCOUNT(acc) != 0; kwnames++,
+            acc.as_int64 -= (1 << ACC_SHIFT_KWARGS)) {
+        PyObject *keyword = *kwnames;
+        Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
 
-    Py_ssize_t i;
-    for (i = 0; i < kwcount; i++) {
-        PyObject *keyword = kwnames[i];
+        /* Speed hack: do raw pointer compares. As names are
+           normally interned this should almost always hit. */
         Py_ssize_t j;
         for (j = co->co_posonlyargcount; j < total_args; j++) {
-            PyObject *name = co_varnames[j];
+            PyObject *name = PyTuple_GET_ITEM(co->co_varnames, j);
             if (name == keyword) {
                 goto kw_found;
             }
         }
 
-        if (kwdict == NULL) {
-            return unexpected_keyword_argument(ts, co, kwnames, kwcount);
-        }
-        else {
-            PyObject *value = AS_OBJ(kwargs[i]);
-            if (PyDict_SetItem(kwdict, keyword, value) == -1) {
-                goto fail;
+        /* Slow fallback, just in case */
+        for (j = co->co_posonlyargcount; j < total_args; j++) {
+            PyObject *name = PyTuple_GET_ITEM(co->co_varnames, j);
+            int cmp = PyObject_RichCompareBool(keyword, name, Py_EQ);
+            if (cmp > 0) {
+                goto kw_found;
             }
-            DECREF(kwargs[i]);
-            kwargs[i].as_int64 = 0;
+            else if (cmp < 0) {
+                return -1;
+            }
+        }
+
+        if (co->co_packed_flags & CODE_FLAG_VARKEYWORDS) {
+            Py_ssize_t kwdict_pos = total_args;
+            if ((co->co_packed_flags & CODE_FLAG_VARARGS) != 0) {
+                kwdict_pos += 1;
+            }
+            PyObject *kwdict = AS_OBJ(ts->regs[kwdict_pos]);
+            PyObject *value = AS_OBJ(ts->regs[kwdpos]);
+            if (PyDict_SetItem(kwdict, keyword, value) < 0) {
+                return -1;
+            }
+            DECREF(ts->regs[kwdpos]);
+            ts->regs[kwdpos].as_int64 = 0;
             continue;
         }
+
+        if (co->co_posonlyargcount &&
+            positional_only_passed_as_keyword(ts, co, ACC_KWCOUNT(acc), kwnames)) {
+            return -1;
+        }
+        return unexpected_keyword_argument(ts, co, keyword);
 
       kw_found:
         if (UNLIKELY(ts->regs[j].as_int64 != 0)) {
             return duplicate_keyword_argument(ts, co, keyword);
         }
-        ts->regs[j] = kwargs[i];
-        kwargs[i].as_int64 = 0;
+        ts->regs[j] = ts->regs[kwdpos];
+        ts->regs[kwdpos].as_int64 = 0;
     }
 
-    Py_ssize_t n = argcount < co->co_argcount ? argcount : co->co_argcount;
-    return vm_setup_default_args(ts, co, n);
-
-  fail:
-    for (; i < kwcount; i++) {
-        if (kwargs[i].as_int64 != 0) {
-            DECREF(kwargs[i]);
-        }
-    }
-    return -1;
+    return 0;
 }
 
 int
-vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, int64_t flags)
-{
-    Py_ssize_t argcount = (flags & ACC_MASK_ARGS);
-    Py_ssize_t kwcount = (flags & ACC_MASK_KWARGS) >> 8;
-    assert(!IS_RC(ts->regs[argcount + kwcount]));
-    PyObject *names = AS_OBJ(ts->regs[argcount + kwcount]);
-    ts->regs[argcount + kwcount].as_int64 = 0;
-    assert(kwcount == PyTuple_GET_SIZE(names));
-
-    PyObject **co_varnames = ((PyTupleObject *)(co->co_varnames))->ob_item;
-    co_varnames += argcount;
-    PyObject **kwnames = ((PyTupleObject *)names)->ob_item;
-    Py_ssize_t base = argcount;
-    if (argcount + kwcount > co->co_argcount) {
-        // handle the too many total arguments case in the slow-path
-        goto slow;
-    }
-    while (kwcount != 0) {
-        if (*kwnames != *co_varnames) {
-            goto slow;
-        }
-        co_varnames++;
-        kwnames++;
-        kwcount--;
-        base++;
-    }
-    return 0;
-
-slow:
-    return vm_setup_kwargs_slow(ts, co, base, kwnames, kwcount);
-}
-
-static int
 vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
 {
     Py_ssize_t ncells = code->co_ncells;
@@ -1207,35 +1152,6 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
         if (prev.as_int64 != 0) {
             DECREF(prev);
         }
-    }
-    return 0;
-}
-
-static void
-vm_setup_freevars(struct ThreadState *ts, PyCodeObject2 *code)
-{
-    PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-    Py_ssize_t nfreevars = code->co_nfreevars;
-    for (Py_ssize_t i = code->co_ndefaultargs; i < nfreevars; i++) {
-        Py_ssize_t r = code->co_free2reg[i*2+1];
-        PyObject *cell = this_func->freevars[i];
-        assert(PyCell_Check(cell));
-        ts->regs[r] = PACK(cell, NO_REFCOUNT_TAG);
-    }
-}
-
-int
-vm_setup_cells_freevars(struct ThreadState *ts, PyCodeObject2 *code)
-{
-    int err;
-    if (code->co_ncells != 0) {
-        err = vm_setup_cells(ts, code);
-        if (UNLIKELY(err != 0)) {
-            return err;
-        }
-    }
-    if (code->co_nfreevars != 0) {
-        vm_setup_freevars(ts, code);
     }
     return 0;
 }

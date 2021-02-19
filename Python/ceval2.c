@@ -53,6 +53,12 @@
     call; \
     regs = ts->regs
 
+#define FUNC_CALL_VM(call) \
+    call; \
+    regs = ts->regs; \
+    BREAK_LIVE_RANGE(next_instr); \
+    this_code = PyCode2_FromInstr(next_instr - 1);
+
 // I HAVE DEFEATED COMPILER.
 #if defined(__GNUC__)
 #define BREAK_LIVE_RANGE(a) __asm__ volatile ("" : "=r"(a) : "0"(a));
@@ -328,61 +334,145 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
             goto dispatch_func_header;
         }
 
+        ts->next_instr = next_instr;
         if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
             // call passed arguments as tuple and keywords as dict
-            CALL_VM(err = vm_setup_varargs(ts, this_code));
+            // TODO: update acc to avoid checking all args for defaults
+            FUNC_CALL_VM(err = vm_setup_ex(ts, this_code));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
             }
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
+            goto setup_default_args;
         }
-        else if ((this_code->co_packed_flags & (CODE_FLAG_VARARGS|CODE_FLAG_VARKEYWORDS)) != 0) {
-            Py_ssize_t argcount = (acc.as_int64 & ACC_MASK_ARGS);
-            Py_ssize_t kwcount = (acc.as_int64 & ACC_MASK_KWARGS) >> 8;
-            PyObject *names = AS_OBJ(ts->regs[argcount + kwcount]);
-            PyObject **kwnames = ((PyTupleObject *)names)->ob_item;
-            ts->regs[argcount + kwcount].as_int64 = 0;
-            CALL_VM(err = vm_setup_kwargs_slow(ts, this_code, argcount, kwnames, kwcount));
+
+        if (UNLIKELY((this_code->co_packed_flags & CODE_FLAG_VARARGS) != 0)) {
+            FUNC_CALL_VM(err = vm_setup_varargs(ts, this_code, acc));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
             }
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
-        }
-        else if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
-            // call has keyword arguments (passed inline)
-            CALL_VM(err = vm_setup_kwargs(ts, this_code, acc.as_int64));
-            if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
-            }
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
-        }
-        else {
             Py_ssize_t posargs = (acc.as_int64 & ACC_MASK_ARGS);
-            CALL_VM(err = vm_setup_default_args(ts, this_code, posargs));
+            if (posargs > this_code->co_argcount) {
+                acc.as_int64 -= posargs - this_code->co_argcount;
+            }
+        }
+        else if ((acc.as_int64 & ACC_MASK_ARGS) > this_code->co_argcount) {
+            FUNC_CALL_VM(too_many_positional(ts, acc.as_int64 & ACC_MASK_ARGS));
+            acc.as_int64 = 0;
+            goto error;
+        }
+
+        if (UNLIKELY((this_code->co_packed_flags & CODE_FLAG_VARKEYWORDS) != 0)) {
+            // if the function uses **kwargs, create and store the dict
+            PyObject *kwdict;
+            FUNC_CALL_VM(kwdict = PyDict_New());
+            if (UNLIKELY(kwdict == NULL)) {
+                acc.as_int64 = 0;
+                goto error;
+            }
+            Py_ssize_t pos = this_code->co_totalargcount;
+            if ((this_code->co_packed_flags & CODE_FLAG_VARARGS) != 0) {
+                pos += 1;
+            }
+            assert(regs[pos].as_int64 == 0);
+            regs[pos] = PACK(kwdict, REFCOUNT_TAG);
+        }
+
+        if (acc.as_int64 & ACC_MASK_KWARGS) {
+            assert(!IS_RC(regs[-FRAME_EXTRA - 1]));
+            PyObject **kwnames = _PyTuple_ITEMS(AS_OBJ(regs[-FRAME_EXTRA - 1]));
+            regs[-FRAME_EXTRA - 1].as_int64 = 0;
+
+            Py_ssize_t total_args = this_code->co_totalargcount;
+            while ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+                PyObject *keyword = *kwnames;
+
+                /* Speed hack: do raw pointer compares. As names are
+                   normally interned this should almost always hit. */
+                Py_ssize_t j;
+                for (j = this_code->co_posonlyargcount; j < total_args; j++) {
+                    PyObject *name = PyTuple_GET_ITEM(this_code->co_varnames, j);
+                    if (name == keyword) {
+                        goto kw_found;
+                    }
+                }
+
+                // keyword not found: might be missing or just not interned.
+                // fall back to slower set-up path.
+                FUNC_CALL_VM(err = vm_setup_kwargs(ts, this_code, acc, kwnames));
+                if (UNLIKELY(err == -1)) {
+                    acc.as_int64 = 0;
+                    goto error;
+                }
+                break;
+
+            kw_found:
+                if (UNLIKELY(regs[j].as_int64 != 0)) {
+                    FUNC_CALL_VM(duplicate_keyword_argument(ts, this_code, keyword));
+                    acc.as_int64 = 0;
+                    goto error;
+                }
+
+                Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
+                regs[j] = regs[kwdpos];
+                regs[kwdpos].as_int64 = 0;
+                acc.as_int64 -= (1 << ACC_SHIFT_KWARGS);
+                kwnames++;
+            }
+        }
+
+      setup_default_args: ;
+        Py_ssize_t total_args = this_code->co_totalargcount;
+        Py_ssize_t co_required_args = total_args - this_code->co_ndefaultargs;
+
+        // Check for missing required arguments
+        Py_ssize_t i = acc.as_int64 & ACC_MASK_ARGS;
+        for (; i < co_required_args; i++) {
+            if (UNLIKELY(regs[i].as_int64 == 0)) {
+                FUNC_CALL_VM(missing_arguments(ts, acc.as_int64));
+                acc.as_int64 = 0;
+                goto error;
+            }
+        }
+
+        // Fill in missing arguments with default values
+        for (; i < total_args; i++) {
+            if (regs[i].as_int64 == 0) {
+                PyObject *deflt = THIS_FUNC()->freevars[i - co_required_args];
+                if (UNLIKELY(deflt == NULL)) {
+                    // Required keyword-only arguments can come after optional
+                    // arguments. These arguments have NULL default values to
+                    // signify that they are required.
+                    FUNC_CALL_VM(missing_arguments(ts, acc.as_int64));
+                    acc.as_int64 = 0;
+                    goto error;
+                }
+                regs[i] = PACK(deflt, NO_REFCOUNT_TAG);
+            }
+        }
+
+        // Convert variables to cells (if necessary) and load freevars from func
+        if ((this_code->co_packed_flags & CODE_FLAG_HAS_CELLS) != 0) {
+            int err;
+            FUNC_CALL_VM(err = vm_setup_cells(ts, this_code));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
             }
-            BREAK_LIVE_RANGE(next_instr);
-            this_code = PyCode2_FromInstr(next_instr - 1);
         }
-
-        const uint32_t flags = CODE_FLAG_HAS_CELLS|CODE_FLAG_HAS_FREEVARS;
-        if ((this_code->co_packed_flags & flags) != 0) {
-            CALL_VM(err = vm_setup_cells_freevars(ts, this_code));
-            if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
+        if ((this_code->co_packed_flags & CODE_FLAG_HAS_FREEVARS) != 0) {
+            PyFunc *this_func = THIS_FUNC();
+            Py_ssize_t nfreevars = this_code->co_nfreevars;
+            for (Py_ssize_t i = this_code->co_ndefaultargs; i < nfreevars; i++) {
+                Py_ssize_t r = this_code->co_free2reg[i*2+1];
+                PyObject *cell = this_func->freevars[i];
+                assert(PyCell_Check(cell));
+                regs[r] = PACK(cell, NO_REFCOUNT_TAG);
             }
         }
 
-    dispatch_func_header:
+      dispatch_func_header:
         acc.as_int64 = 0;
         DISPATCH(FUNC_HEADER);
     }

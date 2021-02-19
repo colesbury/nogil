@@ -181,7 +181,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     }
     co->co_argcount = argcount;
     co->co_posonlyargcount = posonlyargcount;
-    co->co_kwonlyargcount = kwonlyargcount;
+    co->co_totalargcount = argcount + kwonlyargcount;
     co->co_nlocals = nlocals;
     co->co_ncells = (uint8_t)ncells;
     co->co_nfreevars = (uint8_t)(ncaptured - ndefaultargs);
