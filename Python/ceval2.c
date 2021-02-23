@@ -553,7 +553,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(FUNC_TPCALL_HEADER);
     }
 
-
     TARGET(GENERATOR_HEADER) {
         // setup generator?
         // copy arguments
@@ -727,6 +726,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         assert(IS_EMPTY(acc));
         PyObject *name = CONSTANTS()[opA];
         CALL_VM(acc = vm_load_name(regs, name));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(LOAD_NAME);
     }
 
@@ -782,7 +784,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(STORE_NAME) {
         PyObject *name = CONSTANTS()[opA];
         PyObject *locals = AS_OBJ(regs[0]);
-        CALL_VM(vm_store_global(locals, name, acc));
+        int err;
+        CALL_VM(err = vm_store_global(locals, name, acc));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
         acc.as_int64 = 0;
         DISPATCH(STORE_NAME);
     }
@@ -790,7 +796,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(STORE_GLOBAL) {
         PyObject *name = CONSTANTS()[opA];
         PyObject *globals = THIS_FUNC()->globals;
-        CALL_VM(vm_store_global(globals, name, acc));
+        PyObject *value = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyDict_SetItem(globals, name, value));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(STORE_GLOBAL);
     }
@@ -879,6 +891,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         assert(IS_EMPTY(acc));
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = PyCell_GET(cell);
+        if (UNLIKELY(value == NULL)) {
+            // FIXME: error
+        }
         acc = PACK_INCREF(value);
         DISPATCH(LOAD_DEREF);
     }
@@ -886,12 +901,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(STORE_DEREF) {
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = AS_OBJ(acc);
-        // FIXME: got to clear the old value
         if (!IS_RC(acc)) {
             _Py_INCREF(value);
         }
+        PyObject *prev = PyCell_GET(cell);
         PyCell_SET(cell, value);
         acc.as_int64 = 0;
+        if (prev != NULL) {
+            _Py_DECREF(prev);
+        }
         DISPATCH(STORE_DEREF);
     }
 
@@ -984,6 +1002,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyObject_RichCompare(left, right, opA));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(COMPARE_OP);
     }
@@ -1001,6 +1022,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         int cmp;
         CALL_VM(cmp = PySequence_Contains(right, left));
+        if (UNLIKELY(cmp < 0)) {
+            goto error;
+        }
         SET_ACC(primitives[cmp]);
         DISPATCH(CONTAINS_OP);
     }
@@ -1009,6 +1033,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Positive(value));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_POSITIVE);
     }
@@ -1017,6 +1044,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Negative(value));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_NEGATIVE);
     }
@@ -1025,6 +1055,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Invert(value));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(UNARY_INVERT);
     }
@@ -1033,7 +1066,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *value = AS_OBJ(acc);
         int is_true;
         CALL_VM(is_true = PyObject_IsTrue(value));
-        assert(is_true >= 0);
+        if (UNLIKELY(is_true < 0)) {
+            goto error;
+        }
         SET_ACC(primitives[!is_true]);
         DISPATCH(UNARY_NOT);
     }
@@ -1052,6 +1087,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Add(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_ADD);
     }
@@ -1063,6 +1101,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Subtract(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_SUBTRACT);
     }
@@ -1088,6 +1129,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Remainder(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MODULO);
     }
@@ -1099,6 +1143,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_TrueDivide(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_TRUE_DIVIDE);
     }
@@ -1110,6 +1157,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_FloorDivide(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_FLOOR_DIVIDE);
     }
@@ -1121,6 +1171,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Power(left, right, Py_None));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_POWER);
     }
@@ -1132,6 +1185,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_MatrixMultiply(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MATRIX_MULTIPLY);
     }
@@ -1143,6 +1199,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Lshift(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_LSHIFT);
     }
@@ -1154,6 +1213,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Rshift(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_RSHIFT);
     }
@@ -1165,6 +1227,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_And(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_AND);
     }
@@ -1176,6 +1241,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Xor(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_XOR);
     }
@@ -1187,6 +1255,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Or(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_OR);
     }
@@ -1198,6 +1269,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceAdd(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_ADD);
     }
@@ -1209,6 +1283,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceSubtract(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_SUBTRACT);
     }
@@ -1220,6 +1297,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceMultiply(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MULTIPLY);
     }
@@ -1231,6 +1311,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceRemainder(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MODULO);
     }
@@ -1242,6 +1325,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceTrueDivide(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_TRUE_DIVIDE);
     }
@@ -1253,6 +1339,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceFloorDivide(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_FLOOR_DIVIDE);
     }
@@ -1264,6 +1353,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlacePower(left, right, Py_None));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_POWER);
     }
@@ -1275,6 +1367,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceMatrixMultiply(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_MATRIX_MULTIPLY);
     }
@@ -1286,6 +1381,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceLshift(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_LSHIFT);
     }
@@ -1297,6 +1395,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceRshift(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_RSHIFT);
     }
@@ -1308,6 +1409,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceAnd(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_AND);
     }
@@ -1319,6 +1423,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceXor(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_XOR);
     }
@@ -1330,6 +1437,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_InPlaceOr(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(INPLACE_OR);
     }
@@ -1341,6 +1451,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *sub = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyObject_GetItem(container, sub));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_SUBSCR);
     }
@@ -1349,6 +1462,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyFunc *this_func = THIS_FUNC();
         PyObject *arg = CONSTANTS()[opA];
         CALL_VM(acc = vm_import_name(ts, this_func, arg));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(IMPORT_NAME);
     }
 
@@ -1559,6 +1675,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(LOAD_BUILD_CLASS) {
         PyObject *builtins = THIS_FUNC()->builtins;
         CALL_VM(vm_load_build_class(ts, builtins, opA));
+        // FIXME: error return
         DISPATCH(LOAD_BUILD_CLASS);
     }
 
