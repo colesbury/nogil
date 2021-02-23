@@ -23,14 +23,14 @@ enum {
     FRAME_TAG_MASK = 3
 };
 
-#define FRAME_EXTRA     3
+#define FRAME_EXTRA     4
 #define CFRAME_EXTRA    4
 
 /*
 
   idx      Python frame
        +-------------------+
-  -4   |   [frame delta]   |
+  -4   |    frame delta    |
        |- - - - - - - - - -|
   -3   |     constants     |
        |- - - - - - - - - -|
@@ -53,6 +53,8 @@ enum {
 
 
   idx     C function frame
+       +-------------------+
+  -4   |    frame delta    |
        +-------------------+
   -3   |    frame size     |
        |- - - - - - - - - -|

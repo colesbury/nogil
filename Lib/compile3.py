@@ -269,7 +269,7 @@ class ops:
     for bytecode in dis.bytecodes:
         locals()[bytecode.name] = make_instruction(bytecode)
 
-FRAME_EXTRA = 3
+FRAME_EXTRA = 4
 
 class CodeGen(ast.NodeVisitor):
     for bytecode in dis.bytecodes:
@@ -532,16 +532,15 @@ class CodeGen(ast.NodeVisitor):
 
         regs = self.register_list()
         self(t.func.value)
-        regs[2].allocate()
-        regs[3].allocate()
-        self.LOAD_METHOD(regs[2], self.names[t.func.attr])
+        regs[FRAME_EXTRA].allocate()
+        self.LOAD_METHOD(regs[FRAME_EXTRA-1], self.names[t.func.attr])
         for i, arg in enumerate(t.args):
-            regs[4+i](arg)
+            regs[FRAME_EXTRA+i+1](arg)
         self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
 
     def call_function_ex(self, t):
         regs = self.register_list()
-        regs[4](t.func)
+        regs[FRAME_EXTRA+1](t.func)
         if len(t.args) == 1 and isinstance(t.args[0], ast.Starred):
             regs[0](t.args[0].value)
         else:
@@ -1238,15 +1237,14 @@ class CodeGen(ast.NodeVisitor):
     def visit_Class(self, t):
         code = self.sprout(t).compile_class(t)
         regs = self.register_list()
-        FRAME_EXTRA = 3
 
-        self.LOAD_BUILD_CLASS(regs[2])
+        self.LOAD_BUILD_CLASS(regs[FRAME_EXTRA-1])
         self.make_closure(code, t.name)
-        self.STORE_FAST(regs[3])
+        self.STORE_FAST(regs[FRAME_EXTRA])
         self.load_const(t.name)
-        self.STORE_FAST(regs[4])
+        self.STORE_FAST(regs[FRAME_EXTRA+1])
         for i,base in enumerate(t.bases):
-            regs[5+i](base)
+            regs[FRAME_EXTRA+2+i](base)
         self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
 
     def compile_class(self, t):

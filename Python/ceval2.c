@@ -507,12 +507,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
         next_instr = (const uint32_t *)regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
-        // this is the call that dispatched to us
-        uint32_t call = next_instr[-1];
-        intptr_t offset = (call >> 8) & 0xFF;
-        regs -= offset;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
         ts->regs = regs;
         DISPATCH(CFUNC_HEADER);
     }
@@ -529,12 +528,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
         next_instr = (const uint32_t *)regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
-        // this is the call that dispatched to us
-        uint32_t call = next_instr[-1];
-        intptr_t offset = (call >> 8) & 0xFF;
-        regs -= offset;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
         ts->regs = regs;
         DISPATCH(FUNC_TPCALL_HEADER);
     }
@@ -584,6 +582,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(CALL_FUNCTION) {
         // opD = (kwargs << 8) | nargs
+        // regs[opA - 4] = <empty> (frame delta)
+        // regs[opA - 3] = <empty> (constants)
         // regs[opA - 2] = <empty> (frame link)
         // regs[opA - 1] = func
         // regs[opA + 0] = arg0
@@ -592,6 +592,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
         ts->regs = regs;
+        regs[-4].as_int64 = opA;    // frame delta
         regs[-2].as_int64 = (intptr_t)next_instr;
         acc.as_int64 = opD;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
@@ -603,7 +604,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     call_object: {
         DEBUG_LABEL(call_object);
-        regs[-3].as_int64 = ACC_ARGCOUNT(acc);
+        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
         PyObject *res;
         CALL_VM(res = vm_call_function(ts, acc));
         if (UNLIKELY(res == NULL)) {
@@ -614,37 +615,42 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
         next_instr = (const uint32_t *)regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
-        regs[-3].as_int64 = 0;
-        regs -= RELOAD_OPA();
+        regs[-3].as_int64 = 0; // should already be zero?
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
         ts->regs = regs;
         DISPATCH(call_object);
     }
 
     TARGET(CALL_FUNCTION_EX) {
+        // opA - 6 = *args
+        // opA - 5 = **kwargs
+        // opA - 4 = <empty> (frame delta)
+        // opA - 3 = <empty> (constants/frame size)
         // opA - 2 = <empty> (frame link)
         // opA - 1 = func
-        // opA + 0 = *args
-        // opA + 1 = **kwargs
         assert(IS_EMPTY(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
         ts->regs = regs;
+        regs[-4].as_int64 = opA;  // frame delta
         regs[-2].as_int64 = (intptr_t)next_instr;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object_ex;
         }
         acc.as_int64 = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
         next_instr = ((PyFuncBase *)callable)->first_instr;
-        DISPATCH(CALL_FUNCTION);
+        DISPATCH(CALL_FUNCTION_EX);
     }
 
     call_object_ex: {
         DEBUG_LABEL(call_object_ex);
-        regs[-3].as_int64 = 2;
+        assert(regs[-3].as_int64 == 0 && "frame size not zero");
         PyObject *callable = AS_OBJ(regs[-1]);
-        PyObject *args = AS_OBJ(regs[0]);
-        PyObject *kwargs = AS_OBJ(regs[1]);
+        PyObject *args = AS_OBJ(regs[-FRAME_EXTRA - 2]);
+        PyObject *kwargs = AS_OBJ(regs[-FRAME_EXTRA - 1]);
         PyObject *res;
         CALL_VM(res = PyObject_Call(callable, args, kwargs));
         if (UNLIKELY(res == NULL)) {
@@ -652,11 +658,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto error;
         }
         acc = PACK_OBJ(res);
-        CLEAR_REGISTERS(2);
+        DECREF(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
+        regs[-FRAME_EXTRA - 1].as_int64 = 0;
+        DECREF(regs[-FRAME_EXTRA - 2]);  // clear *args
+        regs[-FRAME_EXTRA - 2].as_int64 = 0;
         next_instr = (const uint32_t *)regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
-        regs[-3].as_int64 = 0;
-        regs -= RELOAD_OPA();
+        // regs[-3] is already zero
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
         ts->regs = regs;
         DISPATCH(call_object_ex);
     }
@@ -673,14 +684,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         ts->next_instr = next_instr;
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
         intptr_t frame_link = regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
         if (UNLIKELY((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON)) {
-            Py_ssize_t frame_delta = regs[-4].as_int64;
-            regs[-4].as_int64 = 0;
-            regs -= frame_delta;
-            ts->regs = regs;
-
             intptr_t tag = frame_link & FRAME_TAG_MASK;
             if (tag == FRAME_C) {
                 ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
@@ -694,11 +704,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             }
         }
         next_instr = (const uint32_t *)frame_link;
-        // this is the call that dispatched to us
-        uint32_t call = next_instr[-1];
-        intptr_t offset = (call >> 8) & 0xFF;
-        regs -= offset;
-        ts->regs = regs;
         DISPATCH(RETURN_VALUE);
     }
 
