@@ -338,7 +338,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
             // call passed arguments as tuple and keywords as dict
             // TODO: update acc to avoid checking all args for defaults
-            FUNC_CALL_VM(err = vm_setup_ex(ts, this_code));
+            FUNC_CALL_VM(err = vm_setup_ex(ts, this_code, acc));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
@@ -479,14 +479,30 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(METHOD_HEADER) {
         PyMethod *meth = (PyMethod *)AS_OBJ(regs[-1]);
-        // insert "self" as first argument
-        Py_ssize_t n = acc.as_int64;
-        while (n != 0) {
-            regs[n] = regs[n - 1];
-            n--;
+        if ((acc.as_int64 & ACC_FLAG_VARARGS) != 0) {
+            // TODO: would be nice to only use below case by handling hybrid call formats.
+            PyObject *args = AS_OBJ(regs[-FRAME_EXTRA - 2]);
+            assert(PyTuple_Check(args));
+            Register res;
+            CALL_VM(res = vm_tuple_prepend(args, meth->im_self));
+            if (UNLIKELY(res.as_int64 == 0)) {
+                goto error;
+            }
+            Register tmp = regs[-FRAME_EXTRA - 2];
+            regs[-FRAME_EXTRA - 2] = res;
+            DECREF(tmp);
+            meth = (PyMethod *)AS_OBJ(regs[-1]);
         }
-        regs[0] = PACK_INCREF(meth->im_self);
-        acc.as_int64 += 1;
+        else {
+            // insert "self" as first argument
+            Py_ssize_t n = ACC_ARGCOUNT(acc);
+            while (n != 0) {
+                regs[n] = regs[n - 1];
+                n--;
+            }
+            regs[0] = PACK_INCREF(meth->im_self);
+            acc.as_int64 += 1;
+        }
         // tail call dispatch to underlying func
         PyObject *func = meth->im_func;
         next_instr = ((PyFuncBase *)func)->first_instr;
@@ -1058,6 +1074,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyNumber_Multiply(left, right));
+        if (UNLIKELY(res == NULL)) {
+            goto error;
+        }
         SET_ACC(PACK_OBJ(res));
         DISPATCH(BINARY_MULTIPLY);
     }
@@ -1367,6 +1386,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         acc.as_int64 = 0;
         DISPATCH(GET_ITER);
         get_iter_slow:
+            // FIXME
             goto error;
     }
 
@@ -1689,6 +1709,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     error: {
         // TODO: normalize exception and create traceback.
         // CALL_VM(vm_handle_error(ts));
+        CALL_VM(vm_traceback_here(ts));
         goto exception_unwind;
     }
 

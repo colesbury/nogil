@@ -222,6 +222,17 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
     return 0;
 }
 
+void
+vm_traceback_here(struct ThreadState *ts)
+{
+    // PyObject *exc, *val, *tb, *newtb;
+    // PyErr_Fetch(&exc, &val, &tb);
+    // PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
+
+    // PyErr_Restore(exc, val, newtb);
+    // Py_XDECREF(tb);
+}
+
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
 {
@@ -304,20 +315,15 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         Py_ssize_t frame_size = vm_frame_size(ts);
         vm_clear_regs(ts, -1, frame_size);
         uintptr_t frame_link = ts->regs[-2].as_int64;
+        intptr_t frame_delta = ts->regs[-4].as_int64;
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
+        ts->regs[-4].as_int64 = 0;
+        ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+        ts->regs -= frame_delta;
         if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
-            ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
-            Py_ssize_t frame_delta = ts->regs[-4].as_int64;
-            ts->regs[-4].as_int64 = 0;
-            ts->regs -= frame_delta;
             return NULL;
         }
-        next_instr = (const uint32_t *)frame_link;
-        // this is the call that dispatched to us
-        uint32_t call = next_instr[-1];
-        intptr_t offset = (call >> 8) & 0xFF;
-        ts->regs -= offset;
     }
 }
 
@@ -809,8 +815,8 @@ vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
         return vm_call_function_ex(ts);
     }
 
-    Py_ssize_t nargs = ACC_ARGCOUNT(acc) + ACC_KWCOUNT(acc);
-    PyObject **args = PyMem_RawMalloc(nargs * sizeof(PyObject*));
+    Py_ssize_t total_args = ACC_ARGCOUNT(acc) + ACC_KWCOUNT(acc);
+    PyObject **args = PyMem_RawMalloc(total_args * sizeof(PyObject*));
     if (UNLIKELY(args == NULL)) {
         return NULL;
     }
@@ -820,13 +826,14 @@ vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
     PyObject *kwnames = NULL;
     if (ACC_KWCOUNT(acc) > 0) {
         kwnames = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
-        for (Py_ssize_t i = 0; i != ACC_KWCOUNT(acc) + 1; i++) {
+        assert(PyTuple_CheckExact(kwnames));
+        for (Py_ssize_t i = 0; i != ACC_KWCOUNT(acc); i++) {
             Py_ssize_t k = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1 + i;
             args[i + ACC_ARGCOUNT(acc) + 1] = AS_OBJ(ts->regs[k]);
         }
     }
 
-    Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    Py_ssize_t nargsf = ACC_ARGCOUNT(acc) | PY_VECTORCALL_ARGUMENTS_OFFSET;
     PyObject *res = _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, kwnames);
     if (ACC_KWCOUNT(acc) > 0) {
         for (Py_ssize_t i =  -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1; i != -FRAME_EXTRA; i++) {
@@ -1021,11 +1028,15 @@ too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount)
 }
 
 int
-vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co)
+vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 {
+    assert(ACC_ARGCOUNT(acc) == 0 && ACC_KWCOUNT(acc) == 0);
     PyObject *varargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
     PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
-    assert(PyTuple_Check(varargs) && PyDict_Check(kwargs));
+    assert(PyTuple_Check(varargs));
+    if (kwargs) {
+        assert(PyDict_Check(kwargs));
+    }
     PyObject *kwdict = NULL;
 
     Py_ssize_t argcount = PyTuple_GET_SIZE(varargs);
@@ -1060,7 +1071,7 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co)
 
     Py_ssize_t i = 0;
     PyObject *keyword, *value;
-    while (PyDict_Next(kwargs, &i, &keyword, &value)) {
+    while (kwargs && PyDict_Next(kwargs, &i, &keyword, &value)) {
         if (keyword == NULL || !PyUnicode_Check(keyword)) {
             _PyErr_Format(ts->ts, PyExc_TypeError,
                           "%U() keywords must be strings",
@@ -1114,10 +1125,9 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co)
         ts->regs[j] = PACK_INCREF(value);
     }
 
-    for (Py_ssize_t i = 1; i <= 2; i++) {
-        Register r = ts->regs[-FRAME_EXTRA - i];
-        ts->regs[-FRAME_EXTRA - i].as_int64 = 0;
-        DECREF(r);
+    CLEAR(ts->regs[-FRAME_EXTRA - 2]);
+    if (kwargs) {
+        CLEAR(ts->regs[-FRAME_EXTRA - 1]);
     }
 
     // FIXME: check for too many positional arguments
@@ -1312,6 +1322,23 @@ vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
         return (Register){0};
     }
     return PACK(obj, REFCOUNT_TAG);
+}
+
+Register
+vm_tuple_prepend(PyObject *tuple, PyObject *obj)
+{
+    PyObject *res = PyTuple_New(PyTuple_GET_SIZE(tuple) + 1);
+    if (res == NULL) {
+        return (Register){0};
+    }
+    Py_INCREF(obj);
+    PyTuple_SET_ITEM(res, 0, obj);
+    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(tuple); i++) {
+        PyObject *item = PyTuple_GET_ITEM(tuple, i);
+        Py_INCREF(item);
+        PyTuple_SET_ITEM(res, i + 1, item);
+    }
+    return PACK(res, REFCOUNT_TAG);
 }
 
 static PyObject *
@@ -1648,10 +1675,10 @@ PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
 }
 
 static void
-setup_frame(struct ThreadState *ts, PyFunc *func)
+setup_frame(struct ThreadState *ts, PyFunc *func, Py_ssize_t extra)
 {
     Py_ssize_t frame_delta = vm_frame_size(ts);
-    frame_delta += CFRAME_EXTRA;
+    frame_delta += CFRAME_EXTRA + extra;
 
     ts->regs += frame_delta;
 
@@ -1669,27 +1696,10 @@ _PyEval_FastCall(PyFunc *func, PyObject *locals)
     Py_ssize_t nargs = 0;
     const uint32_t *pc;
 
-    setup_frame(ts, func);
+    setup_frame(ts, func, 0);
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
     pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
-    return _PyEval_Fast(ts, nargs, pc);
-}
-
-PyObject *
-_PyEval_FastCallArgs(PyFunc *func, PyObject *args)
-{
-    struct ThreadState *ts = gts;
-    Py_ssize_t nargs = 0;
-    setup_frame(ts, func);
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
-    if (args != NULL) {
-        Py_ssize_t n = PyTuple_GET_SIZE(args);
-        nargs = n;
-        for (Py_ssize_t i = 0; i != n; i++) {
-            ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i), NO_REFCOUNT_TAG);
-        }
-    }
     return _PyEval_Fast(ts, nargs, pc);
 }
 
@@ -1872,16 +1882,37 @@ func_repr(PyFunc *op)
 }
 
 static PyObject *
-func_call(PyObject *func, PyObject *args, PyObject *kwds)
+func_call(PyFunc *func, PyObject *args, PyObject *kwds)
 {
-    assert(kwds == NULL);
-    return _PyEval_FastCallArgs((PyFunc *)func, args);
+    struct ThreadState *ts = gts;
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
+
+    if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
+        Py_ssize_t acc = 0;
+        setup_frame(ts, func, /*extra=*/0);
+        return _PyEval_Fast(ts, acc, pc);
+    }
+
+    Py_ssize_t acc = ACC_FLAG_VARARGS;
+    setup_frame(ts, func, /*extra=*/2);
+    ts->regs[-FRAME_EXTRA-2] = PACK(args, NO_REFCOUNT_TAG);
+    if (kwds != NULL) {
+        acc |= ACC_FLAG_VARKEYWORDS;
+        ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
+    }
+    return _PyEval_Fast(ts, acc, pc);
+
 }
 
 /* Bind a function to an object */
 static PyObject *
 func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
 {
+    if (obj == NULL) {
+        Py_INCREF(func);
+        return func;
+    }
+
     static uint32_t meth_instr = METHOD_HEADER;
     PyMethod *method = PyObject_New(PyMethod, &PyMeth_Type);
     if (method == NULL) {
@@ -1903,7 +1934,7 @@ PyTypeObject PyFunc_Type = {
     .tp_doc = "PyFunc doc",
     .tp_basicsize = sizeof(PyFunc),
     .tp_itemsize = sizeof(PyObject*),
-    .tp_call = func_call,
+    .tp_call = (ternaryfunc)func_call,
     .tp_descr_get = func_descr_get,
     .tp_repr = (reprfunc)func_repr,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR,

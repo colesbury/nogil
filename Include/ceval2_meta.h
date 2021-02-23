@@ -247,6 +247,7 @@ vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
+Register vm_tuple_prepend(PyObject *tuple, PyObject *obj);
 Register vm_build_slice(Register *regs);
 
 PyObject *vm_call_cfunction(struct ThreadState *ts, Register acc);
@@ -261,7 +262,7 @@ int missing_arguments(struct ThreadState *ts, Py_ssize_t posargcount);
 int too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount);
 
 
-int vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co);
+int vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
 int vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
 int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObject **kwnames);
 int vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
@@ -272,6 +273,8 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
+
+void vm_traceback_here(struct ThreadState *ts);
 
 PyObject *vm_args_error(struct ThreadState *ts);
 
