@@ -815,13 +815,14 @@ vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
         return vm_call_function_ex(ts);
     }
 
-    Py_ssize_t total_args = ACC_ARGCOUNT(acc) + ACC_KWCOUNT(acc);
+    Py_ssize_t total_args = 1 + ACC_ARGCOUNT(acc) + ACC_KWCOUNT(acc);
     PyObject **args = PyMem_RawMalloc(total_args * sizeof(PyObject*));
     if (UNLIKELY(args == NULL)) {
         return NULL;
     }
-    for (Py_ssize_t i = 0; i != ACC_ARGCOUNT(acc) + 1; i++) {
-        args[i] = AS_OBJ(ts->regs[i - 1]);
+    args[0] = AS_OBJ(ts->regs[-1]);
+    for (Py_ssize_t i = 0; i != ACC_ARGCOUNT(acc); i++) {
+        args[i + 1] = AS_OBJ(ts->regs[i]);
     }
     PyObject *kwnames = NULL;
     if (ACC_KWCOUNT(acc) > 0) {
