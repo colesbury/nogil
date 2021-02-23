@@ -107,6 +107,9 @@ PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t 
     for (Py_ssize_t i = 0; i != nconsts; i++) {
         PyObject *c = PyTuple_GET_ITEM(consts, i);
         Py_INCREF(c);
+        if (PyUnicode_CheckExact(c)) {
+            PyUnicode_InternInPlace(&c);
+        }
         co_constants[i] = c;
     }
     ptr += nconsts * sizeof(PyObject *);
