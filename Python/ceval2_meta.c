@@ -64,7 +64,7 @@ vm_frame_size(struct ThreadState *ts)
 
 #define CLEAR(reg) do {     \
     Register _tmp = (reg);  \
-    (reg).as_int64 = 0;    \
+    (reg).as_int64 = 0;     \
     DECREF(_tmp);           \
 } while (0)
 
@@ -790,26 +790,60 @@ err:
 }
 
 static PyObject * _Py_NO_INLINE
-vm_call_cfunction_argggg(struct ThreadState *ts, Py_ssize_t nargs)
+vm_call_function_ex(struct ThreadState *ts)
 {
-    if (UNLIKELY(nargs > 255)) {
-        abort();
+    PyObject *callable = AS_OBJ(ts->regs[-1]);
+    PyObject *args = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
+    PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
+    PyObject *res = PyObject_Call(callable, args, kwargs);
+    CLEAR(ts->regs[-FRAME_EXTRA - 1]);
+    CLEAR(ts->regs[-FRAME_EXTRA - 2]);
+    return res;
+}
+
+static PyObject * _Py_NO_INLINE
+vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
+{
+    const int flags_ex = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
+    if (UNLIKELY((acc.as_int64 & flags_ex) != 0)) {
+        return vm_call_function_ex(ts);
     }
-    PyObject **args = alloca((nargs + 1) * sizeof(PyObject *));
-    for (int i = 0; i != nargs + 1; i++) {
+
+    Py_ssize_t nargs = ACC_ARGCOUNT(acc) + ACC_KWCOUNT(acc);
+    PyObject **args = PyMem_RawMalloc(nargs * sizeof(PyObject*));
+    if (UNLIKELY(args == NULL)) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != ACC_ARGCOUNT(acc) + 1; i++) {
         args[i] = AS_OBJ(ts->regs[i - 1]);
     }
+    PyObject *kwnames = NULL;
+    if (ACC_KWCOUNT(acc) > 0) {
+        kwnames = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
+        for (Py_ssize_t i = 0; i != ACC_KWCOUNT(acc) + 1; i++) {
+            Py_ssize_t k = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1 + i;
+            args[i + ACC_ARGCOUNT(acc) + 1] = AS_OBJ(ts->regs[k]);
+        }
+    }
+
     Py_ssize_t nargsf = nargs | PY_VECTORCALL_ARGUMENTS_OFFSET;
-    return _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, NULL);
+    PyObject *res = _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, kwnames);
+    if (ACC_KWCOUNT(acc) > 0) {
+        for (Py_ssize_t i =  -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1; i != -FRAME_EXTRA; i++) {
+            CLEAR(ts->regs[i]);
+        }
+    }
+    return res;
 }
 
 PyObject *
-vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs)
+vm_call_cfunction(struct ThreadState *ts, Register acc)
 {
-    if (UNLIKELY(nargs > 6)) {
-        return vm_call_cfunction_argggg(ts, nargs);
+    if (UNLIKELY(acc.as_int64 >= 6)) {
+        return vm_call_cfunction_slow(ts, acc);
     }
 
+    Py_ssize_t nargs = acc.as_int64;
     PyObject *args[7];
     for (int i = 0; i != nargs + 1; i++) {
         args[i] = AS_OBJ(ts->regs[i - 1]);
@@ -820,43 +854,14 @@ vm_call_cfunction(struct ThreadState *ts, Py_ssize_t nargs)
     return func->vectorcall(args[0], args + 1, nargsf, NULL);
 }
 
-static PyObject *
-build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
-
 PyObject *
-vm_tpcall_function(struct ThreadState *ts, Py_ssize_t nargs)
+vm_call_function(struct ThreadState *ts, Register acc)
 {
-    PyCFunctionObject *func = (PyCFunctionObject *)ts->regs[-1].as_int64;
-    int flags = PyCFunction_GET_FLAGS(func);
-    assert((flags & METH_VARARGS) != 0);
-
-    PyCFunction meth = PyCFunction_GET_FUNCTION(func);
-    PyObject *self = PyCFunction_GET_SELF(func);
-
-    PyObject *args = build_tuple(ts, 0, nargs);
-    if (UNLIKELY(args == NULL)) {
-        return NULL;
+    if (UNLIKELY(acc.as_int64 > 6)) {
+        return vm_call_cfunction_slow(ts, acc);
     }
 
-    PyObject *result;
-    if ((flags & METH_KEYWORDS) != 0) {
-        result = (*(PyCFunctionWithKeywords)(void(*)(void))meth)(self, args, NULL);
-    }
-    else {
-        result = meth(self, args);
-    }
-
-    Py_DECREF(args);
-    return result;
-}
-
-PyObject *
-vm_call_function(struct ThreadState *ts, Py_ssize_t nargs)
-{
-    if (UNLIKELY(nargs > 6)) {
-        return vm_call_cfunction_argggg(ts, nargs);
-    }
-
+    Py_ssize_t nargs = acc.as_int64;
     PyObject *args[7];
     for (int i = 0; i != nargs + 1; i++) {
         args[i] = AS_OBJ(ts->regs[i - 1]);
@@ -866,14 +871,85 @@ vm_call_function(struct ThreadState *ts, Py_ssize_t nargs)
     return _PyObject_VectorcallTstate(ts->ts, args[0], args + 1, nargsf, NULL);
 }
 
+static PyObject *
+build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
+
+static PyObject *
+build_kwargs(struct ThreadState *ts, Py_ssize_t n);
+
 PyObject *
-vm_call_function_ex(struct ThreadState *ts)
+vm_tpcall_function(struct ThreadState *ts, Register acc)
 {
-    PyObject *callable = AS_OBJ(ts->regs[-1]);
-    PyObject *args = AS_OBJ(ts->regs[0]);
-    PyObject *kwargs = AS_OBJ(ts->regs[1]);
-    PyObject *res = PyObject_Call(callable, args, kwargs);
-    return res;
+    PyCFunctionObject *func = (PyCFunctionObject *)ts->regs[-1].as_int64;
+    const int flags_ex = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
+    if (UNLIKELY((acc.as_int64 & flags_ex) != 0)) {
+        return vm_call_function_ex(ts);
+    }
+
+    int flags = PyCFunction_GET_FLAGS(func);
+    assert((flags & METH_VARARGS) != 0 && "vp_tpcall without METH_VARARGS");
+
+    PyCFunction meth = PyCFunction_GET_FUNCTION(func);
+    PyObject *self = PyCFunction_GET_SELF(func);
+
+    PyObject *args = build_tuple(ts, 0, ACC_ARGCOUNT(acc));
+    if (UNLIKELY(args == NULL)) {
+        return NULL;
+    }
+
+    PyObject *result;
+    if ((flags & METH_KEYWORDS) != 0) {
+        PyObject *kwargs = NULL;
+        if (ACC_KWCOUNT(acc) != 0) {
+            kwargs = build_kwargs(ts, ACC_KWCOUNT(acc));
+            if (UNLIKELY(kwargs == NULL)) {
+                goto error;
+            }
+        }
+        result = (*(PyCFunctionWithKeywords)(void(*)(void))meth)(self, args, kwargs);
+    }
+    else if (UNLIKELY(ACC_KWCOUNT(acc) != 0)) {
+        _PyErr_Format(ts->ts, PyExc_TypeError,
+                "%.200s() takes no keyword arguments",
+                ((PyCFunctionObject*)func)->m_ml->ml_name);
+        goto error;
+    }
+    else {
+        result = meth(self, args);
+    }
+
+    Py_DECREF(args);
+    return result;
+
+error:
+    Py_DECREF(args);
+    return NULL;
+}
+
+static PyObject *
+build_kwargs(struct ThreadState *ts, Py_ssize_t kwcount)
+{
+    PyObject *kwargs = _PyDict_NewPresized(kwcount);
+    if (kwargs == NULL) {
+        return NULL;
+    }
+
+    PyObject **kwnames = _PyTuple_ITEMS(AS_OBJ(ts->regs[-FRAME_EXTRA - 1]));
+    ts->regs[-FRAME_EXTRA - 1].as_int64 = 0;
+
+    while (kwcount != 0) {
+        Py_ssize_t k = -FRAME_EXTRA - kwcount - 1;
+        PyObject *keyword = *kwnames;
+        PyObject *value = AS_OBJ(ts->regs[k]);
+        if (PyDict_SetItem(kwargs, keyword, value) < 0) {
+            Py_DECREF(kwargs);
+            return NULL;
+        }
+        CLEAR(ts->regs[k]);
+        kwnames++;
+        kwcount--;
+    }
+    return kwargs;
 }
 
 static PyFunc *

@@ -231,7 +231,7 @@ static const Register primitives[3] = {
 
 PyObject*
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
-_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
+_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 {
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
@@ -242,7 +242,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
-    Register acc = {nargs};
+    Register acc = {nargs_};
     Register *regs = ts->regs;
     void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
@@ -497,10 +497,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(CFUNC_HEADER) {
-        Py_ssize_t nargs = acc.as_int64;
         PyObject *res;
-        regs[-3].as_int64 = nargs;  // frame size
-        CALL_VM(res = vm_call_cfunction(ts, nargs));
+        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
+        CALL_VM(res = vm_call_cfunction(ts, acc));
         if (UNLIKELY(res == NULL)) {
             acc.as_int64 = 0;
             goto error;
@@ -519,11 +518,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(FUNC_TPCALL_HEADER) {
-        Py_ssize_t nargs = acc.as_int64;
         PyObject *res;
-        regs[-3].as_int64 = nargs;  // frame size
+        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
         // steals arguments
-        CALL_VM(res = vm_tpcall_function(ts, nargs));
+        CALL_VM(res = vm_tpcall_function(ts, acc));
         if (UNLIKELY(res == NULL)) {
             acc.as_int64 = 0;
             goto error;
@@ -585,31 +583,32 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(CALL_FUNCTION) {
-        // opsD = nargs
-        // opsA - 2 = <empty> (frame link)
-        // opsA - 1 = func
-        // opsA + 0 = arg0
-        // opsA + opsD = argsN
+        // opD = (kwargs << 8) | nargs
+        // regs[opA - 2] = <empty> (frame link)
+        // regs[opA - 1] = func
+        // regs[opA + 0] = arg0
+        // regs[opA + n] = argsN
         assert(IS_EMPTY(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
         ts->regs = regs;
         regs[-2].as_int64 = (intptr_t)next_instr;
+        acc.as_int64 = opD;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object;
         }
-        acc.as_int64 = opD;
         next_instr = ((PyFuncBase *)callable)->first_instr;
         DISPATCH(CALL_FUNCTION);
     }
 
     call_object: {
         DEBUG_LABEL(call_object);
-        regs[-3].as_int64 = opD;
+        regs[-3].as_int64 = ACC_ARGCOUNT(acc);
         PyObject *res;
-        CALL_VM(res = vm_call_function(ts, opD));
+        CALL_VM(res = vm_call_function(ts, acc));
         if (UNLIKELY(res == NULL)) {
             // is this ok? do we need to adjust frame first?
+            acc.as_int64 = 0;
             goto error;
         }
         acc = PACK_OBJ(res);
@@ -623,10 +622,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(CALL_FUNCTION_EX) {
-        // opsA - 2 = <empty> (frame link)
-        // opsA - 1 = func
-        // opsA + 0 = *args
-        // opsA + 1 = **kwargs
+        // opA - 2 = <empty> (frame link)
+        // opA - 1 = func
+        // opA + 0 = *args
+        // opA + 1 = **kwargs
         assert(IS_EMPTY(acc));
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
@@ -1519,7 +1518,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
     }
 
     TARGET(UNPACK) {
-        // opA = reg, opD = N
+        // iconstants[opA] = base, argcnt, argcntafter
         PyObject *seq = AS_OBJ(acc);
         Py_ssize_t *args = &THIS_CODE()->co_iconstants[opA];
         int err;

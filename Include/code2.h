@@ -57,6 +57,7 @@ enum {
 };
 
 #define ACC_KWCOUNT(acc) (((acc.as_int64) & ACC_MASK_KWARGS) >> ACC_SHIFT_KWARGS)
+#define ACC_ARGCOUNT(acc) ((acc.as_int64) & ACC_MASK_ARGS)
 
 struct _PyHandlerTable;
 
