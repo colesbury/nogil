@@ -1711,6 +1711,12 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
         if (gts == NULL) {
             return NULL;
         }
+        if (PyType_Ready(&PyFunc_Type) < 0) {
+            return NULL;
+        }
+        if (PyType_Ready(&PyMeth_Type) < 0) {
+            return NULL;
+        }
     }
     struct ThreadState *ts = gts;
 
@@ -1762,12 +1768,6 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
 
 PyObject *vm_new_func(void)
 {
-    if (PyType_Ready(&PyFunc_Type) < 0) {
-        return NULL;
-    }
-    if (PyType_Ready(&PyMeth_Type) < 0) {
-        return NULL;
-    }
     PyObject *func = (PyObject *)PyObject_New(PyFunc, &PyFunc_Type);
     if (!func) {
         return NULL;
