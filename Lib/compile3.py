@@ -212,9 +212,10 @@ class Loop:
 
     def on_exit(self, v):
         if self.reg is not None:
-            assert v.next_register == self.reg + 1
-            v.CLEAR_FAST(self.reg)
-            v.next_register -= 1
+            assert v.next_register > self.reg
+            while v.next_register != self.reg:
+                v.next_register -= 1
+                v.CLEAR_FAST(v.next_register)
 
 def denotation(defn):
     opcode = defn.opcode
