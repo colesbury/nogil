@@ -160,7 +160,7 @@ def_op('CALL_FINALLY', 123, 'reg', 'jump')
 def_op('END_FINALLY', 122, 'reg')
 
 def_op('PRINT_EXPR', 70)
-def_op('LOAD_BUILD_CLASS', 71, 'reg')
+def_op('LOAD_BUILD_CLASS', 71)
 def_op('LOAD_ASSERTION_ERROR', 74)
 def_op('GET_AWAITABLE', 73)
 def_op('GET_AITER', 50)

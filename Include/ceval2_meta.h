@@ -268,7 +268,7 @@ int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyO
 int vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
 
 Register
-vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA);
+vm_load_build_class(struct ThreadState *ts, PyObject *builtins);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 

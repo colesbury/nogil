@@ -1674,8 +1674,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(LOAD_BUILD_CLASS) {
         PyObject *builtins = THIS_FUNC()->builtins;
-        CALL_VM(vm_load_build_class(ts, builtins, opA));
-        // FIXME: error return
+        CALL_VM(acc = vm_load_build_class(ts, builtins));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
         DISPATCH(LOAD_BUILD_CLASS);
     }
 

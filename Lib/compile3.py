@@ -508,23 +508,27 @@ class CodeGen(ast.NodeVisitor):
 
         regs = self.register_list()
         opD = len(t.args) + (len(t.keywords) << 8)
-        pos = 0
+        off = 0
+        if len(t.keywords) > 0:
+            off += len(t.keywords) + 1
 
+        # store the function
+        regs[off + FRAME_EXTRA - 1](t.func)
+
+        # store keywords in caller frame
         if len(t.keywords) > 0:
             for i, kwd in enumerate(t.keywords):
                 regs[i](kwd.value)
-            pos += len(t.keywords)
             kwdnames = tuple(kwd.arg for kwd in t.keywords)
             # TODO: load const directly into register
             self.load_const(kwdnames)
-            self.STORE_FAST(regs[pos].allocate())
-            pos += 1
+            self.STORE_FAST(regs[len(t.keywords)].allocate())
 
-        regs[pos + FRAME_EXTRA - 1](t.func)
+        # store positional arguments in destination frame
         for i, arg in enumerate(t.args):
-            regs[pos + FRAME_EXTRA + i](arg)
+            regs[off + FRAME_EXTRA + i](arg)
 
-        self.CALL_FUNCTION(regs.base + pos + FRAME_EXTRA, opD)
+        self.CALL_FUNCTION(regs.base + off + FRAME_EXTRA, opD)
 
     def call_method(self, t):
         assert len(t.keywords) == 0
@@ -1234,18 +1238,24 @@ class CodeGen(ast.NodeVisitor):
             has_varkws=t.args.kwarg is not None)
         return code
 
+    def visit_BuildClass(self, t):
+        self.LOAD_BUILD_CLASS()
+
+    def visit_MakeClosure(self, t):
+        self.make_closure(t.code, t.name)
+
     def visit_Class(self, t):
         code = self.sprout(t).compile_class(t)
         regs = self.register_list()
 
-        self.LOAD_BUILD_CLASS(regs[FRAME_EXTRA-1])
-        self.make_closure(code, t.name)
-        self.STORE_FAST(regs[FRAME_EXTRA])
-        self.load_const(t.name)
-        self.STORE_FAST(regs[FRAME_EXTRA+1])
-        for i,base in enumerate(t.bases):
-            regs[FRAME_EXTRA+2+i](base)
-        self.CALL_FUNCTION(regs.base + FRAME_EXTRA, len(t.bases) + 2)
+        print('bases', t.bases)
+        print("keywords", t.keywords)
+
+        self(ast.Call(
+            func=BuildClass(),
+            args=[MakeClosure(code, t.name), ast.Constant(t.name)] + t.bases,
+            keywords=t.keywords,
+        ))
 
     def compile_class(self, t):
         docstring = ast.get_docstring(t)
@@ -1430,6 +1440,12 @@ class Function(ast.FunctionDef):
 
 class Class(ast.ClassDef):
     _fields = ('name', 'bases', 'keywords', 'body')
+
+class BuildClass(ast.Expression):
+    pass
+
+class MakeClosure(ast.Expression):
+    _fields = ('code', 'name')
 
 load, store = ast.Load(), ast.Store()
 

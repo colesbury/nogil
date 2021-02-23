@@ -675,7 +675,7 @@ vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
 }
 
 Register
-vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
+vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
 {
     _Py_IDENTIFIER(__build_class__);
 
@@ -684,8 +684,8 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
         bc = _PyDict_GetItemIdWithError(builtins, &PyId___build_class__);
         if (bc != NULL) {
             // FIXME: might get deleted oh well
-            ts->regs[opA] = PACK(bc, NO_REFCOUNT_TAG);
-            return (Register){0};
+            // should use deferred rc when available
+            return PACK(bc, NO_REFCOUNT_TAG);
         }
 
         if (bc == NULL) {
@@ -693,27 +693,23 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins, int opA)
                 _PyErr_SetString(ts->ts, PyExc_NameError,
                                     "__build_class__ not found");
             }
-            goto error;
+            return (Register){0};
         }
     }
     else {
         PyObject *build_class_str = _PyUnicode_FromId(&PyId___build_class__);
-        if (build_class_str == NULL)
-            goto error;
+        if (build_class_str == NULL) {
+            return (Register){0};
+        }
         bc = PyObject_GetItem(builtins, build_class_str);
         if (bc == NULL) {
             if (_PyErr_ExceptionMatches(ts->ts, PyExc_KeyError))
                 _PyErr_SetString(ts->ts, PyExc_NameError,
                                     "__build_class__ not found");
-            goto error;
+            return (Register){0};
         }
-        ts->regs[opA] = PACK_OBJ(bc);
-        return (Register){0};
+        return PACK(bc, REFCOUNT_TAG);
     }
-
-error:
-    abort();
-    return (Register){0};
 }
 
 int vm_store_global(PyObject *dict, PyObject *name, Register acc)
