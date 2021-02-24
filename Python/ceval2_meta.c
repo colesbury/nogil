@@ -682,12 +682,6 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
     PyObject *bc;
     if (PyDict_CheckExact(builtins)) {
         bc = _PyDict_GetItemIdWithError(builtins, &PyId___build_class__);
-        if (bc != NULL) {
-            // FIXME: might get deleted oh well
-            // should use deferred rc when available
-            return PACK(bc, NO_REFCOUNT_TAG);
-        }
-
         if (bc == NULL) {
             if (!_PyErr_Occurred(ts->ts)) {
                 _PyErr_SetString(ts->ts, PyExc_NameError,
@@ -695,6 +689,10 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
             }
             return (Register){0};
         }
+
+        // FIXME: might get deleted oh well
+        // should use deferred rc when available
+        return PACK(bc, NO_REFCOUNT_TAG);
     }
     else {
         PyObject *build_class_str = _PyUnicode_FromId(&PyId___build_class__);
@@ -1782,6 +1780,90 @@ void vm_incref_shared(PyObject *op) {
     abort();
 }
 
+int
+vm_super_init(PyObject **out_obj, PyTypeObject **out_type)
+{
+    _Py_IDENTIFIER(__class__);
+
+    struct ThreadState *ts = gts;
+    if (ts->regs == ts->stack) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "super(): no current frame");
+        return -1;
+    }
+
+    /* The top frame is the invocation of super() */
+    if (AS_OBJ(ts->regs[-1]) != (PyObject*)&PySuper_Type) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "super(): missing super frame");
+        return -1;
+    }
+
+    /* The next frame is the function that called super() */
+    intptr_t frame_delta = ts->regs[-4].as_int64;
+
+    PyObject *func = AS_OBJ(ts->regs[-1 - frame_delta]);
+    if (func == NULL || !PyFunc_Check(func)) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "super(): no current function");
+        return -1;
+    }
+    PyCodeObject2 *co = PyCode2_FromFunc((PyFunc *)func);
+    if (co->co_argcount == 0) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "super(): no arguments");
+        return -1;
+    }
+    PyObject *obj = AS_OBJ(ts->regs[0 - frame_delta]);
+    if (obj == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "super(): arg[0] deleted");
+        return -1;
+    }
+    if (PyCell_Check(obj)) {
+        /* The first argument might be a cell. */
+        Py_ssize_t n = co->co_ncells;
+        for (Py_ssize_t i = 0; i < n; i++) {
+            if (co->co_cell2reg[i] == 0) {
+                obj = PyCell_GET(obj);
+                break;
+            }
+        }
+    }
+    Py_ssize_t n = co->co_nfreevars;
+    for (Py_ssize_t i = co->co_ndefaultargs; i < n; i++) {
+        Py_ssize_t r = co->co_free2reg[i*2+1];
+        PyObject *name = PyTuple_GET_ITEM(co->co_varnames, r);
+        if (_PyUnicode_EqualToASCIIId(name, &PyId___class__)) {
+            PyObject *cell = AS_OBJ(ts->regs[r - frame_delta]);
+            if (cell == NULL || !PyCell_Check(cell)) {
+                PyErr_SetString(PyExc_RuntimeError,
+                  "super(): bad __class__ cell");
+                return -1;
+            }
+            PyTypeObject *type = (PyTypeObject *) PyCell_GET(cell);
+            if (type == NULL) {
+                PyErr_SetString(PyExc_RuntimeError,
+                  "super(): empty __class__ cell");
+                return -1;
+            }
+            if (!PyType_Check(type)) {
+                PyErr_Format(PyExc_RuntimeError,
+                  "super(): __class__ is not a type (%s)",
+                  Py_TYPE(type)->tp_name);
+                return -1;
+            }
+
+            *out_obj = obj;
+            *out_type = type;
+            return 0;
+        }
+    }
+
+    PyErr_SetString(PyExc_RuntimeError,
+                    "super(): __class__ cell not found");
+    return -1;
+}
 
 PyObject *
 vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name)

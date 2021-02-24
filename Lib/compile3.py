@@ -1248,9 +1248,6 @@ class CodeGen(ast.NodeVisitor):
         code = self.sprout(t).compile_class(t)
         regs = self.register_list()
 
-        print('bases', t.bases)
-        print("keywords", t.keywords)
-
         self(ast.Call(
             func=BuildClass(),
             args=[MakeClosure(code, t.name), ast.Constant(t.name)] + t.bases,
@@ -1268,7 +1265,14 @@ class CodeGen(ast.NodeVisitor):
             self.load_const(docstring)
             self.store('__doc__')
         self(t.body)
-        self.load_const(None)
+        if self.scope.needs_class_closure:
+            # Store the __class__ cell in locals()['__classcell__]
+            self.LOAD_FAST(self.varnames['__class__'])
+            self.store('__classcell__')
+            # Return the __class__ cell
+            self.LOAD_FAST(self.varnames['__class__'])
+        else:
+            self.load_const(None)
         self.RETURN_VALUE()
         return self.make_code(t.name)
 
@@ -1466,6 +1470,7 @@ class Scope(ast.NodeVisitor):
         self.free2reg = {}
         self.scope_type = scope_type
         self.is_generator = False
+        self.needs_class_closure = False  # true if a closure over __class__ should be created
         self.nested = (parent_scope is not None and 
                        (parent_scope.nested or
                         parent_scope.scope_type == 'function'))
@@ -1520,9 +1525,14 @@ class Scope(ast.NodeVisitor):
             self.define(t.name)
 
     def visit_Name(self, t):
-        if   isinstance(t.ctx, ast.Load):  self.uses.add(t.id)
-        elif isinstance(t.ctx, (ast.Store, ast.Del)): self.define(t.id)
-        else: assert False
+        if isinstance(t.ctx, ast.Load):
+            self.uses.add(t.id)
+            if t.id == 'super' and self.scope_type == 'function':
+                self.uses.add('__class__')
+        elif isinstance(t.ctx, (ast.Store, ast.Del)):
+            self.define(t.id)
+        else:
+            assert False
 
     def visit_Yield(self, t):
         self.is_generator = True
@@ -1538,6 +1548,9 @@ class Scope(ast.NodeVisitor):
 
     def analyze(self, parent_defs):
         self.local_defs = set(self.defs.keys()) if isinstance(self.t, Function) else set()
+        assert isinstance(self.t, Function) == (self.scope_type == 'function'), (self.t, self.scope_type)
+        if self.scope_type == 'class':
+            self.local_defs.add('__class__')
         for child in self.children.values():
             child.analyze(parent_defs | self.local_defs)
         child_uses = set([var for child in self.children.values()
@@ -1545,17 +1558,22 @@ class Scope(ast.NodeVisitor):
         uses = self.uses | child_uses
         self.cellvars = child_uses & self.local_defs
         self.freevars = (uses & (parent_defs - set(self.defs.keys())))
+        if self.scope_type == 'class' and '__class__' in self.cellvars:
+            self.needs_class_closure = True
         self.derefvars = self.cellvars | self.freevars
 
     def assign_regs(self, parent_regs):
         self.regs = self.defs.copy() if isinstance(self.t, Function) else {'<locals>': 0}
+        if self.needs_class_closure:
+            assert len(self.regs) == 1
+            self.regs['__class__'] = len(self.regs)
         for name, upval in parent_regs.items():
             if name in self.freevars:
                 reg = len(self.regs)
                 self.regs[name] = reg
                 self.free2reg[name] = (upval, reg)
 
-        assert(all(name in self.regs for name in self.freevars))
+        assert all(name in self.regs for name in self.freevars), parent_regs
         for child in self.children.values():
             child.assign_regs(self.regs)
 

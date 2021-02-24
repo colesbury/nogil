@@ -237,6 +237,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
     }
+    ts->ts->use_new_interp += 1;
 
     const uint32_t *next_instr = pc;
     intptr_t opcode;
@@ -1814,6 +1815,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         assert(gen != NULL);
         gen->status = GEN_FINISHED;
         gen->return_value = obj;
+        ts->ts->use_new_interp -= 1;
         return NULL;
     }
 
@@ -1822,6 +1824,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         if (!IS_RC(acc)) {
             _Py_INCREF(obj);
         }
+        ts->ts->use_new_interp -= 1;
         return obj;
     }
 
@@ -1835,6 +1838,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     exception_unwind: {
         CALL_VM(next_instr = vm_exception_unwind(ts, next_instr));
         if (next_instr == 0) {
+            ts->ts->use_new_interp -= 1;
             return NULL;
         }
         DISPATCH(exception_unwind);

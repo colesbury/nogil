@@ -87,6 +87,7 @@ struct _ts {
 
     struct _frame *frame;
     int recursion_depth;
+    int use_new_interp;
     char overflowed; /* The stack has overflowed. Allow 50 more calls
                         to handle the runtime error. */
     char recursion_critical; /* The current calls must not cause
