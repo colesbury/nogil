@@ -123,7 +123,7 @@ def_op('RETURN_VALUE', 83)
 def_op('RERAISE', 48, 'reg')
 def_op('RAISE', 130)
 def_op('YIELD_VALUE', 86)
-def_op('YIELD_FROM', 72)
+def_op('YIELD_FROM', 72, 'reg')
 
 # jmp
 def_op('JUMP', 113, None, 'jump')                 # Target byte offset from beginning of code
@@ -134,7 +134,7 @@ def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # "" while loop
 def_op('POP_JUMP_IF_TRUE', 115, None, 'jump')     # ""
 
 def_op('GET_ITER', 68, 'reg')
-def_op('GET_YIELD_FROM_ITER', 69)
+def_op('GET_YIELD_FROM_ITER', 69, 'reg')
 def_op('FOR_ITER', 93, 'reg', 'jump')
 
 # imports

@@ -1166,7 +1166,7 @@ class CodeGen(ast.NodeVisitor):
             self.END_EXCEPT(link_reg)
             self.JUMP(end)
             self.LABEL(labels[i])
-        self.RERAISE(link_reg)
+        self.RERAISE(link_reg + 1)
         self.blocks.pop()
         self.LABEL(orelse)
         if t.orelse:
@@ -1193,10 +1193,13 @@ class CodeGen(ast.NodeVisitor):
         else:
             self.load_const(None)
         self.YIELD_VALUE()
-        # assert False, "NYI"
 
     def visit_YieldFrom(self, t):
-        assert False, "NYI"
+        reg = self.register()
+        self(t.value)
+        self.GET_YIELD_FROM_ITER(reg.allocate())
+        self.load_const(None)
+        self.YIELD_FROM(reg)
 
     def visit_Function(self, t):
         regs = self.register_list()

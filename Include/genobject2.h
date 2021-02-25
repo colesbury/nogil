@@ -20,11 +20,20 @@ typedef struct {
     PyObject *name;
     PyObject *qualname;
     PyObject *return_value;
+    PyObject *yield_from;  /* object being iterated by yield from, or None */
     char status;
 } PyGenObject2;
 
+PyAPI_DATA(PyTypeObject) PyGen2_Type;
+
+#define PyGen2_Check(op) PyObject_TypeCheck(op, &PyGen2_Type)
+#define PyGen2_CheckExact(op) (Py_TYPE(op) == &PyGen2_Type)
+
 PyGenObject2 *
 PyGen2_NewWithSomething(struct ThreadState *ts);
+
+PyAPI_FUNC(PyObject *) _PyGen2_FetchStopIterationValue(void);
+PyAPI_FUNC(PyObject *) _PyGen2_Send(PyGenObject2 *, PyObject *);
 
 static inline void
 PyGen2_SetNextInstr(PyGenObject2 *gen, const uint32_t *next_instr)
@@ -38,8 +47,6 @@ PyGen2_FromThread(struct ThreadState *ts)
     assert(ts->thread_type == THREAD_GENERATOR);
     return (PyGenObject2 *)((char*)ts - offsetof(PyGenObject2, base.thread));
 }
-
-extern PyTypeObject PyGen2_Type;
 
 #ifdef __cplusplus
 }

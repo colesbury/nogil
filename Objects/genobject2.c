@@ -30,9 +30,11 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     PyCodeObject2 *code = PyCode2_FromFunc(func);
 
     gen->weakreflist = NULL;
+    // TODO: name should be from func, not code
     gen->name = code->co_name;
     gen->qualname = code->co_name; /// ???
     gen->return_value = NULL;
+    gen->yield_from = NULL;
     gen->status = GEN_STARTED; // fixme enum or something
     Py_INCREF(gen->name);
     Py_INCREF(gen->qualname);
@@ -47,11 +49,57 @@ PyGen2_NewWithSomething(struct ThreadState *ts)
     return gen_new_with_qualname(&PyGen2_Type, ts);
 }
 
-static PyObject *
-gen_repr2(PyGenObject2 *gen)
+/*
+ *   If StopIteration exception is set, fetches its 'value'
+ *   attribute if any, otherwise sets pvalue to None.
+ *
+ *   Returns 0 if no exception or StopIteration is set.
+ *   If any other exception is set, returns -1 and leaves
+ *   pvalue unchanged.
+ */
+
+PyObject *
+_PyGen2_FetchStopIterationValue(void)
 {
-    return PyUnicode_FromFormat("<generator object %S at %p>",
-                                gen->qualname, gen);
+    PyObject *et, *ev, *tb;
+    PyObject *value = NULL;
+
+    if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
+        PyErr_Fetch(&et, &ev, &tb);
+        if (ev) {
+            /* exception will usually be normalised already */
+            if (PyObject_TypeCheck(ev, (PyTypeObject *) et)) {
+                value = ((PyStopIterationObject *)ev)->value;
+                Py_INCREF(value);
+                Py_DECREF(ev);
+            } else if (et == PyExc_StopIteration && !PyTuple_Check(ev)) {
+                /* Avoid normalisation and take ev as value.
+                 *
+                 * Normalization is required if the value is a tuple, in
+                 * that case the value of StopIteration would be set to
+                 * the first element of the tuple.
+                 *
+                 * (See _PyErr_CreateException code for details.)
+                 */
+                value = ev;
+            } else {
+                /* normalisation required */
+                PyErr_NormalizeException(&et, &ev, &tb);
+                if (!PyObject_TypeCheck(ev, (PyTypeObject *)PyExc_StopIteration)) {
+                    PyErr_Restore(et, ev, tb);
+                    return NULL;
+                }
+                value = ((PyStopIterationObject *)ev)->value;
+                Py_INCREF(value);
+                Py_DECREF(ev);
+            }
+        }
+        Py_XDECREF(et);
+        Py_XDECREF(tb);
+    } else if (PyErr_Occurred()) {
+        return NULL;
+    }
+    return value == NULL ? Py_None : value;
 }
 
 static int
@@ -118,18 +166,339 @@ gen_dealloc(PyGenObject2 *gen)
     PyObject_GC_Del(gen);
 }
 
-static PyObject *
-gen_send_ex(PyGenObject2 *gen, PyObject *arg)
+static const char *
+gen_typename(PyGenObject2 *gen)
 {
-    if (gen->status != 1) {
-        // ????
-        // already running or whatever
+    if (PyAsyncGen_CheckExact(gen)) {
+        return "async generator";
+    }
+    else if (PyCoro_CheckExact(gen)) {
+        return "coroutine";
+    }
+    else {
+        assert(PyGen2_CheckExact(gen));
+        return "generator";
+    }
+}
+
+static PyObject *
+_PyGen2_SetStopIterationValue(PyGenObject2 *gen);
+
+static PyObject *
+gen_send_internal(PyGenObject2 *gen, Register acc)
+{
+    struct ThreadState *ts = &gen->base.thread;
+    gen->status = GEN_RUNNING;
+    PyObject *res = _PyEval_Fast(ts, acc.as_int64, ts->next_instr);
+    if (LIKELY(res != NULL)) {
+        assert(gen->status == GEN_YIELD);
+        return res;
     }
 
-    struct ThreadState *ts = &gen->base.thread;
+    if (gen->status == GEN_FINISHED) {
+        assert(gen->return_value != NULL);
+        if (LIKELY(gen->return_value == Py_None)) {
+            gen->return_value = NULL;
+            return NULL;
+        }
+        return _PyGen2_SetStopIterationValue(gen);
+    }
+
+    if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
+        _PyErr_FormatFromCause(
+            PyExc_RuntimeError,
+            "%s raised StopIteration",
+            gen_typename(gen));
+    }
+    return NULL;
+}
+
+static PyObject *
+gen_status_error(PyGenObject2 *gen, PyObject *arg)
+{
+    if (gen->status == GEN_RUNNING) {
+        PyErr_Format(PyExc_ValueError, "%s already executing",
+            gen_typename(gen));
+        return NULL;
+    }
+
+    assert(gen->status == GEN_FINISHED || gen->status == GEN_ERROR);
+    // if (PyCoro_CheckExact(gen) && !closing) {
+    //     /* `gen` is an exhausted coroutine: raise an error,
+    //        except when called from gen_close(), which should
+    //        always be a silent method. */
+    //     PyErr_SetString(
+    //         PyExc_RuntimeError,
+    //         "cannot reuse already awaited coroutine");
+    // }
+    // else if (arg && !exc) {
+    /* `gen` is an exhausted generator:
+        only set exception if called from send(). */
+    if (PyAsyncGen_CheckExact(gen)) {
+        PyErr_SetNone(PyExc_StopAsyncIteration);
+    }
+    else {
+        PyErr_SetNone(PyExc_StopIteration);
+    }
+    return NULL;
+}
+
+PyDoc_STRVAR(send_doc,
+"send(arg) -> send 'arg' into generator,\n\
+return next yielded value or raise StopIteration.");
+
+PyObject *
+_PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
+{
+    assert(arg != NULL);
+    if (UNLIKELY(gen->status >= GEN_RUNNING)) {
+        return gen_status_error(gen, arg);
+    }
+    if (UNLIKELY(gen->status = GEN_STARTED && arg != Py_None)) {
+        PyErr_Format(
+            PyExc_TypeError,
+            "can't send non-None value to a just-started %s",
+            gen_typename(gen));
+        return NULL;
+    }
+
     Register acc = PACK_INCREF(arg);
-    PyObject *res = _PyEval_Fast(ts, acc.as_int64, ts->next_instr);
+    PyObject *res = gen_send_internal(gen, acc);
+    if (res == NULL && gen->status == GEN_FINISHED && !PyErr_Occurred()) {
+        // if (PyAsyncGen_CheckExact(gen)) {
+        //     PyErr_SetNone(PyExc_StopAsyncIteration);
+        // }
+        // else {
+            PyErr_SetNone(PyExc_StopIteration);
+        // }
+    }
     return res;
+}
+
+PyDoc_STRVAR(close_doc,
+"close() -> raise GeneratorExit inside generator.");
+
+/*
+ *   This helper function is used by gen_close and gen_throw to
+ *   close a subiterator being delegated to by yield-from.
+ */
+
+static PyObject *gen_close(PyGenObject2 *, PyObject *);
+
+static int
+gen_close_iter(PyObject *yf)
+{
+    PyObject *retval = NULL;
+    _Py_IDENTIFIER(close);
+
+    if (PyGen2_CheckExact(yf) || PyCoro_CheckExact(yf)) {
+        retval = gen_close((PyGenObject2 *)yf, NULL);
+        if (retval == NULL)
+            return -1;
+    }
+    else {
+        PyObject *meth;
+        if (_PyObject_LookupAttrId(yf, &PyId_close, &meth) < 0) {
+            PyErr_WriteUnraisable(yf);
+        }
+        if (meth) {
+            retval = _PyObject_CallNoArg(meth);
+            Py_DECREF(meth);
+            if (retval == NULL)
+                return -1;
+        }
+    }
+    Py_XDECREF(retval);
+    return 0;
+}
+
+static PyObject *
+gen_throw_current(PyGenObject2 *gen)
+{
+    struct ThreadState *ts = &gen->base.thread;
+    const uint32_t *next_instr = vm_exception_unwind(ts, ts->next_instr);
+    if (next_instr == NULL) {
+        assert(gen->status == GEN_ERROR);
+        return NULL;
+    }
+    ts->next_instr = next_instr;
+    Register acc = {0};
+    return gen_send_internal(gen, acc);
+}
+
+
+PyDoc_STRVAR(throw_doc,
+"throw(typ[,val[,tb]]) -> raise exception in generator,\n\
+return next yielded value or raise StopIteration.");
+
+static PyObject *
+_gen_throw(PyGenObject2 *gen, int close_on_genexit,
+           PyObject *typ, PyObject *val, PyObject *tb)
+{
+    _Py_IDENTIFIER(throw);
+
+    PyObject *yf = gen->yield_from;
+    if (yf != NULL) {
+        assert(gen->status == GEN_YIELD);
+        PyObject *ret;
+        int err;
+        if (PyErr_GivenExceptionMatches(typ, PyExc_GeneratorExit) &&
+            close_on_genexit
+        ) {
+            /* Asynchronous generators *should not* be closed right away.
+               We have to allow some awaits to work it through, hence the
+               `close_on_genexit` parameter here.
+            */
+            // gen->gi_running = 1;
+            err = gen_close_iter(yf);
+            // gen->gi_running = 0;
+            if (err < 0) {
+                return gen_throw_current(gen);
+            }
+            goto throw_here;
+        }
+        if (PyGen2_CheckExact(yf) || PyCoro_CheckExact(yf)) {
+            /* `yf` is a generator or a coroutine. */
+            // gen->gi_running = 1;
+            /* Close the generator that we are currently iterating with
+               'yield from' or awaiting on with 'await'. */
+            ret = _gen_throw((PyGenObject2 *)yf, close_on_genexit,
+                             typ, val, tb);
+            // gen->gi_running = 0;
+        } else {
+            /* `yf` is an iterator or a coroutine-like object. */
+            PyObject *meth;
+            if (_PyObject_LookupAttrId(yf, &PyId_throw, &meth) < 0) {
+                return NULL;
+            }
+            if (meth == NULL) {
+                goto throw_here;
+            }
+            // gen->gi_running = 1;
+            ret = PyObject_CallFunctionObjArgs(meth, typ, val, tb, NULL);
+            // gen->gi_running = 0;
+            Py_DECREF(meth);
+        }
+        if (!ret) {
+            PyObject *val;
+            /* Pop subiterator from stack */
+            // ret = *(--gen->gi_frame->f_stacktop);
+            // assert(ret == yf);
+            // Py_DECREF(ret);
+            // /* Termination repetition of YIELD_FROM */
+            // assert(gen->gi_frame->f_lasti >= 0);
+            // gen->gi_frame->f_lasti += sizeof(_Py_CODEUNIT);
+            if (_PyGen_FetchStopIterationValue(&val) == 0) {
+                // send val to generator... weird TODO: is this even right???
+                ret = gen_send_internal(gen, PACK(val, REFCOUNT_TAG));
+            } else {
+                ret = gen_throw_current(gen);
+            }
+        }
+        return ret;
+    }
+
+throw_here:
+    /* First, check the traceback argument, replacing None with
+       NULL. */
+    if (tb == Py_None) {
+        tb = NULL;
+    }
+    else if (tb != NULL && !PyTraceBack_Check(tb)) {
+        PyErr_SetString(PyExc_TypeError,
+            "throw() third argument must be a traceback object");
+        return NULL;
+    }
+
+    Py_INCREF(typ);
+    Py_XINCREF(val);
+    Py_XINCREF(tb);
+
+    if (PyExceptionClass_Check(typ))
+        PyErr_NormalizeException(&typ, &val, &tb);
+
+    else if (PyExceptionInstance_Check(typ)) {
+        /* Raising an instance.  The value should be a dummy. */
+        if (val && val != Py_None) {
+            PyErr_SetString(PyExc_TypeError,
+              "instance exception may not have a separate value");
+            goto failed_throw;
+        }
+        else {
+            /* Normalize to raise <class>, <instance> */
+            Py_XDECREF(val);
+            val = typ;
+            typ = PyExceptionInstance_Class(typ);
+            Py_INCREF(typ);
+
+            if (tb == NULL)
+                /* Returns NULL if there's no traceback */
+                tb = PyException_GetTraceback(val);
+        }
+    }
+    else {
+        /* Not something you can raise.  throw() fails. */
+        PyErr_Format(PyExc_TypeError,
+                     "exceptions must be classes or instances "
+                     "deriving from BaseException, not %s",
+                     Py_TYPE(typ)->tp_name);
+            goto failed_throw;
+    }
+
+    PyErr_Restore(typ, val, tb);
+    return gen_throw_current(gen);
+
+failed_throw:
+    /* Didn't use our arguments, so restore their original refcounts */
+    Py_DECREF(typ);
+    Py_XDECREF(val);
+    Py_XDECREF(tb);
+    return NULL;
+}
+
+
+static PyObject *
+gen_throw(PyGenObject2 *gen, PyObject *args)
+{
+    PyObject *typ;
+    PyObject *tb = NULL;
+    PyObject *val = NULL;
+
+    if (!PyArg_UnpackTuple(args, "throw", 1, 3, &typ, &val, &tb)) {
+        return NULL;
+    }
+
+    return _gen_throw(gen, 1, typ, val, tb);
+}
+
+static PyObject *
+gen_close(PyGenObject2 *gen, PyObject *args)
+{
+    PyObject *retval;
+    int err = 0;
+
+    if (gen->yield_from) {
+        char old_status = gen->status;
+        gen->status = GEN_RUNNING; // why??
+        err = gen_close_iter(gen->yield_from);
+        gen->status = old_status;
+    }
+    if (err == 0)
+        PyErr_SetNone(PyExc_GeneratorExit);
+    retval = gen_throw_current(gen);
+    if (retval) {
+        Py_DECREF(retval);
+        PyErr_Format(PyExc_RuntimeError,
+            "%s ignored GeneratorExit",
+            gen_typename(gen));
+        return NULL;
+    }
+    if (PyErr_ExceptionMatches(PyExc_StopIteration)
+        || PyErr_ExceptionMatches(PyExc_GeneratorExit)) {
+        PyErr_Clear();          /* ignore these errors */
+        Py_RETURN_NONE;
+    }
+    return NULL;
 }
 
 static PyObject *
@@ -170,38 +539,11 @@ _PyGen2_SetStopIterationValue(PyGenObject2 *gen)
 static PyObject *
 gen_iternext(PyGenObject2 *gen)
 {
-    if (UNLIKELY(gen->status > GEN_YIELD)) {
-        // ERRORROORORORO!
-        abort();
+    if (UNLIKELY(gen->status >= GEN_RUNNING)) {
+        return gen_status_error(gen, NULL);
     }
-    gen->status = GEN_RUNNING;
-    struct ThreadState *ts = &gen->base.thread;
-    PyObject *res = _PyEval_Fast(ts, 0, ts->next_instr);
-    if (LIKELY(res != NULL)) {
-        assert(gen->status == GEN_YIELD);
-        return res;
-    }
-    else if (gen->status == GEN_FINISHED) {
-        assert(gen->return_value != NULL);
-        if (LIKELY(gen->return_value == Py_None)) {
-            gen->return_value = NULL;
-            return NULL;
-        }
-        else {
-            return _PyGen2_SetStopIterationValue(gen);
-        }
-    }
-    else {
-        // FIXME: add message about "generator raised StopIteration"
-        // if we get a StopIteration
-        return NULL;
-    }
-}
-
-PyObject *
-_PyGen_Send2(PyGenObject2 *gen, PyObject *arg)
-{
-    return gen_send_ex(gen, arg);
+    Register acc = PACK(Py_None, NO_REFCOUNT_TAG);
+    return gen_send_internal(gen, acc);
 }
 
 static void
@@ -210,13 +552,62 @@ _PyGen2_Finalize(PyObject *self)
     // printf("_PyGen2_Finalize NYI\n");
 }
 
+static PyObject *
+gen_repr(PyGenObject2 *gen)
+{
+    return PyUnicode_FromFormat("<generator object %S at %p>",
+                                gen->qualname, gen);
+}
+
+static PyObject *
+gen_get_name(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    Py_INCREF(op->name);
+    return op->name;
+}
+
+static int
+gen_set_name(PyGenObject2 *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    /* Not legal to del gen.gi_name or to set it to anything
+     * other than a string object. */
+    if (value == NULL || !PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "__name__ must be set to a string object");
+        return -1;
+    }
+    Py_INCREF(value);
+    Py_XSETREF(op->name, value);
+    return 0;
+}
+
+static PyObject *
+gen_get_qualname(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    Py_INCREF(op->qualname);
+    return op->qualname;
+}
+
+static int
+gen_set_qualname(PyGenObject2 *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    /* Not legal to del gen.__qualname__ or to set it to anything
+     * other than a string object. */
+    if (value == NULL || !PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "__qualname__ must be set to a string object");
+        return -1;
+    }
+    Py_INCREF(value);
+    Py_XSETREF(op->qualname, value);
+    return 0;
+}
+
 static PyGetSetDef gen_getsetlist[] = {
-    // {"__name__", (getter)gen_get_name, (setter)gen_set_name,
-    //  PyDoc_STR("name of the generator")},
-    // {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
-    //  PyDoc_STR("qualified name of the generator")},
-    // {"gi_yieldfrom", (getter)gen_getyieldfrom, NULL,
-    //  PyDoc_STR("object being iterated by yield from, or None")},
+    {"__name__", (getter)gen_get_name, (setter)gen_set_name,
+     PyDoc_STR("name of the generator")},
+    {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
+     PyDoc_STR("qualified name of the generator")},
     {NULL} /* Sentinel */
 };
 
@@ -224,13 +615,15 @@ static PyMemberDef gen_memberlist[] = {
     // {"gi_frame",     T_OBJECT, offsetof(PyGenObject, gi_frame),    READONLY},
     // {"gi_running",   T_BOOL,   offsetof(PyGenObject, gi_running),  READONLY},
     // {"gi_code",      T_OBJECT, offsetof(PyGenObject, gi_code),     READONLY},
+    {"gi_yieldfrom", T_OBJECT, offsetof(PyGenObject2, yield_from), 
+     READONLY, PyDoc_STR("object being iterated by yield from, or None")},
     {NULL}      /* Sentinel */
 };
 
 static PyMethodDef gen_methods[] = {
-    // {"send",(PyCFunction)_PyGen_Send, METH_O, send_doc},
-    // {"throw",(PyCFunction)gen_throw, METH_VARARGS, throw_doc},
-    // {"close",(PyCFunction)gen_close, METH_NOARGS, close_doc},
+    {"send",(PyCFunction)_PyGen2_Send, METH_O, send_doc},
+    {"throw",(PyCFunction)gen_throw, METH_VARARGS, throw_doc},
+    {"close",(PyCFunction)gen_close, METH_NOARGS, close_doc},
     {NULL, NULL}        /* Sentinel */
 };
 
@@ -239,7 +632,7 @@ PyTypeObject PyGen2_Type = {
     .tp_name = "generator",
     .tp_basicsize = sizeof(PyGenObject2),
     .tp_dealloc = (destructor)gen_dealloc,
-    .tp_repr = (reprfunc)gen_repr2,
+    .tp_repr = (reprfunc)gen_repr,
     .tp_getattro = PyObject_GenericGetAttr, // necessary ???
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)gen_traverse,

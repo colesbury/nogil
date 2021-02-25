@@ -64,9 +64,9 @@ struct _PyHandlerTable;
 typedef struct _PyCodeObject2 {
     PyObject_HEAD
     uint32_t co_packed_flags;
+    int co_flags; // unused???
     Py_ssize_t co_argcount;     /* number of arguments excluding *args and **kwargs */
     Py_ssize_t co_nlocals;      /* number of local variables (including arguments) */
-    int co_flags; // unused???
 
     Py_ssize_t co_ndefaultargs;
     Py_ssize_t co_posonlyargcount;

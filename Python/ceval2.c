@@ -696,6 +696,29 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         goto return_to_c;
     }
 
+    TARGET(YIELD_FROM) {
+        PyObject *receiver = AS_OBJ(regs[opA]);
+        PyObject *value = AS_OBJ(acc);
+        assert(PyGen2_CheckExact(receiver));
+        PyObject *retval;
+        PyGen2_FromThread(ts)->yield_from = receiver;
+        CALL_VM(retval = _PyGen2_Send((PyGenObject2 *)receiver, value));
+        if (retval != NULL) {
+            SET_ACC(PACK_OBJ(retval));
+            PyGenObject2 *gen = PyGen2_FromThread(ts);
+            gen->status = GEN_YIELD;
+            ts->next_instr = next_instr - 1; /* will resume with YIELD_FROM */
+            goto return_to_c;
+        }
+        PyGen2_FromThread(ts)->yield_from = NULL;
+        CALL_VM(retval = _PyGen2_FetchStopIterationValue());
+        if (UNLIKELY(retval == NULL)) {
+            goto error;
+        }
+        SET_ACC(PACK_OBJ(retval));
+        DISPATCH(YIELD_FROM);
+    }
+
     TARGET(RETURN_VALUE) {
         ts->next_instr = next_instr;
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
@@ -1482,7 +1505,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(GET_ITER) {
-        assert(IS_OBJ(acc));
         PyObject *obj = AS_OBJ(acc);
         getiterfunc f = Py_TYPE(obj)->tp_iter;
         if (f == NULL) {
@@ -1505,6 +1527,31 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         get_iter_slow:
             // FIXME
             goto error;
+    }
+
+    TARGET(GET_YIELD_FROM_ITER) {
+        assert(regs[opA].as_int64 == 0);
+        PyObject *obj = AS_OBJ(acc);
+        if (PyGen_CheckExact(obj)) {
+            regs[opA] = acc;
+            acc.as_int64 = 0;
+        }
+        else if (PyCoro_CheckExact(obj)) {
+            int flags = THIS_CODE()->co_flags;
+            if (UNLIKELY(!(flags & (CO_COROUTINE | CO_ITERABLE_COROUTINE)))) {
+                CALL_VM(PyErr_SetString(
+                    PyExc_TypeError,
+                    "cannot 'yield from' a coroutine object "
+                    "in a non-coroutine generator"));
+                goto error;
+            }
+            regs[opA] = acc;
+            acc.as_int64 = 0;
+        }
+        else {
+            goto TARGET_GET_ITER;
+        }
+        DISPATCH(GET_YIELD_FROM_ITER);
     }
 
     TARGET(FOR_ITER) {

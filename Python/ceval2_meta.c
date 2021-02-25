@@ -19,6 +19,7 @@
 #include "opcode2.h"
 #include "ceval2_meta.h"
 #include "opcode_names2.h"
+#include "genobject2.h"
 
 #include <ctype.h>
 #include <alloca.h>
@@ -322,6 +323,12 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
         ts->regs -= frame_delta;
         if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+            intptr_t tag = frame_link & FRAME_TAG_MASK;
+            if (tag == FRAME_GENERATOR) {
+                PyGenObject2 *gen = PyGen2_FromThread(ts);
+                assert(PyGen2_CheckExact(gen));
+                gen->status = GEN_ERROR;
+            }
             return NULL;
         }
     }
@@ -1515,6 +1522,14 @@ vm_raise_assertion_error(PyObject *msg)
 {
     PyErr_SetObject(PyExc_AssertionError, msg);
     return NULL;
+}
+
+void
+vm_err_yield_from_coro(struct ThreadState *ts)
+{
+    _PyErr_SetString(ts->ts, PyExc_TypeError,
+                     "cannot 'yield from' a coroutine object "
+                     "in a non-coroutine generator");
 }
 
 int
