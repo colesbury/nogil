@@ -223,17 +223,6 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
     return 0;
 }
 
-void
-vm_traceback_here(struct ThreadState *ts)
-{
-    // PyObject *exc, *val, *tb, *newtb;
-    // PyErr_Fetch(&exc, &val, &tb);
-    // PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
-
-    // PyErr_Restore(exc, val, newtb);
-    // Py_XDECREF(tb);
-}
-
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
 {
@@ -332,6 +321,79 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
             return NULL;
         }
     }
+}
+
+int
+vm_traceback_here(struct ThreadState *ts)
+{
+    _Py_IDENTIFIER(__builtins__);
+    PyObject *globals, *builtins;
+
+    builtins = PyEval_GetBuiltins();
+    if (builtins == NULL) {
+        return -1;
+    }
+    globals = PyDict_New();
+    if (globals == NULL) {
+        return -1;
+    }
+    if (_PyDict_SetItemId(globals, &PyId___builtins__, builtins) < 0) {
+        goto error;
+    }
+
+    const uint32_t *next_instr = ts->next_instr;
+    intptr_t offset = 0;
+    while (&ts->regs[offset] != ts->stack) {
+        PyObject *func = AS_OBJ(ts->regs[offset-1]);
+        uintptr_t frame_link = ts->regs[offset-2].as_int64;
+        intptr_t frame_delta = ts->regs[offset-4].as_int64;
+
+        if (!PyFunc_Check(func)) {
+            goto next;
+        }
+
+        PyCodeObject2 *co2 = PyCode2_FromFunc((PyFunc *)func);
+        const char *filename = PyUnicode_AsUTF8(co2->co_filename);
+        const char *funcname = PyUnicode_AsUTF8(co2->co_name);
+        int firstlineno = co2->co_firstlineno;
+
+        PyCodeObject *code = PyCode_NewEmpty(filename, funcname, firstlineno);
+        if (code == NULL) {
+            goto error;
+        }
+
+        PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), code, globals, NULL);
+        Py_DECREF(code);
+        if (frame == NULL) {
+            goto error;
+        }
+        Py_CLEAR(frame->f_back);
+
+        // fake trace so that we use f->f_lineno
+        Py_INCREF(globals);
+        frame->f_trace = globals;
+
+        intptr_t addrq = sizeof(*next_instr) * ((next_instr - 1) - PyCode2_GET_CODE(co2));
+        frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
+
+        PyTraceBack_Here(frame);
+        Py_DECREF(frame);
+
+        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+            break;
+        }
+
+      next:
+        next_instr = (const uint32_t *)frame_link;
+        offset -= frame_delta;
+    }
+
+    Py_DECREF(globals);
+    return 0;
+
+  error:
+    Py_DECREF(globals);
+    return -1;
 }
 
 void

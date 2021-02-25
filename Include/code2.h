@@ -99,6 +99,11 @@ typedef struct _PyCodeObject2 {
 
 // PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
 
+/* Return the line number associated with the specified bytecode index
+   in this code object.  If you just need the line number of a frame,
+   use PyFrame_GetLineNumber() instead. */
+PyAPI_FUNC(int) PyCode2_Addr2Line(PyCodeObject2 *, int);
+
 #define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
 
 static inline uint32_t *
@@ -118,7 +123,6 @@ PyCode2_FromFunc(PyFunc *func)
 {
     return PyCode2_FromInstr(func->func_base.first_instr);
 }
-
 
 
 #ifdef __cplusplus

@@ -468,3 +468,20 @@ PyTypeObject PyCode2_Type = {
     0,                                  /* tp_alloc */
     code_new,                           /* tp_new */
 };
+
+int
+PyCode2_Addr2Line(PyCodeObject2 *co, int addrq)
+{
+    Py_ssize_t size = PyBytes_Size(co->co_lnotab) / 2;
+    unsigned char *p = (unsigned char*)PyBytes_AsString(co->co_lnotab);
+    int line = co->co_firstlineno;
+    int addr = 0;
+    while (--size >= 0) {
+        addr += *p++;
+        if (addr > addrq)
+            break;
+        line += (signed char)*p;
+        p++;
+    }
+    return line;
+}
