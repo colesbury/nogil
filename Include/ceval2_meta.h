@@ -272,10 +272,6 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_traceback_here(struct ThreadState *ts);
 
-PyObject *vm_args_error(struct ThreadState *ts);
-
-PyObject *vm_error_not_callable(struct ThreadState *ts);
-void vm_handle_error(struct ThreadState *ts);
 const uint32_t *
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD);
 

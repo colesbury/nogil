@@ -1493,27 +1493,6 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     return 0;
 }
 
-PyObject *
-vm_args_error(struct ThreadState *ts)
-{
-    PyErr_Format(PyExc_TypeError, "wrong number of arguments");
-    return NULL;
-}
-
-PyObject *vm_error_not_callable(struct ThreadState *ts)
-{
-    printf("vm_error_not_callable\n");
-    abort();
-    return NULL;
-}
-
-void vm_handle_error(struct ThreadState *ts)
-{
-    // TODO: fill in exception stack trace
-    printf("vm_handle_error\n");
-    abort();
-}
-
 int
 vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
 {
