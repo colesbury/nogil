@@ -139,7 +139,7 @@ def_op('FOR_ITER', 93, 'reg', 'jump')
 # imports
 def_op('IMPORT_NAME', 108, 'str')      # Index in name list
 def_op('IMPORT_FROM', 109, 'reg', 'str')      # Index in name list
-def_op('IMPORT_STAR', 84, 'str')
+def_op('IMPORT_STAR', 84, 'reg')
 
 # build built-in objects
 def_op('BUILD_SLICE', 133, 'reg')      # Number of items

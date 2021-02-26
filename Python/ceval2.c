@@ -1504,6 +1504,17 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(IMPORT_FROM);
     }
 
+    TARGET(IMPORT_STAR) {
+        PyObject *module = AS_OBJ(regs[opA]);
+        PyObject *locals = AS_OBJ(regs[0]);
+        int err;
+        CALL_VM(err = vm_import_star(ts, module, locals));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DISPATCH(IMPORT_STAR);
+    }
+
     TARGET(GET_ITER) {
         PyObject *obj = AS_OBJ(acc);
         getiterfunc f = Py_TYPE(obj)->tp_iter;

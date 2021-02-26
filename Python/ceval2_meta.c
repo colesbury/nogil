@@ -2028,6 +2028,98 @@ vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name)
     return NULL;
 }
 
+int
+vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
+{
+    _Py_IDENTIFIER(__all__);
+    _Py_IDENTIFIER(__dict__);
+    _Py_IDENTIFIER(__name__);
+    PyObject *all, *dict, *name, *value;
+    int skip_leading_underscores = 0;
+    int pos, err;
+
+    if (_PyObject_LookupAttrId(v, &PyId___all__, &all) < 0) {
+        return -1; /* Unexpected error */
+    }
+    if (all == NULL) {
+        if (_PyObject_LookupAttrId(v, &PyId___dict__, &dict) < 0) {
+            return -1;
+        }
+        if (dict == NULL) {
+            _PyErr_SetString(ts->ts, PyExc_ImportError,
+                    "from-import-* object has no __dict__ and no __all__");
+            return -1;
+        }
+        all = PyMapping_Keys(dict);
+        Py_DECREF(dict);
+        if (all == NULL)
+            return -1;
+        skip_leading_underscores = 1;
+    }
+
+    for (pos = 0, err = 0; ; pos++) {
+        name = PySequence_GetItem(all, pos);
+        if (name == NULL) {
+            if (!_PyErr_ExceptionMatches(ts->ts, PyExc_IndexError)) {
+                err = -1;
+            }
+            else {
+                _PyErr_Clear(ts->ts);
+            }
+            break;
+        }
+        if (!PyUnicode_Check(name)) {
+            PyObject *modname = _PyObject_GetAttrId(v, &PyId___name__);
+            if (modname == NULL) {
+                Py_DECREF(name);
+                err = -1;
+                break;
+            }
+            if (!PyUnicode_Check(modname)) {
+                _PyErr_Format(ts->ts, PyExc_TypeError,
+                              "module __name__ must be a string, not %.100s",
+                              Py_TYPE(modname)->tp_name);
+            }
+            else {
+                _PyErr_Format(ts->ts, PyExc_TypeError,
+                              "%s in %U.%s must be str, not %.100s",
+                              skip_leading_underscores ? "Key" : "Item",
+                              modname,
+                              skip_leading_underscores ? "__dict__" : "__all__",
+                              Py_TYPE(name)->tp_name);
+            }
+            Py_DECREF(modname);
+            Py_DECREF(name);
+            err = -1;
+            break;
+        }
+        if (skip_leading_underscores) {
+            if (PyUnicode_READY(name) == -1) {
+                Py_DECREF(name);
+                err = -1;
+                break;
+            }
+            if (PyUnicode_READ_CHAR(name, 0) == '_') {
+                Py_DECREF(name);
+                continue;
+            }
+        }
+        value = PyObject_GetAttr(v, name);
+        if (value == NULL)
+            err = -1;
+        else if (PyDict_CheckExact(locals))
+            err = PyDict_SetItem(locals, name, value);
+        else
+            err = PyObject_SetItem(locals, name, value);
+        Py_DECREF(name);
+        Py_XDECREF(value);
+        if (err != 0)
+            break;
+    }
+    Py_DECREF(all);
+    return err;
+}
+
 static void
 PyFunc_dealloc(PyFunc *func)
 {

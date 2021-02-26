@@ -1061,8 +1061,11 @@ class CodeGen(ast.NodeVisitor):
         reg = self.register()
         self.STORE_FAST(reg.allocate())
         for alias in t.names:
-            self.IMPORT_FROM(reg, self.constants[alias.name])
-            self.store(alias.asname or alias.name)
+            if alias.name == '*':
+                self.IMPORT_STAR(reg)
+            else:
+                self.IMPORT_FROM(reg, self.constants[alias.name])
+                self.store(alias.asname or alias.name)
         reg.clear()
 
     def import_name(self, level, fromlist, name):
@@ -1529,6 +1532,8 @@ class Scope(ast.NodeVisitor):
 
     def visit_ImportFrom(self, t):
         for alias in t.names:
+            if alias.name == '*':
+                continue
             self.define(alias.asname or alias.name)
 
     def visit_ExceptHandler(self, t):

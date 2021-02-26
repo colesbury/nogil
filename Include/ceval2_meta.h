@@ -235,10 +235,10 @@ int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_store_global(PyObject *dict, PyObject *name, Register value);
 int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
 
-Register
-vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
-PyObject *
-vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
+Register vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
+PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
+int vm_import_star(struct ThreadState *ts, PyObject *module, PyObject *locals);
+
 
 Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);

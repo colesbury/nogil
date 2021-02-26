@@ -107,7 +107,8 @@ class Checker(ast.NodeVisitor):
         self(t.names)
 
     def visit_alias(self, t):
-        assert t.name != '*', "Star import not supported: %r" % (t,)
+        if t.name == '*':
+            return
         self.check_identifier(t.name)
         if t.asname is not None:
             self.check_identifier(t.asname)
