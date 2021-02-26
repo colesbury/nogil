@@ -162,13 +162,56 @@ vm_setup_with(struct ThreadState *ts, Py_ssize_t opA)
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
 
+/* returns the currently handled exception or NULL */
+PyObject *
+vm_handled_exc(struct ThreadState *ts)
+{
+    intptr_t offset = 0;
+    const uint32_t *next_instr = ts->next_instr;
+    while (ts->regs + offset != ts->stack) {
+        uintptr_t frame_link = ts->regs[offset-2].as_int64;
+        intptr_t frame_delta = ts->regs[offset-4].as_int64;
+        PyObject *callable = AS_OBJ(ts->regs[offset-1]);
+        if (!PyFunc_Check(callable)) {
+            goto next;
+        }
+        PyFunc *func = (PyFunc *)callable;
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+        const uint32_t *first_instr = PyCode2_GET_CODE(code);
+        Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
+
+        struct _PyHandlerTable *table = code->co_exc_handlers;
+        for (Py_ssize_t i = 0, n = table->size; i < n; i++) {
+            ExceptionHandler *eh = &table->entries[i];
+            Py_ssize_t start = eh->handler;
+            Py_ssize_t end = eh->handler_end;
+            if (start <= instr_offset && instr_offset < end) {
+                Py_ssize_t link_reg = eh->reg;
+                if (ts->regs[offset+link_reg].as_int64 != -1) {
+                    // not handling an exception
+                    continue;
+                }
+                return AS_OBJ(ts->regs[offset+link_reg+1]);
+            }
+        }
+
+      next:
+        offset -= frame_delta;
+        // TODO: might not be a valid ptr (technically UB)
+        next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+    }
+    return NULL;
+}
+
 static int
 vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
 {
     PyObject *exit = AS_OBJ(ts->regs[opA + 1]);
     PyObject *res;
 
-    PyObject *exc = ts->handled_exc;
+    PyObject *exc = AS_OBJ(ts->regs[opA + 3]);
+    assert(exc != NULL && exc == vm_handled_exc(ts));
     PyObject *type = (PyObject *)Py_TYPE(exc);
     PyObject *tb = ((PyBaseExceptionObject *)exc)->traceback;
     PyObject *stack[4] = {NULL, type, exc, tb};
@@ -191,12 +234,12 @@ vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
     }
 
     // re-raise the exception
-    ts->handled_exc = AS_OBJ(ts->regs[opA + 3]);
+    Register reg = ts->regs[opA + 3];
     ts->regs[opA + 3].as_int64 = 0;
-    vm_reraise(ts, exc);
-    return -1;
+    return vm_reraise(ts, reg);
 }
 
+/* returns 0 on success, -1 on error, and -2 on re-raise */
 int
 vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
 {
@@ -250,10 +293,11 @@ vm_exception_handler(PyCodeObject2 *code, const uint32_t *next_instr)
 
     struct _PyHandlerTable *table = code->co_exc_handlers;
     for (Py_ssize_t i = 0, n = table->size; i < n; i++) {
-        ExceptionHandler eh = table->entries[i];
-        printf("instr_offset = %zd start = %zd handler = %zd\n", instr_offset, eh.start, eh.handler);
-        if (eh.start <= instr_offset && instr_offset < eh.handler) {
-            return &table->entries[i];
+        ExceptionHandler *eh = &table->entries[i];
+        Py_ssize_t start = eh->start;
+        Py_ssize_t end = eh->handler;
+        if (start <= instr_offset && instr_offset < end) {
+            return eh;
         }
     }
     return NULL;
@@ -271,7 +315,6 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
             ExceptionHandler *handler = vm_exception_handler(code, next_instr);
 
             if (handler != NULL) {
-                printf("found handler at %zd\n", handler->handler);
                 vm_clear_regs(ts, handler->reg, code->co_framesize);
 
                 PyObject *exc, *val, *tb;
@@ -287,13 +330,8 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
                     PyException_SetTraceback(val, Py_None);
                 Py_ssize_t link_reg = handler->reg;
                 ts->regs[link_reg].as_int64 = -1;
-                if (ts->handled_exc != NULL) {
-                    ts->regs[link_reg + 1] = PACK_OBJ(ts->handled_exc);
-                }
-                else {
-                    ts->regs[link_reg + 1].as_int64 = 0;
-                }
-                ts->handled_exc = val;
+                assert(!_PyObject_IS_IMMORTAL(val));
+                ts->regs[link_reg + 1] = PACK(val, REFCOUNT_TAG);
                 Py_DECREF(exc);
                 Py_XDECREF(tb);
                 return PyCode2_GET_CODE(code) + handler->handler;
@@ -309,7 +347,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
         ts->regs[-4].as_int64 = 0;
-        ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+        ts->next_instr = next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
         ts->regs -= frame_delta;
         if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
             intptr_t tag = frame_link & FRAME_TAG_MASK;
@@ -396,111 +434,105 @@ vm_traceback_here(struct ThreadState *ts)
     return -1;
 }
 
-void
-vm_reraise(struct ThreadState *ts, PyObject *exc)
+static PyObject *
+normalize_exception(PyObject *exc)
 {
-    PyObject *tb = PyException_GetTraceback(exc);
+    if (PyExceptionClass_Check(exc)) {
+        PyObject *value = _PyObject_CallNoArg(exc);
+        if (value == NULL) {
+            return NULL;
+        }
+        if (!PyExceptionInstance_Check(value)) {
+            PyErr_Format(PyExc_TypeError,
+                         "calling %R should have returned an instance of "
+                         "BaseException, not %R",
+                         exc, Py_TYPE(value));
+            Py_DECREF(value);
+            return NULL;
+        }
+        return value;
+    }
+    if (!PyExceptionInstance_Check(exc)) {
+        /* Not something you can raise.  You get an exception
+           anyway, just not what you specified :-) */
+        PyErr_SetString(PyExc_TypeError,
+                        "exceptions must derive from BaseException");
+        return NULL;
+    }
+    Py_INCREF(exc);
+    return exc;
+}
+
+static PyObject *
+vm_exc_set_cause(PyObject * const *args, Py_ssize_t nargs)
+{
+    assert(nargs == 2);
+    PyObject *exc = normalize_exception(args[0]);
+    if (exc == NULL) {
+        return NULL;
+    }
+
+    if (PyExceptionClass_Check(args[1])) {
+        PyObject *cause = _PyObject_CallNoArg(args[1]);
+        if (cause == NULL) {
+            Py_DECREF(exc);
+            return NULL;
+        }
+        PyException_SetCause(exc, cause);
+    }
+    else if (PyExceptionInstance_Check(args[1])) {
+        PyObject *cause = args[1];
+        Py_INCREF(cause);
+        PyException_SetCause(exc, cause);
+    }
+    else if (args[1] == Py_None) {
+        PyException_SetCause(exc, NULL);
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError,
+                        "exception causes must derive from "
+                        "BaseException");
+        Py_DECREF(exc);
+        return NULL;
+    }
+    return exc;
+}
+
+int
+vm_reraise(struct ThreadState *ts, Register reg)
+{
+    assert(IS_RC(reg) || _PyObject_IS_IMMORTAL(AS_OBJ(reg)));
+    PyObject *exc = AS_OBJ(reg);
     PyObject *type = (PyObject *)Py_TYPE(exc);
     Py_INCREF(type);
+    PyObject *tb = PyException_GetTraceback(exc);
     _PyErr_Restore(ts->ts, type, exc, tb);
+    return -2;
 }
 
 int
 vm_raise(struct ThreadState *ts, PyObject *exc)
 {
-    PyThreadState *tstate = ts->ts;
-
     if (exc == NULL) {
-        /* Reraise */
-        PyObject *exc = ts->handled_exc;
+        exc = vm_handled_exc(ts);
         if (exc == NULL) {
-            _PyErr_SetString(tstate, PyExc_RuntimeError,
-                             "No active exception to reraise");
-            return 0;
+            _PyErr_SetString(ts->ts, PyExc_RuntimeError,
+                            "No active exception to reraise");
+            return -1;
         }
-        ts->handled_exc = NULL;
-        PyObject *type = (PyObject *)Py_TYPE(exc);
-        Py_INCREF(type);
-        PyObject *tb = PyException_GetTraceback(exc);
-        _PyErr_Restore(tstate, type, exc, tb);
-        return 1;
+        return vm_reraise(ts, PACK_INCREF(exc));
     }
-
-    PyObject *type = NULL, *value = NULL, *cause = NULL;
-    /* We support the following forms of raise:
-       raise
-       raise <instance>
-       raise <type> */
-
-    if (PyExceptionClass_Check(exc)) {
-        type = exc;
-        value = _PyObject_CallNoArg(exc);
-        if (value == NULL)
-            goto raise_error;
-        if (!PyExceptionInstance_Check(value)) {
-            _PyErr_Format(tstate, PyExc_TypeError,
-                          "calling %R should have returned an instance of "
-                          "BaseException, not %R",
-                          type, Py_TYPE(value));
-             goto raise_error;
-        }
+    PyObject *fixed_exc = normalize_exception(exc);
+    if (fixed_exc == NULL) {
+        return -1;
     }
-    else if (PyExceptionInstance_Check(exc)) {
-        value = exc;
-        type = PyExceptionInstance_Class(exc);
-        Py_INCREF(type);
-    }
-    else {
-        /* Not something you can raise.  You get an exception
-           anyway, just not what you specified :-) */
-        Py_DECREF(exc);
-        _PyErr_SetString(tstate, PyExc_TypeError,
-                         "exceptions must derive from BaseException");
-        goto raise_error;
-    }
-
-    assert(type != NULL);
-    assert(value != NULL);
-
-    // if (cause) {
-    //     PyObject *fixed_cause;
-    //     if (PyExceptionClass_Check(cause)) {
-    //         fixed_cause = _PyObject_CallNoArg(cause);
-    //         if (fixed_cause == NULL)
-    //             goto raise_error;
-    //         Py_DECREF(cause);
-    //     }
-    //     else if (PyExceptionInstance_Check(cause)) {
-    //         fixed_cause = cause;
-    //     }
-    //     else if (cause == Py_None) {
-    //         Py_DECREF(cause);
-    //         fixed_cause = NULL;
-    //     }
-    //     else {
-    //         _PyErr_SetString(tstate, PyExc_TypeError,
-    //                          "exception causes must derive from "
-    //                          "BaseException");
-    //         goto raise_error;
-    //     }
-    //     PyException_SetCause(value, fixed_cause);
-    // }
-
-    _PyErr_SetObject(tstate, type, value);
-    /* _PyErr_SetObject incref's its arguments */
-    Py_DECREF(value);
-    Py_DECREF(type);
-    return 0;
-
-raise_error:
-    Py_XDECREF(value);
-    Py_XDECREF(type);
-    Py_XDECREF(cause);
-    return 0;
+    PyErr_SetObject((PyObject *)Py_TYPE(fixed_exc), fixed_exc);
+    Py_DECREF(fixed_exc);
+    return -1;
 }
 
 const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, int opD)
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD)
 {
     static const char *CANNOT_CATCH_MSG = (
         "catching classes that do not inherit from "
@@ -510,9 +542,8 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, i
         Py_ssize_t i, length;
         length = PyTuple_GET_SIZE(tp);
         for (i = 0; i < length; i++) {
-            PyObject *exc = PyTuple_GET_ITEM(tp, i);
-            if (!PyExceptionClass_Check(exc)) {
-                printf("err\n");
+            PyObject *item = PyTuple_GET_ITEM(tp, i);
+            if (!PyExceptionClass_Check(item)) {
                 _PyErr_SetString(ts->ts, PyExc_TypeError,
                                  CANNOT_CATCH_MSG);
                 return NULL;
@@ -521,17 +552,15 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, i
     }
     else {
         if (!PyExceptionClass_Check(tp)) {
-            printf("err\n");
             _PyErr_SetString(ts->ts, PyExc_TypeError,
                              CANNOT_CATCH_MSG);
             return NULL;
         }
     }
-    PyObject *exc = ts->handled_exc;
+    assert(exc == vm_handled_exc(ts));
     int res = PyErr_GivenExceptionMatches(exc, tp);
     if (res > 0) {
         /* Exception matches -- Do nothing */;
-        printf("exception matches\n");
         return next_instr;
     }
     else if (res == 0) {
@@ -1673,6 +1702,9 @@ PyFunc_New(PyCodeObject2 *code, PyObject *globals)
 static struct ThreadState *gts;
 _Py_IDENTIFIER(builtins);
 _Py_IDENTIFIER(__builtins__);
+
+PyObject *
+vm_cur_handled_exc(void) { return vm_handled_exc(gts); }
 
 static PyObject *
 make_globals() {

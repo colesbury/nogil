@@ -225,7 +225,8 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         ExceptionHandler *handler = &exc_handlers->entries[i];
         handler->start = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 0));
         handler->handler = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 1));
-        handler->reg = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 2));
+        handler->handler_end = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 2));
+        handler->reg = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 3));
     }
 
     co->co_packed_flags = 0;

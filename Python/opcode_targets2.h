@@ -47,7 +47,7 @@ static void *opcode_targets_base[256] = {
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,
-    &&TARGET_RERAISE,
+    &&_unknown_opcode,
     &&TARGET_WITH_EXCEPT_START,
     &&TARGET_GET_AITER,
     &&TARGET_GET_ANEXT,

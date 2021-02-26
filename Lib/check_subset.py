@@ -90,8 +90,10 @@ class Checker(ast.NodeVisitor):
         self(t.body)
 
     def visit_Raise(self, t):
-        self(t.exc)
-        assert not t.cause, "Cause argument not supported: %r" % (t,)
+        if t.exc:
+            self(t.exc)
+        if t.cause:
+            self(t.cause)
 
     def visit_Global(self, t):
         for name in t.names:

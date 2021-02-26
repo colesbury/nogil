@@ -97,6 +97,8 @@ _PyErr_CreateException(PyObject *exception, PyObject *value)
     }
 }
 
+PyObject *vm_cur_handled_exc(void);
+
 void
 _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
 {
@@ -112,7 +114,12 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
     }
 
     Py_XINCREF(value);
-    exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
+    if (tstate->use_new_interp) {
+        exc_value = vm_cur_handled_exc();
+    }
+    else {
+        exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
+    }
     if (exc_value != NULL && exc_value != Py_None) {
         /* Implicit exception chaining */
         Py_INCREF(exc_value);

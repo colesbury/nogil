@@ -167,9 +167,6 @@ struct ThreadState {
     // top of stack
     Register *maxstack;
 
-    // Currently handled exception
-    PyObject *handled_exc;
-
     // current metadata ???
     uint16_t *metadata;
 
@@ -197,17 +194,16 @@ Register vm_compare(Register a, Register b);
 
 Register vm_unknown_opcode(intptr_t opcode);
 
-int
-vm_raise(struct ThreadState *ts, PyObject *err);
-
-void
-vm_reraise(struct ThreadState *ts, PyObject *err);
+int vm_raise(struct ThreadState *ts, PyObject *exc);
+int vm_reraise(struct ThreadState *ts, Register exc);
 
 Register
 vm_setup_with(struct ThreadState *ts, Py_ssize_t opA);
 int
 vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
 
+PyObject *
+vm_handled_exc(struct ThreadState *ts);
 const uint32_t *
 vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr);
 
@@ -281,7 +277,7 @@ PyObject *vm_args_error(struct ThreadState *ts);
 PyObject *vm_error_not_callable(struct ThreadState *ts);
 void vm_handle_error(struct ThreadState *ts);
 const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, const uint32_t *next_instr, int opD);
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD);
 
 // void vm_zero_refcount(PyObject *op);
 void vm_decref_shared(PyObject *op);

@@ -1729,31 +1729,25 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(LOAD_BUILD_CLASS);
     }
 
-    TARGET(LOAD_EXC) {
-        assert(IS_EMPTY(acc));
-        acc = PACK_INCREF(ts->handled_exc);
-        DISPATCH(LOAD_EXC);
-    }
-
     TARGET(RAISE) {
+        int err;
         PyObject *exc = AS_OBJ(acc);
-        acc.as_int64 = 0;
-        CALL_VM(vm_raise(ts, exc));
-        goto exception_unwind;
-    }
-
-    TARGET(RERAISE) {
-        PyObject *exc = ts->handled_exc;
-        ts->handled_exc = AS_OBJ(regs[opA]);
-        regs[opA].as_int64 = 0;
-        CALL_VM(vm_raise(ts, exc));
-        goto exception_unwind;
+        CALL_VM(err = vm_raise(ts, exc));
+        assert(err == -1 || err == -2);
+        if (err == -2) {
+            DECREF(acc);
+            acc.as_int64 = 0;
+            goto exception_unwind;
+        }
+        goto error;
     }
 
     TARGET(JUMP_IF_NOT_EXC_MATCH) {
-        PyObject *exc = AS_OBJ(acc);
+        PyObject *type = AS_OBJ(acc);
+        PyObject *exc = AS_OBJ(regs[opA + 1]);
+        assert(regs[opA].as_int64 == -1 && "link reg should be -1");
         const uint32_t *target;
-        CALL_VM(target = vm_exc_match(ts, exc, next_instr, opD));
+        CALL_VM(target = vm_exc_match(ts, type, exc, next_instr, opD));
         if (UNLIKELY(target == NULL)) {
             goto error;
         }
@@ -1766,12 +1760,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(END_EXCEPT) {
         if (regs[opA].as_int64 == -1) {
-            PyObject *prev = ts->handled_exc;
-            ts->handled_exc = AS_OBJ(regs[opA + 1]);
-            regs[opA].as_int64 = 0;
-            if (prev != NULL) {
-                _Py_DECREF(prev);
-            }
+            Register r = regs[opA + 1];
+            regs[opA + 1].as_int64 = 0;
+            DECREF(r);
         }
         DISPATCH(END_EXCEPT);
     }
@@ -1783,24 +1774,21 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(END_FINALLY) {
+        // FIXME: should rename to something else since it's also used at end of 
+        // try-except with no matches
         int64_t link_addr = regs[opA].as_int64;
-        acc = regs[opA + 1];
+        Register link_val = regs[opA + 1];
         regs[opA].as_int64 = 0;
         regs[opA + 1].as_int64 = 0;
-        if (link_addr != 0) {
-            if (UNLIKELY(link_addr == -1)) {
-                // re-raise the exception that caused us to enter the
-                // finally block.
-                PyObject *exc = ts->handled_exc;
-                ts->handled_exc = AS_OBJ(acc);
-                acc.as_int64 = 0;
-                CALL_VM(vm_reraise(ts, exc));
-                goto exception_unwind;
-            }
-            else {
-                next_instr = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
-            }
+        if (link_addr == -1) {
+            // re-raise the exception that caused us to enter the block.
+            CALL_VM(vm_reraise(ts, link_val));
+            goto exception_unwind;
         }
+        else if (link_addr != 0) {
+            next_instr = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
+        }
+        acc = link_val;
         DISPATCH(END_FINALLY);
     }
 
@@ -1818,7 +1806,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         int err;
         CALL_VM(err = vm_exit_with(ts, opA));
         if (UNLIKELY(err != 0)) {
-            goto error;
+            if (err == -1) {
+                goto error;
+            }
+            goto exception_unwind;
         }
         DISPATCH(END_WITH);
     }
@@ -1883,6 +1874,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     exception_unwind: {
+        if (acc.as_int64 != 0) {
+            DECREF(acc);
+            acc.as_int64 = 0;
+        }
         CALL_VM(next_instr = vm_exception_unwind(ts, next_instr));
         if (next_instr == 0) {
             ts->ts->use_new_interp -= 1;

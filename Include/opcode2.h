@@ -35,7 +35,6 @@ extern "C" {
 #define LOAD_INTRINSIC           34
 #define CALL_INTRINSIC_1         35
 #define CALL_INTRINSIC_N         36
-#define RERAISE                  48
 #define WITH_EXCEPT_START        49
 #define GET_AITER                50
 #define GET_ANEXT                51

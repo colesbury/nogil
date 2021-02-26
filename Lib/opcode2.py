@@ -120,7 +120,6 @@ def_op('CALL_INTRINSIC_1', 35, 'intrinsic')
 def_op('CALL_INTRINSIC_N', 36, 'base', 'lit')
 
 def_op('RETURN_VALUE', 83)
-def_op('RERAISE', 48, 'reg')
 def_op('RAISE', 130)
 def_op('YIELD_VALUE', 86)
 def_op('YIELD_FROM', 72, 'reg')
@@ -129,7 +128,7 @@ def_op('YIELD_FROM', 72, 'reg')
 def_op('JUMP', 113, None, 'jump')                 # Target byte offset from beginning of code
 def_op('JUMP_IF_FALSE', 111, None, 'jump')        # ""
 def_op('JUMP_IF_TRUE', 112, None, 'jump')         # ""
-def_op('JUMP_IF_NOT_EXC_MATCH', 121, None, 'jump')
+def_op('JUMP_IF_NOT_EXC_MATCH', 121, 'reg', 'jump')
 def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # "" while loop
 def_op('POP_JUMP_IF_TRUE', 115, None, 'jump')     # ""
 
@@ -198,5 +197,6 @@ def_intrinsic('vm_format_value_spec', 5, nargs=2)
 def_intrinsic('vm_build_string', 6, nargs='N')
 def_intrinsic('PyList_AsTuple', 7)
 def_intrinsic('vm_raise_assertion_error', 8)
+def_intrinsic('vm_exc_set_cause', 9, nargs=2)
 
 del def_op, def_intrinsic

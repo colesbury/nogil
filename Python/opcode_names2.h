@@ -47,7 +47,7 @@ static const char *opcode_names[256] = {
     "unknown_opcode",
     "unknown_opcode",
     "unknown_opcode",
-    "RERAISE",
+    "unknown_opcode",
     "WITH_EXCEPT_START",
     "GET_AITER",
     "GET_ANEXT",

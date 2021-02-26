@@ -81,14 +81,13 @@ class Label(Assembly):
         return ((self, start),)
 
 class ExceptHandler(Label):
-    def __init__(self, start, reg):
+    def __init__(self, start, handler_end, reg):
         self.start = start
+        self.handler_end = handler_end
         self.reg = reg
         assert isinstance(reg, int)
-    def resolve(self, start):
-        return ((self, start),)
     def eh_table(self, addresses):
-        return ((addresses[self.start] // 4, addresses[self] // 4, self.reg),)
+        return ((addresses[self.start] // 4, addresses[self] // 4, addresses[self.handler_end] // 4, self.reg),)
 
 class Instruction(Assembly):
     length = 4
@@ -784,6 +783,7 @@ class CodeGen(ast.NodeVisitor):
         assert len(t.items) == 1, 'With not desurgared'
         item = t.items[0]
         start = Label()
+        handler_end = Label()
 
         # The register usage is:
         # [ mgr, __exit__, <link>, <exc> ]
@@ -818,8 +818,9 @@ class CodeGen(ast.NodeVisitor):
         self.blocks.pop()
         r = self.new_register(2)
         assert r == link_reg
-        self.LABEL(ExceptHandler(start, link_reg))
-        self.END_WITH(with_reg)  # uses all of wit
+        self.LABEL(ExceptHandler(start, handler_end, link_reg))
+        self.END_WITH(with_reg)
+        self.LABEL(handler_end)
 
 
         # SETUP_WITH: load __enter__ and __exit__, store __exit__, call __enter__
@@ -1037,7 +1038,13 @@ class CodeGen(ast.NodeVisitor):
         return no_op
 
     def visit_Raise(self, t):
-        self(t.exc)
+        if t.cause is not None:
+            regs = self.register_list()
+            regs[0](t.exc)
+            regs[1](t.cause)
+            self.call_intrinsic('vm_exc_set_cause', regs.base, 2)
+        elif t.exc:
+            self(t.exc)
         self.RAISE()
 
     def visit_Global(self, t):
@@ -1116,9 +1123,9 @@ class CodeGen(ast.NodeVisitor):
             self.try_except(t)
 
     def try_finally(self, t):
-        start = Label()
+        start, handler_end = Label(), Label()
         link_reg = self.next_register
-        handler = ExceptHandler(start, link_reg)
+        handler = ExceptHandler(start, handler_end, link_reg)
 
         self.LABEL(start)
         self.blocks.append(TryFinally(handler, link_reg))
@@ -1134,6 +1141,7 @@ class CodeGen(ast.NodeVisitor):
         assert r == link_reg, (r, link_reg)
         self(t.finalbody)
         self.END_FINALLY(link_reg)
+        self.LABEL(handler_end)
         self.blocks.pop()
 
     def try_except(self, t):
@@ -1147,17 +1155,17 @@ class CodeGen(ast.NodeVisitor):
         self.JUMP(orelse)
         r = self.new_register(2)  # actually allocate token register
         assert r == link_reg
-        self.LABEL(ExceptHandler(start, link_reg))
+        self.LABEL(ExceptHandler(start, orelse, link_reg))
         self.blocks.append(ExceptBlock(link_reg))
         for i,handler in enumerate(t.handlers):
             if handler.type:
                 self(handler.type)
-                self.JUMP_IF_NOT_EXC_MATCH(labels[i])
+                self.JUMP_IF_NOT_EXC_MATCH(link_reg, labels[i])
             if handler.name:
                 # FIXME: we need to wrap another exception handler
                 # here to clear the name. Also another exception block
                 # to clear the name on control flow out of it.
-                self.LOAD_EXC()
+                self.LOAD_FAST(link_reg + 1)
                 self.store(handler.name)
                 self(handler.body)
                 self.clear(handler.name)
@@ -1166,7 +1174,7 @@ class CodeGen(ast.NodeVisitor):
             self.END_EXCEPT(link_reg)
             self.JUMP(end)
             self.LABEL(labels[i])
-        self.RERAISE(link_reg + 1)
+        self.END_FINALLY(link_reg)
         self.blocks.pop()
         self.LABEL(orelse)
         if t.orelse:
