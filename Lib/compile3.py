@@ -809,7 +809,7 @@ class CodeGen(ast.NodeVisitor):
         self.SETUP_WITH(with_reg)
         # begin try?
         self.LABEL(start)
-        self.blocks.append(WithBlock(link_reg))
+        self.blocks.append(WithBlock(with_reg))
         if item.optional_vars:
             self.assign_accumulator(item.optional_vars)
         else:
@@ -1449,7 +1449,7 @@ class Desugarer(ast.NodeTransformer):
                 body = ast.If(test, [body], [])
             body = ast.For(loop.target, loop.iter, [body], [])
         fn = [body]
-        args = ast.arguments(None, [], None, [], None, [], [])
+        args = ast.arguments([], [], None, [], [], [], [])
 
         return Call(Function('<genexpr>', args, fn), [])
 
@@ -1539,6 +1539,7 @@ class Scope(ast.NodeVisitor):
     def visit_ExceptHandler(self, t):
         if t.name:
             self.define(t.name)
+        super().generic_visit(t)
 
     def visit_Name(self, t):
         if isinstance(t.ctx, ast.Load):
@@ -1552,9 +1553,11 @@ class Scope(ast.NodeVisitor):
 
     def visit_Yield(self, t):
         self.is_generator = True
+        super().generic_visit(t)
 
     def visit_YieldFrom(self, t):
         self.is_generator = True
+        super().generic_visit(t)
 
     def visit_Global(self, t):
         for name in t.names:

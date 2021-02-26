@@ -69,7 +69,8 @@ class Checker(ast.NodeVisitor):
         self(t.target)
         self(t.iter)
         Checker(self.scope_type, in_loop=True)(t.body)
-        assert not t.orelse
+        if t.orelse is not None:
+            self(t.orelse)
 
     def visit_While(self, t):
         self(t.test)

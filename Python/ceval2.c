@@ -1505,6 +1505,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(IMPORT_STAR) {
+        // TODO: assert that we have locals dict
         PyObject *module = AS_OBJ(regs[opA]);
         PyObject *locals = AS_OBJ(regs[0]);
         int err;
