@@ -71,60 +71,51 @@ align_up(Py_ssize_t size, Py_ssize_t align)
 }
 
 PyCodeObject2 *
-PyCode2_New(PyObject *bytecode, PyObject *consts, Py_ssize_t ncells, Py_ssize_t nfreevars,
-            Py_ssize_t num_iconstants,
-            Py_ssize_t nexc_handlers)
+PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
+            Py_ssize_t ncells, Py_ssize_t ncaptured, Py_ssize_t nexc_handlers)
 {
-    Py_ssize_t instr_size = align_up(PyBytes_GET_SIZE(bytecode), sizeof(void*));
-    Py_ssize_t nconsts = PyTuple_GET_SIZE(consts);
-    Py_ssize_t size = (sizeof(PyCodeObject2) +
-                       instr_size +
-                       nconsts * sizeof(PyObject *) +
-                       num_iconstants * sizeof(Py_ssize_t) +
-                       ncells * sizeof(Py_ssize_t) +
-                       nfreevars * 2 * sizeof(Py_ssize_t) +
-                       sizeof(struct _PyHandlerTable) +
-                       nexc_handlers * sizeof(ExceptionHandler));
+    assert(sizeof(PyCodeObject2) % sizeof(void*) == 0);
+    Py_ssize_t instr_aligned_size = align_up(instr_size, sizeof(void*));
+    Py_ssize_t total_size = (
+        sizeof(PyCodeObject2) +
+        instr_aligned_size +
+        nconsts * sizeof(PyObject *) +
+        niconsts * sizeof(Py_ssize_t) +
+        ncells * sizeof(Py_ssize_t) +
+        ncaptured * 2 * sizeof(Py_ssize_t) +
+        sizeof(struct _PyHandlerTable) +
+        nexc_handlers * sizeof(ExceptionHandler));
 
-    PyCodeObject2 *co = (PyCodeObject2 *)_PyObject_GC_Malloc(size);
+    PyCodeObject2 *co = (PyCodeObject2 *)_PyObject_GC_Malloc(total_size);
     if (co == NULL) {
         return NULL;
     }
     memset(co, 0, sizeof(PyCodeObject2));
     PyObject_INIT(co, &PyCode2_Type);
-    co->co_size = PyBytes_GET_SIZE(bytecode) / sizeof(uint32_t);
-    co->co_nconsts = nconsts;
-    co->co_ncells = (uint8_t)ncells;
 
     char *ptr = (char *)co + sizeof(PyCodeObject2);
+    ptr += instr_aligned_size;
 
-    uint32_t *instrs = PyCode2_Code(co);
-    memcpy(instrs, PyBytes_AS_STRING(bytecode), PyBytes_GET_SIZE(bytecode));
-    ptr += instr_size;
-
-    PyObject **co_constants = (PyObject **)ptr;
-    co->co_constants = co_constants;
-    for (Py_ssize_t i = 0; i != nconsts; i++) {
-        PyObject *c = PyTuple_GET_ITEM(consts, i);
-        Py_INCREF(c);
-        if (PyUnicode_CheckExact(c)) {
-            PyUnicode_InternInPlace(&c);
-        }
-        co_constants[i] = c;
-    }
+    co->co_size = instr_size;
+    co->co_nconsts = nconsts;
+    co->co_constants = (PyObject **)ptr;
     ptr += nconsts * sizeof(PyObject *);
+    memset(co->co_constants, 0, nconsts * sizeof(PyObject*));
 
-    co->co_iconstants = (num_iconstants == 0 ? NULL : (Py_ssize_t *)ptr);
-    ptr += num_iconstants * sizeof(Py_ssize_t);
+    co->co_niconsts = niconsts;
+    co->co_iconstants = (niconsts == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += niconsts * sizeof(Py_ssize_t);
 
+    co->co_ncells = ncells;
     co->co_cell2reg = (ncells == 0 ? NULL : (Py_ssize_t *)ptr);
     ptr += ncells * sizeof(Py_ssize_t);
 
-    co->co_free2reg = (nfreevars == 0 ? NULL : (Py_ssize_t *)ptr);
-    ptr += nfreevars * 2 * sizeof(Py_ssize_t);
+    // co->co_ncaptured = ncaptured;
+    co->co_free2reg = (ncaptured == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += ncaptured * 2 * sizeof(Py_ssize_t);
 
     co->co_exc_handlers = (struct _PyHandlerTable *)ptr;
-
+    co->co_exc_handlers->size = nexc_handlers;
     return co;
 }
 
@@ -178,7 +169,13 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
     Py_ssize_t num_iconstants = iconstants ? PyTuple_GET_SIZE(iconstants) : 0;
 
-    PyCodeObject2 *co = PyCode2_New(bytecode, consts, ncells, ncaptured, num_iconstants, nexc_handlers);
+    PyCodeObject2 *co = PyCode2_New(
+        PyBytes_GET_SIZE(bytecode),
+        PyTuple_GET_SIZE(consts),
+        num_iconstants,
+        ncells,
+        ncaptured,
+        nexc_handlers);
     if (co == NULL) {
         return NULL;
     }
@@ -186,8 +183,8 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_posonlyargcount = posonlyargcount;
     co->co_totalargcount = argcount + kwonlyargcount;
     co->co_nlocals = nlocals;
-    co->co_ncells = (uint8_t)ncells;
-    co->co_nfreevars = (uint8_t)(ncaptured - ndefaultargs);
+    co->co_ncells = ncells;
+    co->co_nfreevars = (ncaptured - ndefaultargs);
     co->co_ndefaultargs = ndefaultargs;
     co->co_flags = flags;
     co->co_framesize = framesize;
@@ -205,6 +202,17 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     Py_INCREF(linetable);
     co->co_lnotab = linetable;
 
+    assert(co->co_size == PyBytes_GET_SIZE(bytecode));
+    memcpy(PyCode2_GET_CODE(co), PyBytes_AS_STRING(bytecode), co->co_size);
+
+    for (Py_ssize_t i = 0, n = co->co_nconsts; i != n; i++) {
+        PyObject *c = PyTuple_GET_ITEM(consts, i);
+        Py_INCREF(c);
+        if (PyUnicode_CheckExact(c)) {
+            PyUnicode_InternInPlace(&c);
+        }
+        co->co_constants[i] = c;
+    }
     for (Py_ssize_t i = 0; i < ncells; i++) {
         co->co_cell2reg[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(cell2reg, i));
     }
@@ -246,12 +254,15 @@ code_dealloc(PyCodeObject2 *co)
     PyObject **consts = co->co_constants;
     Py_ssize_t nconsts = co->co_nconsts;
     for (Py_ssize_t i = 0; i != nconsts; i++) {
-        Py_DECREF(consts[i]);
+        Py_XDECREF(consts[i]);
     }
 
     Py_XDECREF(co->co_varnames);
     Py_XDECREF(co->co_freevars);
     Py_XDECREF(co->co_cellvars);
+    Py_XDECREF(co->co_filename);
+    Py_XDECREF(co->co_name);
+    Py_XDECREF(co->co_lnotab);
 }
 
 static PyObject *
@@ -314,7 +325,7 @@ static PyObject *
 code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     Py_ssize_t size = sizeof(PyCodeObject);
-    size += co->co_size * sizeof(uint32_t);
+    size += co->co_size;
     size = co->co_nconsts * sizeof(PyObject *);
     return PyLong_FromSsize_t(size);
 }
@@ -323,9 +334,7 @@ static PyObject *
 code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     uint32_t *bytecode = PyCode2_Code(co);
-    Py_ssize_t nbytes = co->co_size * sizeof(uint32_t);
-
-    return PyBytes_FromStringAndSize((char *)bytecode, nbytes);
+    return PyBytes_FromStringAndSize((char *)bytecode, co->co_size);
 }
 
 static PyObject *

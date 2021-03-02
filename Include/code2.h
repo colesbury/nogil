@@ -10,6 +10,8 @@ extern "C" {
 
 PyAPI_DATA(PyTypeObject) PyCode2_Type;
 
+#define PyCode2_Check(op) (Py_TYPE(op) == &PyCode2_Type)
+
 enum {
     // number of arguments excluding keyword-only args, *args, and **kwargs
     // if more than 255 arguments, this value is zero and the overflow bit
@@ -73,7 +75,7 @@ typedef struct _PyCodeObject2 {
     Py_ssize_t co_totalargcount;
 
     Py_ssize_t co_framesize;    /* maximum stack usage */
-    Py_ssize_t co_size;         /* number of instructions */
+    Py_ssize_t co_size;         /* size of instructions (in bytes) */
     Py_ssize_t co_nconsts;      /* number of constants */
     Py_ssize_t co_niconsts;     /* number of integer constants */
     Py_ssize_t co_ncells;
@@ -98,6 +100,10 @@ typedef struct _PyCodeObject2 {
 } PyCodeObject2;
 
 // PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
+PyAPI_FUNC(PyCodeObject2 *)
+PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
+            Py_ssize_t ncells, Py_ssize_t ncaptured, Py_ssize_t nexc_handlers);
+
 
 /* Return the line number associated with the specified bytecode index
    in this code object.  If you just need the line number of a frame,
