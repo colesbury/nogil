@@ -38,6 +38,9 @@ vm_object_steal(Register* addr) {
 static Py_ssize_t
 vm_frame_size(struct ThreadState *ts)
 {
+    if (ts->regs == ts->stack) {
+        return 0;
+    }
     PyObject *this_func = AS_OBJ(ts->regs[-1]);
     if (!PyFunc_Check(this_func)) {
         return ts->regs[-3].as_int64;
@@ -1772,22 +1775,8 @@ setup_frame(struct ThreadState *ts, PyFunc *func, Py_ssize_t extra)
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
 }
 
-PyObject *
-_PyEval_FastCall(PyFunc *func, PyObject *locals)
-{
-    struct ThreadState *ts = gts;
-    Py_ssize_t nargs = 0;
-    const uint32_t *pc;
-
-    setup_frame(ts, func, 0);
-    ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
-
-    pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
-    return _PyEval_Fast(ts, nargs, pc);
-}
-
-PyObject *
-exec_code2(PyCodeObject2 *code, PyObject *globals)
+static struct ThreadState *
+current_thread_state(void)
 {
     if (gts == NULL) {
         gts = new_threadstate();
@@ -1801,52 +1790,38 @@ exec_code2(PyCodeObject2 *code, PyObject *globals)
             return NULL;
         }
     }
-    struct ThreadState *ts = gts;
+    return gts;
+}
 
-    if (globals == NULL) {
-        globals = make_globals();
-        if (globals == NULL) {
-            return NULL;
-        }
-    }
+PyObject *
+_PyEval_FastCall(PyFunc *func, PyObject *locals)
+{
+    struct ThreadState *ts = current_thread_state();
 
-    if (PyDict_GetItemString(globals, "__builtins__") == NULL) {
-        int err = PyDict_SetItemString(globals, "__builtins__", PyEval_GetBuiltins());
-        (void)err;
-        assert(err == 0);
-    }
+    setup_frame(ts, func, 0);
+    ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
+    return _PyEval_Fast(ts, /*acc=*/0, pc);
+}
 
-    PyFunc *func = PyFunc_New(code, globals);
+PyObject *
+PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
+{
+    PyFunc *func = PyFunc_New((PyCodeObject2 *)co, globals);
     if (func == NULL) {
         return NULL;
     }
     func->builtins = builtins_from_globals2(globals);
-
 #ifdef Py_REF_DEBUG
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
-#endif
-    Py_ssize_t frame_delta = CFRAME_EXTRA;
-
-    ts->regs += frame_delta;
-    ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-3].as_int64 = (intptr_t)PyCode2_FromFunc(func)->co_constants;
-    ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
-    ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
-    ts->regs[0] = PACK(globals, NO_REFCOUNT_TAG);
-
-    Py_ssize_t nargs = 0;
-    const uint32_t *pc = PyCode2_GET_CODE(code);
-
-    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
-
-#ifdef Py_REF_DEBUG
+    PyObject *ret = _PyEval_FastCall(func, locals);
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
     printf("RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
-    assert(ts->regs == ts->stack);
-#endif
-
     return ret;
+#else
+    return _PyEval_FastCall(func, locals);
+#endif
 }
 
 PyObject *vm_new_func(void)

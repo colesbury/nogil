@@ -181,13 +181,10 @@ struct PyVirtualThread {
 };
 
 // ceval2.c
-PyObject* _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
+PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
 
 struct _PyCodeObject2;
 typedef struct _PyCodeObject2 PyCodeObject2;
-
-PyObject *
-exec_code2(PyCodeObject2 *code, PyObject *globals);
 
 
 Register vm_compare(Register a, Register b);

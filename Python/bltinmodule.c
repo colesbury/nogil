@@ -746,7 +746,8 @@ builtin_compile_impl(PyObject *module, PyObject *source, PyObject *filename,
     }
 
     if (flags &
-        ~(PyCF_MASK | PyCF_MASK_OBSOLETE | PyCF_DONT_IMPLY_DEDENT | PyCF_ONLY_AST | PyCF_TYPE_COMMENTS))
+        ~(PyCF_MASK | PyCF_MASK_OBSOLETE | PyCF_DONT_IMPLY_DEDENT | PyCF_ONLY_AST |
+          PyCF_TYPE_COMMENTS | PyCF_NEW_BYTECODE))
     {
         PyErr_SetString(PyExc_ValueError,
                         "compile(): unrecognised flags");
@@ -951,6 +952,19 @@ builtin_eval_impl(PyObject *module, PyObject *source, PyObject *globals,
         }
         return PyEval_EvalCode(source, globals, locals);
     }
+    else if (PyCode2_Check(source)) {
+        if (PySys_Audit("exec", "O", source) < 0) {
+            return NULL;
+        }
+
+        if (((PyCodeObject2 *)source)->co_nfreevars > 0) {
+            PyErr_SetString(PyExc_TypeError,
+                "code object passed to eval() may not "
+                "contain free variables");
+            return NULL;
+        }
+        return PyEval2_EvalCode(source, globals, locals);
+    }
 
     PyCompilerFlags cf = _PyCompilerFlags_INIT;
     cf.cf_flags = PyCF_SOURCE_IS_UTF8;
@@ -1039,6 +1053,19 @@ builtin_exec_impl(PyObject *module, PyObject *source, PyObject *globals,
             return NULL;
         }
         v = PyEval_EvalCode(source, globals, locals);
+    }
+    else if (PyCode2_Check(source)) {
+        if (PySys_Audit("exec", "O", source) < 0) {
+            return NULL;
+        }
+
+        if (((PyCodeObject2 *)source)->co_nfreevars > 0) {
+            PyErr_SetString(PyExc_TypeError,
+                "code object passed to exec() may not "
+                "contain free variables");
+            return NULL;
+        }
+        v = PyEval2_EvalCode(source, globals, locals);
     }
     else {
         PyObject *source_copy;

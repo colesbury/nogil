@@ -308,19 +308,6 @@ code_richcompare(PyObject *self, PyObject *other, int op)
     return (self == other) ^ (op == Py_NE) ? Py_True : Py_False;
 }
 
-extern PyObject *
-exec_code2(PyCodeObject2 *code, PyObject *globals);
-
-static PyObject *
-code_exec(PyCodeObject2 *co, PyObject *args)
-{
-    PyObject *globals = NULL;
-    if (PyTuple_GET_SIZE(args) >= 1) {
-        globals = PyTuple_GET_ITEM(args, 0);
-    }
-    return exec_code2(co, globals);
-}
-
 static PyObject *
 code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
@@ -411,7 +398,6 @@ code_getfree2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 
 static struct PyMethodDef code_methods[] = {
     {"__sizeof__", (PyCFunction)code_sizeof, METH_NOARGS},
-    {"exec", (PyCFunction)code_exec, METH_VARARGS},
     {NULL, NULL}                /* sentinel */
 };
 

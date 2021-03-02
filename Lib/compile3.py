@@ -1329,7 +1329,7 @@ def module_from_ast(module_name, filename, t):
     print(dis.dis(code))
     import time
     start = time.perf_counter()
-    code.exec(module.__dict__)
+    exec(code, module.__dict__)
     end = time.perf_counter()
     print(end - start)
     return module
