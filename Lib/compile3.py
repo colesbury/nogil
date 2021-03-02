@@ -21,9 +21,6 @@
 
 import ast, collections, types, sys
 import dis2 as dis
-import contextlib
-from functools import reduce
-from itertools import chain
 from check_subset import check_conformity
 
 def assemble(assembly, addresses):
@@ -111,11 +108,9 @@ class Instruction(Assembly):
         else:
             arg2 = int(arg2)
             assert arg2 >= 0 and arg2 < 65536
-            # arg2 = arg2 & 0xFFFF
-        argA = self.arg or 0
-        argB = arg2 & 0xFF
-        argC = (arg2 >> 8)
-        return bytes([self.opcode, argA, argB, argC])
+        argA = int(self.arg or 0)
+        assert argA < 256
+        return bytes([self.opcode, argA, (arg2 & 0xFF), (arg2 >> 8)])
 
 class Register:
     def __init__(self, visitor, reg):
@@ -287,12 +282,12 @@ class CodeGen(ast.NodeVisitor):
         self.blocks = []
         self.last_lineno = None
 
-    def compile_module(self, t, name):
+    def compile_module(self, t):
         self.FUNC_HEADER(0)
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
-        return self.make_code(name)
+        return self.make_code("<module>")
 
     def make_code(self, name, argcount=0, posonlyargcount=0, kwonlyargcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
         first_instr = self.instrs[0][0]
@@ -1316,6 +1311,9 @@ def make_table():
 def collect(table):
     return tuple(sorted(table, key=table.get))
 
+def compile3(ast, filename, optimize):
+    return code_for_module(filename, ast)
+
 def load_file(filename, module_name):
     f = open(filename)
     source = f.read()
@@ -1324,7 +1322,7 @@ def load_file(filename, module_name):
     return module_from_ast(module_name, filename, astobj)
 
 def module_from_ast(module_name, filename, t):
-    code = code_for_module(module_name, filename, t)
+    code = code_for_module(filename, t)
     module = types.ModuleType(module_name, ast.get_docstring(t))
     print(dis.dis(code))
     import time
@@ -1334,10 +1332,10 @@ def module_from_ast(module_name, filename, t):
     print(end - start)
     return module
 
-def code_for_module(module_name, filename, t):
+def code_for_module(filename, t):
     t = desugar(t)
     check_conformity(t)
-    return CodeGen(filename, top_scope(t)).compile_module(t, module_name)
+    return CodeGen(filename, top_scope(t)).compile_module(t)
 
 def desugar(t):
     return ast.fix_missing_locations(Desugarer().visit(t))
