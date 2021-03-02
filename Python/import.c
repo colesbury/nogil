@@ -1017,6 +1017,7 @@ exec_code_in_module(PyThreadState *tstate, PyObject *name,
 {
     PyObject *v, *m;
 
+    assert(PyCode_Check(code_object));
     v = PyEval_EvalCode(code_object, module_dict, module_dict);
     if (v == NULL) {
         remove_module(tstate, name);

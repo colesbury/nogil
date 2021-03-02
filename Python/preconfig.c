@@ -138,6 +138,7 @@ precmdline_get_preconfig(_PyPreCmdline *cmdline, const PyPreConfig *config)
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
     COPY_ATTR(disable_gil);
+    COPY_ATTR(new_bytecode);
 
 #undef COPY_ATTR
 }
@@ -153,6 +154,7 @@ precmdline_set_preconfig(const _PyPreCmdline *cmdline, PyPreConfig *config)
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
     COPY_ATTR(disable_gil);
+    COPY_ATTR(new_bytecode);
 
 #undef COPY_ATTR
 }
@@ -173,6 +175,7 @@ _PyPreCmdline_SetConfig(const _PyPreCmdline *cmdline, PyConfig *config)
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
     COPY_ATTR(disable_gil);
+    COPY_ATTR(new_bytecode);
     return _PyStatus_OK();
 
 #undef COPY_ATTR
@@ -275,10 +278,25 @@ _PyPreCmdline_Read(_PyPreCmdline *cmdline, const PyPreConfig *preconfig)
         }
     }
 
+    /* new bytecode format */
+    if (cmdline->new_bytecode < 0) {
+        const char* env = NULL;
+        if (_Py_get_xoption(&cmdline->xoptions, L"newbc")) {
+            cmdline->new_bytecode = 1;
+        }
+        else if ((env = _Py_GetEnv(cmdline->use_environment, "PYTHONNEWBC"))) {
+            cmdline->new_bytecode = (strcmp(env, "1") == 0);
+        }
+        else {
+            cmdline->new_bytecode = 0;
+        }
+    }
+
     assert(cmdline->use_environment >= 0);
     assert(cmdline->isolated >= 0);
     assert(cmdline->dev_mode >= 0);
     assert(cmdline->disable_gil >= 0);
+    assert(cmdline->new_bytecode >= 0);
 
     return _PyStatus_OK();
 }
@@ -309,6 +327,7 @@ _PyPreConfig_InitCompatConfig(PyPreConfig *config)
 
     config->dev_mode = -1;
     config->disable_gil = -1;
+    config->new_bytecode = -1;
     config->allocator = PYMEM_ALLOCATOR_NOT_SET;
 #ifdef MS_WINDOWS
     config->legacy_windows_fs_encoding = -1;

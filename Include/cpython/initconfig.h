@@ -120,6 +120,7 @@ typedef struct {
     int dev_mode;
 
     int disable_gil;        /* Disable the global interpreter lock */
+    int new_bytecode;        /* Disable the global interpreter lock */
 
     /* Memory allocator: PYTHONMALLOC env var.
        See PyMemAllocatorName for valid values. */
@@ -139,6 +140,7 @@ typedef struct {
     int use_environment;  /* Use environment variables? see PyPreConfig.use_environment */
     int dev_mode;         /* Python Development Mode? See PyPreConfig.dev_mode */
     int disable_gil;      /* Disable the GIL. See PyPreConfig.disable_gil */
+    int new_bytecode;     /* Use new bytecode format */
 
     /* Install signal handlers? Yes by default. */
     int install_signal_handlers;

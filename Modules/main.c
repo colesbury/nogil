@@ -536,6 +536,9 @@ pymain_run_python(int *exitcode)
     }
 
     PyCompilerFlags cf = _PyCompilerFlags_INIT;
+    if (interp->config.new_bytecode) {
+        cf.cf_flags |= PyCF_NEW_BYTECODE;
+    }
 
     pymain_header(config);
     pymain_import_readline(config);

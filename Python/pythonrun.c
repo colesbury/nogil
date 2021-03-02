@@ -22,6 +22,7 @@
 #include "parsetok.h"
 #include "errcode.h"
 #include "code.h"
+#include "code2.h"
 #include "symtable.h"
 #include "ast.h"
 #include "marshal.h"
@@ -1123,7 +1124,17 @@ run_eval_code_obj(PyCodeObject *co, PyObject *globals, PyObject *locals)
         }
     }
 
-    v = PyEval_EvalCode((PyObject*)co, globals, locals);
+    if (PyCode_Check(co)) {
+        v = PyEval_EvalCode((PyObject*)co, globals, locals);
+    }
+    else if (PyCode2_Check(co)) {
+        v = PyEval2_EvalCode((PyObject*)co, globals, locals);
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "not a code object");
+        return NULL;
+    }
+
     if (!v && PyErr_Occurred() == PyExc_KeyboardInterrupt) {
         _Py_UnhandledKeyboardInterrupt = 1;
     }
