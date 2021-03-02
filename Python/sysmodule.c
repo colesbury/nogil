@@ -847,6 +847,19 @@ sys_intern_impl(PyObject *module, PyObject *s)
     }
 }
 
+/*[clinic input]
+sys.use_new_bytecode
+
+[clinic start generated code]*/
+
+static PyObject *
+sys_use_new_bytecode_impl(PyObject *module)
+/*[clinic end generated code: output=d7822eb67a59e753 input=603d029b7d80c977]*/
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    return PyBool_FromLong(tstate->use_new_bytecode);
+}
+
 
 /*
  * Cached interned string objects used for calling the profile and
@@ -1916,7 +1929,7 @@ Current QSBR epoch counter.
 
 static PyObject *
 sys__qsbr_epoch_impl(PyObject *module)
-/*[clinic end generated code: output=b429cdff802e1b20 input=9851ded9326e6273]*/
+/*[clinic end generated code: output=b429cdff802e1b20 input=926beccfa946d777]*/
 {
     PyObject *obj = NULL;
     PyObject *rd_seq = NULL;
@@ -2078,6 +2091,7 @@ static PyMethodDef sys_methods[] = {
     SYS_GET_ASYNCGEN_HOOKS_METHODDEF
     SYS_GETANDROIDAPILEVEL_METHODDEF
     SYS_UNRAISABLEHOOK_METHODDEF
+    SYS_USE_NEW_BYTECODE_METHODDEF
     {NULL,              NULL}           /* sentinel */
 };
 

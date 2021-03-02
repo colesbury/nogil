@@ -241,6 +241,23 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(sys_use_new_bytecode__doc__,
+"use_new_bytecode($module, /)\n"
+"--\n"
+"\n");
+
+#define SYS_USE_NEW_BYTECODE_METHODDEF    \
+    {"use_new_bytecode", (PyCFunction)sys_use_new_bytecode, METH_NOARGS, sys_use_new_bytecode__doc__},
+
+static PyObject *
+sys_use_new_bytecode_impl(PyObject *module);
+
+static PyObject *
+sys_use_new_bytecode(PyObject *module, PyObject *Py_UNUSED(ignored))
+{
+    return sys_use_new_bytecode_impl(module);
+}
+
 PyDoc_STRVAR(sys_gettrace__doc__,
 "gettrace($module, /)\n"
 "--\n"
@@ -1014,4 +1031,4 @@ sys_getandroidapilevel(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=2473e46bb3dd4ebd input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3a0c8dd37bafebde input=a9049054013a1b77]*/

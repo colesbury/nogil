@@ -13,6 +13,7 @@
 #include "errcode.h"
 #include "marshal.h"
 #include "code.h"
+#include "code2.h"
 #include "frameobject.h"
 #include "osdefs.h"
 #include "importdl.h"
@@ -1101,10 +1102,48 @@ update_compiled_module(PyCodeObject *co, PyObject *newname)
     Py_DECREF(oldname);
 }
 
+static void
+update_code_filenames2(PyCodeObject2 *co, PyObject *oldname, PyObject *newname)
+{
+    PyObject *tmp;
+    Py_ssize_t i, n;
+
+    if (PyUnicode_Compare(co->co_filename, oldname))
+        return;
+
+    Py_INCREF(newname);
+    Py_XSETREF(co->co_filename, newname);
+
+    n = co->co_nconsts;
+    for (i = 0; i < n; i++) {
+        tmp = co->co_constants[i];
+        if (PyCode2_Check(tmp))
+            update_code_filenames2((PyCodeObject2 *)tmp,
+                                  oldname, newname);
+    }
+}
+
+static void
+update_compiled_module2(PyCodeObject2 *co, PyObject *newname)
+{
+    PyObject *oldname;
+
+    if (PyUnicode_Compare(co->co_filename, newname) == 0)
+        return;
+
+    oldname = co->co_filename;
+    Py_INCREF(oldname);
+    update_code_filenames2(co, oldname, newname);
+    Py_DECREF(oldname);
+}
+
+
+// code: object(type="PyCodeObject *", subclass_of="&PyCode_Type")
+
 /*[clinic input]
 _imp._fix_co_filename
 
-    code: object(type="PyCodeObject *", subclass_of="&PyCode_Type")
+    code: object
         Code object to change.
 
     path: unicode
@@ -1115,12 +1154,19 @@ Changes code.co_filename to specify the passed-in file path.
 [clinic start generated code]*/
 
 static PyObject *
-_imp__fix_co_filename_impl(PyObject *module, PyCodeObject *code,
-                           PyObject *path)
-/*[clinic end generated code: output=1d002f100235587d input=895ba50e78b82f05]*/
+_imp__fix_co_filename_impl(PyObject *module, PyObject *code, PyObject *path)
+/*[clinic end generated code: output=d8691c9e15438f30 input=1ef0775f5d60eea6]*/
 
 {
-    update_compiled_module(code, path);
+    if (PyCode_Check(code)) {
+        update_compiled_module((PyCodeObject *)code, path);
+    }
+    else if (PyCode2_Check(code)) {
+        update_compiled_module2((PyCodeObject2 *)code, path);
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "not a code object");
+    }
 
     Py_RETURN_NONE;
 }

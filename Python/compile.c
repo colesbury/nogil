@@ -31,6 +31,7 @@
 #include "symtable.h"
 #include "opcode.h"
 #include "wordcode_helpers.h"
+#include "code2.h"
 
 #define DEFAULT_BLOCK_SIZE 16
 #define DEFAULT_BLOCKS 8
@@ -312,6 +313,26 @@ compiler_init(struct compiler *c)
     return 1;
 }
 
+PyObject *
+PyAST_CompileObject2(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
+                     int optimize, PyArena *arena)
+{
+    PyThreadState *tstate = PyThreadState_GET();
+    int old_use_new_bytecode = tstate->use_new_bytecode;
+    tstate->use_new_bytecode = 0;
+    PyObject *compile3 = PyImport_ImportModule("compile3");
+    tstate->use_new_bytecode = old_use_new_bytecode;
+    if (compile3 == NULL) {
+        return NULL;
+    }
+    PyObject *ast = PyAST_mod2obj(mod);
+    if (ast == NULL) {
+        Py_DECREF(compile3);
+        return NULL;
+    }
+    return PyObject_CallMethod(compile3, "compile3", "OOi", ast, filename, optimize);
+}
+
 PyCodeObject *
 PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
                    int optimize, PyArena *arena)
@@ -322,6 +343,9 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     int merged;
     PyConfig *config = &_PyInterpreterState_GET_UNSAFE()->config;
 
+    if (flags && (flags->cf_flags & PyCF_NEW_BYTECODE)) {
+        return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
+    }
     if (!__doc__) {
         __doc__ = PyUnicode_InternFromString("__doc__");
         if (!__doc__)
