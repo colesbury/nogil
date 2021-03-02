@@ -11,6 +11,8 @@
 #include "Python.h"
 #include "longintrepr.h"
 #include "code.h"
+#include "code2.h"
+#include "pycore_code.h"
 #include "marshal.h"
 #include "../Modules/hashtable.h"
 
@@ -60,6 +62,7 @@ module marshal
 #define TYPE_LIST               '['
 #define TYPE_DICT               '{'
 #define TYPE_CODE               'c'
+#define TYPE_CODE2              'C'
 #define TYPE_UNICODE            'u'
 #define TYPE_UNKNOWN            '?'
 #define TYPE_SET                '<'
@@ -545,6 +548,54 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_object(co->co_name, p);
         w_long(co->co_firstlineno, p);
         w_object(co->co_lnotab, p);
+    }
+    else if (PyCode2_Check(v)) {
+        PyCodeObject2 *co = (PyCodeObject2 *)v;
+        W_TYPE(TYPE_CODE2, p);
+        w_long(co->co_size, p);
+        w_long(co->co_packed_flags, p);
+        w_long(co->co_flags, p);
+        w_long(co->co_argcount, p);
+        w_long(co->co_nlocals, p);
+        w_long(co->co_ndefaultargs, p);
+        w_long(co->co_posonlyargcount, p);
+        w_long(co->co_totalargcount, p);
+        w_long(co->co_framesize, p);
+        w_long(co->co_nconsts, p);
+        w_long(co->co_niconsts, p);
+        w_long(co->co_ncells, p);
+        w_long(co->co_nfreevars, p);
+        w_long(co->co_exc_handlers->size, p);
+        for (Py_ssize_t i = 0; i < co->co_nconsts; i++) {
+            w_object(co->co_constants[i], p);
+        }
+        for (Py_ssize_t i = 0; i < co->co_niconsts; i++) {
+            w_long(co->co_iconstants[i], p);
+        }
+        for (Py_ssize_t i = 0; i < co->co_ncells; i++) {
+            w_long(co->co_cell2reg[i], p);
+        }
+        Py_ssize_t ncaptured = co->co_ndefaultargs + co->co_nfreevars;
+        for (Py_ssize_t i = 0; i < ncaptured; i++) {
+            w_long(co->co_free2reg[i*2], p);
+            w_long(co->co_free2reg[i*2+1], p);
+        }
+        struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
+        for (Py_ssize_t i = 0; i < exc_handlers->size; i++) {
+            ExceptionHandler *handler = &exc_handlers->entries[i];
+            w_long(handler->start, p);
+            w_long(handler->handler, p);
+            w_long(handler->handler_end, p);
+            w_long(handler->reg, p);
+        }
+        w_long(co->co_firstlineno, p);
+        w_object(co->co_varnames, p);
+        w_object(co->co_freevars, p);
+        w_object(co->co_cellvars, p);
+        w_object(co->co_filename, p);
+        w_object(co->co_name, p);
+        w_object(co->co_lnotab, p);
+        w_string((const char *)PyCode2_GET_CODE(co), co->co_size, p);
     }
     else if (PyObject_CheckBuffer(v)) {
         /* Write unknown bytes-like objects as a bytes object */
@@ -1416,6 +1467,135 @@ r_object(RFILE *p)
             Py_XDECREF(lnotab);
         }
         retval = v;
+        break;
+
+    case TYPE_CODE2:
+        {
+            int size;
+            int packed_flags;
+            int flags;
+            int argcount;
+            int nlocals;
+            int ndefaultargs;
+            int posonlyargcount;
+            int totalargcount;
+            int framesize;
+            int nconsts;
+            int niconsts;
+            int ncells;
+            int nfreevars;
+            int nexc_handlers;
+            int ncaptured;
+            PyCodeObject2 *co = NULL;
+
+            idx = r_ref_reserve(flag, p);
+            if (idx < 0)
+                break;
+
+            size = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            packed_flags = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            flags = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            argcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nlocals = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            ndefaultargs = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            posonlyargcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            totalargcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            framesize = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nconsts = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            niconsts = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            ncells = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nfreevars = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nexc_handlers = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            ncaptured = ndefaultargs + nfreevars;
+            if (PyErr_Occurred()) goto code2_error;
+
+            co = PyCode2_New(size, nconsts, niconsts, ncells, ncaptured, nexc_handlers);
+            if (co == NULL)
+                break;
+
+            co->co_packed_flags = packed_flags;
+            co->co_flags = flags;
+            co->co_argcount = argcount;
+            co->co_nlocals = nlocals;
+            co->co_ndefaultargs = ndefaultargs;
+            co->co_posonlyargcount = posonlyargcount;
+            co->co_totalargcount = totalargcount;
+            co->co_framesize = framesize;
+            co->co_nfreevars = nfreevars;
+
+            for (Py_ssize_t i = 0; i < nconsts; i++) {
+                PyObject *v = r_object(p);
+                if (v == NULL) goto code2_error;
+                co->co_constants[i] = v;
+            }
+            for (Py_ssize_t i = 0; i < niconsts; i++) {
+                co->co_iconstants[i] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            for (Py_ssize_t i = 0; i < ncells; i++) {
+                co->co_cell2reg[i] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            for (Py_ssize_t i = 0; i < ncaptured; i++) {
+                co->co_free2reg[i*2] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                co->co_free2reg[i*2+1] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
+            for (Py_ssize_t i = 0; i < exc_handlers->size; i++) {
+                ExceptionHandler *handler = &exc_handlers->entries[i];
+                handler->start = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->handler = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->handler_end = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->reg = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+
+            co->co_firstlineno = r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            co->co_varnames = r_object(p);
+            if (co->co_varnames == NULL) goto code2_error;
+            co->co_freevars = r_object(p);
+            if (co->co_freevars == NULL) goto code2_error;
+            co->co_cellvars = r_object(p);
+            if (co->co_cellvars == NULL) goto code2_error;
+            co->co_filename = r_object(p);
+            if (co->co_filename == NULL) goto code2_error;
+            co->co_name = r_object(p);
+            if (co->co_name == NULL) goto code2_error;
+            co->co_lnotab = r_object(p);
+            if (co->co_lnotab == NULL) goto code2_error;
+
+            const char *code = r_string(co->co_size, p);
+            if (code == NULL) goto code2_error;
+            memcpy(PyCode2_GET_CODE(co), code, co->co_size);
+
+            retval = r_ref_insert((PyObject *)co, idx, flag, p);
+            break;
+
+          code2_error:
+            Py_XDECREF(co);
+            retval = NULL;
+            break;
+        }
         break;
 
     case TYPE_REF:
