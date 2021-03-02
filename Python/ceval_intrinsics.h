@@ -9,7 +9,7 @@ union intrinsic intrinsics_table[] = {
     { .intrinsic1 = &PyList_AsTuple },
     { .intrinsic1 = &vm_raise_assertion_error },
     { .intrinsicN = &vm_exc_set_cause },
-    { &vm_unimplemented },
+    { .intrinsic1 = &vm_print },
     { &vm_unimplemented },
     { &vm_unimplemented },
     { &vm_unimplemented },

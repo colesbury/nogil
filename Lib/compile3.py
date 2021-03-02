@@ -87,8 +87,6 @@ class ExceptHandler(Label):
         return ((addresses[self.start] // 4, addresses[self] // 4, addresses[self.handler_end] // 4, self.reg),)
 
 class Instruction(Assembly):
-    length = 4
-
     def __init__(self, opcode, arg, arg2):
         self.opcode = opcode
         if isinstance(arg, Register):
@@ -97,6 +95,16 @@ class Instruction(Assembly):
             assert arg2.reg is not None
         self.arg    = arg
         self.arg2   = arg2
+
+    @property
+    def length(self):
+        argA = int(self.arg or 0)
+        if argA < 256:
+            return 4
+        elif argA < 65536:
+            return 8
+        assert False, f'argA out of range: {argA}'
+
     def encode(self, start, addresses):
         start = addresses[self]
         arg, arg2 = self.arg, self.arg2
@@ -107,10 +115,17 @@ class Instruction(Assembly):
             arg2 = 0
         else:
             arg2 = int(arg2)
-            assert arg2 >= 0 and arg2 < 65536
         argA = int(self.arg or 0)
-        assert argA < 256
-        return bytes([self.opcode, argA, (arg2 & 0xFF), (arg2 >> 8)])
+        assert argA < 65536, (self.opcode, argA, arg2)
+        assert arg2 >= 0 and arg2 < 65536, (self.opcode, argA, arg2)
+
+        if argA < 256:
+            return bytes([self.opcode, argA, (arg2 & 0xFF), (arg2 >> 8)])
+        else:
+            return bytes([
+                dis.opmap['EXTENDED_ARG'].opcode, (argA >> 8), 0, 0,
+                self.opcode, argA & 0xFF, (arg2 & 0xFF), (arg2 >> 8)])
+
 
 class Register:
     def __init__(self, visitor, reg):
@@ -281,8 +296,12 @@ class CodeGen(ast.NodeVisitor):
         self.max_registers = self.next_register
         self.blocks = []
         self.last_lineno = None
+        self.interactive = False
 
     def compile_module(self, t):
+        if isinstance(t, ast.Interactive):
+            # TODO: annotations?
+            self.interactive = True
         self.FUNC_HEADER(0)
         self(t.body)
         self.load_const(None)
@@ -303,6 +322,7 @@ class CodeGen(ast.NodeVisitor):
         framesize = self.max_registers
         firstlineno, lnotab = make_lnotab(self.instrs)
         addresses = make_addresses(self.instrs)
+
         code = assemble(self.instrs, addresses)
         eh_table = tuple(make_ehtable(self.instrs, addresses))
         cell2reg = tuple(reg for name, reg in self.varnames.items() if name in self.scope.cellvars)
@@ -580,6 +600,8 @@ class CodeGen(ast.NodeVisitor):
     def visit_Expr(self, t):
         # TODO: skip constants as optimization
         self(t.value)
+        if self.interactive:
+            self.call_intrinsic('vm_print')
         self.CLEAR_ACC()
 
     def resolve(self, t):

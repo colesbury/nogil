@@ -32,6 +32,10 @@ class Checker(ast.NodeVisitor):
         assert self.scope_type == 'module', "Module inside %s" % self.scope_type
         self(t.body)
 
+    def visit_Interactive(self, t):
+        assert self.scope_type == 'module', "Interactive inside %s" % self.scope_type
+        self(t.body)
+
     def visit_Function(self, t):
         self.check_arguments(t.args)
         Checker('function', in_loop=False)(t.body)

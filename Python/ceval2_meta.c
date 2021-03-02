@@ -1463,6 +1463,18 @@ vm_format_value_spec(PyObject * const *args, Py_ssize_t nargs)
 }
 
 static PyObject *
+vm_print(PyObject *value)
+{
+    _Py_IDENTIFIER(displayhook);
+    PyObject *hook = _PySys_GetObjectId(&PyId_displayhook);
+    if (hook == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "lost sys.displayhook");
+        return NULL;
+    }
+    return _PyObject_CallOneArg(hook, value);
+}
+
+static PyObject *
 vm_build_string(PyObject *const*args, Py_ssize_t nargs)
 {
     PyObject *empty = PyUnicode_New(0, 0);

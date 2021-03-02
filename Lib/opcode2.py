@@ -197,5 +197,6 @@ def_intrinsic('vm_build_string', 6, nargs='N')
 def_intrinsic('PyList_AsTuple', 7)
 def_intrinsic('vm_raise_assertion_error', 8)
 def_intrinsic('vm_exc_set_cause', 9, nargs=2)
+def_intrinsic('vm_print', 10)
 
 del def_op, def_intrinsic
