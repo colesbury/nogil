@@ -386,7 +386,7 @@ class CodeGen(ast.NodeVisitor):
 
     def to_register(self, t, reg):
         if isinstance(t, ast.Name):
-            return self.load(t.id, reg)
+            return self.load_into(t.id, reg)
         elif isinstance(t, Register):
             return self.copy_register(reg, t)
         else:
@@ -401,16 +401,8 @@ class CodeGen(ast.NodeVisitor):
         else:
             self.COPY(dst.allocate(), src.reg)
 
-    def load(self, name, dst=None):
+    def load(self, name):
         access = self.scope.access(name)
-        if isinstance(dst, Register):
-            if access == 'fast':
-                src = Register(self, self.varnames[name])
-                return self.copy_register(dst, src)
-            self.load(name)
-            self.STORE_FAST(dst.allocate())
-            return
-
         if   access == 'fast':   self.LOAD_FAST(self.varnames[name])
         elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
         elif access == 'classderef':  self.LOAD_CLASSDEREF(self.varnames[name], self.names[name])
@@ -418,16 +410,8 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'global': self.LOAD_GLOBAL(self.names[name])
         else: assert False
 
-    def store(self, name, value=None):
+    def store(self, name):
         access = self.scope.access(name)
-        if isinstance(value, Register):
-            if access == 'fast':
-                if value.is_temporary():
-                    return self.MOVE(self.varnames[name], value.reg)
-                else:
-                    self.LOAD_FAST(value.reg)
-                    self.STORE_FAST(self.varnames[name])
-                    return
         if   access == 'fast':   self.STORE_FAST(self.varnames[name])
         elif access == 'deref':  self.STORE_DEREF(self.varnames[name])
         elif access == 'name':   self.STORE_NAME(self.names[name])
@@ -441,6 +425,27 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'name':   self.DELETE_NAME(self.names[name])
         elif access == 'global': self.DELETE_GLOBAL(self.names[name])
         else: assert False, access
+
+    def load_into(self, name, dst):
+        assert isinstance(dst, Register)
+        access = self.scope.access(name)
+        if access == 'fast':
+            src = Register(self, self.varnames[name])
+            self.copy_register(dst, src)
+        else:
+            self.load(name)
+            self.STORE_FAST(dst.allocate())
+
+    def store_from(self, name, src):
+        assert isinstance(src, Register)
+        access = self.scope.access(name)
+        if access == 'fast' and src.is_temporary():
+            self.MOVE(self.varnames[name], src.reg)
+        else:
+            self.LOAD_FAST(src.reg)
+            self.store(name)
+            if src.is_temporary():
+                self.CLEAR_FAST(src.reg)
 
     def clear(self, name):
         access = self.scope.access(name)
@@ -644,7 +649,7 @@ class CodeGen(ast.NodeVisitor):
     def assign_Name(self, target, value):
         value = self.resolve(value)
         if isinstance(value, Register):
-            return self.store(target.id, value)
+            return self.store_from(target.id, value)
 
         self(value)
         self.store(target.id)
@@ -716,7 +721,7 @@ class CodeGen(ast.NodeVisitor):
         visitor = self
         class NameRef:
             def load(self, dst):
-                return visitor.load(t.id, dst)
+                return visitor.load_into(t.id, dst)
             def store(self):
                 return visitor.store(t.id)
         return NameRef()
