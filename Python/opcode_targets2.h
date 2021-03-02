@@ -140,7 +140,7 @@ static void *opcode_targets_base[256] = {
     &&TARGET_DELETE_DEREF,
     &&_unknown_opcode,
     &&_unknown_opcode,
-    &&TARGET_CALL_FUNCTION_KW,
+    &&_unknown_opcode,
     &&TARGET_CALL_FUNCTION_EX,
     &&TARGET_SETUP_WITH,
     &&TARGET_EXTENDED_ARG,

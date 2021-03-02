@@ -113,7 +113,6 @@ def_op('DELETE_DEREF', 138, 'reg')     # del <reg>?
 
 # call / return / yield
 def_op('CALL_FUNCTION', 131, 'base', 'lit')     # #args
-def_op('CALL_FUNCTION_KW', 141, 'base', 'lit')  # #args + #kwargs
 def_op('CALL_FUNCTION_EX', 142, 'base')  # Flags
 def_op('CALL_METHOD', 161, 'base', 'lit')
 def_op('CALL_INTRINSIC_1', 35, 'intrinsic')

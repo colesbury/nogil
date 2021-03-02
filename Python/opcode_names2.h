@@ -140,7 +140,7 @@ static const char *opcode_names[256] = {
     "DELETE_DEREF",
     "unknown_opcode",
     "unknown_opcode",
-    "CALL_FUNCTION_KW",
+    "unknown_opcode",
     "CALL_FUNCTION_EX",
     "SETUP_WITH",
     "EXTENDED_ARG",
