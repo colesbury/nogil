@@ -221,7 +221,7 @@ builtin___build_class__(PyObject *self, PyObject *const *args, Py_ssize_t nargs,
         goto error;
     }
     if (PyFunc_Check(func)) {
-        cell = _PyEval_FastCall((PyFunc *)func, ns);
+        cell = _PyEval2_EvalFunc(func, ns);
     }
     else {
         // printf("here: %zd\n", PyDict_GET_SIZE(ns));

@@ -110,6 +110,7 @@
 #include "methodobject.h"
 #include "moduleobject.h"
 #include "funcobject.h"
+#include "funcobject2.h"
 #include "classobject.h"
 #include "fileobject.h"
 #include "pycapsule.h"

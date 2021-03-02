@@ -183,6 +183,10 @@ struct PyVirtualThread {
 // ceval2.c
 PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
 
+// private
+PyObject *_Py_func_call(PyFunc *func, PyObject *args, PyObject *kwds);
+
+
 struct _PyCodeObject2;
 typedef struct _PyCodeObject2 PyCodeObject2;
 

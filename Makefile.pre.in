@@ -405,6 +405,7 @@ OBJECT_OBJS=	\
 		Objects/floatobject.o \
 		Objects/frameobject.o \
 		Objects/funcobject.o \
+		Objects/funcobject2.o \
 		Objects/interpreteridobject.o \
 		Objects/iterobject.o \
 		Objects/listobject.o \
@@ -1016,6 +1017,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/floatobject.h \
 		$(srcdir)/Include/frameobject.h \
 		$(srcdir)/Include/funcobject.h \
+		$(srcdir)/Include/funcobject2.h \
 		$(srcdir)/Include/genobject.h \
 		$(srcdir)/Include/genobject2.h \
 		$(srcdir)/Include/import.h \

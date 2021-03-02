@@ -1056,15 +1056,12 @@ build_kwargs(struct ThreadState *ts, Py_ssize_t kwcount)
     return kwargs;
 }
 
-static PyFunc *
-PyFunc_New(PyCodeObject2 *code, PyObject *globals);
-
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
 {
     PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyObject *globals = this_func->globals;
-    PyFunc *func = PyFunc_New(code, globals);
+    PyFunc *func = (PyFunc *)PyFunc_New((PyObject *)code, globals);
     if (func == NULL) {
         return (Register){0};
     }
@@ -1677,63 +1674,11 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 //     return func;
 // }
 
-static PyFunc *
-PyFunc_New(PyCodeObject2 *code, PyObject *globals)
-{
-    Py_ssize_t size = code->co_ndefaultargs + code->co_nfreevars;
-    PyFunc *func = PyObject_NewVar(PyFunc, &PyFunc_Type, size);
-    if (func == NULL) {
-        return NULL;
-    }
-    if ((code->co_flags & CO_NESTED) == 0) {
-        _PyObject_SET_DEFERRED_RC((PyObject *)func);
-    }
-    func->func_base.first_instr = PyCode2_GET_CODE(code);
-    Py_INCREF(globals);
-    func->globals = globals;
-    return func;
-}
-
 static struct ThreadState *gts;
-_Py_IDENTIFIER(builtins);
 _Py_IDENTIFIER(__builtins__);
 
 PyObject *
 vm_cur_handled_exc(void) { return vm_handled_exc(gts); }
-
-static PyObject *
-make_globals() {
-    PyObject *globals = PyDict_New();
-    if (globals == NULL) {
-        return NULL;
-    }
-
-    static uint32_t func_vector_call[] = {
-        CFUNC_HEADER
-    };
-
-    PyObject *builtins_name = _PyUnicode_FromId(&PyId_builtins);
-    PyObject *builtins = PyImport_GetModule(builtins_name);
-    PyObject *builtins_dict = PyModule_GetDict(builtins);
-    Py_ssize_t i = 0;
-    PyObject *key, *value;
-    while (PyDict_Next(builtins_dict, &i, &key, &value)) {
-        if (PyCFunction_Check(value)) {
-            ((PyFuncBase *)value)->first_instr = &func_vector_call[0];
-        }
-        int err = PyDict_SetItem(globals, key, value);
-        if (err < 0) {
-            abort();
-        }
-    }
-    int err = _PyDict_SetItemId(globals, &PyId___builtins__, builtins);
-    if (err < 0) {
-        abort();
-    }
-
-    Py_DECREF(builtins);
-    return globals;
-}
 
 static PyObject *
 builtins_from_globals2(PyObject *globals)
@@ -1807,8 +1752,10 @@ current_thread_state(void)
 }
 
 PyObject *
-_PyEval_FastCall(PyFunc *func, PyObject *locals)
+_PyEval2_EvalFunc(PyObject *obj, PyObject *locals)
 {
+    assert(PyFunc_Check(obj));
+    PyFunc *func = (PyFunc *)obj;
     struct ThreadState *ts = current_thread_state();
 
     setup_frame(ts, func, 0);
@@ -1821,19 +1768,19 @@ _PyEval_FastCall(PyFunc *func, PyObject *locals)
 PyObject *
 PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
 {
-    PyFunc *func = PyFunc_New((PyCodeObject2 *)co, globals);
+    PyFunc *func = (PyFunc *)PyFunc_New(co, globals);
     if (func == NULL) {
         return NULL;
     }
     func->builtins = builtins_from_globals2(globals);
 #ifdef Py_REF_DEBUG
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
-    PyObject *ret = _PyEval_FastCall(func, locals);
+    PyObject *ret = _PyEval2_EvalFunc((PyObject *)func, locals);
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
     printf("RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
     return ret;
 #else
-    return _PyEval_FastCall(func, locals);
+    return _PyEval2_EvalFunc(func, locals);
 #endif
 }
 
@@ -2108,28 +2055,9 @@ vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
     return err;
 }
 
-static void
-PyFunc_dealloc(PyFunc *func)
-{
-    // PyObject_GC_UnTrack(func);
-    Py_CLEAR(func->globals);
-    Py_ssize_t nfreevars = Py_SIZE(func);
-    for (Py_ssize_t i = 0; i < nfreevars; i++) {
-        Py_CLEAR(func->freevars[i]);
-    }
-    PyObject_Del(func);
-}
-
-static PyObject*
-func_repr(PyFunc *op)
-{
-    PyCodeObject2 *code = PyCode2_FromFunc(op);
-    return PyUnicode_FromFormat("<function %U at %p>",
-                               code->co_name, op);
-}
-
-static PyObject *
-func_call(PyFunc *func, PyObject *args, PyObject *kwds)
+// TODO: can we move this to funcobject2.c? should we?
+PyObject *
+_Py_func_call(PyFunc *func, PyObject *args, PyObject *kwds)
 {
     struct ThreadState *ts = gts;
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
@@ -2148,49 +2076,7 @@ func_call(PyFunc *func, PyObject *args, PyObject *kwds)
         ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
     }
     return _PyEval_Fast(ts, acc, pc);
-
 }
-
-/* Bind a function to an object */
-static PyObject *
-func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
-{
-    if (obj == NULL) {
-        Py_INCREF(func);
-        return func;
-    }
-
-    static uint32_t meth_instr = METHOD_HEADER;
-    PyMethod *method = PyObject_New(PyMethod, &PyMeth_Type);
-    if (method == NULL) {
-        return NULL;
-    }
-    // _PyObject_SET_DEFERRED_RC((PyObject *)method);
-    method->func_base.first_instr = &meth_instr;
-    Py_INCREF(func);
-    method->im_func = func;
-    Py_INCREF(obj);
-    method->im_self = obj;
-    method->im_weakreflist = NULL;
-    return (PyObject *)method;
-}
-
-PyTypeObject PyFunc_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "PyFunc",
-    .tp_doc = "PyFunc doc",
-    .tp_basicsize = sizeof(PyFunc),
-    .tp_itemsize = sizeof(PyObject*),
-    .tp_call = (ternaryfunc)func_call,
-    .tp_descr_get = func_descr_get,
-    .tp_repr = (reprfunc)func_repr,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc) NULL,
-    .tp_dealloc = (destructor) PyFunc_dealloc,
-    .tp_members = NULL,
-    .tp_methods = NULL,
-};
 
 static PyObject *
 method_call(PyObject *method, PyObject *args, PyObject *kwds)

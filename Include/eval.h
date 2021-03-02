@@ -9,6 +9,7 @@ extern "C" {
 
 PyAPI_FUNC(PyObject *) PyEval_EvalCode(PyObject *, PyObject *, PyObject *);
 PyAPI_FUNC(PyObject *) PyEval2_EvalCode(PyObject *, PyObject *, PyObject *);
+PyAPI_FUNC(PyObject *) _PyEval2_EvalFunc(PyObject *func, PyObject *locals);
 
 PyAPI_FUNC(PyObject *) PyEval_EvalCodeEx(PyObject *co,
                                          PyObject *globals,

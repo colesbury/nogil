@@ -92,27 +92,12 @@ typedef struct {
 
 typedef struct {
     PyFuncBase func_base;
-    PyObject *globals;
-    PyObject *builtins;
-    PyObject *freevars[0];  // captured variables and default argument values
-    // closure... LuaJit has closed-over variables as flexiable array member
-} PyFunc;
-
-typedef struct {
-    PyFuncBase func_base;
     PyObject *im_func;   /* The callable object implementing the method */
     PyObject *im_self;   /* The instance it is bound to */
     PyObject *im_weakreflist; /* List of weak references */
 } PyMethod;
 
-// move lol
-PyObject *
-_PyEval_FastCall(PyFunc *func, PyObject *locals);
-
-extern PyTypeObject PyFunc_Type;
 extern PyTypeObject PyMeth_Type;
-
-#define PyFunc_Check(op) (Py_TYPE(op) == &PyFunc_Type)
 
 typedef struct {
     PyFuncBase   m_base;
