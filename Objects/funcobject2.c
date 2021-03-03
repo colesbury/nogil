@@ -20,8 +20,7 @@ PyFunc_New(PyObject *co, PyObject *globals)
 {
     assert(PyCode2_Check(co));
     PyCodeObject2 *code = (PyCodeObject2 *)co;
-    Py_ssize_t size = code->co_ndefaultargs + code->co_nfreevars;
-    PyFunc *func = PyObject_GC_NewVar(PyFunc, &PyFunc_Type, size);
+    PyFunc *func = PyObject_GC_NewVar(PyFunc, &PyFunc_Type, code->co_nfreevars);
     if (func == NULL) {
         return NULL;
     }

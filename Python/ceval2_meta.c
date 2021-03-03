@@ -1068,9 +1068,8 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
     func->builtins = this_func->builtins;
     Py_INCREF(func->builtins);
 
-    Py_ssize_t ncaptured = code->co_ndefaultargs + code->co_nfreevars;
-    assert(Py_SIZE(func) >= ncaptured);
-    for (Py_ssize_t i = 0; i < ncaptured; i++) {
+    assert(Py_SIZE(func) >= code->co_nfreevars);
+    for (Py_ssize_t i = 0, n = code->co_nfreevars; i < n; i++) {
         Py_ssize_t r = code->co_free2reg[i*2];
         PyObject *var = AS_OBJ(ts->regs[r]);
         assert(i < code->co_ndefaultargs || PyCell_Check(var));
@@ -1848,8 +1847,7 @@ vm_super_init(PyObject **out_obj, PyTypeObject **out_type)
             }
         }
     }
-    Py_ssize_t n = co->co_ndefaultargs + co->co_nfreevars;
-    for (Py_ssize_t i = co->co_ndefaultargs; i < n; i++) {
+    for (Py_ssize_t i = co->co_ndefaultargs, n = co->co_nfreevars; i < n; i++) {
         Py_ssize_t r = co->co_free2reg[i*2+1];
         PyObject *name = PyTuple_GET_ITEM(co->co_varnames, r);
         if (_PyUnicode_EqualToASCIIId(name, &PyId___class__)) {

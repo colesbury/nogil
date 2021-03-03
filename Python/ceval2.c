@@ -464,8 +464,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         if ((this_code->co_packed_flags & CODE_FLAG_HAS_FREEVARS) != 0) {
             PyFunc *this_func = THIS_FUNC();
-            Py_ssize_t ncaptured = this_code->co_ndefaultargs + this_code->co_nfreevars;
-            for (Py_ssize_t i = this_code->co_ndefaultargs; i < ncaptured; i++) {
+            Py_ssize_t n = this_code->co_nfreevars;
+            for (Py_ssize_t i = this_code->co_ndefaultargs; i < n; i++) {
                 Py_ssize_t r = this_code->co_free2reg[i*2+1];
                 PyObject *cell = this_func->freevars[i];
                 assert(PyCell_Check(cell));

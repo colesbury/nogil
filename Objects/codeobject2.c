@@ -72,7 +72,7 @@ align_up(Py_ssize_t size, Py_ssize_t align)
 
 PyCodeObject2 *
 PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
-            Py_ssize_t ncells, Py_ssize_t ncaptured, Py_ssize_t nexc_handlers)
+            Py_ssize_t ncells, Py_ssize_t nfreevars, Py_ssize_t nexc_handlers)
 {
     assert(sizeof(PyCodeObject2) % sizeof(void*) == 0);
     Py_ssize_t instr_aligned_size = align_up(instr_size, sizeof(void*));
@@ -82,7 +82,7 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
         nconsts * sizeof(PyObject *) +
         niconsts * sizeof(Py_ssize_t) +
         ncells * sizeof(Py_ssize_t) +
-        ncaptured * 2 * sizeof(Py_ssize_t) +
+        nfreevars * 2 * sizeof(Py_ssize_t) +
         sizeof(struct _PyHandlerTable) +
         nexc_handlers * sizeof(ExceptionHandler));
 
@@ -110,9 +110,9 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
     co->co_cell2reg = (ncells == 0 ? NULL : (Py_ssize_t *)ptr);
     ptr += ncells * sizeof(Py_ssize_t);
 
-    // co->co_ncaptured = ncaptured;
-    co->co_free2reg = (ncaptured == 0 ? NULL : (Py_ssize_t *)ptr);
-    ptr += ncaptured * 2 * sizeof(Py_ssize_t);
+    co->co_nfreevars = nfreevars;
+    co->co_free2reg = (nfreevars == 0 ? NULL : (Py_ssize_t *)ptr);
+    ptr += nfreevars * 2 * sizeof(Py_ssize_t);
 
     co->co_exc_handlers = (struct _PyHandlerTable *)ptr;
     co->co_exc_handlers->size = nexc_handlers;
@@ -184,7 +184,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_totalargcount = argcount + kwonlyargcount;
     co->co_nlocals = nlocals;
     co->co_ncells = ncells;
-    co->co_nfreevars = (ncaptured - ndefaultargs);
+    co->co_nfreevars = ncaptured;
     co->co_ndefaultargs = ndefaultargs;
     co->co_flags = flags;
     co->co_framesize = framesize;
@@ -240,7 +240,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_packed_flags = 0;
     co->co_packed_flags |= (argcount < 256 ? argcount : CODE_FLAG_OVERFLOW);
     co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
-    co->co_packed_flags |= (co->co_nfreevars > 0 ? CODE_FLAG_HAS_FREEVARS : 0);
+    co->co_packed_flags |= (co->co_nfreevars > co->co_ndefaultargs ? CODE_FLAG_HAS_FREEVARS : 0);
     co->co_packed_flags |= (flags & (CODE_FLAG_VARARGS | CODE_FLAG_VARKEYWORDS));
 
     return (PyObject *)co;
@@ -378,7 +378,7 @@ code_getcell2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 static PyObject *
 code_getfree2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
-    Py_ssize_t size = co->co_ndefaultargs + co->co_nfreevars;
+    Py_ssize_t size = co->co_nfreevars;
     PyObject *t = PyTuple_New(size);
     if (t == NULL) {
         return NULL;

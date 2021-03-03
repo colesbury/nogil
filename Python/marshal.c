@@ -575,8 +575,7 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         for (Py_ssize_t i = 0; i < co->co_ncells; i++) {
             w_long(co->co_cell2reg[i], p);
         }
-        Py_ssize_t ncaptured = co->co_ndefaultargs + co->co_nfreevars;
-        for (Py_ssize_t i = 0; i < ncaptured; i++) {
+        for (Py_ssize_t i = 0, n = co->co_nfreevars; i < n; i++) {
             w_long(co->co_free2reg[i*2], p);
             w_long(co->co_free2reg[i*2+1], p);
         }
@@ -1485,7 +1484,6 @@ r_object(RFILE *p)
             int ncells;
             int nfreevars;
             int nexc_handlers;
-            int ncaptured;
             PyCodeObject2 *co = NULL;
 
             idx = r_ref_reserve(flag, p);
@@ -1520,10 +1518,8 @@ r_object(RFILE *p)
             if (PyErr_Occurred()) goto code2_error;
             nexc_handlers = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
-            ncaptured = ndefaultargs + nfreevars;
-            if (PyErr_Occurred()) goto code2_error;
 
-            co = PyCode2_New(size, nconsts, niconsts, ncells, ncaptured, nexc_handlers);
+            co = PyCode2_New(size, nconsts, niconsts, ncells, nfreevars, nexc_handlers);
             if (co == NULL)
                 break;
 
@@ -1535,7 +1531,6 @@ r_object(RFILE *p)
             co->co_posonlyargcount = posonlyargcount;
             co->co_totalargcount = totalargcount;
             co->co_framesize = framesize;
-            co->co_nfreevars = nfreevars;
 
             for (Py_ssize_t i = 0; i < nconsts; i++) {
                 PyObject *v = r_object(p);
@@ -1550,7 +1545,7 @@ r_object(RFILE *p)
                 co->co_cell2reg[i] = r_long(p);
                 if (PyErr_Occurred()) goto code2_error;
             }
-            for (Py_ssize_t i = 0; i < ncaptured; i++) {
+            for (Py_ssize_t i = 0; i < nfreevars; i++) {
                 co->co_free2reg[i*2] = r_long(p);
                 if (PyErr_Occurred()) goto code2_error;
                 co->co_free2reg[i*2+1] = r_long(p);

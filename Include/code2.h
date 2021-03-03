@@ -79,7 +79,7 @@ typedef struct _PyCodeObject2 {
     Py_ssize_t co_nconsts;      /* number of constants */
     Py_ssize_t co_niconsts;     /* number of integer constants */
     Py_ssize_t co_ncells;
-    Py_ssize_t co_nfreevars;
+    Py_ssize_t co_nfreevars;    /* number of captured free variables (including default args) */
 
     PyObject **co_constants;    /* pointer to constants array */
     Py_ssize_t *co_iconstants;  /* integer constants */
