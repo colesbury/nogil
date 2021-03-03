@@ -554,20 +554,20 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(FUNC_TPCALL_HEADER);
     }
 
-    TARGET(GENERATOR_HEADER) {
+    TARGET(COROGEN_HEADER) {
         // setup generator?
         // copy arguments
         // return
         assert(IS_EMPTY(acc));
         PyGenObject2 *gen;
-        CALL_VM(gen = PyGen2_NewWithSomething(ts));
+        CALL_VM(gen = PyGen2_NewWithSomething(ts, opA));
         if (gen == NULL) {
             goto error;
         }
         PyGen2_SetNextInstr(gen, next_instr);
         acc = PACK_OBJ((PyObject *)gen);
         goto TARGET_RETURN_VALUE;
-        DISPATCH(GENERATOR_HEADER);
+        DISPATCH(COROGEN_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -699,7 +699,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(YIELD_FROM) {
         PyObject *receiver = AS_OBJ(regs[opA]);
         PyObject *value = AS_OBJ(acc);
-        assert(PyGen2_CheckExact(receiver));
+        assert(PyGen2_CheckExact(receiver) || PyCoro2_CheckExact(receiver));
         PyObject *retval;
         PyGen2_FromThread(ts)->yield_from = receiver;
         CALL_VM(retval = _PyGen2_Send((PyGenObject2 *)receiver, value));
@@ -1572,6 +1572,31 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto TARGET_GET_ITER;
         }
         DISPATCH(GET_YIELD_FROM_ITER);
+    }
+
+    TARGET(GET_AWAITABLE) {
+        PyObject *obj = AS_OBJ(acc);
+        if (PyCoro2_CheckExact(obj)) {
+            PyObject *yf = ((PyCoroObject2 *)obj)->base.yield_from;
+            if (UNLIKELY(yf != NULL)) {
+                CALL_VM(vm_err_coroutine_awaited(ts));
+                goto error;
+            }
+            regs[opA] = acc;
+            acc.as_int64 = 0;
+        }
+        else {
+            PyObject *iter;
+            CALL_VM(iter = _PyCoro2_GetAwaitableIter(obj));
+            if (UNLIKELY(iter == NULL)) {
+                CALL_VM(vm_err_awaitable(ts, acc));
+                goto error;
+            }
+            regs[RELOAD_OPA()] = PACK_OBJ(iter);
+            DECREF(acc);
+            acc.as_int64 = 0;
+        }
+        DISPATCH(GET_AWAITABLE);
     }
 
     TARGET(FOR_ITER) {

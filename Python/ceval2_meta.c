@@ -356,7 +356,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
             intptr_t tag = frame_link & FRAME_TAG_MASK;
             if (tag == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
-                assert(PyGen2_CheckExact(gen));
+                assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen));
                 gen->status = GEN_ERROR;
             }
             return NULL;
@@ -1613,6 +1613,35 @@ vm_err_yield_from_coro(struct ThreadState *ts)
     _PyErr_SetString(ts->ts, PyExc_TypeError,
                      "cannot 'yield from' a coroutine object "
                      "in a non-coroutine generator");
+}
+
+void
+vm_err_awaitable(struct ThreadState *ts, Register acc)
+{
+    PyTypeObject *type = Py_TYPE(AS_OBJ(acc));
+    if (type->tp_as_async == NULL || type->tp_as_async->am_await == NULL) {
+            _PyErr_Format(ts->ts, PyExc_TypeError,
+                          "FIXME(sgross): vm_err_awaitable");
+        // if (prevopcode == BEFORE_ASYNC_WITH) {
+        //     _PyErr_Format(tstate, PyExc_TypeError,
+        //                   "'async with' received an object from __aenter__ "
+        //                   "that does not implement __await__: %.100s",
+        //                   type->tp_name);
+        // }
+        // else if (prevopcode == WITH_EXCEPT_START || (prevopcode == CALL_FUNCTION && prevprevopcode == DUP_TOP)) {
+        //     _PyErr_Format(tstate, PyExc_TypeError,
+        //                   "'async with' received an object from __aexit__ "
+        //                   "that does not implement __await__: %.100s",
+        //                   type->tp_name);
+        // }
+    }
+}
+
+void
+vm_err_coroutine_awaited(struct ThreadState *ts)
+{
+    _PyErr_SetString(ts->ts, PyExc_RuntimeError,
+                    "coroutine is being awaited already");
 }
 
 int

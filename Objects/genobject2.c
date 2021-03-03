@@ -8,6 +8,12 @@
 #include "genobject2.h"
 #include "code2.h" // remove ?
 
+static PyTypeObject *coro_types[] = {
+    NULL,
+    &PyGen2_Type,
+    &PyCoro2_Type,
+};
+
 static PyGenObject2 *
 gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 {
@@ -44,9 +50,11 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 }
 
 PyGenObject2 *
-PyGen2_NewWithSomething(struct ThreadState *ts)
+PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx)
 {
-    return gen_new_with_qualname(&PyGen2_Type, ts);
+    assert(typeidx >= 1 && typeidx <= 3);
+    PyTypeObject *type = coro_types[typeidx];
+    return gen_new_with_qualname(type, ts);
 }
 
 /*
@@ -273,6 +281,70 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
         // }
     }
     return res;
+}
+
+static int
+gen_is_coroutine(PyObject *o)
+{
+    // TODO
+    // if (PyGen2_CheckExact(o)) {
+    //     PyGenObject2 *gen = (PyGenObject2 *)o;
+    //     PyCodeObject2 *code = (PyCodeObject2 *)PyCode2_FromInstr(gen->
+    //     if (code->co_flags & CO_ITERABLE_COROUTINE) {
+    //         return 1;
+    //     }
+    // }
+    return 0;
+}
+
+/*
+ *   This helper function returns an awaitable for `o`:
+ *     - `o` if `o` is a coroutine-object;
+ *     - `type(o)->tp_as_async->am_await(o)`
+ *
+ *   Raises a TypeError if it's not possible to return
+ *   an awaitable and returns NULL.
+ */
+PyObject *
+_PyCoro2_GetAwaitableIter(PyObject *o)
+{
+    unaryfunc getter = NULL;
+    PyTypeObject *ot;
+
+    if (gen_is_coroutine(o)) {
+        /* 'o' is a coroutine. */
+        Py_INCREF(o);
+        return o;
+    }
+
+    ot = Py_TYPE(o);
+    if (ot->tp_as_async != NULL) {
+        getter = ot->tp_as_async->am_await;
+    }
+    if (getter != NULL) {
+        PyObject *res = (*getter)(o);
+        if (res != NULL) {
+            if (PyCoro2_CheckExact(res) || gen_is_coroutine(res)) {
+                /* __await__ must return an *iterator*, not
+                   a coroutine or another awaitable (see PEP 492) */
+                PyErr_SetString(PyExc_TypeError,
+                                "__await__() returned a coroutine");
+                Py_CLEAR(res);
+            } else if (!PyIter_Check(res)) {
+                PyErr_Format(PyExc_TypeError,
+                             "__await__() returned non-iterator "
+                             "of type '%.100s'",
+                             Py_TYPE(res)->tp_name);
+                Py_CLEAR(res);
+            }
+        }
+        return res;
+    }
+
+    PyErr_Format(PyExc_TypeError,
+                 "object %.100s can't be used in 'await' expression",
+                 ot->tp_name);
+    return NULL;
 }
 
 PyDoc_STRVAR(close_doc,
@@ -555,8 +627,8 @@ _PyGen2_Finalize(PyObject *self)
 static PyObject *
 gen_repr(PyGenObject2 *gen)
 {
-    return PyUnicode_FromFormat("<generator object %S at %p>",
-                                gen->qualname, gen);
+    return PyUnicode_FromFormat("<%s object %S at %p>",
+                                Py_TYPE(gen)->tp_name, gen->qualname, gen);
 }
 
 static PyObject *
@@ -636,9 +708,25 @@ PyTypeObject PyGen2_Type = {
     .tp_getattro = PyObject_GenericGetAttr, // necessary ???
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)gen_traverse,
-    .tp_weaklistoffset = offsetof(PyGenObject, gi_weakreflist),
+    .tp_weaklistoffset = offsetof(PyGenObject2, weakreflist),
     .tp_iter = PyObject_SelfIter,
     .tp_iternext = (iternextfunc)gen_iternext,
+    .tp_methods = gen_methods,
+    .tp_members = gen_memberlist,
+    .tp_getset = gen_getsetlist,
+    .tp_finalize = _PyGen2_Finalize
+};
+
+PyTypeObject PyCoro2_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "coroutine",
+    .tp_basicsize = sizeof(PyCoroObject2),
+    .tp_dealloc = (destructor)gen_dealloc,
+    .tp_repr = (reprfunc)gen_repr,
+    .tp_getattro = PyObject_GenericGetAttr, // necessary ???
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_traverse = (traverseproc)gen_traverse,
+    .tp_weaklistoffset = offsetof(PyCoroObject2, base.weakreflist),
     .tp_methods = gen_methods,
     .tp_members = gen_memberlist,
     .tp_getset = gen_getsetlist,

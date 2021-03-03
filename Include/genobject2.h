@@ -24,16 +24,45 @@ typedef struct {
     char status;
 } PyGenObject2;
 
+typedef struct {
+    PyGenObject2 base;
+    PyObject *origin;
+} PyCoroObject2;
+
+/* Asynchronous Generators */
+
+typedef struct {
+    PyGenObject2 base;
+    PyObject *finalizer;
+
+    /* Flag is set to 1 when hooks set up by sys.set_asyncgen_hooks
+       were called on the generator, to avoid calling them more
+       than once. */
+    int hooks_inited;
+
+    /* Flag is set to 1 when aclose() is called for the first time, or
+       when a StopAsyncIteration exception is raised. */
+    int closed;
+
+    int running_async;
+} PyAsyncGenObject2;
+
 PyAPI_DATA(PyTypeObject) PyGen2_Type;
+PyAPI_DATA(PyTypeObject) PyCoro2_Type;
+PyAPI_DATA(PyTypeObject) PyAsyncGen2_Type;
 
 #define PyGen2_Check(op) PyObject_TypeCheck(op, &PyGen2_Type)
 #define PyGen2_CheckExact(op) (Py_TYPE(op) == &PyGen2_Type)
+#define PyCoro2_Check(op) PyObject_TypeCheck(op, &PyCoro2_Type)
+#define PyCoro2_CheckExact(op) (Py_TYPE(op) == &PyCoro2_Type)
 
 PyGenObject2 *
-PyGen2_NewWithSomething(struct ThreadState *ts);
+PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx);
 
 PyAPI_FUNC(PyObject *) _PyGen2_FetchStopIterationValue(void);
 PyAPI_FUNC(PyObject *) _PyGen2_Send(PyGenObject2 *, PyObject *);
+
+PyObject *_PyCoro2_GetAwaitableIter(PyObject *o);
 
 static inline void
 PyGen2_SetNextInstr(PyGenObject2 *gen, const uint32_t *next_instr)

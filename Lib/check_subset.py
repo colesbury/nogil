@@ -40,6 +40,10 @@ class Checker(ast.NodeVisitor):
         self.check_arguments(t.args)
         Checker('function', in_loop=False)(t.body)
 
+    def visit_AsyncFunction(self, t):
+        self.check_arguments(t.args)
+        Checker('function', in_loop=False)(t.body)
+
     def visit_Class(self, t):
         self.check_identifier(t.name)
         self(t.bases)
@@ -136,6 +140,9 @@ class Checker(ast.NodeVisitor):
             self(t.value)
 
     def visit_YieldFrom(self, t):
+        self(t.value)
+
+    def visit_Await(self, t):
         self(t.value)
 
     def visit_BoolOp(self, t):

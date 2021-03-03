@@ -315,8 +315,7 @@ class CodeGen(ast.NodeVisitor):
 
         if self.scope.is_generator:
             second_instr = self.instrs[1][0]
-            assert dis.opcodes[second_instr.opcode].name == 'GENERATOR_HEADER'
-            second_instr.arg = self.max_registers
+            assert dis.opcodes[second_instr.opcode].name == 'COROGEN_HEADER'
 
         nlocals = self.nlocals
         framesize = self.max_registers
@@ -1235,6 +1234,13 @@ class CodeGen(ast.NodeVisitor):
         self.load_const(None)
         self.YIELD_FROM(reg)
 
+    def visit_Await(self, t):
+        reg = self.register()
+        self(t.value)
+        self.GET_AWAITABLE(reg.allocate())
+        self.load_const(None)
+        self.YIELD_FROM(reg)
+
     def visit_Function(self, t):
         regs = self.register_list()
         defaults = t.args.defaults + t.args.kw_defaults
@@ -1250,6 +1256,9 @@ class CodeGen(ast.NodeVisitor):
         for i in reversed(range(len(defaults))):
             regs[i].clear()
 
+    def visit_AsyncFunction(self, t):
+        return self.visit_Function(t)
+
     def sprout(self, t):
         return CodeGen(self.filename, self.scope.children[t])
 
@@ -1259,8 +1268,10 @@ class CodeGen(ast.NodeVisitor):
     def compile_function(self, t):
         # self.load_const(ast.get_docstring(t))
         self.FUNC_HEADER(0)
-        if self.scope.is_generator:
-            self.GENERATOR_HEADER(0)
+        if type(t) == AsyncFunction:
+            self.COROGEN_HEADER(2)
+        elif self.scope.is_generator:
+            self.COROGEN_HEADER(1)
         self(t.body)
         self.load_const(None)
         self.RETURN_VALUE()
@@ -1417,6 +1428,13 @@ class Desugarer(ast.NodeTransformer):
         return ast.Assign([ast.Name(t.name, store)], fn)
 
     @rewriter
+    def visit_AsyncFunctionDef(self, t):
+        fn = AsyncFunction(t.name, t.args, t.body)
+        for d in reversed(t.decorator_list):
+            fn = Call(d, [fn])
+        return ast.Assign([ast.Name(t.name, store)], fn)
+
+    @rewriter
     def visit_ClassDef(self, t):
         cls = Class(t.name, t.bases, t.keywords, t.body)
         for d in reversed(t.decorator_list):
@@ -1482,6 +1500,9 @@ class Desugarer(ast.NodeTransformer):
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')
 
+class AsyncFunction(ast.AsyncFunctionDef):
+    _fields = ('name', 'args', 'body')
+
 class Class(ast.ClassDef):
     _fields = ('name', 'bases', 'keywords', 'body')
 
@@ -1518,6 +1539,7 @@ class Scope(ast.NodeVisitor):
         self.free2reg = {}
         self.scope_type = scope_type
         self.is_generator = False
+        self.is_async = False
         self.private = t.name if scope_type == 'class' else None
         self.needs_class_closure = False  # true if a closure over __class__ should be created
         self.nested = (parent_scope is not None and 
@@ -1549,13 +1571,20 @@ class Scope(ast.NodeVisitor):
             upval = 'upvalTODO'
             self.free2reg[name] = (upval, reg)
 
-    def visit_Function(self, t):
+    def function(self, t, is_async):
         args = t.args
         all_args = args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
         subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg], self)
+        subscope.is_async = is_async
         subscope.assign_defaults(t)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
+
+    def visit_Function(self, t):
+        self.function(t, is_async=False)
+
+    def visit_AsyncFunction(self, t):
+        self.function(t, is_async=True)
 
     def define(self, name):
         name = mangle(self.private, name)
@@ -1597,6 +1626,10 @@ class Scope(ast.NodeVisitor):
         self.is_generator = True
         super().generic_visit(t)
 
+    def visit_Await(self, t):
+        assert self.is_async, 'await outside of async function'
+        super().generic_visit(t)
+
     def visit_Global(self, t):
         for name in t.names:
             name = mangle(self.private, name)
@@ -1605,8 +1638,8 @@ class Scope(ast.NodeVisitor):
             self.globals.add(name)
 
     def analyze(self, parent_defs):
-        self.local_defs = set(self.defs.keys()) if isinstance(self.t, Function) else set()
-        assert isinstance(self.t, Function) == (self.scope_type == 'function'), (self.t, self.scope_type)
+        self.local_defs = set(self.defs.keys()) if self.scope_type == 'function' else set()
+        # assert isinstance(self.t, Function) == (), (self.t, self.scope_type)
         if self.scope_type == 'class':
             self.local_defs.add('__class__')
         for child in self.children.values():
@@ -1621,7 +1654,7 @@ class Scope(ast.NodeVisitor):
         self.derefvars = self.cellvars | self.freevars
 
     def assign_regs(self, parent_regs):
-        self.regs = self.defs.copy() if isinstance(self.t, Function) else {'<locals>': 0}
+        self.regs = self.defs.copy() if self.scope_type == 'function' else {'<locals>': 0}
         if self.needs_class_closure:
             assert len(self.regs) == 1
             self.regs['__class__'] = len(self.regs)
