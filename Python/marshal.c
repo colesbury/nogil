@@ -56,6 +56,7 @@ module marshal
 #define TYPE_BINARY_COMPLEX     'y'
 #define TYPE_LONG               'l'
 #define TYPE_STRING             's'
+#define TYPE_SLICE              ':'
 #define TYPE_INTERNED           't'
 #define TYPE_REF                'r'
 #define TYPE_TUPLE              '('
@@ -595,6 +596,13 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_object(co->co_name, p);
         w_object(co->co_lnotab, p);
         w_string((const char *)PyCode2_GET_CODE(co), co->co_size, p);
+    }
+    else if (PySlice_Check(v)) {
+        PySliceObject *s = (PySliceObject *)v;
+        W_TYPE(TYPE_SLICE, p);
+        w_object(s->start, p);
+        w_object(s->stop, p);
+        w_object(s->step, p);
     }
     else if (PyObject_CheckBuffer(v)) {
         /* Write unknown bytes-like objects as a bytes object */
@@ -1592,6 +1600,30 @@ r_object(RFILE *p)
             break;
         }
         break;
+
+    case TYPE_SLICE: {
+        PyObject *start = NULL, *stop = NULL, *step = NULL;
+
+        idx = r_ref_reserve(flag, p);
+        if (idx < 0)
+            break;
+
+        start = r_object(p);
+        if (start == NULL) goto slice_error;
+        stop = r_object(p);
+        if (stop == NULL) goto slice_error;
+        step = r_object(p);
+        if (step == NULL) goto slice_error;
+        v = PySlice_New(start, stop, step);
+        v = r_ref_insert(v, idx, flag, p);
+        retval = v;
+
+      slice_error:
+        Py_XDECREF(start);
+        Py_XDECREF(stop);
+        Py_XDECREF(step);
+        break;
+    }
 
     case TYPE_REF:
         n = r_long(p);
