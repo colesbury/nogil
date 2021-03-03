@@ -27,6 +27,7 @@ PyFunc_New(PyObject *co, PyObject *globals)
     if ((code->co_flags & CO_NESTED) == 0) {
         _PyObject_SET_DEFERRED_RC((PyObject *)func);
     }
+    Py_INCREF(code);        // TODO: deferred rc for code
     func->func_base.first_instr = PyCode2_GET_CODE(code);
     Py_INCREF(globals);
     func->globals = globals;
@@ -95,6 +96,7 @@ func_clear(PyFunc *op)
     for (Py_ssize_t i = 0; i < nfreevars; i++) {
         Py_CLEAR(op->freevars[i]);
     }
+    Py_DECREF(PyCode2_FromInstr(op->func_base.first_instr));
     // Py_CLEAR(op->func_code);
     // Py_CLEAR(op->func_globals);
     // Py_CLEAR(op->func_module);
