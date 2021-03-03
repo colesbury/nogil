@@ -22,6 +22,7 @@
 import ast, collections, types, sys
 import dis2 as dis
 from check_subset import check_conformity
+import inspect  # ast uses inspect -- early initialize to load it using old interp
 
 def assemble(assembly, addresses):
     return b''.join(instr.encode(None, addresses) for instr,_ in assembly)
@@ -926,7 +927,8 @@ class CodeGen(ast.NodeVisitor):
                 self.LIST_APPEND(base)
             else:
                 reg = self.register()
-                reg(e)
+                reg.allocate()  # TODO: reserve only
+                self.to_register(e, reg)
         if not seen_star:
             self.BUILD_LIST(base, len(t.elts))
         else:
