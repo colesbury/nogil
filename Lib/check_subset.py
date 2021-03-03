@@ -108,7 +108,8 @@ class Checker(ast.NodeVisitor):
         self(t.names)
 
     def visit_ImportFrom(self, t):
-        self.check_identifier(t.module)
+        if t.module:
+            self.check_identifier(t.module)
         self(t.names)
 
     def visit_alias(self, t):
@@ -268,10 +269,6 @@ class Checker(ast.NodeVisitor):
 
     def check_identifier(self, name):
         assert isinstance(name, str), "An identifier must be a string: %r" % (name,)
-        # Not a private, mangled name:
-        # XXX also make sure there's no '.' inside (the compiler will add some sometimes)
-        assert len(name) <= 2 or not name.startswith('__') or name.endswith('__'), \
-            "Mangled private names are not supported: %r" % (name,)
 
 def has_negzero(num):
     return (is_negzero(num)

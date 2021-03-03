@@ -31,12 +31,14 @@ PyFunc_New(PyObject *co, PyObject *globals)
     Py_INCREF(globals);
     func->globals = globals;
     func->func_doc = NULL;
-    func->func_name = NULL;
+    func->func_name = code->co_name;
+    Py_INCREF(func->func_name);
     func->func_dict = NULL;
     func->func_weakreflist = NULL;
     func->func_module = NULL;
     func->func_annotations = NULL;
-    func->func_qualname = NULL;
+    func->func_qualname = func->func_name;
+    Py_INCREF(func->func_qualname);
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;

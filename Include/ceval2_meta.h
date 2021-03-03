@@ -280,8 +280,6 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t
 void vm_decref_shared(PyObject *op);
 void vm_incref_shared(PyObject *op);
 
-PyObject *vm_new_func(void);
-
 struct ThreadState *
 new_threadstate(void);
 

@@ -1774,18 +1774,8 @@ PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
     printf("RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
     return ret;
 #else
-    return _PyEval2_EvalFunc(func, locals);
+    return _PyEval2_EvalFunc((PyObject *)func, locals);
 #endif
-}
-
-PyObject *vm_new_func(void)
-{
-    PyObject *func = (PyObject *)PyObject_New(PyFunc, &PyFunc_Type);
-    if (!func) {
-        return NULL;
-    }
-    func->ob_ref_local |= _Py_REF_DEFERRED_MASK;
-    return func;
 }
 
 void vm_decref_shared(PyObject *op) {

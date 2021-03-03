@@ -457,6 +457,7 @@ class CodeGen(ast.NodeVisitor):
             self.delete(name)
 
     def cell_index(self, name):
+        name = mangle(self.scope.private, name)
         return self.scope.derefvars.index(name)
 
     def visit_Constant(self, t):
@@ -1091,7 +1092,7 @@ class CodeGen(ast.NodeVisitor):
         reg.clear()
 
     def import_name(self, level, fromlist, name):
-        arg = (name, fromlist, level)
+        arg = (name or '', fromlist, level)
         self.IMPORT_NAME(self.constants[arg])
 
     def visit_While(self, t):
@@ -1492,6 +1493,14 @@ class MakeClosure(ast.Expression):
 
 load, store = ast.Load(), ast.Store()
 
+def mangle(private, name):
+    if private is None or not name.startswith('__'):
+        return name
+    if name.endswith('__') or '.' in name:
+        return name
+    private = private.lstrip('_')
+    return f'_{private}{name}'
+
 def top_scope(t):
     top = Scope(t, 'module', (), None)
     top.visit(t)
@@ -1509,6 +1518,7 @@ class Scope(ast.NodeVisitor):
         self.free2reg = {}
         self.scope_type = scope_type
         self.is_generator = False
+        self.private = t.name if scope_type == 'class' else None
         self.needs_class_closure = False  # true if a closure over __class__ should be created
         self.nested = (parent_scope is not None and 
                        (parent_scope.nested or
@@ -1548,10 +1558,12 @@ class Scope(ast.NodeVisitor):
         for stmt in t.body: subscope.visit(stmt)
 
     def define(self, name):
+        name = mangle(self.private, name)
         if name not in self.defs and name not in self.globals:
             self.defs[name] = len(self.defs)
 
     def visit_Import(self, t):
+        # not mangled?
         for alias in t.names:
             self.define(alias.asname or alias.name.split('.')[0])
 
@@ -1568,8 +1580,9 @@ class Scope(ast.NodeVisitor):
 
     def visit_Name(self, t):
         if isinstance(t.ctx, ast.Load):
-            self.uses.add(t.id)
-            if t.id == 'super' and self.scope_type == 'function':
+            name = mangle(self.private, t.id)
+            self.uses.add(name)
+            if name == 'super' and self.scope_type == 'function':
                 self.uses.add('__class__')
         elif isinstance(t.ctx, (ast.Store, ast.Del)):
             self.define(t.id)
@@ -1586,6 +1599,7 @@ class Scope(ast.NodeVisitor):
 
     def visit_Global(self, t):
         for name in t.names:
+            name = mangle(self.private, name)
             assert name not in self.defs, "name '%r' is assigned to before global declaration" % (name,)
             assert name not in self.uses, "name '%r' is used prior to global declaration" % (name,)
             self.globals.add(name)
@@ -1623,6 +1637,7 @@ class Scope(ast.NodeVisitor):
 
 
     def access(self, name):
+        name = mangle(self.private, name)
         return ('classderef' if name in self.derefvars and self.scope_type == 'class' else
                 'deref' if name in self.derefvars else
                 'fast'  if name in self.local_defs else
