@@ -184,7 +184,7 @@ struct PyVirtualThread {
 PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
 
 // private
-PyObject *_Py_func_call(PyFunc *func, PyObject *args, PyObject *kwds);
+PyObject *_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds);
 
 
 struct _PyCodeObject2;

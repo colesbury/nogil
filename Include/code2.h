@@ -111,6 +111,7 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
 PyAPI_FUNC(int) PyCode2_Addr2Line(PyCodeObject2 *, int);
 
 #define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
+#define PyCode2_FROM_FUNC(func) (PyCode2_FromInstr(((PyFuncBase *)func)->first_instr))
 
 static inline uint32_t *
 PyCode2_Code(PyCodeObject2 *code)

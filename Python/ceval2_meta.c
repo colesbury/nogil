@@ -1720,14 +1720,15 @@ PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
 }
 
 static void
-setup_frame(struct ThreadState *ts, PyFunc *func, Py_ssize_t extra)
+setup_frame(struct ThreadState *ts, PyObject *func, Py_ssize_t extra)
 {
+    assert(PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE));
     Py_ssize_t frame_delta = vm_frame_size(ts);
     frame_delta += CFRAME_EXTRA + extra;
 
     ts->regs += frame_delta;
 
-    PyCodeObject2 *code = PyCode2_FromFunc(func);
+    PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
     ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
@@ -1747,16 +1748,15 @@ current_thread_state(void)
 }
 
 PyObject *
-_PyEval2_EvalFunc(PyObject *obj, PyObject *locals)
+_PyEval2_EvalFunc(PyObject *func, PyObject *locals)
 {
-    assert(PyFunc_Check(obj));
-    PyFunc *func = (PyFunc *)obj;
+    assert(PyFunc_Check(func));
     struct ThreadState *ts = current_thread_state();
 
     setup_frame(ts, func, 0);
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
     return _PyEval_Fast(ts, /*acc=*/0, pc);
 }
 
@@ -1848,7 +1848,7 @@ vm_super_init(PyObject **out_obj, PyTypeObject **out_type)
             }
         }
     }
-    Py_ssize_t n = co->co_nfreevars;
+    Py_ssize_t n = co->co_ndefaultargs + co->co_nfreevars;
     for (Py_ssize_t i = co->co_ndefaultargs; i < n; i++) {
         Py_ssize_t r = co->co_free2reg[i*2+1];
         PyObject *name = PyTuple_GET_ITEM(co->co_varnames, r);
@@ -2052,10 +2052,10 @@ vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
 
 // TODO: can we move this to funcobject2.c? should we?
 PyObject *
-_Py_func_call(PyFunc *func, PyObject *args, PyObject *kwds)
+_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
 {
     struct ThreadState *ts = gts;
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FromFunc(func));
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
 
     if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
         Py_ssize_t acc = 0;
@@ -2074,11 +2074,22 @@ _Py_func_call(PyFunc *func, PyObject *args, PyObject *kwds)
 }
 
 static PyObject *
-method_call(PyObject *method, PyObject *args, PyObject *kwds)
+method_call(PyObject *obj, PyObject *args, PyObject *kwds)
 {
-    printf("method_call NYI\n");
-    abort();
-    return NULL;
+    if (kwds == NULL && PyTuple_GET_SIZE(args) < 255) {
+        // optimization for only arguments only
+        PyMethod *method = (PyMethod *)obj;
+        struct ThreadState *ts = current_thread_state();
+        const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
+        Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
+        setup_frame(ts, method->im_func, /*extra=*/nargs);
+        ts->regs[0] = PACK(method->im_self, NO_REFCOUNT_TAG);
+        for (Py_ssize_t i = 1; i < nargs; i++) {
+            ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i - 1), NO_REFCOUNT_TAG);
+        }
+        return _PyEval_Fast(ts, nargs, pc);
+    }
+    return _Py_func_call(obj, args, kwds);
 }
 
 static PyObject *
