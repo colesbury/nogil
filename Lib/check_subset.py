@@ -256,10 +256,7 @@ class Checker(ast.NodeVisitor):
 
     def visit_sequence(self, t):
         self(t.elts)
-        # XXX make sure there are no stars in elts
-        if   isinstance(t.ctx, ast.Load):  pass
-        elif isinstance(t.ctx, ast.Store): pass
-        else: assert False, "Only loads and stores are supported: %r" % (t,)
+        assert isinstance(t.ctx, (ast.Load, ast.Store, ast.Del)), "Unsupported context: %r" % (t.ctx,)
 
     visit_List = visit_sequence
     visit_Tuple = visit_sequence

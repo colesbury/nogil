@@ -780,6 +780,14 @@ class CodeGen(ast.NodeVisitor):
         self.DELETE_SUBSCR(reg)
         reg.clear()
 
+    def del_List(self, t):
+        for e in t.elts:
+            self.del_(e)
+
+    def del_Tuple(self, t):
+        for e in t.elts:
+            self.del_(e)
+
     def visit_If(self, t):
         orelse, after = Label(), Label()
         self(t.test)
