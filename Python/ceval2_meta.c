@@ -1066,6 +1066,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
         return (Register){0};
     }
     func->builtins = this_func->builtins;
+    Py_INCREF(func->builtins);
 
     Py_ssize_t ncaptured = code->co_ndefaultargs + code->co_nfreevars;
     assert(Py_SIZE(func) >= ncaptured);
@@ -1739,12 +1740,6 @@ current_thread_state(void)
     if (gts == NULL) {
         gts = new_threadstate();
         if (gts == NULL) {
-            return NULL;
-        }
-        if (PyType_Ready(&PyFunc_Type) < 0) {
-            return NULL;
-        }
-        if (PyType_Ready(&PyMeth_Type) < 0) {
             return NULL;
         }
     }

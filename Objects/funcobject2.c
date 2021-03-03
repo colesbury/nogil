@@ -39,6 +39,7 @@ PyFunc_New(PyObject *co, PyObject *globals)
     func->func_annotations = NULL;
     func->func_qualname = NULL;
 
+    _PyObject_GC_TRACK(func);
     return (PyObject *)func;
 }
 
@@ -249,7 +250,8 @@ PyTypeObject PyFunc_Type = {
     .tp_call = (ternaryfunc)_Py_func_call,
     .tp_descr_get = func_descr_get,
     .tp_repr = (reprfunc)func_repr,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR,
+    .tp_flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
+                 Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR),
     .tp_new = func_new,
     .tp_init = (initproc) NULL,
     .tp_dealloc = (destructor)func_dealloc,
@@ -257,5 +259,6 @@ PyTypeObject PyFunc_Type = {
     .tp_clear = (inquiry)func_clear,
     .tp_weaklistoffset = offsetof(PyFunc, func_weakreflist),
     .tp_members = func_memberlist,
-    .tp_getset = func_getsetlist
+    .tp_getset = func_getsetlist,
+    .tp_dictoffset = offsetof(PyFunc, func_dict)
 };

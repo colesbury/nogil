@@ -1127,7 +1127,7 @@ clear_dead_objects(PyGC_Head *head)
 
         PyObject *op = FROM_GC(gc);
         assert(_PyObject_IS_DEFERRED_RC(op));
-        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op));
+        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op) || PyFunc_Check(op));
         op->ob_ref_local &= ~_Py_REF_DEFERRED_MASK;
         _Py_Dealloc(op);
         n++;

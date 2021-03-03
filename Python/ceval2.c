@@ -721,12 +721,20 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(RETURN_VALUE) {
         ts->next_instr = next_instr;
+// #ifdef Py_DEBUG
+//         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
+// #endif
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
         intptr_t frame_link = regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
+// #ifdef Py_DEBUG
+//         for (Py_ssize_t i = 0; i < frame_size; i++) {
+//             assert(regs[i].as_int64 == 0);
+//         }
+// #endif
         regs -= frame_delta;
         ts->regs = regs;
         if (UNLIKELY((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON)) {

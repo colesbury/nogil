@@ -2713,7 +2713,7 @@ type_new(PyTypeObject *metatype, PyObject *args, PyObject *kwds)
     /* Special-case __init_subclass__ and __class_getitem__:
        if they are plain functions, make them classmethods */
     tmp = _PyDict_GetItemIdWithError(dict, &PyId___init_subclass__);
-    if (tmp != NULL && PyFunction_Check(tmp)) {
+    if (tmp != NULL && (PyFunction_Check(tmp) || PyFunc_Check(tmp))) {
         tmp = PyClassMethod_New(tmp);
         if (tmp == NULL)
             goto error;
