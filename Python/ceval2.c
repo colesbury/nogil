@@ -1889,6 +1889,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(CALL_INTRINSIC_N);
     }
 
+    TARGET(EXTENDED_ARG) {
+        intptr_t oldA = opA;
+        NEXTOPARG();
+        opA = (oldA << 8) | opA;
+        goto *opcode_targets[opcode];
+    }
+
     generator_return_to_c: {
         PyObject *obj = AS_OBJ(acc);
         if (!IS_RC(acc)) {
