@@ -5063,7 +5063,6 @@ import_name(PyThreadState *tstate, PyFrameObject *f,
         if (ilevel == -1 && _PyErr_Occurred(tstate)) {
             return NULL;
         }
-        tstate->use_new_bytecode = 0;
         res = PyImport_ImportModuleLevelObject(
                         name,
                         f->f_globals,
