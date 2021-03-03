@@ -1209,6 +1209,7 @@ class CodeGen(ast.NodeVisitor):
             self.LABEL(labels[i])
         self.END_FINALLY(link_reg)
         self.blocks.pop()
+        self.next_register = r
         self.LABEL(orelse)
         if t.orelse:
             self(t.orelse)
