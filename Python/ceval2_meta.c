@@ -1996,15 +1996,6 @@ PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
 #endif
 }
 
-void vm_decref_shared(PyObject *op) {
-    printf("vm_decref_shared: %p\n", op);
-    abort();
-}
-void vm_incref_shared(PyObject *op) {
-    printf("vm_incref_shared\n");
-    abort();
-}
-
 int
 vm_super_init(PyObject **out_obj, PyTypeObject **out_type)
 {

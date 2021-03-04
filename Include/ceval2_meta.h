@@ -286,10 +286,6 @@ int vm_traceback_here(struct ThreadState *ts);
 const uint32_t *
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD);
 
-// void vm_zero_refcount(PyObject *op);
-void vm_decref_shared(PyObject *op);
-void vm_incref_shared(PyObject *op);
-
 struct ThreadState *
 new_threadstate(void);
 

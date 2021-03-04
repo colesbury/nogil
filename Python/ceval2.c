@@ -95,7 +95,7 @@
             } \
         } \
         else { \
-            CALL(vm_decref_shared(obj)); \
+            CALL(_Py_DecRefShared(obj)); \
         } \
     } \
 } while (0)
@@ -144,7 +144,7 @@
             } \
         } \
         else { \
-            CALL_VM(vm_decref_shared(op)); \
+            CALL_VM(_Py_DecRefShared(op)); \
         } \
     } \
 } while(0)
