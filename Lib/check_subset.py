@@ -69,6 +69,12 @@ class Checker(ast.NodeVisitor):
         self(t.targets)
         self(t.value)
 
+    def visit_AnnAssign(self, t):
+        self(t.target)
+        self(t.annotation)
+        if t.value:
+            self(t.value)
+
     def visit_Delete(self, t):
         assert t.targets, "At least one target required: %r" % (t,)
         self(t.targets)
@@ -105,6 +111,10 @@ class Checker(ast.NodeVisitor):
             self(t.cause)
 
     def visit_Global(self, t):
+        for name in t.names:
+            self.check_identifier(name)
+
+    def visit_Nonlocal(self, t):
         for name in t.names:
             self.check_identifier(name)
 

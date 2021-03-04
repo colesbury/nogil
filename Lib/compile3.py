@@ -632,6 +632,11 @@ class CodeGen(ast.NodeVisitor):
             self.assign_accumulator(target)
         reg.clear()
 
+    def visit_AnnAssign(self, t):
+        if t.value is not None:
+            self.assign(t.target, t.value)
+        # TODO: annotations
+
     def assign(self, target, value):
         method = 'assign_' + target.__class__.__name__
         visitor = getattr(self, method)
@@ -1080,6 +1085,9 @@ class CodeGen(ast.NodeVisitor):
         self.RAISE()
 
     def visit_Global(self, t):
+        return no_op
+
+    def visit_Nonlocal(self, t):
         return no_op
 
     def visit_Import(self, t):
@@ -1547,6 +1555,7 @@ class Scope(ast.NodeVisitor):
         self.defs = {name: i for i, name in enumerate(defs)}  # Variables defined
         self.uses = set()        # Variables referenced
         self.globals = set()
+        self.nonlocals = set()
         self.free2reg = {}
         self.scope_type = scope_type
         self.is_generator = False
@@ -1647,6 +1656,13 @@ class Scope(ast.NodeVisitor):
             assert name not in self.defs, "name '%r' is assigned to before global declaration" % (name,)
             assert name not in self.uses, "name '%r' is used prior to global declaration" % (name,)
             self.globals.add(name)
+
+    def visit_Nonlocal(self, t):
+        for name in t.names:
+            name = mangle(self.private, name)
+            assert name not in self.defs, "name '%r' is assigned to before nonlocal declaration" % (name,)
+            assert name not in self.uses, "name '%r' is used prior to nonlocal declaration" % (name,)
+            self.nonlocals.add(name)
 
     def analyze(self, parent_defs):
         self.local_defs = set(self.defs.keys()) if self.scope_type == 'function' else set()
