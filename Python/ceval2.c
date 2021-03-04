@@ -30,6 +30,7 @@
 #endif
 
 #define DEBUG_REGS 0
+#define DEBUG_FRAME 0
 
 #define TARGET(name) \
     TARGET_##name: \
@@ -745,20 +746,20 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(RETURN_VALUE) {
         ts->next_instr = next_instr;
-// #ifdef Py_DEBUG
-//         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
-// #endif
+#if DEBUG_FRAME
+        Py_ssize_t frame_size = THIS_CODE()->co_framesize;
+#endif
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
         intptr_t frame_link = regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
-// #ifdef Py_DEBUG
-//         for (Py_ssize_t i = 0; i < frame_size; i++) {
-//             assert(regs[i].as_int64 == 0);
-//         }
-// #endif
+#if DEBUG_FRAME
+        for (Py_ssize_t i = 0; i < frame_size; i++) {
+            assert(regs[i].as_int64 == 0);
+        }
+#endif
         regs -= frame_delta;
         ts->regs = regs;
         if (UNLIKELY((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON)) {
@@ -1553,6 +1554,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *obj = AS_OBJ(acc);
         getiterfunc f = Py_TYPE(obj)->tp_iter;
         if (f == NULL) {
+            // FIXME
             goto get_iter_slow;
         }
         PyObject *iter;
@@ -1561,6 +1563,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto error;
         }
         if (Py_TYPE(iter)->tp_iternext == NULL) {
+            // FIXME
             goto error;
         }
         opA = RELOAD_OPA();
@@ -1647,6 +1650,73 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             next_instr += opD - 0x8000;
         }
         DISPATCH(FOR_ITER);
+    }
+
+    TARGET(GET_AITER) {
+        unaryfunc getter = NULL;
+        PyObject *obj = AS_OBJ(acc);
+        if (Py_TYPE(obj)->tp_as_async != NULL) {
+            getter = Py_TYPE(obj)->tp_as_async->am_aiter;
+        }
+        if (UNLIKELY(getter == NULL)) {
+            CALL_VM(vm_err_async_for_aiter(ts, Py_TYPE(obj)));
+            goto error;
+        }
+
+        PyObject *iter;
+        CALL_VM(iter = (*getter)(obj));
+        if (iter == NULL) {
+            goto error;
+        }
+        assert(regs[opA].as_int64 == 0);
+        regs[RELOAD_OPA()] = PACK_OBJ(iter);
+
+        if (UNLIKELY(Py_TYPE(iter)->tp_as_async == NULL ||
+                     Py_TYPE(iter)->tp_as_async->am_anext == NULL)) {
+            CALL_VM(vm_err_async_for_anext(ts, Py_TYPE(iter)));
+            goto error;
+        }
+
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(GET_AITER);
+    }
+
+    TARGET(GET_ANEXT) {
+        PyObject *aiter = AS_OBJ(regs[opA]);
+        assert(Py_TYPE(aiter)->tp_as_async->am_anext != NULL);
+
+        unaryfunc getter = Py_TYPE(aiter)->tp_as_async->am_anext;
+        PyObject *awaitable;
+        // TODO: PyAsyncGen_CheckExact awaitable
+        CALL_VM(awaitable = getter(aiter));
+        if (awaitable == NULL) {
+            goto error;
+        }
+        regs[opA + 1] = PACK_OBJ(awaitable);
+        if (!PyCoro2_CheckExact(awaitable)) {
+            CALL_VM(awaitable = _PyCoro2_GetAwaitableIter(awaitable));
+            if (UNLIKELY(awaitable == NULL)) {
+                CALL_VM(vm_err_awaitable(ts, acc));
+                goto error;
+            }
+            Register prev = regs[opA + 1];
+            regs[opA + 1] = PACK_OBJ(awaitable);
+            DECREF(prev);
+        }
+        DISPATCH(GET_ANEXT);
+    }
+
+    TARGET(END_ASYNC_FOR) {
+        // opA + 0 = loop iterable
+        // opA + 1 = -1
+        // opA + 2 = <exception object>
+        int err;
+        CALL_VM(err = vm_end_async_for(ts, opA));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DISPATCH(END_ASYNC_FOR);
     }
 
     TARGET(BUILD_SLICE) {
@@ -1829,8 +1899,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(END_EXCEPT) {
+        // FIXME(sgross): is regs[opA] always -1 ???
         if (regs[opA].as_int64 == -1) {
             Register r = regs[opA + 1];
+            regs[opA].as_int64 = 0;
             regs[opA + 1].as_int64 = 0;
             DECREF(r);
         }

@@ -191,7 +191,7 @@ func_get_code(PyFunc *op, void *Py_UNUSED(ignored))
     if (PySys_Audit("object.__getattr__", "Os", op, "__code__") < 0) {
         return NULL;
     }
-    PyCodeObject2 *code = PyCode2_FromFunc(op);
+    PyObject *code = (PyObject *)PyCode2_FromFunc(op);
     Py_INCREF(code);
     return code;
 }

@@ -104,6 +104,13 @@ class Checker(ast.NodeVisitor):
                 self(item.optional_vars)
         self(t.body)
 
+    def visit_AsyncFor(self, t):
+        self(t.target)
+        self(t.iter)
+        Checker(self.scope_type, in_loop=True)(t.body)
+        if t.orelse is not None:
+            self(t.orelse)
+
     def visit_Raise(self, t):
         if t.exc:
             self(t.exc)

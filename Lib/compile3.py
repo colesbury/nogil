@@ -1142,6 +1142,32 @@ class CodeGen(ast.NodeVisitor):
             self(t.orelse)
         self.LABEL(loop.exit)
 
+    def visit_AsyncFor(self, t):
+        self(t.iter)
+        loop = self.push_loop(self.new_register())
+        self.GET_AITER(loop.reg)
+        self.JUMP(loop.next)
+        self.LABEL(loop.top)
+        self.assign_accumulator(t.target)
+        self(t.body)
+        self.LABEL(loop.next)
+        awaitable = self.new_register()
+        assert awaitable == loop.reg + 1  # GET_ANEXT uses two adjacent registers
+        self.GET_ANEXT(loop.reg)
+        self.load_const(None)
+        self.YIELD_FROM(awaitable)
+        self.CLEAR_FAST(awaitable)
+        self.next_register = awaitable
+        self.JUMP(loop.top)
+        link_reg = self.new_register(2)
+        self.LABEL(ExceptHandler(loop.next, loop.anchor, link_reg))
+        self.END_ASYNC_FOR(loop.reg)
+        self.next_register = loop.reg
+        self.LABEL(loop.anchor)
+        if t.orelse:
+            self(t.orelse)
+        self.LABEL(loop.exit)
+
     def push_loop(self, reg=None):
         loop = Loop(reg)
         self.blocks.append(loop)
@@ -1253,6 +1279,7 @@ class CodeGen(ast.NodeVisitor):
         self.GET_YIELD_FROM_ITER(reg.allocate())
         self.load_const(None)
         self.YIELD_FROM(reg)
+        reg.clear()
 
     def visit_Await(self, t):
         reg = self.register()
@@ -1260,6 +1287,7 @@ class CodeGen(ast.NodeVisitor):
         self.GET_AWAITABLE(reg.allocate())
         self.load_const(None)
         self.YIELD_FROM(reg)
+        reg.clear()
 
     def visit_Function(self, t):
         regs = self.register_list()
@@ -1371,6 +1399,7 @@ def collect(table):
     return tuple(sorted(table, key=table.get))
 
 def compile3(ast, filename, optimize):
+    print('compiling', filename, file=sys.stderr)
     return code_for_module(filename, ast)
 
 def load_file(filename, module_name):

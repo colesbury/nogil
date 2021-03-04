@@ -239,6 +239,8 @@ int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int 
 void vm_err_awaitable(struct ThreadState *ts, Register acc);
 void vm_err_coroutine_awaited(struct ThreadState *ts);
 void vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA);
+void vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type);
+void vm_err_async_for_anext(struct ThreadState *ts, PyTypeObject *type);
 
 Register vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
@@ -292,6 +294,7 @@ new_threadstate(void);
 
 void vm_free_threadstate(struct ThreadState *ts);
 int vm_for_iter_exc(struct ThreadState *ts);
+int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
 
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);

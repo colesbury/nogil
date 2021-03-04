@@ -1696,6 +1696,28 @@ vm_for_iter_exc(struct ThreadState *ts)
     return 0;
 }
 
+int
+vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA)
+{
+    PyObject *exc = AS_OBJ(ts->regs[opA + 2]);
+    if (!PyErr_GivenExceptionMatches(exc, PyExc_StopAsyncIteration)) {
+        Py_INCREF(exc);
+        PyObject *type = (PyObject *)Py_TYPE(exc);
+        Py_INCREF(type);
+        PyObject *tb = PyException_GetTraceback(exc);
+        _PyErr_Restore(ts->ts, type, exc, tb);
+        return -1;
+    }
+    CLEAR(ts->regs[opA + 2]);
+    assert(ts->regs[opA + 1].as_int64 == -1);
+    ts->regs[opA + 1].as_int64 = 0;
+    CLEAR(ts->regs[opA]);
+    // else if (tstate->c_tracefunc != NULL) {
+    //     call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
+    // }
+    return 0;
+}
+
 static PyObject *
 vm_raise_assertion_error(PyObject *msg)
 {
@@ -1747,7 +1769,7 @@ vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
     if (PyErr_Occurred()) {
         return;
     }
-    PyFunc *func = AS_OBJ(ts->regs[-1]);
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyCodeObject2 *co = PyCode2_FROM_FUNC(func);
     PyObject *name = PyTuple_GET_ITEM(co->co_varnames, opA);
     int is_local = 1;   // FIXME(sgross): figure out if variable is local or free
@@ -1764,6 +1786,25 @@ vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
             " in enclosing scope",
             name);
     }
+}
+
+void
+vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type)
+{
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+        "'async for' requires an object with "
+        "__aiter__ method, got %.100s",
+        type->tp_name);
+
+}
+
+void
+vm_err_async_for_anext(struct ThreadState *ts, PyTypeObject *type)
+{
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+        "'async for' received an object from __aiter__ "
+        "that does not implement __anext__: %.100s",
+        type->tp_name);
 }
 
 int
