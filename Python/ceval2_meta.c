@@ -582,6 +582,19 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t
     }
 }
 
+PyObject *
+vm_get_iter(PyObject *o)
+{
+    assert(Py_TYPE(o)->tp_iter == NULL &&
+           "GET_ITER should have use fast-path");
+    if (PySequence_Check(o)) {
+        return PySeqIter_New(o);
+    }
+    PyErr_Format(PyExc_TypeError, "'%.200s' object is not iterable",
+                 Py_TYPE(o)->tp_name);
+    return NULL;
+}
+
 int
 vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
           Py_ssize_t argcnt, Py_ssize_t argcntafter)
@@ -1723,6 +1736,15 @@ vm_raise_assertion_error(PyObject *msg)
 {
     PyErr_SetObject(PyExc_AssertionError, msg);
     return NULL;
+}
+
+void
+vm_err_non_iterator(struct ThreadState *ts, PyObject *o)
+{
+    PyErr_Format(PyExc_TypeError,
+                 "iter() returned non-iterator "
+                 "of type '%.100s'",
+                 Py_TYPE(o)->tp_name);
 }
 
 void

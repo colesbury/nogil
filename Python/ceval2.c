@@ -1552,18 +1552,17 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(GET_ITER) {
         PyObject *obj = AS_OBJ(acc);
-        getiterfunc f = Py_TYPE(obj)->tp_iter;
-        if (f == NULL) {
-            // FIXME
-            goto get_iter_slow;
-        }
         PyObject *iter;
+        getiterfunc f = Py_TYPE(obj)->tp_iter;
+        if (UNLIKELY(f == NULL)) {
+            f = vm_get_iter;
+        }
         CALL_VM(iter = (*f)(obj));
         if (iter == NULL) {
             goto error;
         }
         if (Py_TYPE(iter)->tp_iternext == NULL) {
-            // FIXME
+            CALL_VM(vm_err_non_iterator(ts, iter));
             goto error;
         }
         opA = RELOAD_OPA();
@@ -1572,9 +1571,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(GET_ITER);
-        get_iter_slow:
-            // FIXME
-            goto error;
     }
 
     TARGET(GET_YIELD_FROM_ITER) {
