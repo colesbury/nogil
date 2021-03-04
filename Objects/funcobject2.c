@@ -186,6 +186,52 @@ static PyMemberDef func_memberlist[] = {
 };
 
 static PyObject *
+func_get_code(PyFunc *op, void *Py_UNUSED(ignored))
+{
+    if (PySys_Audit("object.__getattr__", "Os", op, "__code__") < 0) {
+        return NULL;
+    }
+    PyCodeObject2 *code = PyCode2_FromFunc(op);
+    Py_INCREF(code);
+    return code;
+}
+
+static int
+func_set_code(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    /* Not legal to del f.func_code or to set it to anything
+     * other than a code object. */
+    if (value == NULL || !PyCode2_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "__code__ must be set to a code object");
+        return -1;
+    }
+
+    if (PySys_Audit("object.__setattr__", "OsO",
+                    op, "__code__", value) < 0) {
+        return -1;
+    }
+
+    PyErr_SetString(PyExc_TypeError, "you could, but why would you?");
+    return -1;
+
+    // nfree = PyCode_GetNumFree((PyCodeObject *)value);
+    // nclosure = (op->func_closure == NULL ? 0 :
+    //         PyTuple_GET_SIZE(op->func_closure));
+    // if (nclosure != nfree) {
+    //     PyErr_Format(PyExc_ValueError,
+    //                  "%U() requires a code object with %zd free vars,"
+    //                  " not %zd",
+    //                  op->func_name,
+    //                  nclosure, nfree);
+    //     return -1;
+    // }
+    // Py_INCREF(value);
+    // Py_XSETREF(op->func_code, value);
+    // return 0;
+}
+
+static PyObject *
 func_get_name(PyFunc *op, void *Py_UNUSED(ignored))
 {
     Py_INCREF(op->func_name);
@@ -230,7 +276,7 @@ func_set_qualname(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
 }
 
 static PyGetSetDef func_getsetlist[] = {
-    // {"__code__", (getter)func_get_code, (setter)func_set_code},
+    {"__code__", (getter)func_get_code, (setter)func_set_code},
     // {"__defaults__", (getter)func_get_defaults,
     //  (setter)func_set_defaults},
     // {"__kwdefaults__", (getter)func_get_kwdefaults,
