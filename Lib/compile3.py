@@ -1023,7 +1023,8 @@ class CodeGen(ast.NodeVisitor):
             ast.RShift: ops.BINARY_RSHIFT, ast.Mult: ops.BINARY_MULTIPLY,
             ast.BitOr:  ops.BINARY_OR,     ast.Mod:  ops.BINARY_MODULO,
             ast.BitAnd: ops.BINARY_AND,    ast.Div:  ops.BINARY_TRUE_DIVIDE,
-            ast.BitXor: ops.BINARY_XOR,    ast.FloorDiv: ops.BINARY_FLOOR_DIVIDE}
+            ast.BitXor: ops.BINARY_XOR,    ast.FloorDiv: ops.BINARY_FLOOR_DIVIDE,
+            ast.MatMult: ops.BINARY_MATRIX_MULTIPLY}
 
     def emit_compare(self, operator, reg):
         optype = type(operator)

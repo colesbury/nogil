@@ -161,7 +161,7 @@ class Checker(ast.NodeVisitor):
     ops_bool = {ast.And, ast.Or}
 
     def visit_BinOp(self, t):
-        assert type(t.op) in self.ops2, "Unsupported binary op: %r" % (t,)
+        assert type(t.op) in self.ops2, "Unsupported binary op: %r" % (t.op,)
         self(t.left)
         self(t.right)
     ops2 = {ast.Pow,       ast.Add,
@@ -169,7 +169,8 @@ class Checker(ast.NodeVisitor):
             ast.RShift,    ast.Mult,
             ast.BitOr,     ast.Mod,
             ast.BitAnd,    ast.Div,
-            ast.BitXor,    ast.FloorDiv}
+            ast.BitXor,    ast.FloorDiv,
+            ast.MatMult}
 
     def visit_UnaryOp(self, t):
         assert type(t.op) in self.ops1, "Unsupported unary op: %r" % (t,)
