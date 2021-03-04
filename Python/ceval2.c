@@ -948,7 +948,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *cell = AS_OBJ(regs[opA]);
         PyObject *value = PyCell_GET(cell);
         if (UNLIKELY(value == NULL)) {
-            // FIXME: error
+            CALL_VM(vm_err_unbound(ts, opA));
+            goto error;
         }
         acc = PACK_INCREF(value);
         DISPATCH(LOAD_DEREF);

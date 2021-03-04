@@ -1740,6 +1740,32 @@ vm_err_coroutine_awaited(struct ThreadState *ts)
                     "coroutine is being awaited already");
 }
 
+void
+vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
+{
+    /* Don't stomp existing exception */
+    if (PyErr_Occurred()) {
+        return;
+    }
+    PyFunc *func = AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *co = PyCode2_FROM_FUNC(func);
+    PyObject *name = PyTuple_GET_ITEM(co->co_varnames, opA);
+    int is_local = 1;   // FIXME(sgross): figure out if variable is local or free
+    if (is_local) {
+        PyErr_Format(
+            PyExc_UnboundLocalError,
+            "local variable '%.200R' referenced before assignment",
+            name);
+    }
+    else {
+        PyErr_Format(
+            PyExc_NameError,
+            "free variable '%.200R' referenced before assignment"
+            " in enclosing scope",
+            name);
+    }
+}
+
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 {
