@@ -1796,10 +1796,14 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
-    Py_ssize_t nargs = code->co_argcount;
-    for (Py_ssize_t i = 0; i < nargs; i++) {
+    for (Py_ssize_t i = 0; i != code->co_argcount; i++) {
         ts->regs[i] = old->regs[i];
         old->regs[i].as_int64 = 0;
+    }
+    for (Py_ssize_t i = code->co_ndefaultargs; i != code->co_nfreevars; i++) {
+        Py_ssize_t r = code->co_free2reg[i*2+1];
+        ts->regs[r] = old->regs[r];
+        old->regs[r].as_int64 = 0;
     }
     ts->ts = PyThreadState_GET();
     return 0;
