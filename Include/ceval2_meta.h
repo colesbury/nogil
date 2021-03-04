@@ -250,6 +250,9 @@ Register vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_tuple_prepend(PyObject *tuple, PyObject *obj);
 Register vm_build_slice(Register *regs);
 
+int vm_callargs_to_tuple(struct ThreadState *ts);
+int vm_kwargs_to_dict(struct ThreadState *ts);
+
 PyObject *vm_call_cfunction(struct ThreadState *ts, Register acc);
 PyObject *vm_call_function(struct ThreadState *ts, Register acc);
 PyObject *vm_tpcall_function(struct ThreadState *ts, Register acc);

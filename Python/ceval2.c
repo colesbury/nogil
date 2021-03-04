@@ -648,11 +648,35 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         // opA - 2 = <empty> (frame link)
         // opA - 1 = func
         assert(IS_EMPTY(acc));
-        PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;  // frame delta
         regs[-2].as_int64 = (intptr_t)next_instr;
+
+        // next_instr is no longer valid. The NULL value prevents this
+        // partially set-up frame from showing up in tracebacks.
+        next_instr = NULL;
+
+        // ensure that *args is a tuple
+        if (UNLIKELY(!PyTuple_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 2])))) {
+            int err;
+            CALL_VM(err = vm_callargs_to_tuple(ts));
+            if (UNLIKELY(err < 0)) {
+                goto error;
+            }
+        }
+
+        // ensure that **kwargs is a dict
+        if (regs[-FRAME_EXTRA - 1].as_int64 != 0 &&
+            UNLIKELY(!PyDict_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 1])))) {
+            int err;
+            CALL_VM(err = vm_kwargs_to_dict(ts));
+            if (UNLIKELY(err < 0)) {
+                goto error;
+            }
+        }
+
+        PyObject *callable = AS_OBJ(regs[-1]);
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object_ex;
         }

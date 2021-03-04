@@ -311,6 +311,12 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
 {
     assert(PyErr_Occurred());
     for (;;) {
+        if (next_instr == NULL) {
+            // next_instr is NULL if we set up the call frame, but haven't
+            // started executing it. See CALL_FUNCTION_EX in ceval2.c
+            goto next;
+        }
+
         PyObject *callable = AS_OBJ(ts->regs[-1]);
         if (PyFunc_Check(callable)) {
             PyFunc *func = (PyFunc *)callable;
@@ -345,6 +351,8 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         // unwinds the call stack.
         Py_ssize_t frame_size = vm_frame_size(ts);
         vm_clear_regs(ts, -1, frame_size);
+
+      next: ;
         uintptr_t frame_link = ts->regs[-2].as_int64;
         intptr_t frame_delta = ts->regs[-4].as_int64;
         ts->regs[-2].as_int64 = 0;
@@ -389,7 +397,7 @@ vm_traceback_here(struct ThreadState *ts)
         uintptr_t frame_link = ts->regs[offset-2].as_int64;
         intptr_t frame_delta = ts->regs[offset-4].as_int64;
 
-        if (!PyFunc_Check(func)) {
+        if (!PyFunc_Check(func) || next_instr == NULL) {
             goto next;
         }
 
@@ -1435,6 +1443,93 @@ vm_tuple_prepend(PyObject *tuple, PyObject *obj)
     return PACK(res, REFCOUNT_TAG);
 }
 
+int
+vm_callargs_to_tuple(struct ThreadState *ts)
+{
+    PyObject *args = AS_OBJ(ts->regs[-FRAME_EXTRA-2]);
+    PyObject *res = PySequence_Tuple(args);
+    if (UNLIKELY(res == NULL)) {
+        if (Py_TYPE(args)->tp_iter == NULL && !PySequence_Check(args)) {
+            PyErr_Clear();
+            PyObject *funcstr = _PyObject_FunctionStr(AS_OBJ(ts->regs[-1]));
+            if (funcstr != NULL) {
+                _PyErr_Format(ts->ts, PyExc_TypeError,
+                            "%U argument after * must be an iterable, not %.200s",
+                            funcstr, Py_TYPE(args)->tp_name);
+                Py_DECREF(funcstr);
+            }
+        }
+        return -1;
+    }
+    Register prev = ts->regs[-FRAME_EXTRA-2];
+    ts->regs[-FRAME_EXTRA-2] = PACK_OBJ(res);
+    DECREF(prev);
+    return 0;
+}
+
+static void
+format_kwargs_error(PyThreadState *tstate, PyObject *func, PyObject *kwargs)
+{
+    /* _PyDict_MergeEx raises attribute
+     * error (percolated from an attempt
+     * to get 'keys' attribute) instead of
+     * a type error if its second argument
+     * is not a mapping.
+     */
+    if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+        _PyErr_Clear(tstate);
+        PyObject *funcstr = _PyObject_FunctionStr(func);
+        if (funcstr != NULL) {
+            _PyErr_Format(
+                tstate, PyExc_TypeError,
+                "%U argument after ** must be a mapping, not %.200s",
+                funcstr, Py_TYPE(kwargs)->tp_name);
+            Py_DECREF(funcstr);
+        }
+    }
+    else if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
+        PyObject *exc, *val, *tb;
+        _PyErr_Fetch(tstate, &exc, &val, &tb);
+        if (val && PyTuple_Check(val) && PyTuple_GET_SIZE(val) == 1) {
+            _PyErr_Clear(tstate);
+            PyObject *funcstr = _PyObject_FunctionStr(func);
+            if (funcstr != NULL) {
+                PyObject *key = PyTuple_GET_ITEM(val, 0);
+                _PyErr_Format(
+                    tstate, PyExc_TypeError,
+                    "%U got multiple values for keyword argument '%S'",
+                    funcstr, key);
+                Py_DECREF(funcstr);
+            }
+            Py_XDECREF(exc);
+            Py_XDECREF(val);
+            Py_XDECREF(tb);
+        }
+        else {
+            _PyErr_Restore(tstate, exc, val, tb);
+        }
+    }
+}
+
+int
+vm_kwargs_to_dict(struct ThreadState *ts)
+{
+    PyObject *d = PyDict_New();
+    if (d == NULL) {
+        return -1;
+    }
+    PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA-1]);
+    if (_PyDict_MergeEx(d, kwargs, 2) < 0) {
+        Py_DECREF(d);
+        format_kwargs_error(ts->ts, AS_OBJ(ts->regs[-1]), kwargs);
+        return -1;
+    }
+    Register prev = ts->regs[-FRAME_EXTRA-1];
+    ts->regs[-FRAME_EXTRA-1] = PACK_OBJ(d);
+    DECREF(prev);
+    return 0;
+}
+
 static PyObject *
 vm_unimplemented(/*intentionally empty*/)
 {
@@ -1501,9 +1596,10 @@ vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssiz
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
 {
-    printf("vm_resize_stack\n");
-    abort();
-    return 0;
+    // printf("vm_resize_stack\n");
+    // abort();
+    PyErr_SetString(PyExc_SystemError, "vm_resize_stack");
+    return -1;
 }
 
 int
