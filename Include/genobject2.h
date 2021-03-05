@@ -53,8 +53,8 @@ PyAPI_DATA(PyTypeObject) PyAsyncGen2_Type;
 
 #define PyGen2_Check(op) PyObject_TypeCheck(op, &PyGen2_Type)
 #define PyGen2_CheckExact(op) (Py_TYPE(op) == &PyGen2_Type)
-#define PyCoro2_Check(op) PyObject_TypeCheck(op, &PyCoro2_Type)
 #define PyCoro2_CheckExact(op) (Py_TYPE(op) == &PyCoro2_Type)
+#define PyAsyncGen2_CheckExact(op) (Py_TYPE(op) == &PyAsyncGen2_Type)
 
 PyGenObject2 *
 PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx);

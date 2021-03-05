@@ -12,6 +12,7 @@ static PyTypeObject *coro_types[] = {
     NULL,
     &PyGen2_Type,
     &PyCoro2_Type,
+    &PyAsyncGen2_Type,
 };
 
 static PyGenObject2 *
@@ -207,9 +208,14 @@ gen_send_internal(PyGenObject2 *gen, Register acc)
         assert(gen->return_value != NULL);
         if (LIKELY(gen->return_value == Py_None)) {
             gen->return_value = NULL;
+            PyErr_SetNone(PyAsyncGen2_CheckExact(gen)
+                            ? PyExc_StopAsyncIteration
+                            : PyExc_StopIteration);
             return NULL;
         }
-        return _PyGen2_SetStopIterationValue(gen);
+        else {
+            return _PyGen2_SetStopIterationValue(gen);
+        }
     }
 
     if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
@@ -272,14 +278,6 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
 
     Register acc = PACK_INCREF(arg);
     PyObject *res = gen_send_internal(gen, acc);
-    if (res == NULL && gen->status == GEN_FINISHED && !PyErr_Occurred()) {
-        // if (PyAsyncGen_CheckExact(gen)) {
-        //     PyErr_SetNone(PyExc_StopAsyncIteration);
-        // }
-        // else {
-            PyErr_SetNone(PyExc_StopIteration);
-        // }
-    }
     return res;
 }
 
@@ -675,6 +673,17 @@ gen_set_qualname(PyGenObject2 *op, PyObject *value, void *Py_UNUSED(ignored))
     return 0;
 }
 
+static PyObject *
+async_gen_anext(PyAsyncGenObject2 *o)
+{
+    PyErr_SetString(PyExc_SystemError, "async_gen_anext NYI");
+    return NULL;
+    // if (async_gen_init_hooks(o)) {
+    //     return NULL;
+    // }
+    // return async_gen_asend_new(o, NULL);
+}
+
 static PyGetSetDef gen_getsetlist[] = {
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
@@ -727,6 +736,29 @@ PyTypeObject PyCoro2_Type = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)gen_traverse,
     .tp_weaklistoffset = offsetof(PyCoroObject2, base.weakreflist),
+    .tp_methods = gen_methods,
+    .tp_members = gen_memberlist,
+    .tp_getset = gen_getsetlist,
+    .tp_finalize = _PyGen2_Finalize
+};
+
+static PyAsyncMethods async_gen_as_async = {
+    0,                                          /* am_await */
+    PyObject_SelfIter,                          /* am_aiter */
+    (unaryfunc)async_gen_anext                  /* am_anext */
+};
+
+PyTypeObject PyAsyncGen2_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "async_generator",
+    .tp_basicsize = sizeof(PyAsyncGenObject2),
+    .tp_dealloc = (destructor)gen_dealloc,
+    .tp_as_async = &async_gen_as_async,
+    .tp_repr = (reprfunc)gen_repr,
+    .tp_getattro = PyObject_GenericGetAttr, // necessary ???
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_traverse = (traverseproc)gen_traverse,
+    .tp_weaklistoffset = offsetof(PyAsyncGenObject2, base.weakreflist),
     .tp_methods = gen_methods,
     .tp_members = gen_memberlist,
     .tp_getset = gen_getsetlist,
