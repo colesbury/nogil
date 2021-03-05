@@ -51,7 +51,7 @@ static const char *opcode_names[256] = {
     "WITH_EXCEPT_START",
     "GET_AITER",
     "GET_ANEXT",
-    "BEFORE_ASYNC_WITH",
+    "END_ASYNC_WITH",
     "unknown_opcode",
     "END_ASYNC_FOR",
     "INPLACE_ADD",

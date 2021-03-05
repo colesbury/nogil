@@ -104,6 +104,13 @@ class Checker(ast.NodeVisitor):
                 self(item.optional_vars)
         self(t.body)
 
+    def visit_AsyncWith(self, t):
+        for item in t.items:
+            self(item.context_expr)
+            if item.optional_vars:
+                self(item.optional_vars)
+        self(t.body)
+
     def visit_AsyncFor(self, t):
         self(t.target)
         self(t.iter)

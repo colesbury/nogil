@@ -66,12 +66,6 @@ vm_frame_size(struct ThreadState *ts)
     } \
 } while (0)
 
-#define CLEAR(reg) do {     \
-    Register _tmp = (reg);  \
-    (reg).as_int64 = 0;     \
-    DECREF(_tmp);           \
-} while (0)
-
 Register vm_compare(Register a, Register b)
 {
     printf("vm_compare\n");
@@ -142,7 +136,6 @@ vm_setup_with(struct ThreadState *ts, Py_ssize_t opA)
 {
     _Py_IDENTIFIER(__enter__);
     _Py_IDENTIFIER(__exit__);
-    Register error = {0};
 
     PyObject *mgr = AS_OBJ(ts->regs[opA]);
     PyObject *exit = _PyObject_LookupSpecial(mgr, &PyId___exit__);
@@ -152,15 +145,39 @@ vm_setup_with(struct ThreadState *ts, Py_ssize_t opA)
     ts->regs[opA + 1] = PACK_OBJ(exit);
     PyObject *enter = _PyObject_LookupSpecial(mgr, &PyId___enter__);
     if (UNLIKELY(enter == NULL)) {
-        return attribute_error(ts, &PyId___exit__);
+        return attribute_error(ts, &PyId___enter__);
     }
     PyObject *res = _PyObject_CallNoArg(enter);
     Py_DECREF(enter);
     if (UNLIKELY(res == NULL)) {
-        return error;
+        return (Register){0};
     }
     return PACK_OBJ(res);
 }
+
+
+Register
+vm_setup_async_with(struct ThreadState *ts, Py_ssize_t opA)
+{
+    _Py_IDENTIFIER(__aenter__);
+    _Py_IDENTIFIER(__aexit__);
+
+    PyObject *mgr = AS_OBJ(ts->regs[opA]);
+    PyObject *exit = _PyObject_LookupSpecial(mgr, &PyId___aexit__);
+    if (UNLIKELY(exit == NULL)) {
+        return attribute_error(ts, &PyId___aexit__);
+    }
+    ts->regs[opA + 1] = PACK_OBJ(exit);
+    PyObject *enter = _PyObject_LookupSpecial(mgr, &PyId___aenter__);
+    if (UNLIKELY(enter == NULL)) {
+        return attribute_error(ts, &PyId___aenter__);
+    }
+    PyObject *res = _PyObject_CallNoArg(enter);
+    Py_DECREF(enter);
+    if (UNLIKELY(res == NULL)) {
+        return (Register){0};
+    }
+    return PACK_OBJ(res);}
 
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
@@ -224,9 +241,15 @@ vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
     if (UNLIKELY(res == NULL)) {
         return -1;
     }
+    return vm_exit_with_res(ts, opA, res);
+}
 
-    int is_true = PyObject_IsTrue(res);
-    Py_DECREF(res);
+int
+vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res)
+{
+    assert(ts->regs[opA + 2].as_int64 == -1);
+    int is_true = PyObject_IsTrue(exit_res);
+    Py_DECREF(exit_res);
     if (UNLIKELY(is_true < 0)) {
         return -1;
     }
@@ -266,6 +289,58 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
     assert(ts->regs[opA + 2].as_int64 == 0);
     CLEAR(ts->regs[opA + 1]);
     CLEAR(ts->regs[opA]);
+    return 0;
+}
+
+int
+vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA)
+{
+    PyObject *exit = AS_OBJ(ts->regs[opA + 1]);
+    int64_t link = ts->regs[opA + 2].as_int64;
+
+    PyObject *stack[4];
+    stack[0] = NULL;
+    if (link == -1) {
+        PyObject *exc = AS_OBJ(ts->regs[opA + 3]);
+        assert(exc != NULL && exc == vm_handled_exc(ts));
+        stack[1] = exc;
+        stack[2] = (PyObject *)Py_TYPE(exc);
+        stack[3] = ((PyBaseExceptionObject *)exc)->traceback;
+    }
+    else {
+        stack[1] = Py_None;
+        stack[2] = Py_None;
+        stack[3] = Py_None;
+    }
+    Py_ssize_t nargsf = 3 | PY_VECTORCALL_ARGUMENTS_OFFSET;
+    PyObject *obj = _PyObject_VectorcallTstate(ts->ts, exit, stack + 1, nargsf, NULL);
+    if (obj == NULL) {
+        return -1;
+    }
+    CLEAR(ts->regs[opA]);
+    CLEAR(ts->regs[opA + 1]);
+    ts->regs[opA] = PACK_OBJ(obj);
+
+    // convert obj to awaitable (effectively GET_AWAITABLE)
+    if (PyCoro2_CheckExact(obj)) {
+        PyObject *yf = ((PyCoroObject2 *)obj)->base.yield_from;
+        if (UNLIKELY(yf != NULL)) {
+            vm_err_coroutine_awaited(ts);
+            return -1;
+        }
+    }
+    else {
+        PyObject *iter = _PyCoro2_GetAwaitableIter(obj);
+        if (iter == NULL) {
+            _PyErr_Format(ts->ts, PyExc_TypeError,
+                          "'async with' received an object from __aexit__ "
+                          "that does not implement __await__: %.100s",
+                          Py_TYPE(obj)->tp_name);
+            return -1;
+        }
+        CLEAR(ts->regs[opA]);
+        ts->regs[opA] = PACK_OBJ(iter);
+    }
     return 0;
 }
 
@@ -1848,9 +1923,9 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     Py_ssize_t frame_delta = CFRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-3] = old->regs[-3];   // copy constants
+    ts->regs[-3] = old->regs[-3];  // copy constants
     ts->regs[-2].as_int64 = FRAME_GENERATOR;
-    ts->regs[-1] = old->regs[-1];   // copy func
+    ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
     // The new thread-state takes ownership of the "func" and constants.
     // We can't clear the old thread states values because they will be
@@ -1860,7 +1935,9 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
     for (Py_ssize_t i = 0; i != code->co_argcount; i++) {
-        ts->regs[i] = old->regs[i];
+        // NB: we have to convert aliases into strong references. The
+        // generator may outlive the calling frame.
+        ts->regs[i] = STRONG_REF(old->regs[i]);
         old->regs[i].as_int64 = 0;
     }
     for (Py_ssize_t i = code->co_ndefaultargs; i != code->co_nfreevars; i++) {

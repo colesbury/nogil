@@ -140,6 +140,21 @@ PACK_INCREF(PyObject *obj)
     return r;
 }
 
+static inline Register
+STRONG_REF(Register r)
+{
+    if (!IS_RC(r)) {
+        return PACK_INCREF(AS_OBJ(r));
+    }
+    return r;
+}
+
+#define CLEAR(reg) do {     \
+    Register _tmp = (reg);  \
+    (reg).as_int64 = 0;     \
+    DECREF(_tmp);           \
+} while (0)
+
 struct _ts;
 
 // struct VirtualThread {};
@@ -198,10 +213,11 @@ Register vm_unknown_opcode(intptr_t opcode);
 int vm_raise(struct ThreadState *ts, PyObject *exc);
 int vm_reraise(struct ThreadState *ts, Register exc);
 
-Register
-vm_setup_with(struct ThreadState *ts, Py_ssize_t opA);
-int
-vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
+Register vm_setup_with(struct ThreadState *ts, Py_ssize_t opA);
+Register vm_setup_async_with(struct ThreadState *ts, Py_ssize_t opA);
+int vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
+int vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA);
+int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res);
 
 PyObject *
 vm_handled_exc(struct ThreadState *ts);

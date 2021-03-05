@@ -30,7 +30,7 @@
 #endif
 
 #define DEBUG_REGS 0
-#define DEBUG_FRAME 0
+#define DEBUG_FRAME 1
 
 #define TARGET(name) \
     TARGET_##name: \
@@ -721,26 +721,29 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         goto return_to_c;
     }
 
+    #define IMPL_YIELD_FROM(awaitable, res) do {                                \
+        assert(PyGen2_CheckExact(awaitable) || PyCoro2_CheckExact(awaitable));  \
+        PyGen2_FromThread(ts)->yield_from = awaitable;                          \
+        CALL_VM(res = _PyGen2_Send((PyGenObject2 *)awaitable, AS_OBJ(acc)));    \
+        if (res != NULL) {                                                      \
+            SET_ACC(PACK_OBJ(res));                                             \
+            PyGenObject2 *gen = PyGen2_FromThread(ts);                          \
+            gen->status = GEN_YIELD;                                            \
+            ts->next_instr = next_instr - 1; /* will resume with YIELD_FROM */  \
+            goto return_to_c;                                                   \
+        }                                                                       \
+        PyGen2_FromThread(ts)->yield_from = NULL;                               \
+        CALL_VM(res = _PyGen2_FetchStopIterationValue());                       \
+        if (UNLIKELY(res == NULL)) {                                            \
+            goto error;                                                         \
+        }                                                                       \
+    } while (0)
+
     TARGET(YIELD_FROM) {
-        PyObject *receiver = AS_OBJ(regs[opA]);
-        PyObject *value = AS_OBJ(acc);
-        assert(PyGen2_CheckExact(receiver) || PyCoro2_CheckExact(receiver));
-        PyObject *retval;
-        PyGen2_FromThread(ts)->yield_from = receiver;
-        CALL_VM(retval = _PyGen2_Send((PyGenObject2 *)receiver, value));
-        if (retval != NULL) {
-            SET_ACC(PACK_OBJ(retval));
-            PyGenObject2 *gen = PyGen2_FromThread(ts);
-            gen->status = GEN_YIELD;
-            ts->next_instr = next_instr - 1; /* will resume with YIELD_FROM */
-            goto return_to_c;
-        }
-        PyGen2_FromThread(ts)->yield_from = NULL;
-        CALL_VM(retval = _PyGen2_FetchStopIterationValue());
-        if (UNLIKELY(retval == NULL)) {
-            goto error;
-        }
-        SET_ACC(PACK_OBJ(retval));
+        PyObject *awaitable = AS_OBJ(regs[opA]);
+        PyObject *res;
+        IMPL_YIELD_FROM(awaitable, res);
+        SET_ACC(PACK_OBJ(res));
         DISPATCH(YIELD_FROM);
     }
 
@@ -1939,6 +1942,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         DISPATCH(SETUP_WITH);
     }
 
+    TARGET(SETUP_ASYNC_WITH) {
+        regs[opA] = acc;
+        CALL_VM(acc = vm_setup_async_with(ts, opA));
+        if (UNLIKELY(acc.as_int64 == 0)) {
+            goto error;
+        }
+        DISPATCH(SETUP_ASYNC_WITH);
+    }
+
     TARGET(END_WITH) {
         assert(IS_EMPTY(acc));
         int err;
@@ -1950,6 +1962,52 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto exception_unwind;
         }
         DISPATCH(END_WITH);
+    }
+
+    TARGET(END_ASYNC_WITH) {
+        // on first execution:
+        // acc = NULL
+        // opA + 0 = <mgr>
+        // opA + 1 = __exit__
+        // opA + 2 = 0 or -1 (on error)
+        // opA + 3 = 0 or <error> (on error)
+        //
+        // on resumptions:
+        // acc = <value to send to coroutine>
+        // opA + 0 = <awaitable>
+        // opA + 1 = 0
+        // opA + 2 = 0 or -1 (on error)
+        // opA + 3 = 0 or <error> (on error)
+        int err;
+        if (acc.as_int64 == 0) {
+            // first time
+            CALL_VM(err = vm_exit_async_with(ts, opA));
+            if (UNLIKELY(err != 0)) {
+                goto error;
+            }
+            opA = RELOAD_OPA();
+            acc = PACK(Py_None, NO_REFCOUNT_TAG);
+        }
+        PyObject *res;
+        PyObject *awaitable = AS_OBJ(regs[opA]);
+        IMPL_YIELD_FROM(awaitable, res);
+        opA = RELOAD_OPA();
+        if (regs[opA + 2].as_int64 != 0) {
+            CALL_VM(err = vm_exit_with_res(ts, opA, res));
+            if (err != 0) {
+                if (err == -1) {
+                    goto error;
+                }
+                goto exception_unwind;
+            }
+        }
+        else {
+            _Py_DECREF(res);
+            CLEAR(regs[opA]);
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(END_ASYNC_WITH);
     }
 
     TARGET(LOAD_INTRINSIC) {

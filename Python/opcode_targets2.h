@@ -51,7 +51,7 @@ static void *opcode_targets_base[256] = {
     &&TARGET_WITH_EXCEPT_START,
     &&TARGET_GET_AITER,
     &&TARGET_GET_ANEXT,
-    &&TARGET_BEFORE_ASYNC_WITH,
+    &&TARGET_END_ASYNC_WITH,
     &&_unknown_opcode,
     &&TARGET_END_ASYNC_FOR,
     &&TARGET_INPLACE_ADD,

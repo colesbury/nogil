@@ -212,6 +212,15 @@ class WithBlock(Block):
         v.END_WITH(self.reg)
         v.next_register -= 2
 
+class AsyncWithBlock(Block):
+    def __init__(self, reg):
+        self.reg = reg
+
+    def on_exit(self, v):
+        assert v.next_register == self.reg + 3
+        v.END_ASYNC_WITH(self.reg)
+        v.next_register -= 3
+
 class Loop:
     def __init__(self, reg=None):
         self.top = Label()      # iteration
@@ -833,15 +842,16 @@ class CodeGen(ast.NodeVisitor):
         # interpreter reraises the exception or continues to
         # the next instruction depending on if the bool(result) is
         # true.
+        #
+        # SETUP_WITH: does 3 things:
+        #  copies acc to regs[0]
+        #  loads acc.__exit__ and stores in regs[1]
+        #  calls acc.__enter__() and result is stored in acc
 
         with_reg = self.new_register(2)
         link_reg = self.next_register  # don't allocate it yet
 
         self(item.context_expr)
-        # SETUP_WITH: does 3 things:
-        #  copies acc to regs[0]
-        #  loads acc.__exit__ and stores in regs[1]
-        #  calls acc.__enter__() and result is stored in acc
         self.SETUP_WITH(with_reg)
         # begin try?
         self.LABEL(start)
@@ -858,10 +868,39 @@ class CodeGen(ast.NodeVisitor):
         self.END_WITH(with_reg)
         self.LABEL(handler_end)
 
+    def visit_AsyncWith(self, t):
+        assert len(t.items) == 1, 'AsyncWith not desurgared'
+        item = t.items[0]
+        start = Label()
+        handler_end = Label()
 
-        # SETUP_WITH: load __enter__ and __exit__, store __exit__, call __enter__
-        # optional: store value to name
-        # call exit with (None, None, None)
+        # The register usage is:
+        # [ mgr, __exit__, __enter__ | <link>, <exc> ]
+        #   ^with_reg      ^link_reg
+        with_reg = self.new_register(3)
+        link_reg = self.next_register - 1  # don't allocate it yet
+
+        self(item.context_expr)
+        self.SETUP_ASYNC_WITH(with_reg)
+        self.GET_AWAITABLE(with_reg + 2)
+        self.load_const(None)
+        self.YIELD_FROM(with_reg + 2)
+        self.CLEAR_FAST(with_reg + 2)
+        self.next_register -= 1
+        self.LABEL(start)
+        self.blocks.append(AsyncWithBlock(with_reg))
+        if item.optional_vars:
+            self.assign_accumulator(item.optional_vars)
+        else:
+            self.CLEAR_ACC()
+        self(t.body)
+        self.blocks.pop()
+        r = self.new_register(2)
+        assert r == link_reg
+        self.LABEL(ExceptHandler(start, handler_end, link_reg))
+        self.END_ASYNC_WITH(with_reg)
+        self.LABEL(handler_end)
+
 
     def visit_Dict(self, t):
         self.BUILD_MAP(min(0xFFFF, len(t.keys)))
@@ -1467,6 +1506,12 @@ class Desugarer(ast.NodeTransformer):
     def visit_With(self, t):
         for item in reversed(t.items[1:]):
             t.body = ast.With([item], t.body)
+        return t
+
+    @rewriter
+    def visit_AsyncWith(self, t):
+        for item in reversed(t.items[1:]):
+            t.body = ast.AsyncWith([item], t.body)
         return t
 
     @rewriter
