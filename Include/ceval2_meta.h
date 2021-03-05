@@ -205,9 +205,6 @@ PyObject *_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds);
 struct _PyCodeObject2;
 typedef struct _PyCodeObject2 PyCodeObject2;
 
-
-Register vm_compare(Register a, Register b);
-
 Register vm_unknown_opcode(intptr_t opcode);
 
 int vm_raise(struct ThreadState *ts, PyObject *exc);

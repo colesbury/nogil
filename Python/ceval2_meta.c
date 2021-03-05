@@ -66,13 +66,6 @@ vm_frame_size(struct ThreadState *ts)
     } \
 } while (0)
 
-Register vm_compare(Register a, Register b)
-{
-    printf("vm_compare\n");
-    abort();
-    return a;
-}
-
 Register vm_unknown_opcode(intptr_t opcode)
 {
     printf("vm_unknown_opcode: %d (%s)\n", (int)opcode, opcode_names[opcode]);
