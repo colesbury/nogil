@@ -709,17 +709,31 @@ Return information about the most recent exception caught by an except
 clause in the current stack frame or in an older stack frame.
 [clinic start generated code]*/
 
+PyObject *vm_cur_handled_exc(void);
+
 static PyObject *
 sys_exc_info_impl(PyObject *module)
 /*[clinic end generated code: output=3afd0940cf3a4d30 input=b5c5bf077788a3e5]*/
 {
-    _PyErr_StackItem *err_info = _PyErr_GetTopmostException(_PyThreadState_GET());
-    return Py_BuildValue(
-        "(OOO)",
-        err_info->exc_type != NULL ? err_info->exc_type : Py_None,
-        err_info->exc_value != NULL ? err_info->exc_value : Py_None,
-        err_info->exc_traceback != NULL ?
-            err_info->exc_traceback : Py_None);
+    PyObject *exc_value = NULL, *exc_type = NULL, *exc_traceback = NULL;
+    if (_PyThreadState_GET()->use_new_interp) {
+        exc_value = vm_cur_handled_exc();
+        if (exc_value != NULL) {
+            exc_type = (PyObject *)Py_TYPE(exc_value);
+            exc_traceback = ((PyBaseExceptionObject *)exc_value)->traceback;
+        }
+    }
+    else {
+        _PyErr_StackItem *err_info = _PyErr_GetTopmostException(_PyThreadState_GET());
+        exc_type = err_info->exc_type;
+        exc_value = err_info->exc_value;
+        exc_traceback = err_info->exc_traceback;
+    }
+
+    return Py_BuildValue("(OOO)",
+        exc_type != NULL ? exc_type : Py_None,
+        exc_value != NULL ? exc_value : Py_None,
+        exc_traceback != NULL ? exc_traceback : Py_None);
 }
 
 
