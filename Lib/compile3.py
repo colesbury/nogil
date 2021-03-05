@@ -1683,7 +1683,9 @@ class Scope(ast.NodeVisitor):
 
     def define(self, name):
         name = mangle(self.private, name)
-        if name not in self.defs and name not in self.globals and name not in self.nonlocals:
+        if name in self.nonlocals:
+            self.uses.add(name)
+        elif name not in self.defs and name not in self.globals:
             self.defs[name] = len(self.defs)
 
     def visit_Import(self, t):
