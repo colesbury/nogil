@@ -393,6 +393,17 @@ class CodeGen(ast.NodeVisitor):
     def register_list(self, n=0):
         return RegisterList(self, n)
 
+    def as_register(self, t):
+        assert isinstance(t, ast.AST)
+        if isinstance(t, ast.Name):
+            access = self.scope.access(t.id)
+            if access == 'fast':
+                return self.varnames[t.id]
+        self(t)
+        r = self.new_register()
+        self.STORE_FAST(r)
+        return r
+
     def to_register(self, t, reg):
         if isinstance(t, ast.Name):
             return self.load_into(t.id, reg)
@@ -693,6 +704,8 @@ class CodeGen(ast.NodeVisitor):
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
     def assign_sequence(self, target, value):
         self(value)
+        if isinstance(value, Register) and value.is_temporary:
+            value.clear()
         regs = self.register_list(len(target.elts))
 
         starred = [i for i,e in enumerate(target.elts) if type(e) == ast.Starred]
@@ -1081,18 +1094,35 @@ class CodeGen(ast.NodeVisitor):
             cmp_index = dis.cmp_op.index(self.ops_cmp[optype])
             self.COMPARE_OP(cmp_index, reg)
 
+    def is_temporary(self, r):
+        assert isinstance(r, int)
+        return r >= self.nlocals
+
     def visit_Compare(self, t):
+        N = len(t.ops)
         label = Label()
-        reg = self.register()
-        reg(t.left)
+        r1 = self.as_register(t.left)
+        r2 = None
         for i, (operator, right) in enumerate(zip(t.ops, t.comparators)):
             if i > 0:
+                if self.is_temporary(r1) and self.is_temporary(r2):
+                    self.MOVE(r1, r2)
+                    self.next_register = r2
+                else:
+                    if self.is_temporary(r1):
+                        self.CLEAR_FAST(r1)
+                    r1 = r2
+                r2 = None
                 self.JUMP_IF_FALSE(label)
-                self.STORE_FAST(reg)
-            self(right)
-            self.emit_compare(operator, reg)
+            if i < len(t.ops) - 1:
+                r2 = self.as_register(right)
+                self.LOAD_FAST(r2)
+            else:
+                self(right)
+            self.emit_compare(operator, r1)
         self.LABEL(label)
-        reg.clear()
+        if self.is_temporary(r1):
+            self.CLEAR_FAST(r1)
     ops_cmp = {ast.Eq: '==', ast.NotEq: '!=', ast.Is: 'is', ast.IsNot: 'is not',
                ast.Lt: '<',  ast.LtE:   '<=', ast.In: 'in', ast.NotIn: 'not in',
                ast.Gt: '>',  ast.GtE:   '>='}
@@ -1506,12 +1536,14 @@ class Desugarer(ast.NodeTransformer):
     def visit_With(self, t):
         for item in reversed(t.items[1:]):
             t.body = ast.With([item], t.body)
+        t.items = [t.items[0]]
         return t
 
     @rewriter
     def visit_AsyncWith(self, t):
         for item in reversed(t.items[1:]):
             t.body = ast.AsyncWith([item], t.body)
+        t.items = [t.items[0]]
         return t
 
     @rewriter
