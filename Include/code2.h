@@ -67,12 +67,12 @@ typedef struct _PyCodeObject2 {
     PyObject_HEAD
     uint32_t co_packed_flags;
     int co_flags; // unused???
-    Py_ssize_t co_argcount;     /* number of arguments excluding *args and **kwargs */
+    Py_ssize_t co_argcount;     /* number of arguments excluding kwd-only, *args, and **kwargs */
     Py_ssize_t co_nlocals;      /* number of local variables (including arguments) */
 
     Py_ssize_t co_ndefaultargs;
     Py_ssize_t co_posonlyargcount;
-    Py_ssize_t co_totalargcount;
+    Py_ssize_t co_totalargcount; /* number of arguments including kwd-only, but not *args and **kwargs */
 
     Py_ssize_t co_framesize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* size of instructions (in bytes) */

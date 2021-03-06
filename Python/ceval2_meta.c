@@ -1927,7 +1927,14 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
-    for (Py_ssize_t i = 0; i != code->co_argcount; i++) {
+    Py_ssize_t nargs = code->co_totalargcount;
+    if (code->co_packed_flags & CODE_FLAG_VARARGS) {
+        nargs += 1;
+    }
+    if (code->co_packed_flags & CODE_FLAG_VARKEYWORDS) {
+        nargs += 1;
+    }
+    for (Py_ssize_t i = 0; i != nargs; i++) {
         // NB: we have to convert aliases into strong references. The
         // generator may outlive the calling frame.
         ts->regs[i] = STRONG_REF(old->regs[i]);
