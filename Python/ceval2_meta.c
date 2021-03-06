@@ -1675,12 +1675,32 @@ vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssiz
     return res;
 }
 
-int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
+#define MAX_STACK_SIZE (1073741824/sizeof(Register))
+#define PY_STACK_EXTRA 1
+
+int
+vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
 {
-    // printf("vm_resize_stack\n");
-    // abort();
-    PyErr_SetString(PyExc_SystemError, "vm_resize_stack");
-    return -1;
+    Py_ssize_t oldsize = ts->maxstack - ts->stack + PY_STACK_EXTRA;
+    Py_ssize_t newsize = oldsize * 2;
+    while (newsize < oldsize + needed) {
+        if (newsize > MAX_STACK_SIZE) {
+            PyErr_SetString(PyExc_MemoryError, "stack overflow");
+        }
+        newsize *= 2;
+    }
+
+    Py_ssize_t offset = ts->regs - ts->stack;
+    Register *newstack = (Register *)mi_realloc(ts->stack, newsize);
+    if (newstack == NULL) {
+        PyErr_SetString(PyExc_MemoryError, "unable to allocate stack");
+        return -1;
+    }
+    ts->stack = newstack;
+    ts->regs = newstack + offset;
+    ts->maxstack = newstack + newsize - PY_STACK_EXTRA;
+    memset(ts->stack + oldsize, 0, newsize - oldsize);
+    return 0;
 }
 
 int
@@ -1695,7 +1715,7 @@ vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
     memset(stack, 0, stack_size * sizeof(Register));
     ts->stack = stack;
     ts->regs = stack;
-    ts->maxstack = stack + stack_size;
+    ts->maxstack = stack + stack_size - PY_STACK_EXTRA;
     return 0;
 }
 
