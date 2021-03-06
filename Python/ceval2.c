@@ -699,10 +699,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto error;
         }
         acc = PACK_OBJ(res);
-        DECREF(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
-        regs[-FRAME_EXTRA - 1].as_int64 = 0;
-        DECREF(regs[-FRAME_EXTRA - 2]);  // clear *args
-        regs[-FRAME_EXTRA - 2].as_int64 = 0;
+        CLEAR(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
+        CLEAR(regs[-FRAME_EXTRA - 2]);  // clear *args
+        CLEAR(regs[-1]);  // clear callable
         next_instr = (const uint32_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
