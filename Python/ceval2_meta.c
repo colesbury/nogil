@@ -777,7 +777,7 @@ vm_load_name(Register *regs, PyObject *name)
         return PACK_OBJ(value);
     }
 
-    abort();
+    PyErr_Format(PyExc_NameError, "name %.200R is not defined", name);
     return (Register){0};
 }
 
