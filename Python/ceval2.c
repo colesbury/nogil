@@ -777,6 +777,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
                 __builtin_unreachable();
             }
         }
+        // acc might be an unowned alias of some local up the stack. We must
+        // convert it to an owning reference before returning.
+        acc = STRONG_REF(acc);
         next_instr = (const uint32_t *)frame_link;
         DISPATCH(RETURN_VALUE);
     }
