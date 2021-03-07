@@ -1684,7 +1684,7 @@ vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     Py_ssize_t oldsize = ts->maxstack - ts->stack + PY_STACK_EXTRA;
     Py_ssize_t newsize = oldsize * 2;
     while (newsize < oldsize + needed) {
-        if (newsize > MAX_STACK_SIZE) {
+        if (newsize > (Py_ssize_t)MAX_STACK_SIZE) {
             PyErr_SetString(PyExc_MemoryError, "stack overflow");
         }
         newsize *= 2;

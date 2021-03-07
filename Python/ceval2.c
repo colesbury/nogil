@@ -249,33 +249,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
     intptr_t reserved = 0;
-    // uint16_t *metadata = ts->metadata;
-    // callee saved: rbx,rbp,r12,r13,r14,r15
-    // 6 usable registers (+ rsp, which isn't directly usable)
 
-    // WebKit Saved:
-    // regs (cfr)
-    // next_instr (PB, well half of it)
-    // tagTypeNumber
-    // tagMask
-    // wasmInstance
-    // metadataTable
-
-    // LuaJIT saved:
-    // constants (KBASE)
-    // PC
-    // opcode_targets
-
-    // We want saved:
-    // next_instr (pc)
-    // opcode_targets
-    // ts
-    // acc
-    // maybe: tid
-    // maybe: constants/metadata
-    // intptr_t tid = _Py_ThreadId(), tid2 = _Py_ThreadId() * 99;
-
-    // NOTE: after memcpy call!
     DISPATCH(INITIAL);
 
     TARGET(LOAD_CONST) {
@@ -1694,6 +1668,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         if (awaitable == NULL) {
             goto error;
         }
+        opA = RELOAD_OPA();
         regs[opA + 1] = PACK_OBJ(awaitable);
         if (!PyCoro2_CheckExact(awaitable)) {
             CALL_VM(awaitable = _PyCoro2_GetAwaitableIter(awaitable));
@@ -1701,6 +1676,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
                 CALL_VM(vm_err_awaitable(ts, acc));
                 goto error;
             }
+            opA = RELOAD_OPA();
             Register prev = regs[opA + 1];
             regs[opA + 1] = PACK_OBJ(awaitable);
             DECREF(prev);
@@ -2005,7 +1981,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         else {
             _Py_DECREF(res);
-            CLEAR(regs[opA]);
+            CLEAR(regs[RELOAD_OPA()]);
         }
         DECREF(acc);
         acc.as_int64 = 0;
