@@ -1073,7 +1073,7 @@ build_kwargs(struct ThreadState *ts, Py_ssize_t n);
 PyObject *
 vm_tpcall_function(struct ThreadState *ts, Register acc)
 {
-    PyCFunctionObject *func = (PyCFunctionObject *)ts->regs[-1].as_int64;
+    PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(ts->regs[-1]);
     const int flags_ex = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
     if (UNLIKELY((acc.as_int64 & flags_ex) != 0)) {
         return vm_call_function_ex(ts);
