@@ -409,6 +409,9 @@ class CodeGen(ast.NodeVisitor):
             return self.load_into(t.id, reg)
         elif isinstance(t, Register):
             return self.copy_register(reg, t)
+        elif isinstance(t, GetIter):
+            self(t.seq)
+            self.GET_ITER(reg.allocate())
         else:
             self(t)
             self.STORE_FAST(reg.allocate())
@@ -1215,6 +1218,16 @@ class CodeGen(ast.NodeVisitor):
             self(t.orelse)
         self.LABEL(loop.exit)
 
+    def visit_ForIter(self, t):
+        top, next = Label(), Label()
+        reg = self.as_register(t.iter)
+        self.JUMP(next)
+        self.LABEL(top)
+        self.assign_accumulator(t.target)
+        self(t.body)
+        self.LABEL(next)
+        self.FOR_ITER(reg, top)
+
     def visit_AsyncFor(self, t):
         self(t.iter)
         loop = self.push_loop(self.new_register())
@@ -1512,11 +1525,15 @@ def Call(fn, args):
 
 class ListAppend(ast.stmt):
     _fields = ('list', 'item')
-    pass
 
 class SetAdd(ast.stmt):
     _fields = ('set', 'elt')
-    pass
+
+class GetIter(ast.expr):
+    _fields = ('seq',)
+
+class ForIter(ast.stmt):
+    _fields = ('target', 'iter', 'body')
 
 class Desugarer(ast.NodeTransformer):
 
@@ -1571,61 +1588,61 @@ class Desugarer(ast.NodeTransformer):
             cls = Call(d, [cls])
         return ast.Assign([ast.Name(t.name, store)], cls)
 
-    @rewriter
-    def visit_ListComp(self, t):
-        body = ListAppend(ast.Name('.0', load), t.elt)
+    def rewrite_comprehension(self, t):
+        if isinstance(t, ast.ListComp):
+            name = '<listcomp>'
+            initial_value = ast.List([], load)
+            body = ListAppend(ast.Name('.1', load), t.elt)
+        elif isinstance(t, ast.DictComp):
+            name = '<dictcomp>'
+            initial_value = ast.Dict(keys=[], values=[])
+            body = ast.Assign(
+                targets=[ast.Subscript(value=ast.Name('.1', load), slice=t.key, ctx=store)],
+                value=[t.value])
+        elif isinstance(t, ast.SetComp):
+            name = '<setcomp>'
+            initial_value = ast.Set([])
+            body = SetAdd(ast.Name('.1', load), t.elt)
+        elif isinstance(t, ast.GeneratorExp):
+            name = '<genexpr>'
+            body = ast.Yield(value=t.elt)
+        else:
+            assert False, type(t)
+
         for loop in reversed(t.generators):
             for test in reversed(loop.ifs):
                 body = ast.If(test, [body], [])
-            body = ast.For(loop.target, loop.iter, [body], [])
-        fn = [body,
-              ast.Return(ast.Name('.0', load))]
+            if loop == t.generators[0]:
+                body = ForIter(loop.target, ast.Name('.0', load), [body])
+            else:
+                body = ast.For(loop.target, loop.iter, [body], [])
+        if isinstance(t, ast.GeneratorExp):
+            body = [body]
+        else:
+            body = [
+                ast.Assign([ast.Name('.1', store)], initial_value),
+                body,
+                ast.Return(ast.Name('.1', load)),
+            ]
         args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
+        return Call(Function(name, args, body),
+                    [GetIter(t.generators[0].iter)])
 
-        return Call(Function('<listcomp>', args, fn),
-                    [ast.List([], load)])
+    @rewriter
+    def visit_ListComp(self, t):
+        return self.rewrite_comprehension(t)
 
     @rewriter
     def visit_DictComp(self, t):
-        body = ast.Assign(
-            targets=[ast.Subscript(value=ast.Name('.0', load), slice=t.key, ctx=store)],
-            value=[t.value])
-        for loop in reversed(t.generators):
-            for test in reversed(loop.ifs):
-                body = ast.If(test, [body], [])
-            body = ast.For(loop.target, loop.iter, [body], [])
-        fn = [body,
-              ast.Return(ast.Name('.0', load))]
-        args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
-
-        return Call(Function('<dictcomp>', args, fn),
-                    [ast.Dict(keys=[], values=[])])
+        return self.rewrite_comprehension(t)
 
     @rewriter
     def visit_SetComp(self, t):
-        body = SetAdd(ast.Name('.0', load), t.elt)
-        for loop in reversed(t.generators):
-            for test in reversed(loop.ifs):
-                body = ast.If(test, [body], [])
-            body = ast.For(loop.target, loop.iter, [body], [])
-        fn = [body,
-              ast.Return(ast.Name('.0', load))]
-        args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
-
-        return Call(Function('<setcomp>', args, fn),
-                    [ast.Set([])])
+        return self.rewrite_comprehension(t)
 
     @rewriter
     def visit_GeneratorExp(self, t):
-        body = ast.Yield(value=t.elt)
-        for loop in reversed(t.generators):
-            for test in reversed(loop.ifs):
-                body = ast.If(test, [body], [])
-            body = ast.For(loop.target, loop.iter, [body], [])
-        fn = [body]
-        args = ast.arguments([], [], None, [], [], [], [])
-
-        return Call(Function('<genexpr>', args, fn), [])
+        return self.rewrite_comprehension(t)
 
 class Function(ast.FunctionDef):
     _fields = ('name', 'args', 'body')

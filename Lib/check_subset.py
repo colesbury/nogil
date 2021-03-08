@@ -244,6 +244,12 @@ class Checker(ast.NodeVisitor):
     def visit_SetAdd(self, t):
         pass
 
+    def visit_GetIter(self, t):
+        pass
+
+    def visit_ForIter(self, t):
+        pass
+
     def visit_Attribute(self, t):
         self(t.value)
         self.check_identifier(t.attr)
