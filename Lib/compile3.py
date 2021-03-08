@@ -688,6 +688,8 @@ class CodeGen(ast.NodeVisitor):
         self(value)
         self.STORE_ATTR(reg, attr)
         reg.clear()
+        if isinstance(value, Register) and value.is_temporary:
+            value.clear()
 
     def assign_Subscript(self, target, value):
         reg1 = self.register()
@@ -699,6 +701,8 @@ class CodeGen(ast.NodeVisitor):
         self.STORE_SUBSCR(reg1, reg2)
         reg2.clear()
         reg1.clear()
+        if isinstance(value, Register) and value.is_temporary:
+            value.clear()
 
     def assign_List(self, target, value): return self.assign_sequence(target, value)
     def assign_Tuple(self, target, value): return self.assign_sequence(target, value)
