@@ -1691,7 +1691,7 @@ vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     }
 
     Py_ssize_t offset = ts->regs - ts->stack;
-    Register *newstack = (Register *)mi_realloc(ts->stack, newsize);
+    Register *newstack = (Register *)mi_realloc(ts->stack, newsize * sizeof(Register));
     if (newstack == NULL) {
         PyErr_SetString(PyExc_MemoryError, "unable to allocate stack");
         return -1;
@@ -1699,7 +1699,7 @@ vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     ts->stack = newstack;
     ts->regs = newstack + offset;
     ts->maxstack = newstack + newsize - PY_STACK_EXTRA;
-    memset(ts->stack + oldsize, 0, newsize - oldsize);
+    memset(ts->stack + oldsize, 0, (newsize - oldsize) * sizeof(Register));
     return 0;
 }
 
@@ -2033,12 +2033,17 @@ PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
     return r;
 }
 
-static void
+static int
 setup_frame(struct ThreadState *ts, PyObject *func, Py_ssize_t extra)
 {
     assert(PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE));
     Py_ssize_t frame_delta = vm_frame_size(ts);
     frame_delta += CFRAME_EXTRA + extra;
+    if (UNLIKELY(ts->regs + frame_delta > ts->maxstack)) {
+        if (vm_resize_stack(ts, frame_delta) != 0) {
+            return -1;
+        }
+    }
 
     ts->regs += frame_delta;
 
@@ -2047,6 +2052,7 @@ setup_frame(struct ThreadState *ts, PyObject *func, Py_ssize_t extra)
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
+    return 0;
 }
 
 static struct ThreadState *
@@ -2066,8 +2072,12 @@ _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
 {
     assert(PyFunc_Check(func));
     struct ThreadState *ts = current_thread_state();
+    int err;
 
-    setup_frame(ts, func, 0);
+    err = setup_frame(ts, func, 0);
+    if (UNLIKELY(err != 0)) {
+        return NULL;
+    }
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
@@ -2350,15 +2360,22 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
 {
     struct ThreadState *ts = gts;
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    int err;
 
     if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
         Py_ssize_t acc = 0;
-        setup_frame(ts, func, /*extra=*/0);
+        err = setup_frame(ts, func, /*extra=*/0);
+        if (UNLIKELY(err != 0)) {
+            return NULL;
+        }
         return _PyEval_Fast(ts, acc, pc);
     }
 
     Py_ssize_t acc = ACC_FLAG_VARARGS;
-    setup_frame(ts, func, /*extra=*/2);
+    err = setup_frame(ts, func, /*extra=*/2);
+    if (UNLIKELY(err != 0)) {
+        return NULL;
+    }
     ts->regs[-FRAME_EXTRA-2] = PACK(args, NO_REFCOUNT_TAG);
     if (kwds != NULL) {
         acc |= ACC_FLAG_VARKEYWORDS;
@@ -2371,12 +2388,15 @@ static PyObject *
 method_call(PyObject *obj, PyObject *args, PyObject *kwds)
 {
     if (kwds == NULL && PyTuple_GET_SIZE(args) < 255) {
-        // optimization for only arguments only
+        // optimization for positional arguments only
         PyMethod *method = (PyMethod *)obj;
         struct ThreadState *ts = current_thread_state();
         const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
         Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
-        setup_frame(ts, method->im_func, /*extra=*/nargs);
+        int err = setup_frame(ts, method->im_func, /*extra=*/nargs);
+        if (UNLIKELY(err != 0)) {
+            return NULL;
+        }
         ts->regs[0] = PACK(method->im_self, NO_REFCOUNT_TAG);
         for (Py_ssize_t i = 1; i < nargs; i++) {
             ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i - 1), NO_REFCOUNT_TAG);
