@@ -670,10 +670,12 @@ class CodeGen(ast.NodeVisitor):
             self.store(target.id)
         else:
             # FIXME: optimize don't always need to store to reg
+            top = self.next_register
             reg = self.register()
             self.STORE_FAST(reg.allocate())
             self.assign(target, reg)
             reg.clear()
+            self.next_register = top
 
     def assign_Name(self, target, value):
         value = self.resolve(value)
