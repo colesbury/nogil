@@ -1848,12 +1848,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(RAISE) {
         int err;
-        PyObject *exc = AS_OBJ(acc);
+        PyObject *exc = AS_OBJ(acc);  // may be NULL
         CALL_VM(err = vm_raise(ts, exc));
         assert(err == -1 || err == -2);
         if (err == -2) {
-            DECREF(acc);
-            acc.as_int64 = 0;
             goto exception_unwind;
         }
         goto error;
