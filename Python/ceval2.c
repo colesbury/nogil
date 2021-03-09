@@ -1930,7 +1930,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(END_WITH) {
-        assert(IS_EMPTY(acc));
         int err;
         CALL_VM(err = vm_exit_with(ts, opA));
         if (UNLIKELY(err != 0)) {
