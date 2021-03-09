@@ -1798,19 +1798,20 @@ class Scope(ast.NodeVisitor):
 
     def analyze(self, parent_defs):
         self.local_defs = set(self.defs.keys()) if self.scope_type == 'function' else set()
-        # assert isinstance(self.t, Function) == (), (self.t, self.scope_type)
+        newbound = parent_defs | self.local_defs
         if self.scope_type == 'class':
-            self.local_defs.add('__class__')
+            newbound.add('__class__')
         for child in self.children.values():
-            child.analyze(parent_defs | self.local_defs)
+            child.analyze(newbound)
         child_uses = set([var for child in self.children.values()
                               for var in child.freevars])
         uses = self.uses | child_uses
         self.cellvars = child_uses & self.local_defs
         self.freevars = (uses & (parent_defs - set(self.defs.keys())))
-        if self.scope_type == 'class' and '__class__' in self.cellvars:
-            self.needs_class_closure = True
         self.derefvars = self.cellvars | self.freevars
+        if self.scope_type == 'class' and '__class__' in child_uses:
+            self.needs_class_closure = True
+            self.cellvars.add('__class__')  # but not in derefvars!
 
     def assign_regs(self, parent_regs):
         self.regs = self.defs.copy() if self.scope_type == 'function' else {'<locals>': 0}
