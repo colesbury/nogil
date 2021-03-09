@@ -348,7 +348,7 @@ class CodeGen(ast.NodeVisitor):
                  | (0x010000 if has_varargs          else 0)
                  | (0x040000 if has_varkws           else 0))
 
-        return types.Code2Type(code,
+        return types.CodeType2(code,
                                self.constants.collect(),
                                argcount=argcount,
                                posonlyargcount=posonlyargcount,

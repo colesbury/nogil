@@ -23,7 +23,7 @@ Misc variables:
 
 """
 
-from types import FunctionType
+from types import FunctionType, FunctionType2
 from copyreg import dispatch_table
 from copyreg import _extension_registry, _inverted_registry, _extension_cache
 from itertools import islice
@@ -1126,6 +1126,7 @@ class _Pickler:
         return self.save_global(obj)
 
     dispatch[FunctionType] = save_global
+    dispatch[FunctionType2] = save_global
     dispatch[type] = save_type
 
 

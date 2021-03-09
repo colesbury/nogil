@@ -123,7 +123,7 @@ def skip(reason):
         test_item.__unittest_skip__ = True
         test_item.__unittest_skip_why__ = reason
         return test_item
-    if isinstance(reason, types.FunctionType):
+    if isinstance(reason, types.FunctionTypes):
         test_item = reason
         reason = ''
         return decorator(test_item)

@@ -2046,6 +2046,13 @@ sys_microbench(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject
     return PyFloat_FromDouble(time);
 }
 
+static PyObject *
+sys_FunctionType2(PyObject *module)
+{
+    PyObject *type = (PyObject *)&PyFunc_Type;
+    Py_INCREF(type);
+    return type;
+}
 
 static PyMethodDef sys_methods[] = {
     /* Might as well keep this in alphabetic order */
@@ -2057,6 +2064,8 @@ static PyMethodDef sys_methods[] = {
      METH_FASTCALL | METH_KEYWORDS, NULL},
     {"fib",  (PyCFunction)(void(*)(void))sys_fib,
      METH_FASTCALL | METH_KEYWORDS, NULL},
+    {"FunctionType2",  (PyCFunction)(void(*)(void))sys_FunctionType2,
+     METH_NOARGS, NULL},
     SYS__CLEAR_TYPE_CACHE_METHODDEF
     SYS__CURRENT_FRAMES_METHODDEF
     SYS_DISPLAYHOOK_METHODDEF

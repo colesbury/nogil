@@ -292,7 +292,7 @@ def __methodDict(cls, _dict):
     for _super in baseList:
         __methodDict(_super, _dict)
     for key, value in cls.__dict__.items():
-        if type(value) == types.FunctionType:
+        if type(value) in types.FunctionTypes:
             _dict[key] = value
 
 def __methods(cls):

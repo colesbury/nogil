@@ -109,7 +109,7 @@ def _copy_immutable(x):
 for t in (type(None), int, float, bool, complex, str, tuple,
           bytes, frozenset, type, range, slice, property,
           types.BuiltinFunctionType, type(Ellipsis), type(NotImplemented),
-          types.FunctionType, weakref.ref):
+          types.FunctionType, types.FunctionType2, weakref.ref):
     d[t] = _copy_immutable
 t = getattr(types, "CodeType", None)
 if t is not None:
@@ -194,6 +194,7 @@ d[types.CodeType] = _deepcopy_atomic
 d[type] = _deepcopy_atomic
 d[types.BuiltinFunctionType] = _deepcopy_atomic
 d[types.FunctionType] = _deepcopy_atomic
+d[types.FunctionType2] = _deepcopy_atomic
 d[weakref.ref] = _deepcopy_atomic
 d[property] = _deepcopy_atomic
 

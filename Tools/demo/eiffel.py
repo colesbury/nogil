@@ -7,7 +7,7 @@ An example for Python metaclasses.
 """
 
 import unittest
-from types import FunctionType as function
+from types import FunctionTypes as function
 
 class EiffelBaseMetaClass(type):
 

@@ -165,7 +165,7 @@ def _type_repr(obj):
         return f'{obj.__module__}.{obj.__qualname__}'
     if obj is ...:
         return('...')
-    if isinstance(obj, types.FunctionType):
+    if isinstance(obj, types.FunctionTypes):
         return obj.__name__
     return repr(obj)
 
@@ -1270,7 +1270,7 @@ def _get_defaults(func):
     return res
 
 
-_allowed_types = (types.FunctionType, types.BuiltinFunctionType,
+_allowed_types = (*types.FunctionTypes, types.BuiltinFunctionType,
                   types.MethodType, types.ModuleType,
                   WrapperDescriptorType, MethodWrapperType, MethodDescriptorType)
 
@@ -1436,7 +1436,7 @@ def no_type_check(arg):
             if val in arg.__bases__ + (arg,):
                 arg_attrs.pop(attr)
         for obj in arg_attrs.values():
-            if isinstance(obj, types.FunctionType):
+            if isinstance(obj, types.FunctionTypes):
                 obj.__no_type_check__ = True
             if isinstance(obj, type):
                 no_type_check(obj)

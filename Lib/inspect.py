@@ -166,7 +166,7 @@ def isfunction(object):
         __globals__     global namespace in which this function was defined
         __annotations__ dict of parameter annotations
         __kwdefaults__  dict of keyword only parameters with defaults"""
-    return isinstance(object, types.FunctionType)
+    return isinstance(object, types.FunctionTypes)
 
 def _has_code_flag(f, flag):
     """Return true if ``f`` is a function (or a method or functools.partial

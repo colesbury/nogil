@@ -133,8 +133,12 @@ func_repr(PyFunc *op)
 static int
 func_traverse(PyFunc *f, visitproc visit, void *arg)
 {
+    Py_VISIT(f->globals);
+    // Py_VISIT(f->builtins);
+    for (Py_ssize_t i = 0, n = Py_SIZE(f); i < n; i++) {
+        Py_VISIT(f->freevars[i]);
+    }
     // Py_VISIT(f->func_code);
-    // Py_VISIT(f->func_globals);
     // Py_VISIT(f->func_module);
     // Py_VISIT(f->func_defaults);
     // Py_VISIT(f->func_kwdefaults);

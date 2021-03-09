@@ -12,9 +12,12 @@ def _f(): pass
 FunctionType = type(_f)
 LambdaType = type(lambda: None)         # Same as FunctionType
 CodeType = type(_f.__code__)
-Code2Type = _code2
+CodeType2 = _code2
 MappingProxyType = type(type.__dict__)
 SimpleNamespace = type(sys.implementation)
+FunctionType2 = sys.FunctionType2()
+LambdaType = FunctionType2
+FunctionTypes = (FunctionType, FunctionType2)
 
 def _cell_factory():
     a = 1

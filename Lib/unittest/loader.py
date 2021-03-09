@@ -191,13 +191,13 @@ class TestLoader(object):
             return self.loadTestsFromModule(obj)
         elif isinstance(obj, type) and issubclass(obj, case.TestCase):
             return self.loadTestsFromTestCase(obj)
-        elif (isinstance(obj, types.FunctionType) and
+        elif (isinstance(obj, types.FunctionTypes) and
               isinstance(parent, type) and
               issubclass(parent, case.TestCase)):
             name = parts[-1]
             inst = parent(name)
             # static methods follow a different path
-            if not isinstance(getattr(inst, name), types.FunctionType):
+            if not isinstance(getattr(inst, name), types.FunctionTypes):
                 return self.suiteClass([inst])
         elif isinstance(obj, suite.TestSuite):
             return obj

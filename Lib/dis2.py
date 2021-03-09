@@ -13,7 +13,7 @@ __all__ = ["code_info", "dis", "disassemble", "distb", "disco",
            "get_instructions", "Instruction", "Bytecode"] + _opcodes_all
 del _opcodes_all
 
-_have_code = (types.MethodType, types.FunctionType, types.CodeType,
+_have_code = (types.MethodType, types.FunctionType2, types.CodeType2,
               classmethod, staticmethod, type)
 
 MAKE_FUNCTION = opmap['MAKE_FUNCTION']
