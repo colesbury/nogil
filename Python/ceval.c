@@ -4780,10 +4780,17 @@ _PyEval_GetBuiltinId(_Py_Identifier *name)
     return attr;
 }
 
+PyObject *PyEval2_GetGlobals(void);
+PyObject *PyEval2_GetLocals(void);
+
+
 PyObject *
 PyEval_GetLocals(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
+    if (tstate->use_new_interp) {
+        return PyEval2_GetLocals();
+    }
     PyFrameObject *current_frame = _PyEval_GetFrame(tstate);
     if (current_frame == NULL) {
         _PyErr_SetString(tstate, PyExc_SystemError, "frame does not exist");
@@ -4802,6 +4809,10 @@ PyObject *
 PyEval_GetGlobals(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
+    if (tstate->use_new_interp) {
+        return PyEval2_GetGlobals();
+    }
+
     PyFrameObject *current_frame = _PyEval_GetFrame(tstate);
     if (current_frame == NULL) {
         return NULL;

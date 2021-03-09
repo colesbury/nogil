@@ -1989,7 +1989,7 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 //     return func;
 // }
 
-static struct ThreadState *gts;
+static Py_DECL_THREAD struct ThreadState *gts;
 _Py_IDENTIFIER(__builtins__);
 
 PyObject *
@@ -2108,7 +2108,7 @@ vm_super_init(PyObject **out_obj, PyTypeObject **out_type)
 {
     _Py_IDENTIFIER(__class__);
 
-    struct ThreadState *ts = gts;
+    struct ThreadState *ts = current_thread_state();
     if (ts->regs == ts->stack) {
         PyErr_SetString(PyExc_RuntimeError,
                         "super(): no current frame");
@@ -2358,7 +2358,7 @@ vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
 PyObject *
 _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
 {
-    struct ThreadState *ts = gts;
+    struct ThreadState *ts = current_thread_state();
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
     int err;
 
@@ -2382,6 +2382,79 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
         ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
     }
     return _PyEval_Fast(ts, acc, pc);
+}
+
+PyObject *
+PyEval2_GetGlobals(void)
+{
+    struct ThreadState *ts = current_thread_state();
+    Py_ssize_t offset = 0;
+    while (&ts->regs[offset] > ts->stack) {
+        PyObject *func = AS_OBJ(ts->regs[offset-1]);
+        if (PyFunc_Check(func)) {
+            return ((PyFunc *)func)->globals;
+        }
+
+        intptr_t frame_delta = ts->regs[offset-4].as_int64;
+        offset -= frame_delta;
+    }
+
+    // no frame
+    return NULL;
+}
+
+static PyObject *
+frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
+{
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[offset-1]);
+    assert(PyFunc_Check(func));
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+    if ((code->co_flags & CO_NEWLOCALS) == 0) {
+        PyObject *locals = AS_OBJ(ts->regs[offset]);
+        assert(PyMapping_Check(locals));
+        return locals;
+    }
+    PyObject *locals = PyDict_New();
+    if (locals == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0, n = code->co_nlocals; i < n; i++) {
+        PyObject *obj = AS_OBJ(ts->regs[offset+i]);
+        if (obj == NULL) {
+            continue;
+        }
+        PyObject *name = PyTuple_GET_ITEM(code->co_varnames, i);
+        int err = PyDict_SetItem(locals, name, obj);
+        if (err < 0) {
+            Py_DECREF(locals);
+            return NULL;
+        }
+    }
+
+    // FIXME: leaks locals
+    // need to stash the locals in the frame
+
+    return locals;
+}
+
+
+PyObject *
+PyEval2_GetLocals(void)
+{
+    struct ThreadState *ts = current_thread_state();
+    Py_ssize_t offset = 0;
+    while (&ts->regs[offset] > ts->stack) {
+        PyObject *func = AS_OBJ(ts->regs[offset-1]);
+        if (PyFunc_Check(func)) {
+            return frame_to_locals(ts, offset);
+        }
+
+        intptr_t frame_delta = ts->regs[offset-4].as_int64;
+        offset -= frame_delta;
+    }
+
+    _PyErr_SetString(ts->ts, PyExc_SystemError, "frame does not exist!");
+    return NULL;
 }
 
 static PyObject *

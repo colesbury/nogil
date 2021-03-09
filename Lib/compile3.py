@@ -342,7 +342,7 @@ class CodeGen(ast.NodeVisitor):
         free2reg = tuple(self.scope.free2reg.values())
         # assert len(free2reg) == len(self.scope.freevars)
 
-        flags = (  (0x00 if nlocals                  else 0)
+        flags = (  (0x02 if self.scope.scope_type == 'function' else 0)
                  | (0x00 if self.scope.freevars      else 0)
                  | (0x10 if self.scope.nested        else 0)
                  | (0x010000 if has_varargs          else 0)
