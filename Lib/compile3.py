@@ -1425,10 +1425,10 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         if self.scope.needs_class_closure:
             # Store the __class__ cell in locals()['__classcell__]
-            self.LOAD_FAST(self.varnames['__class__'])
+            self.LOAD_FAST(self.varnames['.__class__'])
             self.store('__classcell__')
             # Return the __class__ cell
-            self.LOAD_FAST(self.varnames['__class__'])
+            self.LOAD_FAST(self.varnames['.__class__'])
         else:
             self.load_const(None)
         self.RETURN_VALUE()
@@ -1779,30 +1779,43 @@ class Scope(ast.NodeVisitor):
             newbound.add('__class__')
         for child in self.children.values():
             child.analyze(newbound)
-        child_uses = set([var for child in self.children.values()
+        child_free = set([var for child in self.children.values()
                               for var in child.freevars])
-        uses = self.uses | child_uses
-        self.cellvars = child_uses & self.local_defs
-        self.freevars = (uses & (parent_defs - set(self.defs.keys())))
-        self.derefvars = self.cellvars | self.freevars
-        if self.scope_type == 'class' and '__class__' in child_uses:
-            self.needs_class_closure = True
-            self.cellvars.add('__class__')  # but not in derefvars!
+        uses = self.uses | child_free
+        if self.scope_type != 'class':
+            self.freevars = (uses & (parent_defs - self.local_defs))
+            self.cellvars = child_free & self.local_defs
+            self.derefvars = self.cellvars | self.freevars
+        else:
+            if '__class__' in child_free:
+                self.needs_class_closure = True
+                child_free.remove('__class__')
+            self.freevars = child_free | (self.uses & (parent_defs - set(self.defs.keys())))
+            self.cellvars = set()
+            self.derefvars = self.freevars - set(self.defs.keys())
+            if self.needs_class_closure:
+                self.cellvars.add('.__class__')
 
     def assign_regs(self, parent_regs):
         self.regs = self.defs.copy() if self.scope_type == 'function' else {'<locals>': 0}
         if self.needs_class_closure:
             assert len(self.regs) == 1
-            self.regs['__class__'] = len(self.regs)
+            self.regs['.__class__'] = len(self.regs)
         for name, upval in parent_regs.items():
             if name in self.freevars:
                 reg = len(self.regs)
                 self.regs[name] = reg
                 self.free2reg[name] = (upval, reg)
 
-        assert all(name in self.regs for name in self.freevars), parent_regs
+        newregs = self.regs
+        if self.needs_class_closure:
+            newregs = dict(self.regs)
+            newregs.pop('__class__', None)
+            newregs['__class__'] = newregs.pop('.__class__')
+
+        assert all(name in self.regs for name in self.freevars), (self.scope_type, self.regs, self.freevars)
         for child in self.children.values():
-            child.assign_regs(self.regs)
+            child.assign_regs(newregs)
 
 
     def access(self, name):
