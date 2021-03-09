@@ -396,9 +396,10 @@ class CodeGen(ast.NodeVisitor):
     def as_register(self, t):
         assert isinstance(t, ast.AST)
         if isinstance(t, ast.Name):
-            access = self.scope.access(t.id)
+            name = mangle(self.scope.private, t.id)
+            access = self.scope.access(name)
             if access == 'fast':
-                return self.varnames[t.id]
+                return self.varnames[name]
         self(t)
         r = self.new_register()
         self.STORE_FAST(r)
@@ -406,7 +407,8 @@ class CodeGen(ast.NodeVisitor):
 
     def to_register(self, t, reg):
         if isinstance(t, ast.Name):
-            return self.load_into(t.id, reg)
+            name = mangle(self.scope.private, t.id)
+            return self.load_into(name, reg)
         elif isinstance(t, Register):
             return self.copy_register(reg, t)
         elif isinstance(t, GetIter):
@@ -479,16 +481,13 @@ class CodeGen(ast.NodeVisitor):
             self.store(name)
             self.delete(name)
 
-    def cell_index(self, name):
-        name = mangle(self.scope.private, name)
-        return self.scope.derefvars.index(name)
-
     def visit_Constant(self, t):
         self.load_const(t.value)
 
     def visit_Name(self, t):
         assert isinstance(t.ctx, ast.Load)
-        self.load(t.id)
+        name = mangle(self.scope.private, t.id)
+        self.load(name)
 
     def visit_Assert(self, t):
         label = Label()
@@ -635,9 +634,10 @@ class CodeGen(ast.NodeVisitor):
 
     def resolve(self, t):
         if isinstance(t, ast.Name):
-            access = self.scope.access(t.id)
+            name = mangle(self.scope.private, t.id)
+            access = self.scope.access(name)
             if access == 'fast':
-                return Register(self, self.varnames[t.id])
+                return Register(self, self.varnames[name])
         return t
 
     def visit_Register(self, t):
@@ -679,19 +679,20 @@ class CodeGen(ast.NodeVisitor):
 
     def assign_Name(self, target, value):
         value = self.resolve(value)
+        name = mangle(self.scope.private, target.id)
         if isinstance(value, Register):
-            return self.store_from(target.id, value)
+            return self.store_from(name, value)
 
         self(value)
-        self.store(target.id)
+        self.store(name)
 
     def assign_Attribute(self, target, value):
         reg = self.register()
-        attr = self.constants[target.attr]
+        name = mangle(self.scope.private, target.attr)
         # FIXME: clear reg if temporary ???
         reg(target.value)
         self(value)
-        self.STORE_ATTR(reg, attr)
+        self.STORE_ATTR(reg, self.constants[name])
         reg.clear()
         if isinstance(value, Register) and value.is_temporary:
             value.clear()
@@ -756,23 +757,25 @@ class CodeGen(ast.NodeVisitor):
 
     def reference_Name(self, t):
         visitor = self
+        name = mangle(self.scope.private, t.id)
         class NameRef:
             def load(self, dst):
-                return visitor.load_into(t.id, dst)
+                return visitor.load_into(name, dst)
             def store(self):
-                return visitor.store(t.id)
+                return visitor.store(name)
         return NameRef()
 
     def reference_Attribute(self, t):
         visitor = self
         rvalue = self.register()
+        name = mangle(self.scope.private, t.attr)
         class AttributeRef:
             def load(self, dst):
                 rvalue(t.value)
-                visitor.LOAD_ATTR(rvalue, visitor.names[t.attr])
+                visitor.LOAD_ATTR(rvalue, visitor.names[name])
                 visitor.STORE_FAST(dst.allocate())
             def store(self):
-                visitor.STORE_ATTR(rvalue, visitor.names[t.attr])
+                visitor.STORE_ATTR(rvalue, visitor.names[name])
                 rvalue.clear()
         return AttributeRef()
 
@@ -804,11 +807,13 @@ class CodeGen(ast.NodeVisitor):
         return visitor(target)
 
     def del_Name(self, t):
-        self.delete(t.id)
+        name = mangle(self.scope.private, t.id)
+        self.delete(name)
 
     def del_Attribute(self, t):
         self(t.value)
-        self.DELETE_ATTR(self.names[t.attr])
+        name = mangle(self.scope.private, t.attr)
+        self.DELETE_ATTR(self.names[name])
 
     def del_Subscript(self, t):
         reg = self.register()
@@ -970,9 +975,10 @@ class CodeGen(ast.NodeVisitor):
         self.BUILD_SLICE(regs[0])
 
     def visit_Attribute(self, t):
+        name = mangle(self.scope.private, t.attr)
         reg = self.register()
         reg(t.value)
-        self.LOAD_ATTR(reg, self.names[t.attr])
+        self.LOAD_ATTR(reg, self.names[name])
         reg.clear()
 
     def visit_sequence(self, t):
@@ -1356,7 +1362,7 @@ class CodeGen(ast.NodeVisitor):
             scope.free2reg[name] = (regs.base + i, scope.free2reg[name][1])
 
         code = self.sprout(t).compile_function(t)
-        self.make_closure(code, t.name)
+        self.make_closure(code)
         for i in reversed(range(len(defaults))):
             regs[i].clear()
 
@@ -1366,7 +1372,7 @@ class CodeGen(ast.NodeVisitor):
     def sprout(self, t):
         return CodeGen(self.filename, self.scope.children[t])
 
-    def make_closure(self, code, name):
+    def make_closure(self, code):
         self.MAKE_FUNCTION(self.constants[code])
 
     def compile_function(self, t):
@@ -1394,7 +1400,7 @@ class CodeGen(ast.NodeVisitor):
         self.LOAD_BUILD_CLASS()
 
     def visit_MakeClosure(self, t):
-        self.make_closure(t.code, t.name)
+        self.make_closure(t.code)
 
     def visit_Class(self, t):
         code = self.sprout(t).compile_class(t)
@@ -1658,7 +1664,9 @@ class Scope(ast.NodeVisitor):
         self.scope_type = scope_type
         self.is_generator = False
         self.is_async = False
-        self.private = t.name if scope_type == 'class' else None
+        self.private = (t.name if scope_type == 'class' else
+                        parent_scope.private if parent_scope is not None else
+                        None)
         self.needs_class_closure = False  # true if a closure over __class__ should be created
         self.nested = (parent_scope is not None and 
                        (parent_scope.nested or
@@ -1798,7 +1806,6 @@ class Scope(ast.NodeVisitor):
 
 
     def access(self, name):
-        name = mangle(self.private, name)
         return ('classderef' if name in self.derefvars and self.scope_type == 'class' else
                 'deref' if name in self.derefvars else
                 'fast'  if name in self.local_defs else
