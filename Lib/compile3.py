@@ -975,83 +975,51 @@ class CodeGen(ast.NodeVisitor):
         self.LOAD_ATTR(reg, self.names[t.attr])
         reg.clear()
 
-    def visit_List(self, t):
-        assert isinstance(t.ctx, ast.Load)
+    def visit_sequence(self, t):
+        assert not hasattr(t, 'ctx') or isinstance(t.ctx, ast.Load)
         base = self.next_register
         seen_star = False
         for i,e in enumerate(t.elts):
             if type(e) == ast.Starred:
                 if not seen_star:
-                    self.BUILD_LIST(base, i)
-                    self.next_register = base
+                    if type(t) == ast.Set:
+                        self.BUILD_SET(base, i)
+                    else:
+                        self.BUILD_LIST(base, i)
+                    self.next_register = base + 1
                     self.STORE_FAST(base)
                     seen_star = True
                 self(e.value)
-                self.LIST_EXTEND(base)
+                if type(t) == ast.Set:
+                    self.SET_UPDATE(base)
+                else:
+                    self.LIST_EXTEND(base)
             elif seen_star:
                 self(e)
-                self.LIST_APPEND(base)
+                if type(t) == ast.Set:
+                    self.SET_ADD(base)
+                else:
+                    self.LIST_APPEND(base)
             else:
                 reg = self.register()
                 reg.allocate()  # TODO: reserve only
                 self.to_register(e, reg)
         if not seen_star:
-            self.BUILD_LIST(base, len(t.elts))
-        else:
-            self.LOAD_FAST(base)
-            self.CLEAR_FAST(base)
-
-    def visit_Tuple(self, t):
-        assert isinstance(t.ctx, ast.Load)
-        base = self.next_register
-        seen_star = False
-        for i,e in enumerate(t.elts):
-            if type(e) == ast.Starred:
-                if not seen_star:
-                    self.BUILD_LIST(base, i)
-                    self.next_register = base
-                    self.STORE_FAST(base)
-                    seen_star = True
-                self(e.value)
-                self.LIST_EXTEND(base)
-            elif seen_star:
-                self(e)
-                self.LIST_APPEND(base)
+            if type(t) == ast.Set:
+                self.BUILD_SET(base, len(t.elts))
+            elif type(t) == ast.Tuple:
+                self.BUILD_TUPLE(base, len(t.elts))
             else:
-                reg = self.register()
-                reg.allocate()
-                reg(e)
-        if not seen_star:
-            self.BUILD_TUPLE(base, len(t.elts))
+                self.BUILD_LIST(base, len(t.elts))
         else:
             self.LOAD_FAST(base)
             self.CLEAR_FAST(base)
-            self.call_intrinsic('PyList_AsTuple')
+            if type(t) == ast.Tuple:
+                self.call_intrinsic('PyList_AsTuple')
 
-    def visit_Set(self, t):
-        base = self.next_register
-        seen_star = False
-        for i,e in enumerate(t.elts):
-            if type(e) == ast.Starred:
-                if not seen_star:
-                    self.BUILD_SET(base, i)
-                    self.next_register = base
-                    self.STORE_FAST(base)
-                    seen_star = True
-                self(e.value)
-                self.SET_UPDATE(base)
-            elif seen_star:
-                self(e)
-                self.SET_ADD(base)
-            else:
-                reg = self.register()
-                reg.allocate()
-                reg(e)
-        if not seen_star:
-            self.BUILD_SET(base, len(t.elts))
-        else:
-            self.LOAD_FAST(base)
-            self.CLEAR_FAST(base)
+    visit_List = visit_sequence
+    visit_Tuple = visit_sequence
+    visit_Set = visit_sequence
 
     def visit_ListAppend(self, t):
         reg = self.register()
