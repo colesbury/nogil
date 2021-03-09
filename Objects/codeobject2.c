@@ -242,6 +242,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
     co->co_packed_flags |= (co->co_nfreevars > co->co_ndefaultargs ? CODE_FLAG_HAS_FREEVARS : 0);
     co->co_packed_flags |= (flags & (CODE_FLAG_VARARGS | CODE_FLAG_VARKEYWORDS));
+    co->co_packed_flags |= (co->co_totalargcount > co->co_argcount ? CODE_FLAG_KWD_ONLY_ARGS : 0);
 
     return (PyObject *)co;
 }
