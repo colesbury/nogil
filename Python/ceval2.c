@@ -695,9 +695,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     #define IMPL_YIELD_FROM(awaitable, res) do {                                \
-        assert(PyGen2_CheckExact(awaitable) || PyCoro2_CheckExact(awaitable));  \
         PyGen2_FromThread(ts)->yield_from = awaitable;                          \
-        CALL_VM(res = _PyGen2_Send((PyGenObject2 *)awaitable, AS_OBJ(acc)));    \
+        CALL_VM(res = _PyObject_YieldFrom(awaitable, AS_OBJ(acc)));             \
         if (res != NULL) {                                                      \
             SET_ACC(PACK_OBJ(res));                                             \
             PyGenObject2 *gen = PyGen2_FromThread(ts);                          \

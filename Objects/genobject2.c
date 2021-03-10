@@ -281,6 +281,25 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
     return res;
 }
 
+static PyObject *
+_PyObject_YieldFrom_ex(PyObject *awaitable, PyObject *arg)
+{
+    _Py_IDENTIFIER(send);
+    if (arg == Py_None) {
+        return Py_TYPE(awaitable)->tp_iternext(awaitable);
+    }
+    return _PyObject_CallMethodIdOneArg(awaitable, &PyId_send, arg);
+}
+
+PyObject *
+_PyObject_YieldFrom(PyObject *awaitable, PyObject *arg)
+{
+    if (LIKELY(PyGen2_CheckExact(awaitable) || PyCoro2_CheckExact(awaitable))) {
+        return _PyGen2_Send((PyGenObject2 *)awaitable, arg);
+    }
+    return _PyObject_YieldFrom_ex(awaitable, arg);
+}
+
 static int
 gen_is_coroutine(PyObject *o)
 {
