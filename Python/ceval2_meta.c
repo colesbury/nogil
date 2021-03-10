@@ -194,8 +194,11 @@ vm_handled_exc(struct ThreadState *ts)
         const uint32_t *first_instr = PyCode2_GET_CODE(code);
         Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
 
+        // Find the inner-most active except/finally block. Note that because
+        // try-blocks are stored inner-most to outer-most, the except/finally
+        // blocks have the opposite nesting order: outer-most to inner-most.
         struct _PyHandlerTable *table = code->co_exc_handlers;
-        for (Py_ssize_t i = 0, n = table->size; i < n; i++) {
+        for (Py_ssize_t i = table->size - 1; i >= 0; i--) {
             ExceptionHandler *eh = &table->entries[i];
             Py_ssize_t start = eh->handler;
             Py_ssize_t end = eh->handler_end;
