@@ -749,7 +749,8 @@ class CodeGen(ast.NodeVisitor):
                ast.RShift: ops.INPLACE_RSHIFT, ast.Mult: ops.INPLACE_MULTIPLY,
                ast.BitOr:  ops.INPLACE_OR,     ast.Mod:  ops.INPLACE_MODULO,
                ast.BitAnd: ops.INPLACE_AND,    ast.Div:  ops.INPLACE_TRUE_DIVIDE,
-               ast.BitXor: ops.INPLACE_XOR,    ast.FloorDiv: ops.INPLACE_FLOOR_DIVIDE}
+               ast.BitXor: ops.INPLACE_XOR,    ast.FloorDiv: ops.INPLACE_FLOOR_DIVIDE,
+               ast.MatMult: ops.INPLACE_MATRIX_MULTIPLY}
 
     def reference(self, target):
         method = 'reference_' + target.__class__.__name__
@@ -1714,6 +1715,9 @@ class Scope(ast.NodeVisitor):
         subscope.assign_defaults(t)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
+        for dflt in t.args.defaults + t.args.kw_defaults:
+            if dflt is not None:
+                self.visit(dflt)
 
     def visit_Function(self, t):
         self.function(t, is_async=False)
