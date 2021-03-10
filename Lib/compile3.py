@@ -579,7 +579,8 @@ class CodeGen(ast.NodeVisitor):
         regs = self.register_list()
         self(t.func.value)
         regs[FRAME_EXTRA].allocate()
-        self.LOAD_METHOD(regs[FRAME_EXTRA-1], self.names[t.func.attr])
+        name = mangle(self.scope.private, t.func.attr)
+        self.LOAD_METHOD(regs[FRAME_EXTRA-1], self.names[name])
         for i, arg in enumerate(t.args):
             regs[FRAME_EXTRA+i+1](arg)
         self.CALL_METHOD(regs.base + FRAME_EXTRA, len(t.args) + 1)
@@ -1146,7 +1147,15 @@ class CodeGen(ast.NodeVisitor):
     def visit_Import(self, t):
         for alias in t.names:
             self.import_name(0, None, alias.name)
-            self.store(alias.asname or alias.name.split('.')[0])
+            if alias.asname and alias.name.count(".") > 0:
+                r = self.new_register()
+                for part in alias.name.split('.')[1:]:
+                    self.STORE_FAST(r)
+                    self.IMPORT_FROM(r, self.constants[part])
+                self.store(alias.asname)
+                self.CLEAR_FAST(r)
+            else:
+                self.store(alias.asname or alias.name.split('.')[0])
 
     def visit_ImportFrom(self, t):
         fromlist = tuple([alias.name for alias in t.names])
