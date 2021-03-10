@@ -173,7 +173,7 @@ def_op('UNPACK', 94, 'iconst')
 def_op('MAKE_FUNCTION', 132, 'const')    # Flags
 def_op('SETUP_WITH', 143, 'reg')
 def_op('END_WITH', 150, 'reg')
-def_op('EXTENDED_ARG', 144)
+def_op('EXTENDED_ARG', 144, 'lit')
 def_op('SETUP_ASYNC_WITH', 154, 'reg')
 def_op('BUILD_CONST_KEY_MAP', 156)
 def_op('LIST_EXTEND', 162, 'reg')
