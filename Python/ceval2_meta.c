@@ -9,6 +9,7 @@
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
 #include "pycore_qsbr.h"
+#include "pycore_traceback.h"
 
 #include "code2.h"
 #include "dictobject.h"
@@ -447,15 +448,18 @@ int
 vm_traceback_here(struct ThreadState *ts)
 {
     _Py_IDENTIFIER(__builtins__);
-    PyObject *globals, *builtins;
+    PyObject *globals = NULL;
 
-    builtins = PyEval_GetBuiltins();
-    if (builtins == NULL) {
-        return -1;
-    }
+    PyObject *exc, *val, *tb;
+    PyErr_Fetch(&exc, &val, &tb);
+
     globals = PyDict_New();
     if (globals == NULL) {
-        return -1;
+        goto error;
+    }
+    PyObject *builtins = PyEval_GetBuiltins();
+    if (builtins == NULL) {
+        goto error;
     }
     if (_PyDict_SetItemId(globals, &PyId___builtins__, builtins) < 0) {
         goto error;
@@ -496,7 +500,11 @@ vm_traceback_here(struct ThreadState *ts)
         intptr_t addrq = sizeof(*next_instr) * ((next_instr - 1) - PyCode2_GET_CODE(co2));
         frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
 
-        PyTraceBack_Here(frame);
+        PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
+        if (newtb == NULL) {
+            goto error;
+        }
+        Py_XSETREF(tb, newtb);
         Py_DECREF(frame);
 
         if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
@@ -508,11 +516,13 @@ vm_traceback_here(struct ThreadState *ts)
         offset -= frame_delta;
     }
 
+    PyErr_Restore(exc, val, tb);
     Py_DECREF(globals);
     return 0;
 
   error:
-    Py_DECREF(globals);
+    Py_XDECREF(globals);
+    _PyErr_ChainExceptions(exc, val, tb);
     return -1;
 }
 
