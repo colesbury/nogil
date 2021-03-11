@@ -342,8 +342,14 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     PyCompilerFlags local_flags = _PyCompilerFlags_INIT;
     int merged;
     PyConfig *config = &_PyInterpreterState_GET_UNSAFE()->config;
+    if (optimize == -1) {
+        optimize = config->optimization_level;
+    }
 
     if (flags && (flags->cf_flags & PyCF_NEW_BYTECODE)) {
+        if (!_PyAST_Optimize(mod, arena, optimize)) {
+            return NULL;
+        }
         return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
     }
     if (!__doc__) {
@@ -371,7 +377,7 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     c.c_future->ff_features = merged;
     flags->cf_flags = merged;
     c.c_flags = flags;
-    c.c_optimize = (optimize == -1) ? config->optimization_level : optimize;
+    c.c_optimize = optimize;
     c.c_nestlevel = 0;
     c.c_do_not_emit_bytecode = 0;
 
