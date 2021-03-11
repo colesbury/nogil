@@ -1541,6 +1541,10 @@ class Desugarer(ast.NodeTransformer):
         return t.value
 
     @rewriter
+    def visit_ExtSlice(self, t):
+        return ast.Tuple(t.dims, load)
+
+    @rewriter
     def visit_With(self, t):
         for item in reversed(t.items[1:]):
             t.body = ast.With([item], t.body)
