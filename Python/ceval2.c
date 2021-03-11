@@ -820,10 +820,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *name = CONSTANTS()[opA];
         PyObject *locals = AS_OBJ(regs[0]);
         int err;
-        CALL_VM(err = vm_store_global(locals, name, acc));
-        if (UNLIKELY(err != 0)) {
+        if (LIKELY(PyDict_CheckExact(locals))) {
+            CALL_VM(err = PyDict_SetItem(locals, name, AS_OBJ(acc)));
+        }
+        else {
+            CALL_VM(err = PyObject_SetItem(locals, name, AS_OBJ(acc)));
+        }
+        if (UNLIKELY(err < 0)) {
             goto error;
         }
+        DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(STORE_NAME);
     }

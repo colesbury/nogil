@@ -904,17 +904,6 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
     }
 }
 
-int vm_store_global(PyObject *dict, PyObject *name, Register acc)
-{
-    PyObject *value = AS_OBJ(acc);
-    int err = PyDict_SetItem(dict, name, value);
-    if (err < 0) {
-        return -1;
-    }
-    DECREF(acc);
-    return 0;
-}
-
 int
 vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
 {
