@@ -123,6 +123,7 @@ class Instruction(Assembly):
         if argA < 256:
             return bytes([self.opcode, argA, (arg2 & 0xFF), (arg2 >> 8)])
         else:
+            assert not dis.opcodes[self.opcode].no_extended_arg, (self.opcode, argA, arg2)
             return bytes([
                 dis.opmap['EXTENDED_ARG'].opcode, (argA >> 8), 0, 0,
                 self.opcode, argA & 0xFF, (arg2 & 0xFF), (arg2 >> 8)])
@@ -321,7 +322,7 @@ class CodeGen(ast.NodeVisitor):
     def make_code(self, name, argcount=0, posonlyargcount=0, kwonlyargcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
         first_instr = self.instrs[0][0]
         assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
-        first_instr.arg = self.max_registers
+        first_instr.arg2 = self.max_registers
 
         if self.scope.is_generator:
             second_instr = self.instrs[1][0]
@@ -1471,7 +1472,7 @@ def collect(table):
     return tuple(sorted(table, key=table.get))
 
 def compile3(ast, filename, optimize):
-    print('compiling', filename, file=sys.stderr)
+    # print('compiling', filename, file=sys.stderr)
     return code_for_module(filename, ast)
 
 def load_file(filename, module_name):

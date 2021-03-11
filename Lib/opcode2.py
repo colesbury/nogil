@@ -17,6 +17,7 @@ class Bytecode:
         self.opcode = opcode
         self.opA = opA
         self.opD = opD
+        self.no_extended_arg = name in NO_EXTENDED_ARG
 
     def is_jump(self):
         return self.opD == 'jump'
@@ -40,8 +41,17 @@ def def_intrinsic(name, code, nargs=1):
     intrinsics[code] = intrinsic
     intrinsic_map[name] = intrinsic
 
+NO_EXTENDED_ARG = {
+    'GET_ITER',
+    'GET_AWAITABLE',
+    'FOR_ITER',
+    'GET_AITER',
+    'GET_ANEXT',
+    'END_ASYNC_WITH',
+}
+
 def_op('CLEAR_ACC', 1)
-def_op('FUNC_HEADER', 2, 'lit')
+def_op('FUNC_HEADER', 2, None, 'lit')
 def_op('METHOD_HEADER', 3)
 def_op('COROGEN_HEADER', 4, 'lit')
 def_op('CFUNC_HEADER', 6)

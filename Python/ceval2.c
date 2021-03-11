@@ -287,14 +287,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(FUNC_HEADER) {
-        // opA contains framesize
+        // opD contains framesize
         // acc contains nargs from call
         int err;
         assert(ts->regs == regs);
 
-        if (UNLIKELY(regs + opA > ts->maxstack)) {
+        if (UNLIKELY(regs + opD > ts->maxstack)) {
             // resize the virtual stack
-            CALL_VM(err = vm_resize_stack(ts, opA));
+            CALL_VM(err = vm_resize_stack(ts, opD));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
