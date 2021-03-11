@@ -198,7 +198,7 @@ gen_send_internal(PyGenObject2 *gen, Register acc)
 {
     struct ThreadState *ts = &gen->base.thread;
     gen->status = GEN_RUNNING;
-    PyObject *res = _PyEval_Fast(ts, acc.as_int64, ts->next_instr);
+    PyObject *res = PyEval2_Eval(ts, acc.as_int64, ts->next_instr);
     if (LIKELY(res != NULL)) {
         assert(gen->status == GEN_YIELD);
         return res;

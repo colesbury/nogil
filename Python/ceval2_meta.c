@@ -2071,6 +2071,16 @@ current_thread_state(void)
 }
 
 PyObject *
+PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
+{
+    struct ThreadState *oldts = gts;
+    gts = ts;
+    PyObject *res = _PyEval_Fast(ts, nargs, pc);
+    gts = oldts;
+    return res;
+}
+
+PyObject *
 _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
 {
     assert(PyFunc_Check(func));
