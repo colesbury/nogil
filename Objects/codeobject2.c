@@ -359,6 +359,30 @@ code_geticonsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
+code_getexc_handlers(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    Py_ssize_t size = co->co_exc_handlers->size;
+    PyObject *t = PyTuple_New(size);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != size; i++) {
+        ExceptionHandler *h = &co->co_exc_handlers->entries[i];
+        PyObject *entry = Py_BuildValue("(nnnn)",
+            h->start * sizeof(uint32_t),
+            h->handler * sizeof(uint32_t),
+            h->handler_end * sizeof(uint32_t),
+            h->reg);
+        if (entry == NULL) {
+            Py_DECREF(t);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(t, i, entry);
+    }
+    return t;
+}
+
+static PyObject *
 code_getcell2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     PyObject *t = PyTuple_New(co->co_ncells);
@@ -419,9 +443,10 @@ static PyMemberDef code_memberlist[] = {
 static PyGetSetDef code_getset[] = {
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
-    {"co_iconsts", (getter)code_geticonsts, (setter)NULL, "constants", NULL},
-    {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "constants", NULL},
-    {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "constants", NULL},
+    {"co_iconsts", (getter)code_geticonsts, (setter)NULL, "integer constants", NULL},
+    {"co_exc_handlers", (getter)code_getexc_handlers, (setter)NULL, "exception handlers", NULL},
+    {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "cell variables", NULL},
+    {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "free variables", NULL},
     {NULL} /* sentinel */
 };
 

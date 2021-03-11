@@ -423,6 +423,12 @@ def disassemble(co, lasti=-1, *, file=None):
         print(' ' * 2 + f'Free variables: {list(co.co_free2reg)}', file=file)
     if len(co.co_iconsts) > 0:
         print(' ' * 2 + f'Integer constants: {list(co.co_iconsts)}', file=file)
+    exc_handlers = co.co_exc_handlers
+    if len(exc_handlers) > 0:
+        print(' ' * 2 + f'Exception handlers ({len(exc_handlers)}):', file=file)
+        print(f'    start  ->  (handler,  end)', file=file)
+        for start, handler, end, reg in exc_handlers:
+            print(f'     {start:4d}  ->      {handler:4d}, {end:4d}  [reg={reg}]', file=file)
 
 def _disassemble_recursive(co, *, file=None, depth=None):
     disassemble(co, file=file)
