@@ -1957,6 +1957,13 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
         ts->regs[r] = old->regs[r];
         old->regs[r].as_int64 = 0;
     }
+    for (Py_ssize_t i = 0; i != code->co_ncells; i++) {
+        Py_ssize_t r = code->co_cell2reg[i];
+        if (r >= nargs) {
+            ts->regs[r] = old->regs[r];
+            old->regs[r].as_int64 = 0;
+        }
+    }
     ts->ts = PyThreadState_GET();
     return 0;
 }
