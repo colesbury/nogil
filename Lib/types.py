@@ -13,6 +13,7 @@ FunctionType = type(_f)
 LambdaType = type(lambda: None)         # Same as FunctionType
 CodeType = type(_f.__code__)
 CodeType2 = _code2
+CodeTypes = (CodeType, CodeType2)
 MappingProxyType = type(type.__dict__)
 SimpleNamespace = type(sys.implementation)
 FunctionType2 = sys.FunctionType2()

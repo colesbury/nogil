@@ -280,7 +280,7 @@ def iscode(object):
         co_nlocals          number of local variables
         co_stacksize        virtual machine stack space required
         co_varnames         tuple of names of arguments and local variables"""
-    return isinstance(object, types.CodeType)
+    return isinstance(object, types.CodeTypes)
 
 def isbuiltin(object):
     """Return true if the object is a built-in function or method.
