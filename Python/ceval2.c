@@ -80,6 +80,14 @@
     DECREF(_old);           \
 } while (0)
 
+#define SET_REG(dst, src) do {   \
+    Register _old = dst;    \
+    BREAK_LIVE_RANGE(_old); \
+    dst = src;              \
+    BREAK_LIVE_RANGE(dst);  \
+    DECREF(_old);           \
+} while (0)
+
 #define IS_EMPTY(acc) (acc.as_int64 == 0 || !IS_RC(acc))
 
 #define DECREF_X(reg, CALL) do { \
@@ -482,15 +490,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         // tail call dispatch to underlying func
         PyObject *func = meth->im_func;
         if (UNLIKELY(!PyFunc_Check(func))) {
-            Register tmp = regs[-1];
-            regs[-1] = PACK_INCREF(func);
-            DECREF(tmp);
+            Register x = PACK_INCREF(func);
+            SET_REG(regs[-1], x);
             goto call_object;
         }
         next_instr = ((PyFuncBase *)func)->first_instr;
-        Register tmp = regs[-1];
-        regs[-1] = PACK_INCREF(func);
-        DECREF(tmp);
+        Register x = PACK_INCREF(func);
+        SET_REG(regs[-1], x);
         DISPATCH(METHOD_HEADER);
     }
 
