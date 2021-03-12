@@ -703,6 +703,74 @@ async_gen_anext(PyAsyncGenObject2 *o)
     // return async_gen_asend_new(o, NULL);
 }
 
+typedef struct {
+    PyObject_HEAD
+    PyCoroObject2 *coroutine;
+} PyCoroWrapper;
+
+static PyObject *
+coro_await(PyCoroObject2 *coro)
+{
+    PyCoroWrapper *cw = PyObject_GC_New(PyCoroWrapper, &_PyCoroWrapper2_Type);
+    if (cw == NULL) {
+        return NULL;
+    }
+    Py_INCREF(coro);
+    cw->coroutine = coro;
+    _PyObject_GC_TRACK(cw);
+    return (PyObject *)cw;
+}
+
+static void
+coro_wrapper_dealloc(PyCoroWrapper *cw)
+{
+    _PyObject_GC_UNTRACK((PyObject *)cw);
+    Py_CLEAR(cw->coroutine);
+    PyObject_GC_Del(cw);
+}
+
+static PyObject *
+coro_wrapper_iternext(PyCoroWrapper *cw)
+{
+    return _PyGen2_Send((PyGenObject2 *)cw->coroutine, Py_None);
+}
+
+PyDoc_STRVAR(coro_send_doc,
+"send(arg) -> send 'arg' into coroutine,\n\
+return next iterated value or raise StopIteration.");
+
+static PyObject *
+coro_wrapper_send(PyCoroWrapper *cw, PyObject *arg)
+{
+    return _PyGen2_Send((PyGenObject2 *)cw->coroutine, arg);
+}
+
+PyDoc_STRVAR(coro_throw_doc,
+"throw(typ[,val[,tb]]) -> raise exception in coroutine,\n\
+return next iterated value or raise StopIteration.");
+
+static PyObject *
+coro_wrapper_throw(PyCoroWrapper *cw, PyObject *args)
+{
+    return gen_throw((PyGenObject2 *)cw->coroutine, args);
+}
+
+PyDoc_STRVAR(coro_close_doc,
+"close() -> raise GeneratorExit inside coroutine.");
+
+static PyObject *
+coro_wrapper_close(PyCoroWrapper *cw, PyObject *args)
+{
+    return gen_close((PyGenObject2 *)cw->coroutine, args);
+}
+
+static int
+coro_wrapper_traverse(PyCoroWrapper *cw, visitproc visit, void *arg)
+{
+    Py_VISIT((PyObject *)cw->coroutine);
+    return 0;
+}
+
 static PyGetSetDef gen_getsetlist[] = {
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
@@ -745,11 +813,16 @@ PyTypeObject PyGen2_Type = {
     .tp_finalize = _PyGen2_Finalize
 };
 
+static PyAsyncMethods coro_as_async = {
+    .am_await = (unaryfunc)coro_await
+};
+
 PyTypeObject PyCoro2_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = "coroutine",
     .tp_basicsize = sizeof(PyCoroObject2),
     .tp_dealloc = (destructor)gen_dealloc,
+    .tp_as_async = &coro_as_async,
     .tp_repr = (reprfunc)gen_repr,
     .tp_getattro = PyObject_GenericGetAttr, // necessary ???
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
@@ -759,6 +832,26 @@ PyTypeObject PyCoro2_Type = {
     .tp_members = gen_memberlist,
     .tp_getset = gen_getsetlist,
     .tp_finalize = _PyGen2_Finalize
+};
+
+static PyMethodDef coro_wrapper_methods[] = {
+    {"send",(PyCFunction)coro_wrapper_send, METH_O, coro_send_doc},
+    {"throw",(PyCFunction)coro_wrapper_throw, METH_VARARGS, coro_throw_doc},
+    {"close",(PyCFunction)coro_wrapper_close, METH_NOARGS, coro_close_doc},
+    {NULL, NULL}        /* Sentinel */
+};
+
+PyTypeObject _PyCoroWrapper2_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "coroutine_wrapper",
+    .tp_basicsize = sizeof(PyCoroWrapper),
+    .tp_dealloc = (destructor)coro_wrapper_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "A wrapper object implementing __await__ for coroutines.",
+    .tp_traverse = coro_wrapper_traverse,
+    .tp_iter = PyObject_SelfIter,
+    .tp_iternext = (iternextfunc)coro_wrapper_iternext,
+    .tp_methods = coro_wrapper_methods
 };
 
 static PyAsyncMethods async_gen_as_async = {

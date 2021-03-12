@@ -50,6 +50,7 @@ typedef struct {
 PyAPI_DATA(PyTypeObject) PyGen2_Type;
 PyAPI_DATA(PyTypeObject) PyCoro2_Type;
 PyAPI_DATA(PyTypeObject) PyAsyncGen2_Type;
+PyAPI_DATA(PyTypeObject) _PyCoroWrapper2_Type;
 
 #define PyGen2_Check(op) PyObject_TypeCheck(op, &PyGen2_Type)
 #define PyGen2_CheckExact(op) (Py_TYPE(op) == &PyGen2_Type)

@@ -1849,6 +1849,8 @@ PyTypeObject _PyNotImplemented_Type = {
 PyObject _Py_NotImplementedStruct =
     _PyObject_STRUCT_INIT(&_PyNotImplemented_Type);
 
+PyAPI_DATA(PyTypeObject) _PyCoroWrapper2_Type;
+
 PyStatus
 _PyTypes_Init(void)
 {
@@ -1926,6 +1928,7 @@ _PyTypes_Init(void)
     INIT_TYPE(&PyPickleBuffer_Type, "pickle.PickleBuffer");
     INIT_TYPE(&PyCoro_Type, "coroutine");
     INIT_TYPE(&_PyCoroWrapper_Type, "coroutine wrapper");
+    INIT_TYPE(&_PyCoroWrapper2_Type, "coroutine wrapper");
     INIT_TYPE(&_PyInterpreterID_Type, "interpreter ID");
     return _PyStatus_OK();
 
