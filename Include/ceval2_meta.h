@@ -118,14 +118,16 @@ PACK_OBJ(PyObject *o)
     return r;
 }
 
+#define PACK_INCREF(op) _PACK_INCREF(op, _Py_ThreadId())
+
 static inline Register
-PACK_INCREF(PyObject *obj)
+_PACK_INCREF(PyObject *obj, intptr_t tid)
 {
     Register r;
     r.as_int64 = (intptr_t)obj;
     if ((obj->ob_ref_local & 0x3) == 0) {
         _Py_INCREF_TOTAL
-        if (LIKELY(_Py_ThreadLocal(obj))) {
+        if (LIKELY(_Py_ThreadMatches(obj, tid))) {
             uint32_t refcount = obj->ob_ref_local;
             refcount += 4;
             obj->ob_ref_local = refcount;

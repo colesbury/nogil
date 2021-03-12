@@ -23,14 +23,14 @@
 
 #include <ctype.h>
 
-#if 1
+#if 0
 #define DEBUG_LABEL(name) __asm__ volatile("." #name ":" :: "r"(reserved));
 #else
 #define DEBUG_LABEL(name)
 #endif
 
 #define DEBUG_REGS 0
-#define DEBUG_FRAME 1
+#define DEBUG_FRAME 0
 
 #define TARGET(name) \
     TARGET_##name: \
@@ -156,6 +156,10 @@
         } \
     } \
 } while(0)
+
+#undef PACK_INCREF
+#define PACK_INCREF(op) _PACK_INCREF(op, tid)
+
 
 // Clears and DECREFs the regsters from [-1, N) where N is usually
 // the number of local variables.
