@@ -320,6 +320,13 @@ code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
+code_getkwonlyargcount(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    Py_ssize_t kwonlyargcount = co->co_totalargcount - co->co_argcount;
+    return PyLong_FromSsize_t(kwonlyargcount);
+}
+
+static PyObject *
 code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     uint32_t *bytecode = PyCode2_Code(co);
@@ -430,6 +437,10 @@ static struct PyMethodDef code_methods[] = {
 #define OFF(x) offsetof(PyCodeObject2, x)
 
 static PyMemberDef code_memberlist[] = {
+    {"co_argcount",     T_PYSSIZET,          OFF(co_argcount),        READONLY},
+    {"co_posonlyargcount",      T_PYSSIZET,  OFF(co_posonlyargcount), READONLY},
+    // {"co_kwonlyargcount",       T_INT,  OFF(co_kwonlyargcount),  READONLY},
+    {"co_nlocals",      T_PYSSIZET,          OFF(co_nlocals),         READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_varnames",     T_OBJECT,       OFF(co_varnames),        READONLY},
     {"co_freevars",     T_OBJECT,       OFF(co_freevars),        READONLY},
@@ -442,6 +453,7 @@ static PyMemberDef code_memberlist[] = {
 };
 
 static PyGetSetDef code_getset[] = {
+    {"co_kwonlyargcount", (getter)code_getkwonlyargcount, (setter)NULL, NULL, NULL},
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
     {"co_iconsts", (getter)code_geticonsts, (setter)NULL, "integer constants", NULL},

@@ -270,14 +270,160 @@ func_set_qualname(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
     return 0;
 }
 
+
+static PyObject *
+func_get_defaults(PyFunc *op, void *Py_UNUSED(ignored))
+{
+    if (PySys_Audit("object.__getattr__", "Os", op, "__defaults__") < 0) {
+        return NULL;
+    }
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_ssize_t required_args = co->co_totalargcount - co->co_ndefaultargs;
+    Py_ssize_t n = co->co_argcount - required_args;
+    if (n <= 0) {
+        Py_RETURN_NONE;
+    }
+    PyObject *defaults = PyTuple_New(n);
+    if (defaults == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *value = op->freevars[i];
+        Py_INCREF(value);
+        PyTuple_SET_ITEM(defaults, i, value);
+    }
+    return defaults;
+}
+
+static int
+func_set_defaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    /* Legal to del f.func_defaults.
+     * Can only set func_defaults to NULL or a tuple. */
+    if (value == Py_None)
+        value = NULL;
+    if (value != NULL && !PyTuple_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "__defaults__ must be set to a tuple object");
+        return -1;
+    }
+    if (value) {
+        if (PySys_Audit("object.__setattr__", "OsO",
+                        op, "__defaults__", value) < 0) {
+            return -1;
+        }
+    } else if (PySys_Audit("object.__delattr__", "Os",
+                           op, "__defaults__") < 0) {
+        return -1;
+    }
+
+    PyErr_SetString(PyExc_TypeError, "func.__defaults__ assignment NYI");
+    return -1;
+    // Py_XINCREF(value);
+    // Py_XSETREF(op->func_defaults, value);
+    // return 0;
+}
+
+static PyObject *
+func_get_kwdefaults(PyFunc *op, void *Py_UNUSED(ignored))
+{
+    if (PySys_Audit("object.__getattr__", "Os",
+                    op, "__kwdefaults__") < 0) {
+        return NULL;
+    }
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_ssize_t kwonlyargcount = co->co_totalargcount - co->co_argcount;
+    if (kwonlyargcount == 0 || co->co_ndefaultargs == 0) {
+        Py_RETURN_NONE;
+    }
+    PyObject *kwdefaults = PyDict_New();
+    if (kwdefaults == NULL) {
+        return NULL;
+    }
+    Py_ssize_t i = co->co_ndefaultargs - kwonlyargcount;
+    Py_ssize_t j = co->co_totalargcount - kwonlyargcount;
+    assert(i >= 0 && j >= 0);
+    for (; i < co->co_ndefaultargs; i++, j++) {
+        PyObject *value = op->freevars[i];
+        if (value == NULL) continue;
+        PyObject *name = PyTuple_GET_ITEM(co->co_varnames, j);
+        int err = PyDict_SetItem(kwdefaults, name, value);
+        if (err < 0) {
+            Py_DECREF(kwdefaults);
+            return NULL;
+        }
+    }
+    return kwdefaults;
+}
+
+static int
+func_set_kwdefaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    if (value == Py_None)
+        value = NULL;
+    /* Legal to del f.func_kwdefaults.
+     * Can only set func_kwdefaults to NULL or a dict. */
+    if (value != NULL && !PyDict_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+            "__kwdefaults__ must be set to a dict object");
+        return -1;
+    }
+    if (value) {
+        if (PySys_Audit("object.__setattr__", "OsO",
+                        op, "__kwdefaults__", value) < 0) {
+            return -1;
+        }
+    } else if (PySys_Audit("object.__delattr__", "Os",
+                           op, "__kwdefaults__") < 0) {
+        return -1;
+    }
+
+
+    PyErr_SetString(PyExc_TypeError, "func.__kwdefaults__ assignment NYI");
+    return -1;
+    // Py_XINCREF(value);
+    // Py_XSETREF(op->func_kwdefaults, value);
+    // return 0;
+}
+
+static PyObject *
+func_get_annotations(PyFunc *op, void *Py_UNUSED(ignored))
+{
+    if (op->func_annotations == NULL) {
+        op->func_annotations = PyDict_New();
+        if (op->func_annotations == NULL)
+            return NULL;
+    }
+    Py_INCREF(op->func_annotations);
+    return op->func_annotations;
+}
+
+static int
+func_set_annotations(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
+{
+    if (value == Py_None)
+        value = NULL;
+    /* Legal to del f.func_annotations.
+     * Can only set func_annotations to NULL (through C api)
+     * or a dict. */
+    if (value != NULL && !PyDict_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+            "__annotations__ must be set to a dict object");
+        return -1;
+    }
+    Py_XINCREF(value);
+    Py_XSETREF(op->func_annotations, value);
+    return 0;
+}
+
 static PyGetSetDef func_getsetlist[] = {
     {"__code__", (getter)func_get_code, (setter)func_set_code},
-    // {"__defaults__", (getter)func_get_defaults,
-    //  (setter)func_set_defaults},
-    // {"__kwdefaults__", (getter)func_get_kwdefaults,
-    //  (setter)func_set_kwdefaults},
-    // {"__annotations__", (getter)func_get_annotations,
-    //  (setter)func_set_annotations},
+    {"__defaults__", (getter)func_get_defaults,
+     (setter)func_set_defaults},
+    {"__kwdefaults__", (getter)func_get_kwdefaults,
+     (setter)func_set_kwdefaults},
+    {"__annotations__", (getter)func_get_annotations,
+     (setter)func_set_annotations},
     {"__dict__", PyObject_GenericGetDict, PyObject_GenericSetDict},
     {"__name__", (getter)func_get_name, (setter)func_set_name},
     {"__qualname__", (getter)func_get_qualname, (setter)func_set_qualname},
