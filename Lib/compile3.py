@@ -1702,7 +1702,7 @@ class Scope(ast.NodeVisitor):
     def argname(self, i):
         args = self.t.args
         all_args = args.posonlyargs + args.args + args.kwonlyargs
-        return all_args[i].arg
+        return mangle(self.private, all_args[i].arg)
 
     def default_idx(self, i):
         args = self.t.args
@@ -1720,7 +1720,8 @@ class Scope(ast.NodeVisitor):
     def function(self, t, is_async):
         args = t.args
         all_args = args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
-        subscope = Scope(t, 'function', [arg.arg for arg in all_args if arg], self)
+        argnames = [mangle(self.private, arg.arg) for arg in all_args if arg]
+        subscope = Scope(t, 'function', argnames, self)
         subscope.is_async = is_async
         subscope.assign_defaults(t)
         self.children[t] = subscope
