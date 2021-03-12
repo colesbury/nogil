@@ -18,6 +18,8 @@
 PyObject *
 PyFunc_New(PyObject *co, PyObject *globals)
 {
+    _Py_IDENTIFIER(__name__);
+
     assert(PyCode2_Check(co));
     PyCodeObject2 *code = (PyCodeObject2 *)co;
     PyFunc *func = PyObject_GC_NewVar(PyFunc, &PyFunc_Type, code->co_nfreevars);
@@ -36,10 +38,16 @@ PyFunc_New(PyObject *co, PyObject *globals)
     Py_INCREF(func->func_name);
     func->func_dict = NULL;
     func->func_weakreflist = NULL;
-    func->func_module = NULL;
     func->func_annotations = NULL;
     func->func_qualname = func->func_name;
     Py_INCREF(func->func_qualname);
+
+    func->func_module = _PyDict_GetItemIdWithError(globals, &PyId___name__);
+    if (UNLIKELY(func->func_module == NULL && PyErr_Occurred())) {
+        Py_DECREF(func);
+        return NULL;
+    }
+    Py_INCREF(func->func_module);
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;
