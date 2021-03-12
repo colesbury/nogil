@@ -1805,12 +1805,24 @@ This function should be used for internal and specialized purposes
 only.
 [clinic start generated code]*/
 
+PyObject *vm_get_frame(int depth);
+
 static PyObject *
 sys__getframe_impl(PyObject *module, int depth)
 /*[clinic end generated code: output=d438776c04d59804 input=c1be8a6464b11ee5]*/
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *f = tstate->frame;
+
+    PyFrameObject *f;
+    if (tstate->use_new_interp) {
+        f = vm_get_frame(depth);
+        if (f == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        f = tstate->frame;
+    }
 
     if (PySys_Audit("sys._getframe", "O", f) < 0) {
         return NULL;

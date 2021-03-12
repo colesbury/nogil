@@ -444,10 +444,75 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
     }
 }
 
+_Py_IDENTIFIER(__builtins__);
+
+static struct ThreadState *current_thread_state(void);
+
+PyObject *
+vm_get_frame(int depth)
+{
+    PyFrameObject *top = NULL, *last = NULL;
+
+    struct ThreadState *ts = current_thread_state();
+
+    const uint32_t *next_instr = ts->next_instr;
+    intptr_t offset = 0;
+    while (&ts->regs[offset] != ts->stack) {
+        PyObject *func = AS_OBJ(ts->regs[offset-1]);
+        uintptr_t frame_link = ts->regs[offset-2].as_int64;
+        intptr_t frame_delta = ts->regs[offset-4].as_int64;
+
+        if (!PyFunc_Check(func) || next_instr == NULL) {
+            goto next;
+        }
+
+        PyCodeObject2 *co2 = PyCode2_FromFunc((PyFunc *)func);
+        const char *filename = PyUnicode_AsUTF8(co2->co_filename);
+        const char *funcname = PyUnicode_AsUTF8(co2->co_name);
+        int firstlineno = co2->co_firstlineno;
+
+        PyCodeObject *code = PyCode_NewEmpty(filename, funcname, firstlineno);
+        if (code == NULL) {
+            goto error;
+        }
+
+        PyObject *globals = ((PyFunc *)func)->globals;
+        PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), code, globals, NULL);
+        Py_DECREF(code);
+        if (frame == NULL) {
+            goto error;
+        }
+        Py_CLEAR(frame->f_back);
+
+        // fake trace so that we use f->f_lineno
+        Py_INCREF(globals);
+        frame->f_trace = globals;
+
+        intptr_t addrq = sizeof(*next_instr) * ((next_instr - 1) - PyCode2_GET_CODE(co2));
+        frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
+        if (top == NULL) {
+            top = frame;
+        }
+        else {
+            last->f_back = frame;
+        }
+        last = frame;
+
+      next:
+        next_instr = (const uint32_t *)frame_link;
+        offset -= frame_delta;
+    }
+
+    return (PyObject *)top;
+
+  error:
+    Py_XDECREF(top);
+    return NULL;
+}
+
 int
 vm_traceback_here(struct ThreadState *ts)
 {
-    _Py_IDENTIFIER(__builtins__);
     PyObject *globals = NULL;
 
     PyObject *exc, *val, *tb;
@@ -1999,7 +2064,6 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 // }
 
 static Py_DECL_THREAD struct ThreadState *gts;
-_Py_IDENTIFIER(__builtins__);
 
 PyObject *
 vm_cur_handled_exc(void) { return vm_handled_exc(gts); }
@@ -2115,7 +2179,7 @@ PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
     PyObject *ret = _PyEval2_EvalFunc((PyObject *)func, locals);
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
-    fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
+    // fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
     return ret;
 #else
     return _PyEval2_EvalFunc((PyObject *)func, locals);
