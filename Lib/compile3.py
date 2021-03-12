@@ -1051,11 +1051,11 @@ class CodeGen(ast.NodeVisitor):
             ast.USub: ops.UNARY_NEGATIVE,  ast.Not:    ops.UNARY_NOT}
 
     def visit_BinOp(self, t):
-        reg = self.register()
-        reg(t.left)
+        r = self.as_register(t.left)
         self(t.right)
-        self.ops2[type(t.op)](self, reg)
-        reg.clear()
+        self.ops2[type(t.op)](self, r)
+        if self.is_temporary(r):
+            self.CLEAR_FAST(r)
     ops2 = {ast.Pow:    ops.BINARY_POWER,  ast.Add:  ops.BINARY_ADD,
             ast.LShift: ops.BINARY_LSHIFT, ast.Sub:  ops.BINARY_SUBTRACT,
             ast.RShift: ops.BINARY_RSHIFT, ast.Mult: ops.BINARY_MULTIPLY,
@@ -1473,7 +1473,12 @@ def collect(table):
 
 def compile3(ast, filename, optimize):
     # print('compiling', filename, file=sys.stderr)
-    return code_for_module(filename, ast)
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(10000)
+    try:
+        return code_for_module(filename, ast)
+    finally:
+        sys.setrecursionlimit(limit)
 
 def load_file(filename, module_name):
     f = open(filename)
