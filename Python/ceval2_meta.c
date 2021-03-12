@@ -2390,14 +2390,13 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
         return _PyEval_Fast(ts, acc, pc);
     }
 
-    Py_ssize_t acc = ACC_FLAG_VARARGS;
+    Py_ssize_t acc = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
     err = setup_frame(ts, func, /*extra=*/2);
     if (UNLIKELY(err != 0)) {
         return NULL;
     }
     ts->regs[-FRAME_EXTRA-2] = PACK(args, NO_REFCOUNT_TAG);
     if (kwds != NULL) {
-        acc |= ACC_FLAG_VARKEYWORDS;
         ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
     }
     return _PyEval_Fast(ts, acc, pc);
