@@ -621,6 +621,7 @@ class CodeGen(ast.NodeVisitor):
         block_top = len(self.blocks)
         assembly = self.visit(t)
         self.next_register = top
+        # TODO: remove auto block-popping
         while len(self.blocks) > block_top:
             self.blocks.pop()
 
@@ -1185,6 +1186,7 @@ class CodeGen(ast.NodeVisitor):
         self(t.test)
         self.POP_JUMP_IF_TRUE(loop.top)
         self.LABEL(loop.anchor)
+        self.pop_loop(loop)
         if t.orelse:
             self(t.orelse)
         self.LABEL(loop.exit)
@@ -1200,6 +1202,7 @@ class CodeGen(ast.NodeVisitor):
         self(t.body)
         self.LABEL(loop.next)
         self.FOR_ITER(loop.reg, loop.top)
+        self.pop_loop(loop)
         self.LABEL(loop.anchor)
         if t.orelse:
             self(t.orelse)
@@ -1235,7 +1238,8 @@ class CodeGen(ast.NodeVisitor):
         link_reg = self.new_register(2)
         self.LABEL(ExceptHandler(loop.next, loop.anchor, link_reg))
         self.END_ASYNC_FOR(loop.reg)
-        self.next_register = loop.reg
+        self.next_register = loop.reg + 1
+        self.pop_loop(loop)
         self.LABEL(loop.anchor)
         if t.orelse:
             self(t.orelse)
@@ -1245,6 +1249,13 @@ class CodeGen(ast.NodeVisitor):
         loop = Loop(reg)
         self.blocks.append(loop)
         return loop
+
+    def pop_loop(self, loop):
+        l = self.blocks.pop()
+        assert l is loop
+        if loop.reg is not None:
+            assert self.next_register == loop.reg + 1
+            self.next_register = loop.reg
 
     def visit_Return(self, t):
         if t.value:
