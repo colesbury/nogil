@@ -91,15 +91,6 @@ typedef struct {
 } PyFuncBase;
 
 typedef struct {
-    PyFuncBase func_base;
-    PyObject *im_func;   /* The callable object implementing the method */
-    PyObject *im_self;   /* The instance it is bound to */
-    PyObject *im_weakreflist; /* List of weak references */
-} PyMethod;
-
-extern PyTypeObject PyMeth_Type;
-
-typedef struct {
     PyFuncBase   m_base;
     PyMethodDef *m_ml; /* Description of the C function to call */
     PyObject    *m_self; /* Passed as 'self' arg to the C func, can be NULL */

@@ -204,6 +204,7 @@ PyObject *PyEval2_GetLocals(void);
 
 // private
 PyObject *_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds);
+PyObject *_Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds);
 
 
 struct _PyCodeObject2;

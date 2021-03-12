@@ -2475,12 +2475,15 @@ PyEval2_GetLocals(void)
     return NULL;
 }
 
-static PyObject *
-method_call(PyObject *obj, PyObject *args, PyObject *kwds)
+PyObject *
+_Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
 {
+    PyMethodObject *method = (PyMethodObject *)obj;
+    if (UNLIKELY(!PyFunc_Check(method->im_func))) {
+        return PyVectorcall_Call(obj, args, kwds);
+    }
     if (kwds == NULL && PyTuple_GET_SIZE(args) < 255) {
         // optimization for positional arguments only
-        PyMethod *method = (PyMethod *)obj;
         struct ThreadState *ts = current_thread_state();
         const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
         Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
@@ -2496,39 +2499,5 @@ method_call(PyObject *obj, PyObject *args, PyObject *kwds)
     }
     return _Py_func_call(obj, args, kwds);
 }
-
-static PyObject *
-method_descr_get(PyObject *meth, PyObject *obj, PyObject *cls)
-{
-    Py_INCREF(meth);
-    return meth;
-}
-
-static void
-method_dealloc(PyMethod *im)
-{
-    // _PyObject_GC_UNTRACK(im);
-    if (im->im_weakreflist != NULL)
-        PyObject_ClearWeakRefs((PyObject *)im);
-    Py_DECREF(im->im_func);
-    Py_XDECREF(im->im_self);
-    // PyObject_GC_Del(im);
-    PyObject_Del(im);
-}
-
-PyTypeObject PyMeth_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "method",
-    .tp_doc = "method doc",
-    .tp_basicsize = sizeof(PyMethod),
-    .tp_call = method_call,
-    .tp_descr_get = method_descr_get,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_FUNC_INTERFACE,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc) NULL,
-    .tp_dealloc = (destructor)method_dealloc,
-    .tp_members = NULL,
-    .tp_methods = NULL,
-};
 
 #include "ceval_intrinsics.h"

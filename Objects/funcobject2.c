@@ -163,20 +163,7 @@ func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
         Py_INCREF(func);
         return func;
     }
-
-    static uint32_t meth_instr = METHOD_HEADER;
-    PyMethod *method = PyObject_New(PyMethod, &PyMeth_Type);
-    if (method == NULL) {
-        return NULL;
-    }
-    // _PyObject_SET_DEFERRED_RC((PyObject *)method);
-    method->func_base.first_instr = &meth_instr;
-    Py_INCREF(func);
-    method->im_func = func;
-    Py_INCREF(obj);
-    method->im_self = obj;
-    method->im_weakreflist = NULL;
-    return (PyObject *)method;
+    return PyMethod_New(func, obj);
 }
 
 /* Methods */

@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 typedef struct {
-    PyObject_HEAD
+    PyFuncBase func_base;
     PyObject *im_func;   /* The callable object implementing the method */
     PyObject *im_self;   /* The instance it is bound to */
     PyObject *im_weakreflist; /* List of weak references */

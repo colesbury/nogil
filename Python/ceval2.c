@@ -454,7 +454,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(METHOD_HEADER) {
-        PyMethod *meth = (PyMethod *)AS_OBJ(regs[-1]);
+        PyMethodObject *meth = (PyMethodObject *)AS_OBJ(regs[-1]);
         if ((acc.as_int64 & ACC_FLAG_VARARGS) != 0) {
             // TODO: would be nice to only use below case by handling hybrid call formats.
             PyObject *args = AS_OBJ(regs[-FRAME_EXTRA - 2]);
@@ -467,7 +467,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             Register tmp = regs[-FRAME_EXTRA - 2];
             regs[-FRAME_EXTRA - 2] = res;
             DECREF(tmp);
-            meth = (PyMethod *)AS_OBJ(regs[-1]);
+            meth = (PyMethodObject *)AS_OBJ(regs[-1]);
         }
         else {
             // insert "self" as first argument
@@ -481,6 +481,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         // tail call dispatch to underlying func
         PyObject *func = meth->im_func;
+        if (UNLIKELY(!PyFunc_Check(func))) {
+            Register tmp = regs[-1];
+            regs[-1] = PACK_INCREF(func);
+            DECREF(tmp);
+            goto call_object;
+        }
         next_instr = ((PyFuncBase *)func)->first_instr;
         Register tmp = regs[-1];
         regs[-1] = PACK_INCREF(func);
