@@ -205,7 +205,9 @@ PyObject *PyEval2_GetLocals(void);
 
 
 // private
-PyObject *_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds);
+PyObject *_PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds);
+PyObject *_PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
+                             size_t nargsf, PyObject *kwnames);
 PyObject *_Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds);
 
 

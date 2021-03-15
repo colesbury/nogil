@@ -10,10 +10,8 @@
 #include "code2.h"
 #include "structmember.h"
 
-
 #include "ceval2_meta.h"
 #include "opcode2.h"
-
 
 PyObject *
 PyFunc_New(PyObject *co, PyObject *globals)
@@ -40,6 +38,7 @@ PyFunc_New(PyObject *co, PyObject *globals)
     func->func_weakreflist = NULL;
     func->func_annotations = NULL;
     func->func_qualname = func->func_name;
+    func->vectorcall = _PyFunc_Vectorcall;
     Py_INCREF(func->func_qualname);
 
     func->func_module = _PyDict_GetItemIdWithError(globals, &PyId___name__);
@@ -445,11 +444,13 @@ PyTypeObject PyFunc_Type = {
     .tp_doc = func_new__doc__,
     .tp_basicsize = sizeof(PyFunc),
     .tp_itemsize = sizeof(PyObject*),
-    .tp_call = (ternaryfunc)_Py_func_call,
+    .tp_call = (ternaryfunc)_PyFunc_Call,
+    .tp_vectorcall_offset = offsetof(PyFunc, vectorcall),
     .tp_descr_get = func_descr_get,
     .tp_repr = (reprfunc)func_repr,
     .tp_flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
-                 Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR),
+                 Py_TPFLAGS_FUNC_INTERFACE | Py_TPFLAGS_METHOD_DESCRIPTOR |
+                 Py_TPFLAGS_HAVE_VECTORCALL),
     .tp_new = func_new,
     .tp_init = (initproc) NULL,
     .tp_dealloc = (destructor)func_dealloc,

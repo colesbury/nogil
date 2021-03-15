@@ -2107,13 +2107,13 @@ PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
 }
 
 static int
-setup_frame(struct ThreadState *ts, PyObject *func, Py_ssize_t extra)
+setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssize_t nargs)
 {
     assert(PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE));
-    Py_ssize_t frame_delta = vm_frame_size(ts);
-    frame_delta += CFRAME_EXTRA + extra;
-    if (UNLIKELY(ts->regs + frame_delta > ts->maxstack)) {
-        if (vm_resize_stack(ts, frame_delta) != 0) {
+    Py_ssize_t frame_delta = vm_frame_size(ts) + CFRAME_EXTRA + extra;
+    Py_ssize_t frame_size = frame_delta + nargs;
+    if (UNLIKELY(ts->regs + frame_size > ts->maxstack)) {
+        if (vm_resize_stack(ts, frame_size) != 0) {
             return -1;
         }
     }
@@ -2126,6 +2126,13 @@ setup_frame(struct ThreadState *ts, PyObject *func, Py_ssize_t extra)
     ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
+
+}
+
+static int
+setup_frame(struct ThreadState *ts, PyObject *func)
+{
+    return setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/0);
 }
 
 static struct ThreadState *
@@ -2157,7 +2164,7 @@ _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
     struct ThreadState *ts = current_thread_state();
     int err;
 
-    err = setup_frame(ts, func, 0);
+    err = setup_frame(ts, func);
     if (UNLIKELY(err != 0)) {
         return NULL;
     }
@@ -2179,7 +2186,7 @@ PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
     PyObject *ret = _PyEval2_EvalFunc((PyObject *)func, locals);
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
-    // fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
+    fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
     return ret;
 #else
     return _PyEval2_EvalFunc((PyObject *)func, locals);
@@ -2439,7 +2446,7 @@ vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
 
 // TODO: can we move this to funcobject2.c? should we?
 PyObject *
-_Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
+_PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds)
 {
     struct ThreadState *ts = current_thread_state();
     const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
@@ -2447,7 +2454,7 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
 
     if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
         Py_ssize_t acc = 0;
-        err = setup_frame(ts, func, /*extra=*/0);
+        err = setup_frame(ts, func);
         if (UNLIKELY(err != 0)) {
             return NULL;
         }
@@ -2455,7 +2462,7 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
     }
 
     Py_ssize_t acc = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
-    err = setup_frame(ts, func, /*extra=*/2);
+    err = setup_frame_ex(ts, func, /*extra=*/2, /*nargs=*/0);
     if (UNLIKELY(err != 0)) {
         return NULL;
     }
@@ -2465,6 +2472,53 @@ _Py_func_call(PyObject *func, PyObject *args, PyObject *kwds)
     }
     return _PyEval_Fast(ts, acc, pc);
 }
+
+PyObject *
+_PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
+                   size_t nargsf, PyObject *kwnames)
+{
+    struct ThreadState *ts = current_thread_state();
+    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (UNLIKELY(nargs >= 255)) {
+        goto slow_call;
+    }
+
+    int err;
+    if (LIKELY(kwnames == NULL)) {
+        Py_ssize_t acc = nargs;
+        err = setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/nargs);
+        if (UNLIKELY(err != 0)) {
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < nargs; i++) {
+            ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
+        }
+        return _PyEval_Fast(ts, acc, pc);
+    }
+
+    Py_ssize_t nkwargs = PyTuple_GET_SIZE(kwnames);
+    if (UNLIKELY(nkwargs >= 256)) {
+        goto slow_call;
+    }
+    err = setup_frame_ex(ts, func, /*extra=*/nkwargs + 1, /*nargs=*/nargs);
+    if (UNLIKELY(err != 0)) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
+    }
+    for (Py_ssize_t i = 0; i < nkwargs; i++) {
+        ts->regs[-FRAME_EXTRA - 1 - nkwargs + i] = PACK(stack[i + nargs], NO_REFCOUNT_TAG);
+    }
+    ts->regs[-FRAME_EXTRA - 1] = PACK(kwnames, NO_REFCOUNT_TAG);
+    Py_ssize_t acc = nargs + (nkwargs << 8);
+    return _PyEval_Fast(ts, acc, pc);
+
+  slow_call:
+    return _PyObject_MakeTpCall(ts->ts, func, stack, nargs, kwnames);
+}
+
 
 PyObject *
 PyEval2_GetGlobals(void)
@@ -2551,7 +2605,7 @@ _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
         struct ThreadState *ts = current_thread_state();
         const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
         Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
-        int err = setup_frame(ts, method->im_func, /*extra=*/nargs);
+        int err = setup_frame_ex(ts, method->im_func, /*extra=*/0, /*nargs=*/nargs);
         if (UNLIKELY(err != 0)) {
             return NULL;
         }
@@ -2561,7 +2615,7 @@ _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
         }
         return _PyEval_Fast(ts, nargs, pc);
     }
-    return _Py_func_call(obj, args, kwds);
+    return _PyFunc_Call(obj, args, kwds);
 }
 
 #include "ceval_intrinsics.h"

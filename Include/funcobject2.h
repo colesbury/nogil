@@ -29,6 +29,7 @@ typedef struct {
     PyObject *func_module;      /* The __module__ attribute, can be anything */
     PyObject *func_annotations; /* Annotations, a dict or NULL */
     PyObject *func_qualname;    /* The qualified name */
+    vectorcallfunc vectorcall;
     PyObject *freevars[0];  // captured variables and default argument values
     // closure... LuaJit has closed-over variables as flexiable array member
 } PyFunc;
