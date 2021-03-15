@@ -227,8 +227,7 @@ class Checker(ast.NodeVisitor):
         self(t.value)
 
     def visit_Constant(self, t):
-        if isinstance(t.value, float):
-            assert not has_negzero(t.value), "Negative-zero literals not supported: %r" % (t,)
+        pass
 
     def visit_FormattedValue(self, t):
         self(t.value)
