@@ -1815,7 +1815,7 @@ sys__getframe_impl(PyObject *module, int depth)
 
     PyFrameObject *f;
     if (tstate->use_new_interp) {
-        f = vm_get_frame(depth);
+        f = (PyFrameObject *)vm_get_frame(depth);
         if (f == NULL) {
             return NULL;
         }
