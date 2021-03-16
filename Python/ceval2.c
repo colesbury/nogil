@@ -275,27 +275,83 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(POP_JUMP_IF_FALSE) {
-        CALL_VM(next_instr = vm_is_false(acc, next_instr, opD));
-        DECREF(acc);
+        PyObject *value = AS_OBJ(acc);
+        if (value == Py_True) {
+            // no-op
+        }
+        else if (LIKELY(value == Py_False || value == Py_None)) {
+            next_instr += opD - 0x8000;
+        }
+        else {
+            const uint32_t *res;
+            CALL_VM(res = vm_jump_if(value, next_instr, opD, 0));
+            if (UNLIKELY(res == NULL)) {
+                goto error;
+            }
+            next_instr = res;
+            DECREF(acc);
+        }
         acc.as_int64 = 0;
         DISPATCH(POP_JUMP_IF_FALSE);
     }
 
     TARGET(POP_JUMP_IF_TRUE) {
-        CALL_VM(next_instr = vm_is_true(acc, next_instr, opD));
-        DECREF(acc);
+        PyObject *value = AS_OBJ(acc);
+        if (value == Py_True) {
+            next_instr += opD - 0x8000;
+        }
+        else if (LIKELY(value == Py_False || value == Py_None)) {
+            // no-op
+        }
+        else {
+            const uint32_t *res;
+            CALL_VM(res = vm_jump_if(value, next_instr, opD, 1));
+            if (UNLIKELY(res == NULL)) {
+                goto error;
+            }
+            next_instr = res;
+            DECREF(acc);
+        }
         acc.as_int64 = 0;
         DISPATCH(POP_JUMP_IF_TRUE);
     }
 
     TARGET(JUMP_IF_FALSE) {
-        CALL_VM(next_instr = vm_is_false(acc, next_instr, opD));
+        PyObject *value = AS_OBJ(acc);
+        if (value == Py_True) {
+            // no-op
+        }
+        else if (LIKELY(value == Py_False || value == Py_None)) {
+            next_instr += opD - 0x8000;
+        }
+        else {
+            const uint32_t *res;
+            CALL_VM(res = vm_jump_if(value, next_instr, opD, 0));
+            if (UNLIKELY(res == NULL)) {
+                goto error;
+            }
+            next_instr = res;
+        }
         DISPATCH(JUMP_IF_FALSE);
     }
 
     TARGET(JUMP_IF_TRUE) {
-        CALL_VM(next_instr = vm_is_true(acc, next_instr, opD));
-        DISPATCH(JUMP_IF_FALSE);
+        PyObject *value = AS_OBJ(acc);
+        if (value == Py_True) {
+            next_instr += opD - 0x8000;
+        }
+        else if (LIKELY(value == Py_False || value == Py_None)) {
+            // no-op
+        }
+        else {
+            const uint32_t *res;
+            CALL_VM(res = vm_jump_if(value, next_instr, opD, 1));
+            if (UNLIKELY(res == NULL)) {
+                goto error;
+            }
+            next_instr = res;
+        }
+        DISPATCH(JUMP_IF_TRUE);
     }
 
     TARGET(FUNC_HEADER) {

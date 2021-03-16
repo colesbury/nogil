@@ -73,12 +73,12 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
- static const uint32_t * _Py_NO_INLINE
-vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
+const uint32_t *
+vm_jump_if(PyObject *value, const uint32_t *next_instr, intptr_t opD, int exp)
 {
-    int err = PyObject_IsTrue(AS_OBJ(acc));
+    int err = PyObject_IsTrue(value);
     if (UNLIKELY(err < 0)) {
-        abort();
+        return NULL;
     }
     if (err == exp) {
         return next_instr + opD - 0x8000;
@@ -86,32 +86,6 @@ vm_is_bool_slow(Register acc, const uint32_t *next_instr, intptr_t opD, int exp)
     else {
         return next_instr;
     }
-}
-
-const uint32_t *
-vm_is_true(Register acc, const uint32_t *next_instr, intptr_t opD)
-{
-    PyObject *obj = AS_OBJ(acc);
-    if (obj == Py_True) {
-        return next_instr + opD - 0x8000;
-    }
-    else if (_PY_LIKELY(obj == Py_False || obj == Py_None)) {
-        return next_instr;
-    }
-    return vm_is_bool_slow(acc, next_instr, opD, 1);
-}
-
-const uint32_t *
-vm_is_false(Register acc, const uint32_t *next_instr, intptr_t opD)
-{
-    PyObject *obj = AS_OBJ(acc);
-    if (obj == Py_True) {
-        return next_instr;
-    }
-    else if (_PY_LIKELY(obj == Py_False || obj == Py_None)) {
-        return next_instr + opD - 0x8000;
-    }
-    return vm_is_bool_slow(acc, next_instr, opD, 0);
 }
 
 static Register _Py_NO_INLINE
