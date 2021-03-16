@@ -985,6 +985,11 @@ class CodeGen(ast.NodeVisitor):
         self.LOAD_ATTR(reg, self.names[name])
         reg.clear()
 
+    def build_tuple(self, base, size):
+        if size == 0:
+            return self.load_const(())
+        return self.BUILD_TUPLE(base, size)
+
     def visit_sequence(self, t):
         assert not hasattr(t, 'ctx') or isinstance(t.ctx, ast.Load)
         base = self.next_register
@@ -1018,7 +1023,7 @@ class CodeGen(ast.NodeVisitor):
             if type(t) == ast.Set:
                 self.BUILD_SET(base, len(t.elts))
             elif type(t) == ast.Tuple:
-                self.BUILD_TUPLE(base, len(t.elts))
+                self.build_tuple(base, len(t.elts))
             else:
                 self.BUILD_LIST(base, len(t.elts))
         else:

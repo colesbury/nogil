@@ -1536,11 +1536,7 @@ build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 Register
 vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
-    if (n == 0) {
-        PyObject *obj = PyTuple_New(0);
-        assert(obj != NULL && _PyObject_IS_IMMORTAL(obj));
-        return PACK(obj, NO_REFCOUNT_TAG);
-    }
+    assert(n >= 0);
     PyObject *obj = build_tuple(ts, base, n);
     if (UNLIKELY(obj == NULL)) {
         return (Register){0};
