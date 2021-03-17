@@ -298,6 +298,7 @@ class CodeGen(ast.NodeVisitor):
         self.nlocals = self.next_register = len(self.varnames)
         self.max_registers = self.next_register
         self.next_metadata = 0
+        self.metadata = {}
         self.blocks = []
         self.last_lineno = None
         self.interactive = False
@@ -432,7 +433,11 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
         elif access == 'classderef':  self.LOAD_CLASSDEREF(self.varnames[name], self.names[name])
         elif access == 'name':   self.LOAD_NAME(self.names[name])
-        elif access == 'global': self.LOAD_GLOBAL(self.names[name], self.new_metadata())
+        elif access == 'global':
+            meta = self.metadata.get(name)
+            if meta is None:
+                meta = self.metadata[name] = self.new_metadata()
+            self.LOAD_GLOBAL(self.names[name], meta)
         else: assert False
 
     def store(self, name):

@@ -991,62 +991,44 @@ PyDict_GetItemWithError2(PyObject *op, PyObject *key)
     return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
 }
 
-PyObject *
-_PyDict_LoadGlobal2(PyDictObject *op, PyObject *key, intptr_t *meta)
+static PyObject *
+vm_try_load(PyObject *op, PyObject *key, intptr_t *meta, intptr_t meta_mask)
 {
-    assert(key_is_interned(key));
-    PyDictObject *mp = (PyDictObject *)op;
-    PyDictKeysObject *keys = mp->ma_keys;
-    if (_PY_LIKELY(keys->dk_type == DK_UNICODE)) {
-        PyDictKeyEntry *entry = find_unicode(keys, key);
-        if (entry == NULL) {
-            return NULL;
+    if (UNLIKELY(!PyDict_CheckExact(op))) {
+        PyObject *value = PyObject_GetItem(op, key);
+        if (UNLIKELY(value == NULL && PyErr_Occurred())) {
+            if (PyErr_ExceptionMatches(PyExc_KeyError)) {
+                PyErr_Clear();
+            }
         }
-        *meta = (intptr_t)(entry - keys->dk_entries);
-        return value_for_entry(mp, keys, key, -1, entry);
+        return value;
     }
-    return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
-}
-
-static PyObject *
-_PyDict_LoadGlobal3_global(PyDictObject *globals, PyObject *key, intptr_t *meta)
-{
-    PyDictKeysObject *keys = globals->ma_keys;
+    PyDictObject *mp = (PyDictObject *)op;
+    PyDictKeysObject *keys = _Py_atomic_load_ptr(&mp->ma_keys);
+    if (UNLIKELY(keys->dk_type != DK_UNICODE)) {
+        return PyDict_GetItemWithError2(op, key);
+    }
     assert(keys->dk_type == DK_UNICODE); // for now
     PyDictKeyEntry *entry = find_unicode(keys, key);
     if (entry == NULL) {
         return NULL;
     }
-    *meta = (intptr_t)(entry - keys->dk_entries);
-    return value_for_entry(globals, keys, key, -1, entry);
-}
-
-static PyObject *
-_PyDict_LoadGlobal3_builtins(PyDictObject *builtins, PyObject *key, intptr_t *meta)
-{
-    PyDictKeysObject *keys = builtins->ma_keys;
-    assert(keys->dk_type == DK_UNICODE); // for now
-    PyDictKeyEntry *entry = find_unicode(keys, key);
-    if (entry == NULL) {
-        return NULL;
-    }
-    intptr_t was = *meta;
-    *meta = -(intptr_t)(entry - keys->dk_entries) - 2;
-    return value_for_entry(builtins, keys, key, -1, entry);
+    intptr_t offset = (intptr_t)(entry - keys->dk_entries);
+    _Py_atomic_store_intptr_relaxed(meta, meta_mask + offset);
+    return value_for_entry(mp, keys, key, -1, entry);
 }
 
 PyObject *
-_PyDict_LoadGlobal3(struct ThreadState *ts, PyObject *key, intptr_t *meta)
+vm_load_global(struct ThreadState *ts, PyObject *key, intptr_t *meta)
 {
     assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
+    _Py_atomic_store_intptr_relaxed(meta, -1);
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-    PyDictObject *globals = (PyDictObject *)func->globals;
-    PyObject *res = _PyDict_LoadGlobal3_global(globals, key, meta);
+    PyObject *res = vm_try_load(func->globals, key, meta, 0);
     if (res != NULL || PyErr_Occurred()) {
         return res;
     }
-    PyDictObject *builtins = (PyDictObject *)func->builtins;
-    res = _PyDict_LoadGlobal3_builtins(builtins, key, meta);
+    res = vm_try_load(func->builtins, key, meta, INTPTR_MIN);
     if (res != NULL || PyErr_Occurred()) {
         return res;
     }

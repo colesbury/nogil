@@ -235,9 +235,6 @@ struct probe_result {
 static inline struct probe_result
 dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
 
-PyObject *
-_PyDict_LoadGlobal3(struct ThreadState *ts, PyObject *key, intptr_t *meta);
-
 // Frame layout:
 // regs[-3] = constants
 // regs[-2] = <frame_link>
@@ -862,50 +859,47 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(LOAD_GLOBAL) {
         assert(IS_EMPTY(acc));
         PyObject **constants = CONSTANTS();
+        intptr_t *metadata = (intptr_t *)(char *)constants;
         PyObject *name = constants[opA];
-        PyObject *value;
-        intptr_t guess = ((intptr_t *)constants)[-opD - 1];
+        intptr_t guess = metadata[-opD - 1];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         if (guess < 0) {
-            goto load_builtin;
+            if (guess == -1) goto load_global_slow;
+            else goto load_builtin;
         }
 
-      load_global: {
+      /* load_global: */ {
         struct probe_result probe = dict_probe(globals, name, guess, tid);
         acc = probe.acc;  
         if (LIKELY(probe.found)) {
-            DISPATCH(LOAD_GLOBAL);
+            goto dispatch_load_global;
         }
         goto load_global_slow;
       }
     
       load_builtin: {
-        if (guess == -1) {
-            goto load_global_slow;
-        }
         if (UNLIKELY(dict_may_contain(globals, name))) {
             goto load_global_slow;
         }
-        guess = -guess - 2;
         PyDictObject *builtins = (PyDictObject *)THIS_FUNC()->builtins;
         struct probe_result probe = dict_probe(builtins, name, guess, tid);
         acc = probe.acc;
         if (LIKELY(probe.found)) {
-            DISPATCH(LOAD_GLOBAL);
+            goto dispatch_load_global;
         }
+        // fallthrough to load_global_slow
       }
 
-      load_global_slow:
-        CALL_VM(value = _PyDict_LoadGlobal3(ts, name, &((intptr_t *)constants)[-opD - 1]));
+      load_global_slow: {
+        PyObject *value;
+        CALL_VM(value = vm_load_global(ts, name, &metadata[-opD - 1]));
         if (UNLIKELY(value == NULL)) {
             goto error;
         }
-        if (acc.as_int64 == 0) {
-            acc = PACK_OBJ(value);
-        }
-        else {
-            SET_ACC(PACK_OBJ(value));
-        }
+        XSET_ACC(PACK_OBJ(value));
+      }
+
+      dispatch_load_global:
         DISPATCH(LOAD_GLOBAL);
     }
 
@@ -2259,6 +2253,7 @@ dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
 {
     struct probe_result result = {(Register){0}, 0};
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
+    guess = ((uintptr_t)guess) & keys->dk_size;
     PyDictKeyEntry *entry = &keys->dk_entries[(guess & keys->dk_size)];
     if (UNLIKELY(_Py_atomic_load_ptr(&entry->me_key) != name)) {
         return result;
@@ -2281,14 +2276,12 @@ dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
         _Py_atomic_add_uint32(&value->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
         result.acc = PACK(value, REFCOUNT_TAG);
         if (value != _Py_atomic_load_ptr(&entry->me_value)) {
-            // FIXME
             result.found = 0;
             return result;
         }
     }
   check_keys:
     if (UNLIKELY(keys != _Py_atomic_load_ptr(&dict->ma_keys))) {
-        // FIXME
         result.found = 0;
         return result;
     }
