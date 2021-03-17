@@ -6,10 +6,17 @@
 #
 # Runs a bad fib generator to 30,
 # with some number of threads, default 7.
- 
+import time
 
 def fib(n):
     if n < 2: return 1
     return fib(n-1) + fib(n-2)
  
-print(fib(34))
+def run():
+    start = time.perf_counter()
+    r = fib(34)
+    end = time.perf_counter()
+    print(r)
+    print((end - start) * 1000, 'ms')
+
+run()
