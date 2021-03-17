@@ -233,7 +233,7 @@ struct probe_result {
 };
 
 static inline struct probe_result
-dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
+dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid);
 
 // Frame layout:
 // regs[-3] = constants
@@ -862,14 +862,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         intptr_t *metadata = (intptr_t *)(char *)constants;
         PyObject *name = constants[opA];
         intptr_t guess = metadata[-opD - 1];
-        PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         if (guess < 0) {
             if (guess == -1) goto load_global_slow;
             else goto load_builtin;
         }
 
       /* load_global: */ {
-        struct probe_result probe = dict_probe(globals, name, guess, tid);
+        struct probe_result probe = dict_probe(THIS_FUNC()->globals, name, guess, tid);
         acc = probe.acc;  
         if (LIKELY(probe.found)) {
             goto dispatch_load_global;
@@ -878,11 +877,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
       }
     
       load_builtin: {
+        PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         if (UNLIKELY(dict_may_contain(globals, name))) {
             goto load_global_slow;
         }
-        PyDictObject *builtins = (PyDictObject *)THIS_FUNC()->builtins;
-        struct probe_result probe = dict_probe(builtins, name, guess, tid);
+        struct probe_result probe = dict_probe(THIS_FUNC()->builtins, name, guess, tid);
         acc = probe.acc;
         if (LIKELY(probe.found)) {
             goto dispatch_load_global;
@@ -2249,9 +2248,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 }
 
 static inline struct probe_result
-dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
+dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
 {
     struct probe_result result = {(Register){0}, 0};
+    if (UNLIKELY(!PyDict_CheckExact(op))) {
+        return result;
+    }
+    PyDictObject *dict = (PyDictObject *)op;
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
     guess = ((uintptr_t)guess) & keys->dk_size;
     PyDictKeyEntry *entry = &keys->dk_entries[(guess & keys->dk_size)];

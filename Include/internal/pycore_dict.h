@@ -94,7 +94,7 @@ static inline int
 dict_may_contain(PyDictObject *dict, PyObject *key)
 {
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
-    if (keys->dk_type != DK_UNICODE) {
+    if (!PyDict_CheckExact(dict) || keys->dk_type != DK_UNICODE) {
         return 1;
     }
     size_t mask = keys->dk_size & ~15;
