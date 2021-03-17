@@ -250,7 +250,7 @@ vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssiz
 
 Register vm_load_name(Register *regs, PyObject *name);
 Register vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name);
-int vm_name_error(struct ThreadState *ts, PyObject *name);
+PyObject *vm_name_error(struct ThreadState *ts, PyObject *name);
 int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
 

@@ -80,6 +80,15 @@
     DECREF(_old);           \
 } while (0)
 
+#define XSET_ACC(val) do {   \
+    Register _old = acc;    \
+    BREAK_LIVE_RANGE(_old); \
+    acc = val;              \
+    BREAK_LIVE_RANGE(acc);  \
+    if (_old.as_int64 != 0) \
+        DECREF(_old);       \
+} while (0)
+
 #define SET_REG(dst, src) do {   \
     Register _old = dst;    \
     BREAK_LIVE_RANGE(_old); \
@@ -217,6 +226,17 @@ static const Register primitives[3] = {
     {(intptr_t)Py_True + NO_REFCOUNT_TAG},
     {(intptr_t)Py_None + NO_REFCOUNT_TAG},
 };
+
+struct probe_result {
+    Register acc;
+    int found;
+};
+
+static inline struct probe_result
+dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
+
+PyObject *
+_PyDict_LoadGlobal3(struct ThreadState *ts, PyObject *key, intptr_t *meta);
 
 // Frame layout:
 // regs[-3] = constants
@@ -847,59 +867,45 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         intptr_t guess = ((intptr_t *)constants)[-opD - 1];
         PyDictObject *globals = (PyDictObject *)THIS_FUNC()->globals;
         if (guess < 0) {
-            goto load_global_slow;
+            goto load_builtin;
         }
 
-        PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&globals->ma_keys);
-        PyDictKeyEntry *entry = &keys->dk_entries[(guess & keys->dk_size)];
-        if (UNLIKELY(_Py_atomic_load_ptr(&entry->me_key) != name)) {
+      load_global: {
+        struct probe_result probe = dict_probe(globals, name, guess, tid);
+        acc = probe.acc;  
+        if (LIKELY(probe.found)) {
+            DISPATCH(LOAD_GLOBAL);
+        }
+        goto load_global_slow;
+      }
+    
+      load_builtin: {
+        if (guess == -1) {
             goto load_global_slow;
         }
-        value = _Py_atomic_load_ptr(&entry->me_value);
-        if (UNLIKELY(value == NULL)) {
+        if (UNLIKELY(dict_may_contain(globals, name))) {
             goto load_global_slow;
         }
-        uint32_t refcount = _Py_atomic_load_uint32_relaxed(&value->ob_ref_local);
-        if ((refcount & (_Py_REF_IMMORTAL_MASK)) != 0) {
-            acc = PACK(value, NO_REFCOUNT_TAG);
-            goto check_keys;
+        guess = -guess - 2;
+        PyDictObject *builtins = (PyDictObject *)THIS_FUNC()->builtins;
+        struct probe_result probe = dict_probe(builtins, name, guess, tid);
+        acc = probe.acc;
+        if (LIKELY(probe.found)) {
+            DISPATCH(LOAD_GLOBAL);
         }
-        else if (LIKELY(_Py_ThreadMatches(value, tid))) {
-            _Py_atomic_store_uint32_relaxed(&value->ob_ref_local, refcount + 4);
-            acc = PACK(value, REFCOUNT_TAG);
-            goto check_keys;
-        }
-        else {
-            _Py_atomic_add_uint32(&value->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
-            acc = PACK(value, REFCOUNT_TAG);
-            if (value != _Py_atomic_load_ptr(&entry->me_value)) {
-                // FIXME
-                goto load_global_slow;
-            }
-        }
-      check_keys:
-        if (UNLIKELY(keys != _Py_atomic_load_ptr(&globals->ma_keys))) {
-            // FIXME
-            goto load_global_slow;
-        }
-        DISPATCH(LOAD_GLOBAL);
+      }
 
       load_global_slow:
-        // FIXME: need to check errors and that globals/builtins are exactly dicts
-        CALL_VM(value = _PyDict_LoadGlobal2(globals, name, &((intptr_t *)constants)[-opD - 1]));
-        if (value == NULL) {
-            PyObject *builtins = THIS_FUNC()->builtins;
-            CALL_VM(value = PyDict_GetItemWithError2(builtins, name));
-            if (UNLIKELY(value == NULL)) {
-                CALL_VM(vm_name_error(ts, name));
-                // explicitly zero the accumulator value to allow the compiler
-                // to re-use the acc register for "name" (because the acc isn't
-                // used within LOAD_GLOBAL and overwritten at all exits.
-                acc.as_int64 = 0;
-                goto error;
-            }
+        CALL_VM(value = _PyDict_LoadGlobal3(ts, name, &((intptr_t *)constants)[-opD - 1]));
+        if (UNLIKELY(value == NULL)) {
+            goto error;
         }
-        acc = PACK_OBJ(value);
+        if (acc.as_int64 == 0) {
+            acc = PACK_OBJ(value);
+        }
+        else {
+            SET_ACC(PACK_OBJ(value));
+        }
         DISPATCH(LOAD_GLOBAL);
     }
 
@@ -2246,4 +2252,46 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     __builtin_unreachable();
     // Py_RETURN_NONE;
+}
+
+static inline struct probe_result
+dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
+{
+    struct probe_result result = {(Register){0}, 0};
+    PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
+    PyDictKeyEntry *entry = &keys->dk_entries[(guess & keys->dk_size)];
+    if (UNLIKELY(_Py_atomic_load_ptr(&entry->me_key) != name)) {
+        return result;
+    }
+    PyObject *value = _Py_atomic_load_ptr(&entry->me_value);
+    if (UNLIKELY(value == NULL)) {
+        return result;
+    }
+    uint32_t refcount = _Py_atomic_load_uint32_relaxed(&value->ob_ref_local);
+    if ((refcount & (_Py_REF_IMMORTAL_MASK)) != 0) {
+        result.acc = PACK(value, NO_REFCOUNT_TAG);
+        goto check_keys;
+    }
+    else if (LIKELY(_Py_ThreadMatches(value, tid))) {
+        _Py_atomic_store_uint32_relaxed(&value->ob_ref_local, refcount + 4);
+        result.acc = PACK(value, REFCOUNT_TAG);
+        goto check_keys;
+    }
+    else {
+        _Py_atomic_add_uint32(&value->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+        result.acc = PACK(value, REFCOUNT_TAG);
+        if (value != _Py_atomic_load_ptr(&entry->me_value)) {
+            // FIXME
+            result.found = 0;
+            return result;
+        }
+    }
+  check_keys:
+    if (UNLIKELY(keys != _Py_atomic_load_ptr(&dict->ma_keys))) {
+        // FIXME
+        result.found = 0;
+        return result;
+    }
+    result.found = 1;
+    return result;
 }

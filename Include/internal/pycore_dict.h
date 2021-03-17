@@ -90,4 +90,23 @@ find_unicode(PyDictKeysObject *keys, PyObject *key)
     }
 }
 
+static inline int
+dict_may_contain(PyDictObject *dict, PyObject *key)
+{
+    PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
+    if (keys->dk_type != DK_UNICODE) {
+        return 1;
+    }
+    size_t mask = keys->dk_size & ~15;
+    Py_hash_t hash = ((PyASCIIObject *)key)->hash;
+    Py_hash_t ix = (hash >> 7) & mask;
+    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
+    __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
+    if (!ctrl_has_empty(ctrl)) { 
+        return 1;
+    }
+    int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
+    return bitmask != 0;
+}
+
 #endif /* !Py_INTERNAL_DICT_H */

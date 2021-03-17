@@ -869,15 +869,15 @@ vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name)
     return PACK_INCREF(value);
 }
 
-int
+PyObject *
 vm_name_error(struct ThreadState *ts, PyObject *name)
 {
     const char *obj_str = PyUnicode_AsUTF8(name);
     if (obj_str == NULL) {
-        return -1;
+        return NULL;
     }
     _PyErr_Format(ts->ts, PyExc_NameError, "name '%.200s' is not defined", obj_str);
-    return -1;
+    return NULL;
 }
 
 int

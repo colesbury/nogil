@@ -14,6 +14,8 @@
 #include "lock.h"
 #include "stringlib/eq.h"    /* to get unicode_eq() */
 
+#include "ceval2_meta.h"
+
 #include <x86intrin.h>
 
 /*[clinic input]
@@ -1004,6 +1006,51 @@ _PyDict_LoadGlobal2(PyDictObject *op, PyObject *key, intptr_t *meta)
         return value_for_entry(mp, keys, key, -1, entry);
     }
     return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
+}
+
+static PyObject *
+_PyDict_LoadGlobal3_global(PyDictObject *globals, PyObject *key, intptr_t *meta)
+{
+    PyDictKeysObject *keys = globals->ma_keys;
+    assert(keys->dk_type == DK_UNICODE); // for now
+    PyDictKeyEntry *entry = find_unicode(keys, key);
+    if (entry == NULL) {
+        return NULL;
+    }
+    *meta = (intptr_t)(entry - keys->dk_entries);
+    return value_for_entry(globals, keys, key, -1, entry);
+}
+
+static PyObject *
+_PyDict_LoadGlobal3_builtins(PyDictObject *builtins, PyObject *key, intptr_t *meta)
+{
+    PyDictKeysObject *keys = builtins->ma_keys;
+    assert(keys->dk_type == DK_UNICODE); // for now
+    PyDictKeyEntry *entry = find_unicode(keys, key);
+    if (entry == NULL) {
+        return NULL;
+    }
+    intptr_t was = *meta;
+    *meta = -(intptr_t)(entry - keys->dk_entries) - 2;
+    return value_for_entry(builtins, keys, key, -1, entry);
+}
+
+PyObject *
+_PyDict_LoadGlobal3(struct ThreadState *ts, PyObject *key, intptr_t *meta)
+{
+    assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyDictObject *globals = (PyDictObject *)func->globals;
+    PyObject *res = _PyDict_LoadGlobal3_global(globals, key, meta);
+    if (res != NULL || PyErr_Occurred()) {
+        return res;
+    }
+    PyDictObject *builtins = (PyDictObject *)func->builtins;
+    res = _PyDict_LoadGlobal3_builtins(builtins, key, meta);
+    if (res != NULL || PyErr_Occurred()) {
+        return res;
+    }
+    return vm_name_error(ts, key);
 }
 
 PyObject *
