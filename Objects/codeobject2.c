@@ -72,13 +72,15 @@ align_up(Py_ssize_t size, Py_ssize_t align)
 
 PyCodeObject2 *
 PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
-            Py_ssize_t ncells, Py_ssize_t nfreevars, Py_ssize_t nexc_handlers)
+            Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t nfreevars,
+            Py_ssize_t nexc_handlers)
 {
     assert(sizeof(PyCodeObject2) % sizeof(void*) == 0);
     Py_ssize_t instr_aligned_size = align_up(instr_size, sizeof(void*));
     Py_ssize_t total_size = (
         sizeof(PyCodeObject2) +
         instr_aligned_size +
+        nmeta * sizeof(intptr_t) +
         nconsts * sizeof(PyObject *) +
         niconsts * sizeof(Py_ssize_t) +
         ncells * sizeof(Py_ssize_t) +
@@ -94,9 +96,14 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
     PyObject_INIT(co, &PyCode2_Type);
 
     char *ptr = (char *)co + sizeof(PyCodeObject2);
-    ptr += instr_aligned_size;
 
+    ptr += instr_aligned_size;
     co->co_size = instr_size;
+
+    co->co_nmeta = nmeta;
+    memset(ptr, -1, nmeta * sizeof(intptr_t));
+    ptr += nmeta * sizeof(intptr_t);
+
     co->co_nconsts = nconsts;
     co->co_constants = (PyObject **)ptr;
     ptr += nconsts * sizeof(PyObject *);
@@ -137,6 +144,7 @@ code.__new__ as code_new
     ndefaultargs: int = 0
     nlocals: int = 0
     framesize: int = 0
+    nmeta: int = 0
     flags: int = 0
     names: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     varnames: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
@@ -157,12 +165,13 @@ Create a code object.  Not for the faint of heart.
 static PyObject *
 code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int argcount, int posonlyargcount, int kwonlyargcount,
-              int ndefaultargs, int nlocals, int framesize, int flags,
-              PyObject *names, PyObject *varnames, PyObject *filename,
-              PyObject *name, int firstlineno, PyObject *linetable,
-              PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
-              PyObject *cell2reg, PyObject *free2reg, PyObject *iconstants)
-/*[clinic end generated code: output=c0cbfe340bd2be09 input=9bfb4899cbaacbcb]*/
+              int ndefaultargs, int nlocals, int framesize, int nmeta,
+              int flags, PyObject *names, PyObject *varnames,
+              PyObject *filename, PyObject *name, int firstlineno,
+              PyObject *linetable, PyObject *eh_table, PyObject *freevars,
+              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg,
+              PyObject *iconstants)
+/*[clinic end generated code: output=690e6ed609cd33e6 input=68f734207207955d]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
@@ -173,6 +182,7 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         PyBytes_GET_SIZE(bytecode),
         PyTuple_GET_SIZE(consts),
         num_iconstants,
+        nmeta,
         ncells,
         ncaptured,
         nexc_handlers);

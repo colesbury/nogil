@@ -990,6 +990,23 @@ PyDict_GetItemWithError2(PyObject *op, PyObject *key)
 }
 
 PyObject *
+_PyDict_LoadGlobal2(PyDictObject *op, PyObject *key, intptr_t *meta)
+{
+    assert(key_is_interned(key));
+    PyDictObject *mp = (PyDictObject *)op;
+    PyDictKeysObject *keys = mp->ma_keys;
+    if (_PY_LIKELY(keys->dk_type == DK_UNICODE)) {
+        PyDictKeyEntry *entry = find_unicode(keys, key);
+        if (entry == NULL) {
+            return NULL;
+        }
+        *meta = (intptr_t)(entry - keys->dk_entries);
+        return value_for_entry(mp, keys, key, -1, entry);
+    }
+    return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
+}
+
+PyObject *
 _PyDict_GetItemIdWithError(PyObject *dp, struct _Py_Identifier *key)
 {
     PyObject *kv;

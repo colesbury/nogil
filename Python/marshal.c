@@ -564,6 +564,7 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_long(co->co_framesize, p);
         w_long(co->co_nconsts, p);
         w_long(co->co_niconsts, p);
+        w_long(co->co_nmeta, p);
         w_long(co->co_ncells, p);
         w_long(co->co_nfreevars, p);
         w_long(co->co_exc_handlers->size, p);
@@ -1489,6 +1490,7 @@ r_object(RFILE *p)
             int framesize;
             int nconsts;
             int niconsts;
+            int nmeta;
             int ncells;
             int nfreevars;
             int nexc_handlers;
@@ -1520,6 +1522,8 @@ r_object(RFILE *p)
             if (PyErr_Occurred()) goto code2_error;
             niconsts = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
+            nmeta = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
             ncells = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
             nfreevars = (int)r_long(p);
@@ -1527,7 +1531,7 @@ r_object(RFILE *p)
             nexc_handlers = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
 
-            co = PyCode2_New(size, nconsts, niconsts, ncells, nfreevars, nexc_handlers);
+            co = PyCode2_New(size, nconsts, niconsts, nmeta, ncells, nfreevars, nexc_handlers);
             if (co == NULL)
                 break;
 

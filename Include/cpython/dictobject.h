@@ -76,6 +76,7 @@ PyAPI_FUNC(void) _PyDict_DebugMallocStats(FILE *out);
 
 int _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr, PyObject *name, PyObject *value);
 PyObject *_PyDict_LoadGlobal(PyDictObject *, PyDictObject *, PyObject *);
+PyObject *_PyDict_LoadGlobal2(PyDictObject *op, PyObject *key, intptr_t *meta);
 PyObject *
 _PyDict_LoadNameStack(PyObject *op, PyObject *name, int *is_error);
 PyObject *_PyObject_GetAttrFast(PyObject *owner, PyObject *name);

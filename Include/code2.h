@@ -90,6 +90,7 @@ typedef struct _PyCodeObject2 {
 
     PyObject *co_weakreflist;
 
+    Py_ssize_t co_nmeta;
     int co_firstlineno;
     PyObject *co_varnames;      /* tuple of strings (local variable names) */
     PyObject *co_freevars;      /* tuple of strings (free variable names) */
@@ -102,7 +103,8 @@ typedef struct _PyCodeObject2 {
 // PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
 PyAPI_FUNC(PyCodeObject2 *)
 PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
-            Py_ssize_t ncells, Py_ssize_t ncaptured, Py_ssize_t nexc_handlers);
+            Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t ncaptured,
+            Py_ssize_t nexc_handlers);
 
 
 /* Return the line number associated with the specified bytecode index

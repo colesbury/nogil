@@ -166,14 +166,6 @@ class RegisterList:
         for i,t in enumerate(seq):
             self[i](t)
 
-class Reference:
-    def __init__(self, visitor):
-        self.visitor = visitor
-    def load(self):
-        return no_op
-    def store(self, value):
-        return no_op
-
 class Block:
     pass
 
@@ -305,6 +297,7 @@ class CodeGen(ast.NodeVisitor):
         self.instrs    = []
         self.nlocals = self.next_register = len(self.varnames)
         self.max_registers = self.next_register
+        self.next_metadata = 0
         self.blocks = []
         self.last_lineno = None
         self.interactive = False
@@ -356,6 +349,7 @@ class CodeGen(ast.NodeVisitor):
                                kwonlyargcount=kwonlyargcount,
                                ndefaultargs=ndefaultargs,
                                nlocals=nlocals,
+                               nmeta=self.next_metadata,
                                framesize=framesize,
                                flags=flags,
                                varnames=collect(self.varnames),
@@ -387,6 +381,11 @@ class CodeGen(ast.NodeVisitor):
         if self.next_register > self.max_registers:
             self.max_registers = self.next_register
         return reg
+
+    def new_metadata(self):
+        x = self.next_metadata
+        self.next_metadata += 1
+        return x
 
     def register(self, reg=None):
         return Register(self, reg)
@@ -433,7 +432,7 @@ class CodeGen(ast.NodeVisitor):
         elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
         elif access == 'classderef':  self.LOAD_CLASSDEREF(self.varnames[name], self.names[name])
         elif access == 'name':   self.LOAD_NAME(self.names[name])
-        elif access == 'global': self.LOAD_GLOBAL(self.names[name])
+        elif access == 'global': self.LOAD_GLOBAL(self.names[name], self.new_metadata())
         else: assert False
 
     def store(self, name):

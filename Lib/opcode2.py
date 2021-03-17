@@ -103,7 +103,7 @@ def_op('LOAD_FAST', 124, 'reg')        # Local variable number
 def_op('LOAD_NAME', 101, 'str')        # Index in name list
 def_op('LOAD_CONST', 100, 'const')     # Index in const list
 def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
-def_op('LOAD_GLOBAL', 116, 'str')      # Index in name list
+def_op('LOAD_GLOBAL', 116, 'str', 'lit')      # Index in name list
 def_op('LOAD_METHOD', 160, 'reg', 'str')
 def_op('LOAD_EXC', 30)
 def_op('LOAD_INTRINSIC', 34, 'intrinsic')
