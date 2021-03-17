@@ -887,7 +887,8 @@ vm_delete_name(struct ThreadState *ts, PyObject *name)
     assert(PyDict_Check(locals));
     int err = PyObject_DelItem(locals, name);
     if (UNLIKELY(err != 0)) {
-        return vm_name_error(ts, name);
+        vm_name_error(ts, name);
+        return -1;
     }
     return 0;
 }
