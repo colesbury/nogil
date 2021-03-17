@@ -37,7 +37,7 @@ min_realloc_size(size_t allocated)
  * Note that self->ob_item may change, and even if newsize is less
  * than ob_size on entry.
  */
-static int
+_Py_NO_INLINE static int
 list_ensure_capacity(PyListObject *self, Py_ssize_t minsize)
 {
     assert(_PyMutex_is_locked(&self->mutex));
@@ -58,6 +58,15 @@ list_ensure_capacity(PyListObject *self, Py_ssize_t minsize)
             reqsize = min_size;
         }
     }
+    else if (reqsize <= 4) {
+        reqsize = 4;
+    }
+    else if (reqsize <= 48) {
+        reqsize = (reqsize + 7) & ~7;
+    }
+    else {
+        reqsize = (reqsize + 15) & ~15;
+    }
 
     size_t new_allocated;
     PyObject **items = PyMem_ArrayMalloc(reqsize, &new_allocated);
@@ -69,7 +78,7 @@ list_ensure_capacity(PyListObject *self, Py_ssize_t minsize)
     if (self->ob_item) {
         memcpy(items, self->ob_item, allocated * sizeof(PyObject*));
         _mi_ptr_use_qsbr(self->ob_item);
-        PyMem_ArrayFree(self->ob_item);
+        mi_free(self->ob_item);
     }
 
     self->ob_item = items;
@@ -319,9 +328,11 @@ ins1(PyListObject *self, Py_ssize_t where, PyObject *v)
         return -1;
     }
 
-    if (list_ensure_capacity(self, n+1) < 0) {
-        _PyMutex_unlock(&self->mutex);
-        return -1;
+    if (_PY_UNLIKELY(self->allocated <= n)) {
+        if (list_ensure_capacity(self, n+1) < 0) {
+            _PyMutex_unlock(&self->mutex);
+            return -1;
+        }
     }
 
     if (where < 0) {
@@ -344,7 +355,25 @@ ins1(PyListObject *self, Py_ssize_t where, PyObject *v)
 static int
 app1(PyListObject *self, PyObject *v)
 {
-    return ins1(self, PY_SSIZE_T_MAX, v);
+    if (_PY_UNLIKELY(v == NULL)) {
+        PyErr_BadInternalCall();
+        return -1;
+    }
+
+    _PyMutex_lock(&self->mutex);
+    Py_ssize_t n = Py_SIZE(self);
+    if (_PY_UNLIKELY(self->allocated <= n)) {
+        if (list_ensure_capacity(self, n+1) < 0) {
+            _PyMutex_unlock(&self->mutex);
+            return -1;
+        }
+    }
+
+    self->ob_item[n] = v;
+    Py_SET_SIZE(self, n+1); // release?
+    Py_INCREF(v);
+    _PyMutex_unlock(&self->mutex);
+    return 0;
 }
 
 int
