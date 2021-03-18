@@ -1788,6 +1788,24 @@ sys_getallocatedblocks_impl(PyObject *module)
 }
 
 
+PyObject *vm_get_frame(int depth);
+
+static PyObject *
+sys__getframe_impl_new(PyObject *module, int depth)
+{
+    PyFrameObject *f = (PyFrameObject *)vm_get_frame(depth);
+    if (f == NULL) {
+        return NULL;
+    }
+
+    if (PySys_Audit("sys._getframe", "O", f) < 0) {
+        Py_DECREF(f);
+        return NULL;
+    }
+
+    return f;
+}
+
 /*[clinic input]
 sys._getframe
 
@@ -1805,24 +1823,17 @@ This function should be used for internal and specialized purposes
 only.
 [clinic start generated code]*/
 
-PyObject *vm_get_frame(int depth);
-
 static PyObject *
 sys__getframe_impl(PyObject *module, int depth)
 /*[clinic end generated code: output=d438776c04d59804 input=c1be8a6464b11ee5]*/
 {
     PyThreadState *tstate = _PyThreadState_GET();
 
-    PyFrameObject *f;
     if (tstate->use_new_interp) {
-        f = (PyFrameObject *)vm_get_frame(depth);
-        if (f == NULL) {
-            return NULL;
-        }
+        return sys__getframe_impl_new(module, depth);
     }
-    else {
-        f = tstate->frame;
-    }
+
+    PyFrameObject *f = tstate->frame;
 
     if (PySys_Audit("sys._getframe", "O", f) < 0) {
         return NULL;

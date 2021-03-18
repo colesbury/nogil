@@ -256,7 +256,12 @@ PyCode_NewInternal(int argcount, int posonlyargcount, int kwonlyargcount,
             PyMem_FREE(cell2arg);
         return NULL;
     }
-    _PyObject_SET_DEFERRED_RC((PyObject *)co);
+    if (Py_SIZE(code) > 0) {
+        // FIXME: for now we only set deferred RC on non-empty code objects
+        // because we use empty code objects as placeholders for tracebacks
+        // in the new interpreter.
+        _PyObject_SET_DEFERRED_RC((PyObject *)co);
+    }
     co->co_argcount = argcount;
     co->co_posonlyargcount = posonlyargcount;
     co->co_kwonlyargcount = kwonlyargcount;
