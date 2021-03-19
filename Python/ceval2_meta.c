@@ -1779,9 +1779,8 @@ new_threadstate(void)
 void
 vm_free_stack(struct ThreadState *ts)
 {
-    // printf("vm_free_stack: %p %zd\n", ts);
-    assert(ts->regs > ts->stack);
-    for (;;) {
+    // printf("vm_free_stack: %p\n", ts);
+    while (ts->regs != ts->stack) {
         Py_ssize_t frame_size = vm_frame_size(ts);
         for (Py_ssize_t i = frame_size - 1; i >= -1; --i) {
             Register value = ts->regs[i];
@@ -1790,32 +1789,19 @@ vm_free_stack(struct ThreadState *ts)
                 DECREF(value);
             }
         }
-        uintptr_t frame_link = ts->regs[-2].as_int64;
+        intptr_t frame_delta = ts->regs[-4].as_int64;
         ts->regs[-2].as_int64 = 0;
         ts->regs[-3].as_int64 = 0;
-        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
-            Py_ssize_t frame_delta = ts->regs[-4].as_int64;
-            ts->regs[-4].as_int64 = 0;
-            ts->regs -= frame_delta;
-            break;
-        }
-        const uint32_t *next_instr = (const uint32_t *)frame_link;
-        // this is the call that dispatched to us
-        uint32_t call = next_instr[-1];
-        intptr_t offset = (call >> 8) & 0xFF;
-        printf("offset = %zd\n", offset);
-        ts->regs -= offset;
+        ts->regs[-4].as_int64 = 0;
+        ts->regs -= frame_delta;
     }
     assert(ts->regs == ts->stack);
 }
 
-
 void vm_free_threadstate(struct ThreadState *ts)
 {
     // printf("vm_free_threadstate: %p\n", ts);
-    if (ts->regs != ts->stack) {
-        vm_free_stack(ts);
-    }
+    vm_free_stack(ts);
     mi_free(ts->stack);
     ts->stack = ts->regs = ts->maxstack = NULL;
 }
