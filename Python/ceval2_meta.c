@@ -177,13 +177,7 @@ vm_stack_walk(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
     w->offset = w->next_offset;
-    if ((w->frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
-        w->next_instr = NULL;
-    }
-    else {
-        w->next_instr = (const uint32_t *)(w->frame_link & ~FRAME_TAG_MASK);
-    }
-
+    w->next_instr = vm_frame_next_instr(w->frame_link);
     if (ts->regs + w->offset == ts->stack) {
         return 0;
     }
@@ -456,16 +450,19 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         // No handler found in this call frame. Clears the entire frame and
         // unwinds the call stack.
         intptr_t frame_link = vm_pop_frame(ts);
-        ts->next_instr = next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
-        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
-            intptr_t tag = frame_link & FRAME_TAG_MASK;
-            if (tag == FRAME_GENERATOR) {
+        if (frame_link <= 0) {
+            if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
                 assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen));
                 gen->status = GEN_ERROR;
+                return NULL;
             }
-            return NULL;
+            else if (frame_link == FRAME_C) {
+                return NULL;
+            }
+            assert(false && "invalid frame link");
         }
+        ts->next_instr = next_instr = (const uint32_t *)frame_link;
     }
 }
 
@@ -578,7 +575,7 @@ vm_traceback_here(struct ThreadState *ts)
         Py_XSETREF(tb, newtb);
         Py_DECREF(frame);
 
-        if ((w.frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+        if (vm_frame_next_instr(w.frame_link) == NULL) {
             break;
         }
     }
@@ -2063,14 +2060,6 @@ builtins_from_globals2(PyObject *globals)
     return builtins;
 }
 
-static inline Register
-PACK_FRAME_LINK(const uint32_t *next_instr, int tag)
-{
-    Register r;
-    r.as_int64 = (intptr_t)next_instr + tag;
-    return r;
-}
-
 static int
 setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssize_t nargs)
 {
@@ -2088,7 +2077,7 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
     PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
     ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
-    ts->regs[-2] = PACK_FRAME_LINK(ts->next_instr, FRAME_C);
+    ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
 

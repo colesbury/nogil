@@ -17,14 +17,22 @@ typedef union _Register {
 #define PRI_TRUE 0x2
 
 enum {
-    FRAME_PYTHON = 0,
-    FRAME_C = 1,
-    FRAME_GENERATOR = 3,
-    FRAME_TAG_MASK = 3
+    FRAME_C = 0,
+    FRAME_GENERATOR = -1,
 };
 
 #define FRAME_EXTRA     4
 #define CFRAME_EXTRA    4
+
+static inline const uint32_t *
+vm_frame_next_instr(intptr_t frame_link)
+{
+    if (frame_link <= FRAME_C) {
+        return NULL;
+    }
+    return (const uint32_t *)frame_link;
+}
+
 
 /*
 

@@ -172,12 +172,12 @@
 
 // Clears and DECREFs the regsters from [-1, N) where N is usually
 // the number of local variables.
-// NOTE: The next_instr MUST be saved before calling CLEAR_REGISTERS.
+// NOTE: The CLEAR_REGISTERS macro saves next_instr to the thread state.
 // This allows us to skip saving it during the DECREF calls,
 // which typically allows the compiler to re-use the register
 // normally allocated to next_instr.
 #define CLEAR_REGISTERS(N) do {                             \
-    assert(ts->next_instr == next_instr);                   \
+    ts->next_instr = next_instr;                            \
     Py_ssize_t _n = (N);                                    \
     do {                                                    \
         _n--;                                               \
@@ -809,7 +809,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(RETURN_VALUE) {
-        ts->next_instr = next_instr;
 #if DEBUG_FRAME
         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
 #endif
@@ -826,13 +825,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 #endif
         regs -= frame_delta;
         ts->regs = regs;
-        if (UNLIKELY((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON)) {
-            intptr_t tag = frame_link & FRAME_TAG_MASK;
-            if (tag == FRAME_C) {
-                ts->next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
+        if (UNLIKELY(frame_link <= FRAME_C)) {
+            ts->next_instr = NULL;
+            if (frame_link == FRAME_C) {
                 goto return_to_c;
             }
-            else if (tag == FRAME_GENERATOR) {
+            else if (frame_link == FRAME_GENERATOR) {
                 goto generator_return_to_c;
             }
             else {
