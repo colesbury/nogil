@@ -150,24 +150,69 @@ vm_setup_async_with(struct ThreadState *ts, Py_ssize_t opA)
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
 
+struct stack_walk {
+    struct ThreadState *ts;
+    const uint32_t *next_instr;
+    intptr_t offset;
+    intptr_t next_offset;
+    intptr_t frame_link;
+};
+
+static void
+vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
+{
+    memset(w, 0, sizeof(*w));
+    w->ts = ts;
+    w->frame_link = (intptr_t)ts->next_instr;
+}
+
+static Register *
+vm_stack_walk_regs(struct stack_walk *w)
+{
+    return &w->ts->regs[w->offset];
+}
+
+static int
+vm_stack_walk(struct stack_walk *w)
+{
+    struct ThreadState *ts = w->ts;
+    w->offset = w->next_offset;
+    if ((w->frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+        w->next_instr = NULL;
+    }
+    else {
+        w->next_instr = (const uint32_t *)(w->frame_link & ~FRAME_TAG_MASK);
+    }
+
+    if (ts->regs + w->offset == ts->stack) {
+        return 0;
+    }
+
+    intptr_t frame_link = ts->regs[w->offset-2].as_int64;
+    intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
+    w->next_offset = w->offset - frame_delta;
+    w->frame_link = frame_link;
+    return 1;
+}
+
 /* returns the currently handled exception or NULL */
 PyObject *
 vm_handled_exc(struct ThreadState *ts)
 {
-    intptr_t offset = 0;
-    const uint32_t *next_instr = ts->next_instr;
-    while (ts->regs + offset != ts->stack) {
-        uintptr_t frame_link = ts->regs[offset-2].as_int64;
-        intptr_t frame_delta = ts->regs[offset-4].as_int64;
-        PyObject *callable = AS_OBJ(ts->regs[offset-1]);
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
         if (!PyFunc_Check(callable)) {
-            goto next;
+            continue;
         }
+
         PyFunc *func = (PyFunc *)callable;
         PyCodeObject2 *code = PyCode2_FromFunc(func);
 
         const uint32_t *first_instr = PyCode2_GET_CODE(code);
-        Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
+        Py_ssize_t instr_offset = (w.next_instr - 1 - first_instr);
 
         // Find the inner-most active except/finally block. Note that because
         // try-blocks are stored inner-most to outer-most, the except/finally
@@ -179,18 +224,13 @@ vm_handled_exc(struct ThreadState *ts)
             Py_ssize_t end = eh->handler_end;
             if (start <= instr_offset && instr_offset < end) {
                 Py_ssize_t link_reg = eh->reg;
-                if (ts->regs[offset+link_reg].as_int64 != -1) {
+                if (regs[link_reg].as_int64 != -1) {
                     // not handling an exception
                     continue;
                 }
-                return AS_OBJ(ts->regs[offset+link_reg+1]);
+                return AS_OBJ(regs[link_reg+1]);
             }
         }
-
-      next:
-        offset -= frame_delta;
-        // TODO: might not be a valid ptr (technically UB)
-        next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
     }
     return NULL;
 }
@@ -331,6 +371,25 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
     }
 }
 
+static intptr_t
+vm_pop_frame(struct ThreadState *ts)
+{
+    Py_ssize_t frame_size = vm_frame_size(ts);
+    if (ts->regs + frame_size > ts->maxstack) {
+        // Ensure we don't exceed maxstack in case we're popping a partially
+        // setup frame (e.g. CALL_FUNCTION_EX).
+        frame_size = ts->maxstack - ts->regs;
+    }
+    vm_clear_regs(ts, -1, frame_size);
+    intptr_t frame_delta = ts->regs[-4].as_int64;
+    intptr_t frame_link = ts->regs[-2].as_int64;
+    ts->regs[-2].as_int64 = 0;
+    ts->regs[-3].as_int64 = 0;
+    ts->regs[-4].as_int64 = 0;
+    ts->regs -= frame_delta;
+    return frame_link;
+}
+
 /* Finds the inner most exception handler for the current instruction.
    Exception handlers are stored in inner-most to outer-most order.
 */
@@ -393,19 +452,11 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
             }
         }
 
+      next: ;
         // No handler found in this call frame. Clears the entire frame and
         // unwinds the call stack.
-        Py_ssize_t frame_size = vm_frame_size(ts);
-        vm_clear_regs(ts, -1, frame_size);
-
-      next: ;
-        uintptr_t frame_link = ts->regs[-2].as_int64;
-        intptr_t frame_delta = ts->regs[-4].as_int64;
-        ts->regs[-2].as_int64 = 0;
-        ts->regs[-3].as_int64 = 0;
-        ts->regs[-4].as_int64 = 0;
+        intptr_t frame_link = vm_pop_frame(ts);
         ts->next_instr = next_instr = (const uint32_t *)(frame_link & ~FRAME_TAG_MASK);
-        ts->regs -= frame_delta;
         if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
             intptr_t tag = frame_link & FRAME_TAG_MASK;
             if (tag == FRAME_GENERATOR) {
@@ -422,6 +473,38 @@ _Py_IDENTIFIER(__builtins__);
 
 static struct ThreadState *current_thread_state(void);
 
+static PyFrameObject *
+new_fake_frame(PyFunc *func, const uint32_t *next_instr)
+{
+    PyCodeObject2 *co2 = PyCode2_FromFunc(func);
+    const char *filename = PyUnicode_AsUTF8(co2->co_filename);
+    const char *funcname = PyUnicode_AsUTF8(co2->co_name);
+    int firstlineno = co2->co_firstlineno;
+
+    PyCodeObject *empty_code = PyCode_NewEmpty(filename, funcname, firstlineno);
+    if (empty_code == NULL) {
+        return NULL;
+    }
+
+    PyObject *globals = ((PyFunc *)func)->globals;
+    PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), empty_code, globals, NULL);
+    Py_DECREF(empty_code);
+    if (frame == NULL) {
+        return NULL;
+    }
+    Py_CLEAR(frame->f_back);
+
+    // fake trace so that we use f->f_lineno
+    Py_INCREF(globals);
+    frame->f_trace = globals;
+
+    const uint32_t *first_instr = PyCode2_GET_CODE(co2);
+    Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
+    intptr_t addrq = sizeof(*next_instr) * instr_offset;
+    frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
+    return frame;
+}
+
 PyObject *
 vm_get_frame(int depth)
 {
@@ -429,41 +512,20 @@ vm_get_frame(int depth)
 
     struct ThreadState *ts = current_thread_state();
 
-    const uint32_t *next_instr = ts->next_instr;
-    intptr_t offset = 0;
-    while (&ts->regs[offset] != ts->stack) {
-        PyObject *func = AS_OBJ(ts->regs[offset-1]);
-        uintptr_t frame_link = ts->regs[offset-2].as_int64;
-        intptr_t frame_delta = ts->regs[offset-4].as_int64;
-
-        if (!PyFunc_Check(func) || next_instr == NULL) {
-            goto next;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable) || w.next_instr == NULL) {
+            continue;
         }
 
-        PyCodeObject2 *co2 = PyCode2_FromFunc((PyFunc *)func);
-        const char *filename = PyUnicode_AsUTF8(co2->co_filename);
-        const char *funcname = PyUnicode_AsUTF8(co2->co_name);
-        int firstlineno = co2->co_firstlineno;
-
-        PyCodeObject *code = PyCode_NewEmpty(filename, funcname, firstlineno);
-        if (code == NULL) {
-            goto error;
-        }
-
-        PyObject *globals = ((PyFunc *)func)->globals;
-        PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), code, globals, NULL);
-        Py_DECREF(code);
+        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.next_instr);
         if (frame == NULL) {
-            goto error;
+            Py_XDECREF(top);
+            return NULL;
         }
-        Py_CLEAR(frame->f_back);
-
-        // fake trace so that we use f->f_lineno
-        Py_INCREF(globals);
-        frame->f_trace = globals;
-
-        intptr_t addrq = sizeof(*next_instr) * ((next_instr - 1) - PyCode2_GET_CODE(co2));
-        frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
         if (top == NULL) {
             top = frame;
         }
@@ -471,17 +533,9 @@ vm_get_frame(int depth)
             last->f_back = frame;
         }
         last = frame;
-
-      next:
-        next_instr = (const uint32_t *)frame_link;
-        offset -= frame_delta;
     }
 
     return (PyObject *)top;
-
-  error:
-    Py_XDECREF(top);
-    return NULL;
 }
 
 int
@@ -504,41 +558,19 @@ vm_traceback_here(struct ThreadState *ts)
         goto error;
     }
 
-    const uint32_t *next_instr = ts->next_instr;
-    intptr_t offset = 0;
-    while (&ts->regs[offset] != ts->stack) {
-        PyObject *func = AS_OBJ(ts->regs[offset-1]);
-        uintptr_t frame_link = ts->regs[offset-2].as_int64;
-        intptr_t frame_delta = ts->regs[offset-4].as_int64;
-
-        if (!PyFunc_Check(func) || next_instr == NULL) {
-            goto next;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable) || w.next_instr == NULL) {
+            continue;
         }
 
-        PyCodeObject2 *co2 = PyCode2_FromFunc((PyFunc *)func);
-        const char *filename = PyUnicode_AsUTF8(co2->co_filename);
-        const char *funcname = PyUnicode_AsUTF8(co2->co_name);
-        int firstlineno = co2->co_firstlineno;
-
-        PyCodeObject *code = PyCode_NewEmpty(filename, funcname, firstlineno);
-        if (code == NULL) {
-            goto error;
-        }
-
-        PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), code, globals, NULL);
-        Py_DECREF(code);
+        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.next_instr);
         if (frame == NULL) {
             goto error;
         }
-        Py_CLEAR(frame->f_back);
-
-        // fake trace so that we use f->f_lineno
-        Py_INCREF(globals);
-        frame->f_trace = globals;
-
-        intptr_t addrq = sizeof(*next_instr) * ((next_instr - 1) - PyCode2_GET_CODE(co2));
-        frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
-
         PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
         if (newtb == NULL) {
             goto error;
@@ -546,13 +578,9 @@ vm_traceback_here(struct ThreadState *ts)
         Py_XSETREF(tb, newtb);
         Py_DECREF(frame);
 
-        if ((frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
+        if ((w.frame_link & FRAME_TAG_MASK) != FRAME_PYTHON) {
             break;
         }
-
-      next:
-        next_instr = (const uint32_t *)frame_link;
-        offset -= frame_delta;
     }
 
     PyErr_Restore(exc, val, tb);
@@ -1776,32 +1804,12 @@ new_threadstate(void)
     return ts;
 }
 
-void
-vm_free_stack(struct ThreadState *ts)
-{
-    // printf("vm_free_stack: %p\n", ts);
-    while (ts->regs != ts->stack) {
-        Py_ssize_t frame_size = vm_frame_size(ts);
-        for (Py_ssize_t i = frame_size - 1; i >= -1; --i) {
-            Register value = ts->regs[i];
-            if (value.as_int64 != 0) {
-                ts->regs[i].as_int64 = 0;
-                DECREF(value);
-            }
-        }
-        intptr_t frame_delta = ts->regs[-4].as_int64;
-        ts->regs[-2].as_int64 = 0;
-        ts->regs[-3].as_int64 = 0;
-        ts->regs[-4].as_int64 = 0;
-        ts->regs -= frame_delta;
-    }
-    assert(ts->regs == ts->stack);
-}
-
 void vm_free_threadstate(struct ThreadState *ts)
 {
     // printf("vm_free_threadstate: %p\n", ts);
-    vm_free_stack(ts);
+    while (ts->regs != ts->stack) {
+        vm_pop_frame(ts);
+    }
     mi_free(ts->stack);
     ts->stack = ts->regs = ts->maxstack = NULL;
 }
