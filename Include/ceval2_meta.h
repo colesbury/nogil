@@ -240,7 +240,6 @@ vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc);
 
 // decrefs x!
 Register vm_to_bool(Register x);
-const uint8_t *vm_jump_if(PyObject *value, const uint8_t *pc, intptr_t opD, int exp);
 
 int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
               Py_ssize_t argcnt, Py_ssize_t argcntafter);

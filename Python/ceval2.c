@@ -306,14 +306,19 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
         else {
-            const uint8_t *res;
-            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_POP_JUMP_IF_FALSE, (int16_t)(uint16_t)opD, 0));
-            if (UNLIKELY(res == NULL)) {
+            int res;
+            CALL_VM(res = PyObject_IsTrue(value));
+            if (UNLIKELY(res < 0)) {
                 goto error;
             }
-            pc = res;
+            if (res == 0) {
+                pc += RELOAD_OPD();
+            }
+            else {
+                pc += OP_SIZE_POP_JUMP_IF_FALSE;
+            }
             DECREF(acc);
-            acc.as_int64 = 0;;
+            acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
     }
@@ -330,12 +335,17 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             DISPATCH(POP_JUMP_IF_TRUE);
         }
         else {
-            const uint8_t *res;
-            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_POP_JUMP_IF_TRUE, (int16_t)(uint16_t)opD, 1));
-            if (UNLIKELY(res == NULL)) {
+            int res;
+            CALL_VM(res = PyObject_IsTrue(value));
+            if (UNLIKELY(res < 0)) {
                 goto error;
             }
-            pc = res;
+            if (res == 1) {
+                pc += RELOAD_OPD();
+            }
+            else {
+                pc += OP_SIZE_POP_JUMP_IF_TRUE;
+            }
             DECREF(acc);
             acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_TRUE);
@@ -352,12 +362,17 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
         else {
-            const uint8_t *res;
-            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_JUMP_IF_FALSE, (int16_t)(uint16_t)opD, 0));
-            if (UNLIKELY(res == NULL)) {
+            int res;
+            CALL_VM(res = PyObject_IsTrue(value));
+            if (UNLIKELY(res < 0)) {
                 goto error;
             }
-            pc = res;
+            if (res == 0) {
+                pc += RELOAD_OPD();
+            }
+            else {
+                pc += OP_SIZE_JUMP_IF_FALSE;
+            }
             NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
     }
@@ -372,12 +387,17 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             DISPATCH(JUMP_IF_TRUE);
         }
         else {
-            const uint8_t *res;
-            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_JUMP_IF_TRUE, (int16_t)(uint16_t)opD, 1));
-            if (UNLIKELY(res == NULL)) {
+            int res;
+            CALL_VM(res = PyObject_IsTrue(value));
+            if (UNLIKELY(res < 0)) {
                 goto error;
             }
-            pc = res;
+            if (res == 1) {
+                pc += RELOAD_OPD();
+            }
+            else {
+                pc += OP_SIZE_JUMP_IF_TRUE;
+            }
             NEXT_INSTRUCTION(JUMP_IF_TRUE);
         }
     }

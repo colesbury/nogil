@@ -73,21 +73,6 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
-const uint8_t *
-vm_jump_if(PyObject *value, const uint8_t *pc, intptr_t opD, int exp)
-{
-    int err = PyObject_IsTrue(value);
-    if (UNLIKELY(err < 0)) {
-        return NULL;
-    }
-    if (err == exp) {
-        return pc + opD;
-    }
-    else {
-        return pc;
-    }
-}
-
 static Register _Py_NO_INLINE
 attribute_error(struct ThreadState *ts, _Py_Identifier *id)
 {
