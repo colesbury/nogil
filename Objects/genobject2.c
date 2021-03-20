@@ -198,7 +198,7 @@ gen_send_internal(PyGenObject2 *gen, Register acc)
 {
     struct ThreadState *ts = &gen->base.thread;
     gen->status = GEN_RUNNING;
-    PyObject *res = PyEval2_Eval(ts, acc.as_int64, ts->next_instr);
+    PyObject *res = PyEval2_Eval(ts, acc.as_int64, ts->pc); // FIXME: pc + 1???
     if (LIKELY(res != NULL)) {
         assert(gen->status == GEN_YIELD);
         return res;
@@ -405,12 +405,12 @@ static PyObject *
 gen_throw_current(PyGenObject2 *gen)
 {
     struct ThreadState *ts = &gen->base.thread;
-    const uint32_t *next_instr = vm_exception_unwind(ts, ts->next_instr);
-    if (next_instr == NULL) {
+    const uint32_t *pc = vm_exception_unwind(ts, ts->pc);
+    if (pc == NULL) {
         assert(gen->status == GEN_ERROR);
         return NULL;
     }
-    ts->next_instr = next_instr;
+    ts->pc = pc;
     Register acc = {0};
     return gen_send_internal(gen, acc);
 }

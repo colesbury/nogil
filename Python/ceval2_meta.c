@@ -74,17 +74,17 @@ Register vm_unknown_opcode(intptr_t opcode)
 }
 
 const uint32_t *
-vm_jump_if(PyObject *value, const uint32_t *next_instr, intptr_t opD, int exp)
+vm_jump_if(PyObject *value, const uint32_t *pc, intptr_t opD, int exp)
 {
     int err = PyObject_IsTrue(value);
     if (UNLIKELY(err < 0)) {
         return NULL;
     }
     if (err == exp) {
-        return next_instr + opD - 0x8000;
+        return pc + opD - 0x8000;
     }
     else {
-        return next_instr;
+        return pc;
     }
 }
 
@@ -152,7 +152,7 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
 
 struct stack_walk {
     struct ThreadState *ts;
-    const uint32_t *next_instr;
+    const uint32_t *pc;
     intptr_t offset;
     intptr_t next_offset;
     intptr_t frame_link;
@@ -163,7 +163,7 @@ vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
 {
     memset(w, 0, sizeof(*w));
     w->ts = ts;
-    w->frame_link = (intptr_t)ts->next_instr;
+    w->frame_link = (intptr_t)ts->pc;
 }
 
 static Register *
@@ -177,7 +177,7 @@ vm_stack_walk(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
     w->offset = w->next_offset;
-    w->next_instr = vm_frame_next_instr(w->frame_link);
+    w->pc = vm_frame_pc(w->frame_link);
     if (ts->regs + w->offset == ts->stack) {
         return 0;
     }
@@ -206,7 +206,7 @@ vm_handled_exc(struct ThreadState *ts)
         PyCodeObject2 *code = PyCode2_FromFunc(func);
 
         const uint32_t *first_instr = PyCode2_GET_CODE(code);
-        Py_ssize_t instr_offset = (w.next_instr - 1 - first_instr);
+        Py_ssize_t instr_offset = (w.pc - first_instr);
 
         // Find the inner-most active except/finally block. Note that because
         // try-blocks are stored inner-most to outer-most, the except/finally
@@ -388,10 +388,10 @@ vm_pop_frame(struct ThreadState *ts)
    Exception handlers are stored in inner-most to outer-most order.
 */
 static ExceptionHandler *
-vm_exception_handler(PyCodeObject2 *code, const uint32_t *next_instr)
+vm_exception_handler(PyCodeObject2 *code, const uint32_t *pc)
 {
     const uint32_t *first_instr = PyCode2_GET_CODE(code);
-    Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
+    Py_ssize_t instr_offset = (pc - first_instr);
 
     struct _PyHandlerTable *table = code->co_exc_handlers;
     for (Py_ssize_t i = 0, n = table->size; i < n; i++) {
@@ -406,12 +406,12 @@ vm_exception_handler(PyCodeObject2 *code, const uint32_t *next_instr)
 }
 
 const uint32_t *
-vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
+vm_exception_unwind(struct ThreadState *ts, const uint32_t *pc)
 {
     assert(PyErr_Occurred());
     for (;;) {
-        if (next_instr == NULL) {
-            // next_instr is NULL if we set up the call frame, but haven't
+        if (pc == NULL) {
+            // pc is NULL if we set up the call frame, but haven't
             // started executing it. See CALL_FUNCTION_EX in ceval2.c
             goto next;
         }
@@ -420,7 +420,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
         if (PyFunc_Check(callable)) {
             PyFunc *func = (PyFunc *)callable;
             PyCodeObject2 *code = PyCode2_FromFunc(func);
-            ExceptionHandler *handler = vm_exception_handler(code, next_instr);
+            ExceptionHandler *handler = vm_exception_handler(code, pc);
 
             if (handler != NULL) {
                 vm_clear_regs(ts, handler->reg, code->co_framesize);
@@ -462,7 +462,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr)
             }
             assert(false && "invalid frame link");
         }
-        ts->next_instr = next_instr = (const uint32_t *)frame_link;
+        ts->pc = pc = (const uint32_t *)frame_link;
     }
 }
 
@@ -471,7 +471,7 @@ _Py_IDENTIFIER(__builtins__);
 static struct ThreadState *current_thread_state(void);
 
 static PyFrameObject *
-new_fake_frame(PyFunc *func, const uint32_t *next_instr)
+new_fake_frame(PyFunc *func, const uint32_t *pc)
 {
     PyCodeObject2 *co2 = PyCode2_FromFunc(func);
     const char *filename = PyUnicode_AsUTF8(co2->co_filename);
@@ -496,8 +496,8 @@ new_fake_frame(PyFunc *func, const uint32_t *next_instr)
     frame->f_trace = globals;
 
     const uint32_t *first_instr = PyCode2_GET_CODE(co2);
-    Py_ssize_t instr_offset = (next_instr - 1 - first_instr);
-    intptr_t addrq = sizeof(*next_instr) * instr_offset;
+    Py_ssize_t instr_offset = (pc - first_instr);
+    intptr_t addrq = sizeof(*pc) * instr_offset;
     frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
     return frame;
 }
@@ -514,11 +514,11 @@ vm_get_frame(int depth)
     while (vm_stack_walk(&w)) {
         Register *regs = vm_stack_walk_regs(&w);
         PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable) || w.next_instr == NULL) {
+        if (!PyFunc_Check(callable) || w.pc == NULL) {
             continue;
         }
 
-        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.next_instr);
+        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.pc);
         if (frame == NULL) {
             Py_XDECREF(top);
             return NULL;
@@ -560,11 +560,11 @@ vm_traceback_here(struct ThreadState *ts)
     while (vm_stack_walk(&w)) {
         Register *regs = vm_stack_walk_regs(&w);
         PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable) || w.next_instr == NULL) {
+        if (!PyFunc_Check(callable) || w.pc == NULL) {
             continue;
         }
 
-        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.next_instr);
+        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.pc);
         if (frame == NULL) {
             goto error;
         }
@@ -575,7 +575,7 @@ vm_traceback_here(struct ThreadState *ts)
         Py_XSETREF(tb, newtb);
         Py_DECREF(frame);
 
-        if (vm_frame_next_instr(w.frame_link) == NULL) {
+        if (vm_frame_pc(w.frame_link) == NULL) {
             break;
         }
     }
@@ -688,7 +688,7 @@ vm_raise(struct ThreadState *ts, PyObject *exc)
 }
 
 const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD)
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *pc, int opD)
 {
     static const char *CANNOT_CATCH_MSG = (
         "catching classes that do not inherit from "
@@ -717,10 +717,10 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t
     int res = PyErr_GivenExceptionMatches(exc, tp);
     if (res > 0) {
         /* Exception matches -- Do nothing */;
-        return next_instr;
+        return pc;
     }
     else if (res == 0) {
-        return next_instr + opD - 0x8000;
+        return pc + opD - 0x8000;
     }
     else {
         return NULL;

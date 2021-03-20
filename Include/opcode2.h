@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 
+
     /* Instruction opcodes for compiled code */
 #define CLEAR_ACC                 1
 #define FUNC_HEADER               2

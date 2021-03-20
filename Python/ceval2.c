@@ -46,7 +46,7 @@
 #endif
 
 #define CALL_VM(call) \
-    ts->next_instr = next_instr; \
+    ts->pc = pc; \
     call; \
     regs = ts->regs
 
@@ -57,8 +57,8 @@
 #define FUNC_CALL_VM(call) \
     call; \
     regs = ts->regs; \
-    BREAK_LIVE_RANGE(next_instr); \
-    this_code = PyCode2_FromInstr(next_instr - 1);
+    BREAK_LIVE_RANGE(pc); \
+    this_code = PyCode2_FromInstr(pc);
 
 // I HAVE DEFEATED COMPILER.
 #if defined(__GNUC__)
@@ -172,12 +172,12 @@
 
 // Clears and DECREFs the regsters from [-1, N) where N is usually
 // the number of local variables.
-// NOTE: The CLEAR_REGISTERS macro saves next_instr to the thread state.
+// NOTE: The CLEAR_REGISTERS macro saves pc to the thread state.
 // This allows us to skip saving it during the DECREF calls,
 // which typically allows the compiler to re-use the register
-// normally allocated to next_instr.
+// normally allocated to pc.
 #define CLEAR_REGISTERS(N) do {                             \
-    ts->next_instr = next_instr;                            \
+    ts->pc = pc;                                            \
     Py_ssize_t _n = (N);                                    \
     do {                                                    \
         _n--;                                               \
@@ -197,20 +197,23 @@
 
 
 #define NEXTOPARG() do { \
-        opD = *next_instr; \
+        opD = *pc; \
         opcode = opD & 0xFF; \
         opA = (opD >> 8) & 0xFF; \
         opD >>= 16; \
-        next_instr++; \
     } while (0)
 
-#define RELOAD_OPD() (*(next_instr - 1) >> 16)
-#define RELOAD_OPA() ((*(next_instr - 1) >> 8) & 0xFF)
+#define RELOAD_OPD() (*pc >> 16)
+#define RELOAD_OPA() ((*pc >> 8) & 0xFF)
 
-#define DISPATCH(name) \
+#define NEXT_INSTRUCTION(name) \
     NEXTOPARG(); \
     __asm__ volatile("# computed goto " #name); \
     goto *opcode_targets[opcode]
+
+#define DISPATCH(name) \
+    pc++; \
+    NEXT_INSTRUCTION(#name)
 
 #define THIS_FUNC() \
     ((PyFunc *)AS_OBJ(regs[-1]))
@@ -261,7 +264,7 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid);
 
 PyObject*
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
-_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
+_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_pc)
 {
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
@@ -269,7 +272,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
     ts->ts->use_new_interp += 1;
 
-    const uint32_t *next_instr = pc;
+    const uint32_t *pc = initial_pc;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
@@ -279,7 +282,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     uintptr_t tid = _Py_ThreadId();
     intptr_t reserved = 0;
 
-    DISPATCH(INITIAL);
+    NEXT_INSTRUCTION(INITIAL);
 
     TARGET(LOAD_CONST) {
         acc = PACK(CONSTANTS()[opA], NO_REFCOUNT_TAG);
@@ -287,7 +290,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(JUMP) {
-        next_instr += opD - 0x8000;
+        pc += opD - 0x8000;
         DISPATCH(JUMP);
     }
 
@@ -297,15 +300,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             // no-op
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            next_instr += opD - 0x8000;
+            pc += opD - 0x8000 + 1;
+            NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
         else {
             const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, next_instr, opD, 0));
+            CALL_VM(res = vm_jump_if(value, pc, opD, 0));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
-            next_instr = res;
+            pc = res;
             DECREF(acc);
         }
         acc.as_int64 = 0;
@@ -315,18 +319,19 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(POP_JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            next_instr += opD - 0x8000;
+            pc += opD - 0x8000 + 1;
+            NEXT_INSTRUCTION(POP_JUMP_IF_TRUE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
             // no-op
         }
         else {
             const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, next_instr, opD, 1));
+            CALL_VM(res = vm_jump_if(value, pc, opD, 1));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
-            next_instr = res;
+            pc = res;
             DECREF(acc);
         }
         acc.as_int64 = 0;
@@ -339,15 +344,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             // no-op
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            next_instr += opD - 0x8000;
+            pc += opD - 0x8000 + 1;
+            NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
         else {
             const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, next_instr, opD, 0));
+            CALL_VM(res = vm_jump_if(value, pc, opD, 0));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
-            next_instr = res;
+            pc = res;
         }
         DISPATCH(JUMP_IF_FALSE);
     }
@@ -355,18 +361,19 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     TARGET(JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            next_instr += opD - 0x8000;
+            pc += opD - 0x8000 + 1;
+            NEXT_INSTRUCTION(JUMP_IF_TRUE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
             // no-op
         }
         else {
             const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, next_instr, opD, 1));
+            CALL_VM(res = vm_jump_if(value, pc, opD, 1));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
-            next_instr = res;
+            pc = res;
         }
         DISPATCH(JUMP_IF_TRUE);
     }
@@ -386,7 +393,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             }
         }
 
-        PyCodeObject2 *this_code = PyCode2_FromInstr(next_instr - 1);
+        PyCodeObject2 *this_code = PyCode2_FromInstr(pc);
         regs[-3].as_int64 = (intptr_t)this_code->co_constants;
 
         // fast path if no keyword arguments, cells, or freevars and number
@@ -395,7 +402,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto dispatch_func_header;
         }
 
-        ts->next_instr = next_instr;
+        ts->pc = pc;
         if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
             // call passed arguments as tuple and keywords as dict
             // TODO: update acc to avoid checking all args for defaults
@@ -571,10 +578,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             SET_REG(regs[-1], x);
             goto call_object;
         }
-        next_instr = ((PyFuncBase *)func)->first_instr;
+        pc = ((PyFuncBase *)func)->first_instr;
         Register x = PACK_INCREF(func);
         SET_REG(regs[-1], x);
-        DISPATCH(METHOD_HEADER);
+        NEXT_INSTRUCTION(METHOD_HEADER);
     }
 
     TARGET(CFUNC_HEADER) {
@@ -587,14 +594,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        next_instr = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint32_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
-        DISPATCH(CFUNC_HEADER);
+        NEXT_INSTRUCTION(CFUNC_HEADER);
     }
 
     TARGET(FUNC_TPCALL_HEADER) {
@@ -608,14 +615,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        next_instr = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint32_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
-        DISPATCH(FUNC_TPCALL_HEADER);
+        NEXT_INSTRUCTION(FUNC_TPCALL_HEADER);
     }
 
     TARGET(COROGEN_HEADER) {
@@ -628,10 +635,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         if (gen == NULL) {
             goto error;
         }
-        PyGen2_SetNextInstr(gen, next_instr);
+        PyGen2_SetPC(gen, pc + 1);
         acc = PACK_OBJ((PyObject *)gen);
         goto TARGET_RETURN_VALUE;
-        DISPATCH(COROGEN_HEADER);
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -673,13 +679,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;    // frame delta
-        regs[-2].as_int64 = (intptr_t)next_instr;
+        regs[-2].as_int64 = (intptr_t)(pc + 1);
         acc.as_int64 = opD;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object;
         }
-        next_instr = ((PyFuncBase *)callable)->first_instr;
-        DISPATCH(CALL_FUNCTION);
+        pc = ((PyFuncBase *)callable)->first_instr;
+        NEXT_INSTRUCTION(CALL_FUNCTION);
     }
 
     call_object: {
@@ -694,14 +700,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        next_instr = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint32_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0; // should already be zero?
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
-        DISPATCH(call_object);
+        NEXT_INSTRUCTION(call_object);
     }
 
     TARGET(CALL_FUNCTION_EX) {
@@ -715,11 +721,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;  // frame delta
-        regs[-2].as_int64 = (intptr_t)next_instr;
+        regs[-2].as_int64 = (intptr_t)(pc + 1);
 
-        // next_instr is no longer valid. The NULL value prevents this
+        // pc is no longer valid. The NULL value prevents this
         // partially set-up frame from showing up in tracebacks.
-        next_instr = NULL;
+        pc = NULL;
 
         // ensure that *args is a tuple
         if (UNLIKELY(!PyTuple_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 2])))) {
@@ -745,8 +751,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto call_object_ex;
         }
         acc.as_int64 = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
-        next_instr = ((PyFuncBase *)callable)->first_instr;
-        DISPATCH(CALL_FUNCTION_EX);
+        pc = ((PyFuncBase *)callable)->first_instr;
+        NEXT_INSTRUCTION(CALL_FUNCTION_EX);
     }
 
     call_object_ex: {
@@ -765,20 +771,20 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         CLEAR(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
         CLEAR(regs[-FRAME_EXTRA - 2]);  // clear *args
         CLEAR(regs[-1]);  // clear callable
-        next_instr = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint32_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         // regs[-3] is already zero
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
-        DISPATCH(call_object_ex);
+        NEXT_INSTRUCTION(call_object_ex);
     }
 
     TARGET(YIELD_VALUE) {
         PyGenObject2 *gen = PyGen2_FromThread(ts);
         gen->status = GEN_YIELD;
-        ts->next_instr = next_instr;
+        ts->pc = pc + 1;
         // assert((regs[-2].as_int64 & FRAME_C) != 0);
         goto return_to_c;
     }
@@ -790,7 +796,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             SET_ACC(PACK_OBJ(res));                                             \
             PyGenObject2 *gen = PyGen2_FromThread(ts);                          \
             gen->status = GEN_YIELD;                                            \
-            ts->next_instr = next_instr - 1; /* will resume with YIELD_FROM */  \
+            ts->pc = pc;  /* will resume with YIELD_FROM */                     \
             goto return_to_c;                                                   \
         }                                                                       \
         PyGen2_FromThread(ts)->yield_from = NULL;                               \
@@ -826,7 +832,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         regs -= frame_delta;
         ts->regs = regs;
         if (UNLIKELY(frame_link <= FRAME_C)) {
-            ts->next_instr = NULL;
+            ts->pc = NULL;
             if (frame_link == FRAME_C) {
                 goto return_to_c;
             }
@@ -840,8 +846,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         // acc might be an unowned alias of some local up the stack. We must
         // convert it to an owning reference before returning.
         acc = STRONG_REF(acc);
-        next_instr = (const uint32_t *)frame_link;
-        DISPATCH(RETURN_VALUE);
+        pc = (const uint32_t *)frame_link;
+        NEXT_INSTRUCTION(RETURN_VALUE);
     }
 
     TARGET(LOAD_NAME) {
@@ -1741,13 +1747,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             Register r = regs[opA];
             regs[opA].as_int64 = 0;
             DECREF(r);
+            DISPATCH(FOR_ITER);
         }
         else {
             acc = PACK_OBJ(next);
             opD = RELOAD_OPD();
-            next_instr += opD - 0x8000;
+            pc += opD - 0x8000 + 1;
+            NEXT_INSTRUCTION(FOR_ITER);
         }
-        DISPATCH(FOR_ITER);
     }
 
     TARGET(GET_AITER) {
@@ -2006,15 +2013,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
         PyObject *exc = AS_OBJ(regs[opA + 1]);
         assert(regs[opA].as_int64 == -1 && "link reg should be -1");
         const uint32_t *target;
-        CALL_VM(target = vm_exc_match(ts, type, exc, next_instr, opD));
+        CALL_VM(target = vm_exc_match(ts, type, exc, pc + 1, opD));
         if (UNLIKELY(target == NULL)) {
             goto error;
         }
-        next_instr = target;
-        BREAK_LIVE_RANGE(next_instr);
+        pc = target;
+        BREAK_LIVE_RANGE(pc);
         DECREF(acc);
         acc.as_int64 = 0;
-        DISPATCH(JUMP_IF_NOT_EXC_MATCH);
+        NEXT_INSTRUCTION(JUMP_IF_NOT_EXC_MATCH);
     }
 
     TARGET(END_EXCEPT) {
@@ -2029,8 +2036,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
     }
 
     TARGET(CALL_FINALLY) {
-        regs[opA] = PACK(next_instr, NO_REFCOUNT_TAG);
-        next_instr += opD - 0x8000;
+        regs[opA] = PACK(pc, NO_REFCOUNT_TAG);
+        pc += opD - 0x8000;
         DISPATCH(CALL_FINALLY);
     }
 
@@ -2047,7 +2054,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             goto exception_unwind;
         }
         else if (link_addr != 0) {
-            next_instr = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
+            pc = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
         }
         acc = link_val;
         DISPATCH(END_FINALLY);
@@ -2161,6 +2168,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
 
     TARGET(EXTENDED_ARG) {
         intptr_t oldA = opA;
+        pc++;
         NEXTOPARG();
         opA = (oldA << 8) | opA;
         goto *opcode_targets[opcode];
@@ -2200,12 +2208,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             DECREF(acc);
             acc.as_int64 = 0;
         }
-        CALL_VM(next_instr = vm_exception_unwind(ts, next_instr));
-        if (next_instr == 0) {
+        CALL_VM(pc = vm_exception_unwind(ts, pc));
+        if (pc == 0) {
             ts->ts->use_new_interp -= 1;
             return NULL;
         }
-        DISPATCH(exception_unwind);
+        NEXT_INSTRUCTION(exception_unwind);
     }
 
     #include "unimplemented_opcodes.h"
@@ -2229,7 +2237,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             "# opD = %2 \n\t"
             "# regs = %5 \n\t"
             "# acc = %3 \n\t"
-            "# next_instr = %4 \n\t"
+            "# pc = %4 \n\t"
             "# ts = %6 \n\t"
             "# opcode_targets = %7 \n\t"
             "# tid = %8 \n\t"
@@ -2239,7 +2247,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *pc)
             "r" (opA),
             "r" (opD),
             "r" (acc),
-            "r" (next_instr),
+            "r" (pc),
             "r" (regs),
             "r" (ts),
             "r" (opcode_targets),

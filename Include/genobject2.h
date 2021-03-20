@@ -67,9 +67,9 @@ PyAPI_FUNC(PyObject *) _PyObject_YieldFrom(PyObject *awaitable, PyObject *arg);
 PyObject *_PyCoro2_GetAwaitableIter(PyObject *o);
 
 static inline void
-PyGen2_SetNextInstr(PyGenObject2 *gen, const uint32_t *next_instr)
+PyGen2_SetPC(PyGenObject2 *gen, const uint32_t *pc)
 {
-    gen->base.thread.next_instr = next_instr;
+    gen->base.thread.pc = pc;
 }
 
 static inline PyGenObject2 *

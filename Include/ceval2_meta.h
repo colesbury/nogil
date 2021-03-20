@@ -25,7 +25,7 @@ enum {
 #define CFRAME_EXTRA    4
 
 static inline const uint32_t *
-vm_frame_next_instr(intptr_t frame_link)
+vm_frame_pc(intptr_t frame_link)
 {
     if (frame_link <= FRAME_C) {
         return NULL;
@@ -184,7 +184,7 @@ struct ThreadState {
     Register *regs;
 
     // Next instruction to be executed. Updated before calling into ceval_meta.
-    const uint32_t *next_instr;
+    const uint32_t *pc;
 
     // true bottom of stack
     Register *stack;
@@ -236,11 +236,11 @@ int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res)
 PyObject *
 vm_handled_exc(struct ThreadState *ts);
 const uint32_t *
-vm_exception_unwind(struct ThreadState *ts, const uint32_t *next_instr);
+vm_exception_unwind(struct ThreadState *ts, const uint32_t *pc);
 
 // decrefs x!
 Register vm_to_bool(Register x);
-const uint32_t *vm_jump_if(PyObject *value, const uint32_t *next_instr, intptr_t opD, int exp);
+const uint32_t *vm_jump_if(PyObject *value, const uint32_t *pc, intptr_t opD, int exp);
 
 int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
               Py_ssize_t argcnt, Py_ssize_t argcntafter);
@@ -311,7 +311,7 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 int vm_traceback_here(struct ThreadState *ts);
 
 const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *next_instr, int opD);
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *pc, int opD);
 
 struct ThreadState *
 new_threadstate(void);
