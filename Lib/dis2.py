@@ -348,7 +348,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         for (arg, fmt) in [(argA, bytecode.opA), (argD, bytecode.opD)]:
             argrepr = None
             if fmt == 'jump':
-                argval = offset + 4 * (arg + 1 - 0x8000)
+                argval = offset + (arg if arg <= 0x7FFF else arg - 0x10000)
                 argrepr = "to " + repr(argval)
             elif fmt == 'str':
                 argval, argrepr = _get_const_info(arg, constants)

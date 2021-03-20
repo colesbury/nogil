@@ -73,15 +73,15 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
-const uint32_t *
-vm_jump_if(PyObject *value, const uint32_t *pc, intptr_t opD, int exp)
+const uint8_t *
+vm_jump_if(PyObject *value, const uint8_t *pc, intptr_t opD, int exp)
 {
     int err = PyObject_IsTrue(value);
     if (UNLIKELY(err < 0)) {
         return NULL;
     }
     if (err == exp) {
-        return pc + opD - 0x8000;
+        return pc + opD;
     }
     else {
         return pc;
@@ -152,7 +152,7 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
 
 struct stack_walk {
     struct ThreadState *ts;
-    const uint32_t *pc;
+    const uint8_t *pc;
     intptr_t offset;
     intptr_t next_offset;
     intptr_t frame_link;
@@ -205,7 +205,7 @@ vm_handled_exc(struct ThreadState *ts)
         PyFunc *func = (PyFunc *)callable;
         PyCodeObject2 *code = PyCode2_FromFunc(func);
 
-        const uint32_t *first_instr = PyCode2_GET_CODE(code);
+        const uint8_t *first_instr = PyCode2_GET_CODE(code);
         Py_ssize_t instr_offset = (w.pc - first_instr);
 
         // Find the inner-most active except/finally block. Note that because
@@ -388,9 +388,9 @@ vm_pop_frame(struct ThreadState *ts)
    Exception handlers are stored in inner-most to outer-most order.
 */
 static ExceptionHandler *
-vm_exception_handler(PyCodeObject2 *code, const uint32_t *pc)
+vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
 {
-    const uint32_t *first_instr = PyCode2_GET_CODE(code);
+    const uint8_t *first_instr = PyCode2_GET_CODE(code);
     Py_ssize_t instr_offset = (pc - first_instr);
 
     struct _PyHandlerTable *table = code->co_exc_handlers;
@@ -405,8 +405,8 @@ vm_exception_handler(PyCodeObject2 *code, const uint32_t *pc)
     return NULL;
 }
 
-const uint32_t *
-vm_exception_unwind(struct ThreadState *ts, const uint32_t *pc)
+const uint8_t *
+vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
 {
     assert(PyErr_Occurred());
     for (;;) {
@@ -462,7 +462,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint32_t *pc)
             }
             assert(false && "invalid frame link");
         }
-        ts->pc = pc = (const uint32_t *)frame_link;
+        ts->pc = pc = (const uint8_t *)frame_link;
     }
 }
 
@@ -471,7 +471,7 @@ _Py_IDENTIFIER(__builtins__);
 static struct ThreadState *current_thread_state(void);
 
 static PyFrameObject *
-new_fake_frame(PyFunc *func, const uint32_t *pc)
+new_fake_frame(PyFunc *func, const uint8_t *pc)
 {
     PyCodeObject2 *co2 = PyCode2_FromFunc(func);
     const char *filename = PyUnicode_AsUTF8(co2->co_filename);
@@ -495,7 +495,7 @@ new_fake_frame(PyFunc *func, const uint32_t *pc)
     Py_INCREF(globals);
     frame->f_trace = globals;
 
-    const uint32_t *first_instr = PyCode2_GET_CODE(co2);
+    const uint8_t *first_instr = PyCode2_GET_CODE(co2);
     Py_ssize_t instr_offset = (pc - first_instr);
     intptr_t addrq = sizeof(*pc) * instr_offset;
     frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
@@ -687,8 +687,8 @@ vm_raise(struct ThreadState *ts, PyObject *exc)
     return -1;
 }
 
-const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *pc, int opD)
+const uint8_t *
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD)
 {
     static const char *CANNOT_CATCH_MSG = (
         "catching classes that do not inherit from "
@@ -720,7 +720,7 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t
         return pc;
     }
     else if (res == 0) {
-        return pc + opD - 0x8000;
+        return pc + opD;
     }
     else {
         return NULL;
@@ -2102,7 +2102,7 @@ current_thread_state(void)
 }
 
 PyObject *
-PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc)
+PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc)
 {
     struct ThreadState *oldts = gts;
     gts = ts;
@@ -2124,7 +2124,7 @@ _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
     }
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
     return _PyEval_Fast(ts, /*acc=*/0, pc);
 }
 
@@ -2403,7 +2403,7 @@ PyObject *
 _PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds)
 {
     struct ThreadState *ts = current_thread_state();
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
     int err;
 
     if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
@@ -2432,7 +2432,7 @@ _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
                    size_t nargsf, PyObject *kwnames)
 {
     struct ThreadState *ts = current_thread_state();
-    const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
     Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
     if (UNLIKELY(nargs >= 255)) {
         goto slow_call;
@@ -2557,7 +2557,7 @@ _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
     if (kwds == NULL && PyTuple_GET_SIZE(args) < 255) {
         // optimization for positional arguments only
         struct ThreadState *ts = current_thread_state();
-        const uint32_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
+        const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
         Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
         int err = setup_frame_ex(ts, method->im_func, /*extra=*/0, /*nargs=*/nargs);
         if (UNLIKELY(err != 0)) {

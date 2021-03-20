@@ -103,7 +103,7 @@ func_clear(PyFunc *op)
     for (Py_ssize_t i = 0; i < nfreevars; i++) {
         Py_CLEAR(op->freevars[i]);
     }
-    const uint32_t *first_instr = op->func_base.first_instr;
+    const uint8_t *first_instr = op->func_base.first_instr;
     if (first_instr != NULL) {
         op->func_base.first_instr = NULL;
         Py_DECREF(PyCode2_FromInstr(first_instr));

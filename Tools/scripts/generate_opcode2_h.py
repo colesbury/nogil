@@ -35,6 +35,10 @@ def main(opcode_py, outfile='Include/opcode2.h'):
         for bytecode in opcodes:
             if bytecode is not None:
                 fobj.write("#define %-23s %3s\n" % (bytecode.name, bytecode.opcode))
+        fobj.write("\n")
+        for bytecode in opcodes:
+            if bytecode is not None:
+                fobj.write("#define OP_SIZE_%-23s %3s\n" % (bytecode.name, bytecode.size))
         fobj.write(footer)
 
     print("%s regenerated from %s" % (outfile, opcode_py))

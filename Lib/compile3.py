@@ -110,8 +110,9 @@ class Instruction(Assembly):
         start = addresses[self]
         arg, arg2 = self.arg, self.arg2
         if dis.opcodes[self.opcode].is_jump():
-            arg2 = (addresses[arg2] - start) // 4 - 1
-            arg2 += 0x8000
+            arg2 = (addresses[arg2] - start)
+            assert arg2 >= -0x8000 and arg2 <= 0x7FFF
+            arg2 &= 0xFFFF
         if arg2 is None:
             arg2 = 0
         else:

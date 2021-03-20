@@ -19,6 +19,10 @@ class Bytecode:
         self.opD = opD
         self.no_extended_arg = name in NO_EXTENDED_ARG
 
+    @property
+    def size(self):
+        return 4 if self.opD is None else 4
+
     def is_jump(self):
         return self.opD == 'jump'
 

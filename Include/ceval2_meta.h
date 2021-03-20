@@ -24,13 +24,13 @@ enum {
 #define FRAME_EXTRA     4
 #define CFRAME_EXTRA    4
 
-static inline const uint32_t *
+static inline const uint8_t *
 vm_frame_pc(intptr_t frame_link)
 {
     if (frame_link <= FRAME_C) {
         return NULL;
     }
-    return (const uint32_t *)frame_link;
+    return (const uint8_t *)frame_link;
 }
 
 
@@ -184,7 +184,7 @@ struct ThreadState {
     Register *regs;
 
     // Next instruction to be executed. Updated before calling into ceval_meta.
-    const uint32_t *pc;
+    const uint8_t *pc;
 
     // true bottom of stack
     Register *stack;
@@ -206,8 +206,8 @@ struct PyVirtualThread {
 };
 
 // ceval2.c
-PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
-PyObject *PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint32_t *pc);
+PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc);
+PyObject *PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc);
 PyObject *PyEval2_GetGlobals(void);
 PyObject *PyEval2_GetLocals(void);
 
@@ -235,12 +235,12 @@ int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res)
 
 PyObject *
 vm_handled_exc(struct ThreadState *ts);
-const uint32_t *
-vm_exception_unwind(struct ThreadState *ts, const uint32_t *pc);
+const uint8_t *
+vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc);
 
 // decrefs x!
 Register vm_to_bool(Register x);
-const uint32_t *vm_jump_if(PyObject *value, const uint32_t *pc, intptr_t opD, int exp);
+const uint8_t *vm_jump_if(PyObject *value, const uint8_t *pc, intptr_t opD, int exp);
 
 int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
               Py_ssize_t argcnt, Py_ssize_t argcntafter);
@@ -310,8 +310,8 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_traceback_here(struct ThreadState *ts);
 
-const uint32_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint32_t *pc, int opD);
+const uint8_t *
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD);
 
 struct ThreadState *
 new_threadstate(void);

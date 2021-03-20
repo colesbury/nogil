@@ -67,7 +67,7 @@ PyAPI_FUNC(PyObject *) _PyObject_YieldFrom(PyObject *awaitable, PyObject *arg);
 PyObject *_PyCoro2_GetAwaitableIter(PyObject *o);
 
 static inline void
-PyGen2_SetPC(PyGenObject2 *gen, const uint32_t *pc)
+PyGen2_SetPC(PyGenObject2 *gen, const uint8_t *pc)
 {
     gen->base.thread.pc = pc;
 }

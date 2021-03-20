@@ -99,7 +99,7 @@ method_vectorcall(PyObject *method, PyObject *const *args,
    function.
 */
 
-static uint32_t method_header = METHOD_HEADER;
+static const uint8_t method_header[4] = { METHOD_HEADER, 0, 0, 0 };
 
 PyObject *
 PyMethod_New(PyObject *func, PyObject *self)

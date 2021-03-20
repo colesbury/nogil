@@ -115,14 +115,14 @@ PyAPI_FUNC(int) PyCode2_Addr2Line(PyCodeObject2 *, int);
 #define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
 #define PyCode2_FROM_FUNC(func) (PyCode2_FromInstr(((PyFuncBase *)func)->first_instr))
 
-static inline uint32_t *
+static inline uint8_t *
 PyCode2_Code(PyCodeObject2 *code)
 {
-    return (uint32_t *)((char *)code + sizeof(PyCodeObject2));
+    return (uint8_t *)((char *)code + sizeof(PyCodeObject2));
 }
 
 static inline PyCodeObject2 *
-PyCode2_FromInstr(const uint32_t *first_instr)
+PyCode2_FromInstr(const uint8_t *first_instr)
 {
     return (PyCodeObject2 *)((char *)first_instr - sizeof(PyCodeObject2));
 }

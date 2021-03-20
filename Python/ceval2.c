@@ -197,14 +197,14 @@
 
 
 #define NEXTOPARG() do { \
-        opD = *pc; \
+        opD = *(uint32_t*)pc; \
         opcode = opD & 0xFF; \
         opA = (opD >> 8) & 0xFF; \
         opD >>= 16; \
     } while (0)
 
-#define RELOAD_OPD() (*pc >> 16)
-#define RELOAD_OPA() ((*pc >> 8) & 0xFF)
+#define RELOAD_OPD() (*(int16_t*)(pc + 2))
+#define RELOAD_OPA() (pc[1])
 
 #define NEXT_INSTRUCTION(name) \
     NEXTOPARG(); \
@@ -212,7 +212,7 @@
     goto *opcode_targets[opcode]
 
 #define DISPATCH(name) \
-    pc++; \
+    pc += OP_SIZE_##name; \
     NEXT_INSTRUCTION(#name)
 
 #define THIS_FUNC() \
@@ -264,7 +264,7 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid);
 
 PyObject*
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
-_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_pc)
+_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_pc)
 {
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
@@ -272,7 +272,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
     }
     ts->ts->use_new_interp += 1;
 
-    const uint32_t *pc = initial_pc;
+    const uint8_t *pc = initial_pc;
     intptr_t opcode;
     intptr_t opA;
     intptr_t opD;
@@ -290,92 +290,96 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
     }
 
     TARGET(JUMP) {
-        pc += opD - 0x8000;
-        DISPATCH(JUMP);
+        pc += (int16_t)(uint16_t)opD;
+        NEXT_INSTRUCTION(JUMP);
     }
 
     TARGET(POP_JUMP_IF_FALSE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            // no-op
+            acc.as_int64 = 0;
+            DISPATCH(POP_JUMP_IF_FALSE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            pc += opD - 0x8000 + 1;
+            pc += (int16_t)(uint16_t)opD;
+            acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
         else {
-            const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, pc, opD, 0));
+            const uint8_t *res;
+            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_POP_JUMP_IF_FALSE, (int16_t)(uint16_t)opD, 0));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
             pc = res;
             DECREF(acc);
+            acc.as_int64 = 0;;
+            NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
-        acc.as_int64 = 0;
-        DISPATCH(POP_JUMP_IF_FALSE);
     }
 
     TARGET(POP_JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            pc += opD - 0x8000 + 1;
+            pc += (int16_t)(uint16_t)opD;
+            acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_TRUE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            // no-op
+            acc.as_int64 = 0;
+            DISPATCH(POP_JUMP_IF_TRUE);
         }
         else {
-            const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, pc, opD, 1));
+            const uint8_t *res;
+            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_POP_JUMP_IF_TRUE, (int16_t)(uint16_t)opD, 1));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
             pc = res;
             DECREF(acc);
+            acc.as_int64 = 0;
+            NEXT_INSTRUCTION(POP_JUMP_IF_TRUE);
         }
-        acc.as_int64 = 0;
-        DISPATCH(POP_JUMP_IF_TRUE);
     }
 
     TARGET(JUMP_IF_FALSE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            // no-op
+            DISPATCH(JUMP_IF_FALSE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            pc += opD - 0x8000 + 1;
+            pc += (int16_t)(uint16_t)opD;
             NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
         else {
-            const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, pc, opD, 0));
+            const uint8_t *res;
+            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_JUMP_IF_FALSE, (int16_t)(uint16_t)opD, 0));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
             pc = res;
+            NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
-        DISPATCH(JUMP_IF_FALSE);
     }
 
     TARGET(JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            pc += opD - 0x8000 + 1;
+            pc += (int16_t)(uint16_t)opD;
             NEXT_INSTRUCTION(JUMP_IF_TRUE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            // no-op
+            DISPATCH(JUMP_IF_TRUE);
         }
         else {
-            const uint32_t *res;
-            CALL_VM(res = vm_jump_if(value, pc, opD, 1));
+            const uint8_t *res;
+            CALL_VM(res = vm_jump_if(value, pc + OP_SIZE_JUMP_IF_TRUE, (int16_t)(uint16_t)opD, 1));
             if (UNLIKELY(res == NULL)) {
                 goto error;
             }
             pc = res;
+            NEXT_INSTRUCTION(JUMP_IF_TRUE);
         }
-        DISPATCH(JUMP_IF_TRUE);
     }
 
     TARGET(FUNC_HEADER) {
@@ -594,7 +598,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint8_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
@@ -615,7 +619,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint8_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
@@ -635,7 +639,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         if (gen == NULL) {
             goto error;
         }
-        PyGen2_SetPC(gen, pc + 1);
+        PyGen2_SetPC(gen, pc + OP_SIZE_COROGEN_HEADER);
         acc = PACK_OBJ((PyObject *)gen);
         goto TARGET_RETURN_VALUE;
     }
@@ -679,7 +683,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;    // frame delta
-        regs[-2].as_int64 = (intptr_t)(pc + 1);
+        regs[-2].as_int64 = (intptr_t)(pc + OP_SIZE_CALL_FUNCTION);
         acc.as_int64 = opD;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object;
@@ -700,7 +704,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         }
         acc = PACK_OBJ(res);
         CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint8_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0; // should already be zero?
@@ -721,7 +725,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;  // frame delta
-        regs[-2].as_int64 = (intptr_t)(pc + 1);
+        regs[-2].as_int64 = (intptr_t)(pc + OP_SIZE_CALL_FUNCTION_EX);
 
         // pc is no longer valid. The NULL value prevents this
         // partially set-up frame from showing up in tracebacks.
@@ -771,7 +775,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         CLEAR(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
         CLEAR(regs[-FRAME_EXTRA - 2]);  // clear *args
         CLEAR(regs[-1]);  // clear callable
-        pc = (const uint32_t *)regs[-2].as_int64;
+        pc = (const uint8_t *)regs[-2].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
         regs[-2].as_int64 = 0;
         // regs[-3] is already zero
@@ -784,7 +788,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
     TARGET(YIELD_VALUE) {
         PyGenObject2 *gen = PyGen2_FromThread(ts);
         gen->status = GEN_YIELD;
-        ts->pc = pc + 1;
+        ts->pc = pc + OP_SIZE_YIELD_VALUE;
         // assert((regs[-2].as_int64 & FRAME_C) != 0);
         goto return_to_c;
     }
@@ -846,7 +850,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         // acc might be an unowned alias of some local up the stack. We must
         // convert it to an owning reference before returning.
         acc = STRONG_REF(acc);
-        pc = (const uint32_t *)frame_link;
+        pc = (const uint8_t *)frame_link;
         NEXT_INSTRUCTION(RETURN_VALUE);
     }
 
@@ -1752,7 +1756,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         else {
             acc = PACK_OBJ(next);
             opD = RELOAD_OPD();
-            pc += opD - 0x8000 + 1;
+            pc += opD;
             NEXT_INSTRUCTION(FOR_ITER);
         }
     }
@@ -2012,8 +2016,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
         PyObject *type = AS_OBJ(acc);
         PyObject *exc = AS_OBJ(regs[opA + 1]);
         assert(regs[opA].as_int64 == -1 && "link reg should be -1");
-        const uint32_t *target;
-        CALL_VM(target = vm_exc_match(ts, type, exc, pc + 1, opD));
+        const uint8_t *target;
+        CALL_VM(target = vm_exc_match(ts, type, exc, pc + OP_SIZE_JUMP_IF_NOT_EXC_MATCH, (int16_t)(uint16_t)opD));
         if (UNLIKELY(target == NULL)) {
             goto error;
         }
@@ -2037,7 +2041,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
 
     TARGET(CALL_FINALLY) {
         regs[opA] = PACK(pc, NO_REFCOUNT_TAG);
-        pc += opD - 0x8000;
+        pc += (int16_t)(uint16_t)opD;
         DISPATCH(CALL_FINALLY);
     }
 
@@ -2054,7 +2058,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
             goto exception_unwind;
         }
         else if (link_addr != 0) {
-            pc = (const uint32_t *)(link_addr & ~REFCOUNT_MASK);
+            pc = (const uint8_t *)(link_addr & ~REFCOUNT_MASK);
         }
         acc = link_val;
         DISPATCH(END_FINALLY);
@@ -2254,7 +2258,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint32_t *initial_
             "r" (tid),
             "r" (reserved));
 #endif
-        DISPATCH(debug_regs);
+        NEXT_INSTRUCTION(debug_regs);
     }
 
     __builtin_unreachable();

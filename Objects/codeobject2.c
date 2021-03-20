@@ -339,7 +339,7 @@ code_getkwonlyargcount(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 static PyObject *
 code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
-    uint32_t *bytecode = PyCode2_Code(co);
+    uint8_t *bytecode = PyCode2_Code(co);
     return PyBytes_FromStringAndSize((char *)bytecode, co->co_size);
 }
 
