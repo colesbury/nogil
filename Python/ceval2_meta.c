@@ -702,7 +702,7 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t 
     int res = PyErr_GivenExceptionMatches(exc, tp);
     if (res > 0) {
         /* Exception matches -- Do nothing */;
-        return pc;
+        return pc + OP_SIZE_JUMP_IF_NOT_EXC_MATCH;
     }
     else if (res == 0) {
         return pc + opD;

@@ -405,7 +405,7 @@ static PyObject *
 gen_throw_current(PyGenObject2 *gen)
 {
     struct ThreadState *ts = &gen->base.thread;
-    const uint32_t *pc = vm_exception_unwind(ts, ts->pc);
+    const uint8_t *pc = vm_exception_unwind(ts, ts->pc);
     if (pc == NULL) {
         assert(gen->status == GEN_ERROR);
         return NULL;

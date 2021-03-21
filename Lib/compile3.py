@@ -85,7 +85,7 @@ class ExceptHandler(Label):
         self.reg = reg
         assert isinstance(reg, int)
     def eh_table(self, addresses):
-        return ((addresses[self.start] // 4, addresses[self] // 4, addresses[self.handler_end] // 4, self.reg),)
+        return ((addresses[self.start], addresses[self], addresses[self.handler_end], self.reg),)
 
 class Instruction(Assembly):
     def __init__(self, opcode, arg, arg2):

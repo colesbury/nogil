@@ -197,13 +197,13 @@
 
 
 #define NEXTOPARG() do { \
-        opD = *(uint32_t*)pc; \
-        opcode = opD & 0xFF; \
-        opA = (opD >> 8) & 0xFF; \
-        opD >>= 16; \
+        opcode = *(uint16_t*)pc; \
+        opA = opcode >> 8; \
+        opcode &= 0xFF; \
     } while (0)
 
-#define RELOAD_OPD() (*(int16_t*)(pc + 2))
+#define SignedImm16(idx) (*(int16_t*)(pc + idx + 1))
+#define UnsignedImm16(idx) (*(uint16_t*)(pc + idx + 1))
 #define RELOAD_OPA() (pc[1])
 
 #define NEXT_INSTRUCTION(name) \
@@ -275,7 +275,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     const uint8_t *pc = initial_pc;
     intptr_t opcode;
     intptr_t opA;
-    intptr_t opD;
+    // intptr_t opD;
     Register acc = {nargs_};
     Register *regs = ts->regs;
     void **opcode_targets = ts->ts->opcode_targets;
@@ -290,7 +290,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(JUMP) {
-        pc += (int16_t)(uint16_t)opD;
+        pc += SignedImm16(1);
         NEXT_INSTRUCTION(JUMP);
     }
 
@@ -301,7 +301,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             DISPATCH(POP_JUMP_IF_FALSE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            pc += (int16_t)(uint16_t)opD;
+            pc += SignedImm16(1);
             acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_FALSE);
         }
@@ -312,7 +312,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 goto error;
             }
             if (res == 0) {
-                pc += RELOAD_OPD();
+                pc += SignedImm16(1);
             }
             else {
                 pc += OP_SIZE_POP_JUMP_IF_FALSE;
@@ -326,7 +326,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     TARGET(POP_JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            pc += (int16_t)(uint16_t)opD;
+            pc += SignedImm16(1);
             acc.as_int64 = 0;
             NEXT_INSTRUCTION(POP_JUMP_IF_TRUE);
         }
@@ -341,7 +341,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 goto error;
             }
             if (res == 1) {
-                pc += RELOAD_OPD();
+                pc += SignedImm16(1);
             }
             else {
                 pc += OP_SIZE_POP_JUMP_IF_TRUE;
@@ -358,7 +358,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             DISPATCH(JUMP_IF_FALSE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
-            pc += (int16_t)(uint16_t)opD;
+            pc += SignedImm16(1);
             NEXT_INSTRUCTION(JUMP_IF_FALSE);
         }
         else {
@@ -368,7 +368,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 goto error;
             }
             if (res == 0) {
-                pc += RELOAD_OPD();
+                pc += SignedImm16(1);
             }
             else {
                 pc += OP_SIZE_JUMP_IF_FALSE;
@@ -380,7 +380,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     TARGET(JUMP_IF_TRUE) {
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
-            pc += (int16_t)(uint16_t)opD;
+            pc += SignedImm16(1);
             NEXT_INSTRUCTION(JUMP_IF_TRUE);
         }
         else if (LIKELY(value == Py_False || value == Py_None)) {
@@ -393,7 +393,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 goto error;
             }
             if (res == 1) {
-                pc += RELOAD_OPD();
+                pc += SignedImm16(1);
             }
             else {
                 pc += OP_SIZE_JUMP_IF_TRUE;
@@ -408,9 +408,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         int err;
         assert(ts->regs == regs);
 
-        if (UNLIKELY(regs + opD > ts->maxstack)) {
+        int frame_size = UnsignedImm16(1);
+        if (UNLIKELY(regs + frame_size > ts->maxstack)) {
             // resize the virtual stack
-            CALL_VM(err = vm_resize_stack(ts, opD));
+            CALL_VM(err = vm_resize_stack(ts, frame_size));
             if (UNLIKELY(err != 0)) {
                 acc.as_int64 = 0;
                 goto error;
@@ -418,6 +419,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         }
 
         PyCodeObject2 *this_code = PyCode2_FromInstr(pc);
+        assert(Py_TYPE(this_code) == &PyCode2_Type);
         regs[-3].as_int64 = (intptr_t)this_code->co_constants;
 
         // fast path if no keyword arguments, cells, or freevars and number
@@ -675,6 +677,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(CALL_METHOD) {
         assert(IS_EMPTY(acc));
+        intptr_t opD = UnsignedImm16(1);
         if (regs[opA].as_int64 == 0) {
             // If the LOAD_METHOD didn't provide us with a "self" then we
             // need to shift each argument down one. Note that opD >= 1.
@@ -687,7 +690,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             } while (low != hi);
             opD -= 1;
         }
-        goto TARGET_CALL_FUNCTION;
+        acc.as_int64 = opD;
+        goto CALL_FUNCTION_IMPL;
     }
 
     TARGET(CALL_FUNCTION) {
@@ -699,12 +703,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         // regs[opA + 0] = arg0
         // regs[opA + n] = argsN
         assert(IS_EMPTY(acc));
+        acc.as_int64 = UnsignedImm16(1);
+        goto CALL_FUNCTION_IMPL;
+    }
+
+    CALL_FUNCTION_IMPL: {
         PyObject *callable = AS_OBJ(regs[opA - 1]);
         regs = &regs[opA];
         ts->regs = regs;
         regs[-4].as_int64 = opA;    // frame delta
         regs[-2].as_int64 = (intptr_t)(pc + OP_SIZE_CALL_FUNCTION);
-        acc.as_int64 = opD;
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object;
         }
@@ -890,11 +898,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         intptr_t *metadata = (intptr_t *)(char *)constants;
         PyObject *name = constants[opA];
         PyObject *globals = THIS_FUNC()->globals;
+        intptr_t metaidx = -UnsignedImm16(1) - 1;
         if (UNLIKELY(!PyDict_CheckExact(globals))) {
              goto load_global_slow;
         }
 
-        intptr_t guess = metadata[-opD - 1];
+        intptr_t guess = metadata[metaidx];
         if (guess < 0) {
             if (guess == -1) goto load_global_slow;
             else goto load_builtin;
@@ -927,7 +936,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
       load_global_slow: {
         PyObject *value;
-        CALL_VM(value = vm_load_global(ts, name, &metadata[-opD - 1]));
+        CALL_VM(value = vm_load_global(ts, name, &metadata[metaidx]));
         if (UNLIKELY(value == NULL)) {
             goto error;
         }
@@ -940,7 +949,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(LOAD_ATTR) {
         assert(IS_EMPTY(acc));
-        PyObject *name = CONSTANTS()[opD];
+        PyObject *name = CONSTANTS()[UnsignedImm16(1)];
         PyObject *owner = AS_OBJ(regs[opA]);
         PyObject *res;
         CALL_VM(res = _PyObject_GetAttrFast(owner, name));
@@ -952,7 +961,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(LOAD_METHOD) {
-        PyObject *name = CONSTANTS()[opD];
+        PyObject *name = CONSTANTS()[UnsignedImm16(1)];
         PyObject *owner = AS_OBJ(acc);
         int err;
         CALL_VM(err = vm_load_method(ts, owner, name, opA));
@@ -998,7 +1007,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(STORE_SUBSCR) {
         PyObject *container = AS_OBJ(regs[opA]);
-        PyObject *sub = AS_OBJ(regs[opD]);
+        PyObject *sub = AS_OBJ(regs[UnsignedImm16(1)]);
         PyObject *value = AS_OBJ(acc);
         int err;
         CALL_VM(err = PyObject_SetItem(container, sub, value));
@@ -1012,7 +1021,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(STORE_ATTR) {
         PyObject *owner = AS_OBJ(regs[opA]);
-        PyObject *name = CONSTANTS()[opD];
+        PyObject *name = CONSTANTS()[UnsignedImm16(1)];
         PyObject *value = AS_OBJ(acc);
         int err;
         CALL_VM(err = PyObject_SetAttr(owner, name, value));
@@ -1042,6 +1051,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(MOVE) {
+        intptr_t opD = UnsignedImm16(1);
         Register r = regs[opA];
         regs[opA] = regs[opD];
         regs[opD].as_int64 = 0;
@@ -1053,6 +1063,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(COPY) {
         assert(IS_EMPTY(regs[opA]));
+        intptr_t opD = UnsignedImm16(1);
         // FIXME: is this only used for aliases???
         regs[opA].as_int64 = regs[opD].as_int64 | NO_REFCOUNT_TAG;
         DISPATCH(COPY);
@@ -1105,7 +1116,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(LOAD_CLASSDEREF) {
         assert(IS_EMPTY(acc));
-        PyObject *name = CONSTANTS()[opD];
+        PyObject *name = CONSTANTS()[UnsignedImm16(1)];
         CALL_VM(acc = vm_load_class_deref(ts, opA, name));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
@@ -1188,7 +1199,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(COMPARE_OP) {
         assert(opA <= Py_GE);
-        PyObject *left = AS_OBJ(regs[opD]);
+        PyObject *left = AS_OBJ(regs[UnsignedImm16(1)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
         CALL_VM(res = PyObject_RichCompare(left, right, opA));
@@ -1660,7 +1671,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(IMPORT_FROM) {
         PyObject *module = AS_OBJ(regs[opA]);
-        PyObject *name = CONSTANTS()[opD];
+        PyObject *name = CONSTANTS()[UnsignedImm16(1)];
         PyObject *res;
         CALL_VM(res = vm_import_from(ts, module, name));
         if (UNLIKELY(res == NULL)) {
@@ -1775,8 +1786,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         }
         else {
             acc = PACK_OBJ(next);
-            opD = RELOAD_OPD();
-            pc += opD;
+            pc += SignedImm16(1);
             NEXT_INSTRUCTION(FOR_ITER);
         }
     }
@@ -1860,7 +1870,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(BUILD_LIST) {
         // opA = reg, opD = N
-        CALL_VM(acc = vm_build_list(&regs[opA], opD));
+        CALL_VM(acc = vm_build_list(&regs[opA], UnsignedImm16(1)));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
         }
@@ -1869,7 +1879,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(BUILD_SET) {
         // opA = reg, opD = N
-        CALL_VM(acc = vm_build_set(ts, opA, opD));
+        CALL_VM(acc = vm_build_set(ts, opA, UnsignedImm16(1)));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
         }
@@ -1878,7 +1888,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(BUILD_TUPLE) {
         // opA = reg, opD = N
-        CALL_VM(acc = vm_build_tuple(ts, opA, opD));
+        CALL_VM(acc = vm_build_tuple(ts, opA, UnsignedImm16(1)));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
         }
@@ -2037,7 +2047,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         PyObject *exc = AS_OBJ(regs[opA + 1]);
         assert(regs[opA].as_int64 == -1 && "link reg should be -1");
         const uint8_t *target;
-        CALL_VM(target = vm_exc_match(ts, type, exc, pc + OP_SIZE_JUMP_IF_NOT_EXC_MATCH, (int16_t)(uint16_t)opD));
+        CALL_VM(target = vm_exc_match(ts, type, exc, pc, SignedImm16(1)));
         if (UNLIKELY(target == NULL)) {
             goto error;
         }
@@ -2061,8 +2071,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(CALL_FINALLY) {
         regs[opA] = PACK(pc, NO_REFCOUNT_TAG);
-        pc += (int16_t)(uint16_t)opD;
-        DISPATCH(CALL_FINALLY);
+        pc += SignedImm16(1);
+        NEXT_INSTRUCTION(CALL_FINALLY);
     }
 
     TARGET(END_FINALLY) {
@@ -2181,7 +2191,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     TARGET(CALL_INTRINSIC_N) {
         PyObject *res;
         intptr_t id = (acc.as_int64 >> 1);
-        CALL_VM(res = vm_call_intrinsic(ts, id, opA, opD));
+        CALL_VM(res = vm_call_intrinsic(ts, id, opA, UnsignedImm16(1)));
         if (UNLIKELY(res == NULL)) {
             acc.as_int64 = 0;
             goto error;
@@ -2192,7 +2202,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(EXTENDED_ARG) {
         intptr_t oldA = opA;
-        pc++;
+        pc += OP_SIZE_EXTENDED_ARG;
         NEXTOPARG();
         opA = (oldA << 8) | opA;
         goto *opcode_targets[opcode];
@@ -2258,18 +2268,16 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             "# REGISTER ASSIGNMENT \n\t"
             "# opcode = %0 \n\t"
             "# opA = %1 \n\t"
-            "# opD = %2 \n\t"
-            "# regs = %5 \n\t"
-            "# acc = %3 \n\t"
-            "# pc = %4 \n\t"
-            "# ts = %6 \n\t"
-            "# opcode_targets = %7 \n\t"
-            "# tid = %8 \n\t"
-            "# reserved = %9 \n\t"
+            "# regs = %4 \n\t"
+            "# acc = %2 \n\t"
+            "# pc = %3 \n\t"
+            "# ts = %5 \n\t"
+            "# opcode_targets = %6 \n\t"
+            "# tid = %7 \n\t"
+            "# reserved = %8 \n\t"
         ::
             "r" (opcode),
             "r" (opA),
-            "r" (opD),
             "r" (acc),
             "r" (pc),
             "r" (regs),
