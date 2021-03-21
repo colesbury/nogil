@@ -112,7 +112,7 @@ PyMethod_New(PyObject *func, PyObject *self)
     if (im == NULL) {
         return NULL;
     }
-    im->func_base.first_instr = &method_header;
+    im->func_base.first_instr = &method_header[0];
     im->im_weakreflist = NULL;
     Py_INCREF(func);
     im->im_func = func;

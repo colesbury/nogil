@@ -99,12 +99,14 @@ class Instruction(Assembly):
 
     @property
     def length(self):
+        n = 2
+        if self.arg2 is not None:
+            n += 2
         argA = int(self.arg or 0)
-        if argA < 256:
-            return 4
-        elif argA < 65536:
-            return 8
-        assert False, f'argA out of range: {argA}'
+        assert argA < 65536, f'argA out of range: {argA}'
+        if argA >= 256:
+            n += 2
+        return n
 
     def encode(self, start, addresses):
         start = addresses[self]
@@ -113,21 +115,18 @@ class Instruction(Assembly):
             arg2 = (addresses[arg2] - start)
             assert arg2 >= -0x8000 and arg2 <= 0x7FFF
             arg2 &= 0xFFFF
-        if arg2 is None:
-            arg2 = 0
-        else:
+        if arg2 is not None:
             arg2 = int(arg2)
         argA = int(self.arg or 0)
         assert argA < 65536, (self.opcode, argA, arg2)
-        assert arg2 >= 0 and arg2 < 65536, (self.opcode, argA, arg2)
+        assert arg2 is None or (arg2 >= 0 and arg2 < 65536), (self.opcode, argA, arg2)
 
-        if argA < 256:
-            return bytes([self.opcode, argA, (arg2 & 0xFF), (arg2 >> 8)])
-        else:
-            assert not dis.opcodes[self.opcode].no_extended_arg, (self.opcode, argA, arg2)
-            return bytes([
-                dis.opmap['EXTENDED_ARG'].opcode, (argA >> 8), 0, 0,
-                self.opcode, argA & 0xFF, (arg2 & 0xFF), (arg2 >> 8)])
+        bb = [self.opcode, argA & 0xFF]
+        if argA >= 256:
+            bb = [dis.opmap['EXTENDED_ARG'].opcode, (argA >> 8)] + bb
+        if arg2 is not None:
+            bb += [arg2 & 0xFF, arg2 >> 8]
+        return bytes(bb)
 
 
 class Register:

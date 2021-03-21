@@ -116,7 +116,7 @@ AS_OBJ(Register r)
     return (PyObject *)(r.as_int64 & ~REFCOUNT_MASK);
 }
 
-#define PACK(o, tag) ((Register){(intptr_t)o | tag})
+#define PACK(o, tag) ((Register){((intptr_t)(o)) | tag})
 
 static inline Register
 PACK_OBJ(PyObject *o)

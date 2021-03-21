@@ -21,7 +21,7 @@ class Bytecode:
 
     @property
     def size(self):
-        return 4 if self.opD is None else 4
+        return 2 if self.opD is None else 4
 
     def is_jump(self):
         return self.opD == 'jump'

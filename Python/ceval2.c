@@ -211,7 +211,16 @@
     __asm__ volatile("# computed goto " #name); \
     goto *opcode_targets[opcode]
 
+#define JUMP_BY(name, arg) \
+    pc += (arg); \
+    NEXT_INSTRUCTION(#name)
+
+#define JUMP_TO(name, arg) \
+    pc = (arg); \
+    NEXT_INSTRUCTION(#name)
+
 #define DISPATCH(name) \
+    assert(pc[0] == name); \
     pc += OP_SIZE_##name; \
     NEXT_INSTRUCTION(#name)
 
@@ -2070,7 +2079,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(CALL_FINALLY) {
-        regs[opA] = PACK(pc, NO_REFCOUNT_TAG);
+        regs[opA] = PACK(pc + OP_SIZE_CALL_FINALLY, NO_REFCOUNT_TAG);
         pc += SignedImm16(1);
         NEXT_INSTRUCTION(CALL_FINALLY);
     }
@@ -2087,10 +2096,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             CALL_VM(vm_reraise(ts, link_val));
             goto exception_unwind;
         }
-        else if (link_addr != 0) {
-            pc = (const uint8_t *)(link_addr & ~REFCOUNT_MASK);
-        }
         acc = link_val;
+        if (link_addr != 0) {
+            JUMP_TO(END_FINALLY, (const uint8_t *)(link_addr & ~REFCOUNT_MASK));
+        }
         DISPATCH(END_FINALLY);
     }
 

@@ -482,19 +482,18 @@ def signed(x):
 
 def _unpack_opargs(code):
     extended_arg = 0
-    for i in range(0, len(code), 4):
+    i = 0
+    while i < len(code):
         op = code[i]
-        argA, argB, argC = code[i+1:i+4]
-        argD = argB | (argC << 8)
-        # argD = signed(argD)
+        argA = code[i+1]
         if opcodes[op].opA is None:
             assert argA == 0
             argA = None
-        if opcodes[op].opD is None:
-            assert argD == 0
-            argD = None
-
+        argD = None
+        if opcodes[op].opD is not None:
+            argD = code[i+2] | (code[i+3] << 8)
         yield (i, op, argA, argD)
+        i += opcodes[op].size
 
 def findlabels(code):
     """Detect all offsets in a byte code which are jump targets.
