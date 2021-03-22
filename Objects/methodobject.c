@@ -7,6 +7,7 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "structmember.h"
+#include "opcode2.h"
 
 /* undefine macro trampoline to PyCFunction_NewEx */
 #undef PyCFunction_New
@@ -32,12 +33,12 @@ PyCFunction_New(PyMethodDef *ml, PyObject *self)
     return PyCFunction_NewEx(ml, self, NULL);
 }
 
-static const uint32_t func_vector_call[] = {
-    6  //CFUNC_HEADER
+static const uint8_t func_vector_call[] = {
+    CFUNC_HEADER, 0, 0, 0
 };
 
-static const uint32_t func_tp_call[] = {
-    7  // FUNC_TPCALL_HEADER
+static const uint8_t func_tp_call[] = {
+    FUNC_TPCALL_HEADER, 0, 0, 0
 };
 
 PyObject *
@@ -45,7 +46,7 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
 {
     /* Figure out correct vectorcall function to use */
     vectorcallfunc vectorcall;
-    const uint32_t *first_instr = func_vector_call;
+    const uint8_t *first_instr = &func_vector_call[0];
     switch (ml->ml_flags & (METH_VARARGS | METH_FASTCALL | METH_NOARGS | METH_O | METH_KEYWORDS))
     {
         case METH_VARARGS:

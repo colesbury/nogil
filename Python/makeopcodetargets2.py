@@ -37,6 +37,11 @@ def write_targets(opcode, f):
     f.write("static void *opcode_targets_base[256] = {\n")
     f.write(",\n".join(["    &&%s" % s for s in targets]))
     f.write("\n};\n")
+    targets[255] = '_unknown_opcode'
+    targets[opcode.opmap['WIDE'].opcode] = '_unknown_opcode'
+    f.write("static void *wide_opcode_targets_base[256] = {\n")
+    f.write(",\n".join(["    &&%s" % (f'WIDE_{s}' if s != '_unknown_opcode' else '_unknown_opcode') for s in targets]))
+    f.write("\n};\n")
 
 
 def write_names(opcode, f):

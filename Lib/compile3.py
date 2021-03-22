@@ -50,6 +50,7 @@ def make_lnotab(assembly):
             if (byte, line) != (next_byte, next_line):
                 lnotab.extend([next_byte-byte, next_line-line])
                 byte, line = next_byte, next_line
+        assert instr.length is not None, instr.is_wide()
         next_byte += instr.length
     return firstlineno or 1, bytes(lnotab)
 
@@ -87,46 +88,50 @@ class ExceptHandler(Label):
     def eh_table(self, addresses):
         return ((addresses[self.start], addresses[self], addresses[self.handler_end], self.reg),)
 
+def encode32(imm):
+    if imm is None:
+        return []
+    return imm.to_bytes(4, 'little')
+
 class Instruction(Assembly):
-    def __init__(self, opcode, arg, arg2):
-        self.opcode = opcode
-        if isinstance(arg, Register):
-            assert arg.reg is not None
-        if isinstance(arg2, Register):
-            assert arg2.reg is not None
-        self.arg    = arg
-        self.arg2   = arg2
+    def __init__(self, bytecode, *imm):
+        self.bytecode = bytecode
+        self.opcode = bytecode.opcode
+        self.imm = imm
+        for i, arg in enumerate(imm):
+            if isinstance(arg, Register):
+                assert arg.reg is not None
+
+    def is_wide(self):
+        for imm, immtype in zip(self.imm, self.bytecode.imm):
+            if immtype == 'imm16' or immtype == 'jump':
+                continue
+            if int(imm) >= 256:
+                return True
+        return False
 
     @property
     def length(self):
-        n = 2
-        if self.arg2 is not None:
-            n += 2
-        argA = int(self.arg or 0)
-        assert argA < 65536, f'argA out of range: {argA}'
-        if argA >= 256:
-            n += 2
-        return n
+        if self.is_wide():
+            return self.bytecode.wide_size
+        return self.bytecode.size
 
     def encode(self, start, addresses):
         start = addresses[self]
-        arg, arg2 = self.arg, self.arg2
-        if dis.opcodes[self.opcode].is_jump():
-            arg2 = (addresses[arg2] - start)
-            assert arg2 >= -0x8000 and arg2 <= 0x7FFF
-            arg2 &= 0xFFFF
-        if arg2 is not None:
-            arg2 = int(arg2)
-        argA = int(self.arg or 0)
-        assert argA < 65536, (self.opcode, argA, arg2)
-        assert arg2 is None or (arg2 >= 0 and arg2 < 65536), (self.opcode, argA, arg2)
+        encoded = [self.opcode]
+        is_wide = self.is_wide()
+        if is_wide:
+            encoded.insert(0, dis.opmap['WIDE'].opcode)
+        for i, arg in enumerate(self.imm):
+            signed = False
+            if isinstance(arg, Label):
+                arg = addresses[arg] - start
+                signed = True
+            arg = int(arg)
+            size = self.bytecode.imm_size(i, wide=is_wide)
+            encoded.extend(arg.to_bytes(size, 'little', signed=signed))
 
-        bb = [self.opcode, argA & 0xFF]
-        if argA >= 256:
-            bb = [dis.opmap['EXTENDED_ARG'].opcode, (argA >> 8)] + bb
-        if arg2 is not None:
-            bb += [arg2 & 0xFF, arg2 >> 8]
-        return bytes(bb)
+        return bytes(encoded)
 
 
 class Register:
@@ -229,22 +234,6 @@ class Loop:
                 v.next_register -= 1
                 v.CLEAR_FAST(v.next_register)
 
-def denotation(defn):
-    opcode = defn.opcode
-    opA = defn.opA
-    opD = defn.opD
-    if opA is None and opD is None:
-        return Instruction(opcode, None, None)
-    elif opD is None:
-        return lambda arg: Instruction(opcode, arg, None)
-    elif opA is None:
-        return lambda arg2: Instruction(opcode, None, arg2)
-    else:
-        return lambda arg, arg2: Instruction(opcode, arg, arg2)
-
-op = type('op', (), dict([(bytecode.name, denotation(bytecode))
-                          for bytecode in dis.bytecodes]))
-
 
 def as_load(t):
     attrs = []
@@ -258,24 +247,10 @@ def as_load(t):
 
 def make_instruction(bytecode):
     opcode = bytecode.opcode
-    opA = bytecode.opA
-    opD = bytecode.opD
-    if opA is None and opD is None:
-        def func(self):
-            self.emit(Instruction(opcode, None, None))
-        return func
-    elif opD is None:
-        def func(self, arg):
-            self.emit(Instruction(opcode, arg, None))
-        return func
-    elif opA is None:
-        def func(self, arg):
-            self.emit(Instruction(opcode, None, arg))
-        return func
-    else:
-        def func(self, arg, arg2):
-            self.emit(Instruction(opcode, arg, arg2))
-        return func
+    def func(self, *args):
+        assert len(args) == len(bytecode.imm)
+        self.emit(Instruction(bytecode, *args))
+    return func
 
 class ops:
     for bytecode in dis.bytecodes:
@@ -316,7 +291,7 @@ class CodeGen(ast.NodeVisitor):
     def make_code(self, name, argcount=0, posonlyargcount=0, kwonlyargcount=0, ndefaultargs=0, has_varargs=False, has_varkws=False, debug=False):
         first_instr = self.instrs[0][0]
         assert dis.opcodes[first_instr.opcode].name == 'FUNC_HEADER'
-        first_instr.arg2 = self.max_registers
+        first_instr.imm = [self.max_registers]
 
         if self.scope.is_generator:
             second_instr = self.instrs[1][0]

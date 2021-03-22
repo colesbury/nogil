@@ -12,19 +12,31 @@ __all__ = [
 ]
 
 class Bytecode:
-    def __init__(self, name, opcode, opA, opD):
+    def __init__(self, name, opcode, *imm):
         self.name = name
         self.opcode = opcode
-        self.opA = opA
-        self.opD = opD
-        self.no_extended_arg = name in NO_EXTENDED_ARG
+        self.imm = imm
 
     @property
     def size(self):
-        return 2 if self.opD is None else 4
+        size = 1 + sum(self.imm_size(i) for i in range(len(self.imm)))
+        return size
+
+    def imm_size(self, i, wide=False):
+        if self.imm[i] == 'imm16':
+            return 2
+        elif wide:
+            return 4
+        elif self.imm[i] == 'jump':
+            return 2
+        return 1
+
+    @property
+    def wide_size(self):
+        return 2 + sum(self.imm_size(i, wide=True) for i in range(len(self.imm)))
 
     def is_jump(self):
-        return self.opD == 'jump'
+        return 'jump' in self.imm
 
 class Intrinsic:
     def __init__(self, name, code, nargs):
@@ -32,8 +44,8 @@ class Intrinsic:
         self.code = code
         self.nargs = nargs
 
-def def_op(name, opcode, opA=None, opD=None):
-    bytecode = Bytecode(name, opcode, opA, opD)
+def def_op(name, opcode, *imm):
+    bytecode = Bytecode(name, opcode, *imm)
     bytecodes.append(bytecode)
     opmap[name] = bytecode
     opname[opcode] = name
@@ -45,162 +57,136 @@ def def_intrinsic(name, code, nargs=1):
     intrinsics[code] = intrinsic
     intrinsic_map[name] = intrinsic
 
-NO_EXTENDED_ARG = {
-    'GET_ITER',
-    'GET_AWAITABLE',
-    'FOR_ITER',
-    'GET_AITER',
-    'GET_ANEXT',
-    'END_ASYNC_WITH',
-}
-
 def_op('CLEAR_ACC', 1)
-def_op('FUNC_HEADER', 2, None, 'lit')
-def_op('METHOD_HEADER', 3)
-def_op('COROGEN_HEADER', 4, 'lit')
-def_op('CFUNC_HEADER', 6)
-def_op('FUNC_TPCALL_HEADER', 7)
-def_op('NOP', 9)
+def_op('CLEAR_FAST', 2, 'reg')
+def_op('COPY', 3, 'reg', 'reg')
+def_op('MOVE', 4, 'reg', 'reg')
+def_op('FUNC_HEADER', 5, 'lit')
+def_op('METHOD_HEADER', 6)
+def_op('COROGEN_HEADER', 7, 'lit')
+def_op('CFUNC_HEADER', 8)
+def_op('FUNC_TPCALL_HEADER', 9)
+
 # unary math operations
 def_op('UNARY_POSITIVE', 10)
 def_op('UNARY_NEGATIVE', 11)
 def_op('UNARY_NOT', 12)
 def_op('UNARY_NOT_FAST', 13)
-def_op('UNARY_INVERT', 15)
+def_op('UNARY_INVERT', 14)
 
-# binary math/comparison operators
-def_op('BINARY_MATRIX_MULTIPLY', 16, 'reg')
-def_op('BINARY_POWER', 19, 'reg')
-def_op('BINARY_MULTIPLY', 20, 'reg')
-def_op('BINARY_MODULO', 22, 'reg')
-def_op('BINARY_ADD', 23, 'reg')         # reg + acc
-def_op('BINARY_SUBTRACT', 24, 'reg')
-def_op('BINARY_SUBSCR', 25, 'reg')      # reg[acc]
-def_op('BINARY_FLOOR_DIVIDE', 26, 'reg')
-def_op('BINARY_TRUE_DIVIDE', 27, 'reg')
-def_op('BINARY_LSHIFT', 62, 'reg')
-def_op('BINARY_RSHIFT', 63, 'reg')
-def_op('BINARY_AND', 64, 'reg')
-def_op('BINARY_XOR', 65, 'reg')
-def_op('BINARY_OR', 66, 'reg')
-def_op('IS_OP', 117, 'reg')
-def_op('CONTAINS_OP', 118, 'reg')
-def_op('COMPARE_OP', 107, 'lit', 'reg')       # Comparison operator
+# binary math/comparison operators (reg OP acc)
+def_op('BINARY_MATRIX_MULTIPLY', 15, 'reg')
+def_op('BINARY_POWER', 16, 'reg')
+def_op('BINARY_MULTIPLY', 17, 'reg')
+def_op('BINARY_MODULO', 18, 'reg')
+def_op('BINARY_ADD', 19, 'reg')
+def_op('BINARY_SUBTRACT', 20, 'reg')
+def_op('BINARY_SUBSCR', 21, 'reg')          # reg[acc]
+def_op('BINARY_FLOOR_DIVIDE', 22, 'reg')
+def_op('BINARY_TRUE_DIVIDE', 23, 'reg')
+def_op('BINARY_LSHIFT', 24, 'reg')
+def_op('BINARY_RSHIFT', 25, 'reg')
+def_op('BINARY_AND', 26, 'reg')
+def_op('BINARY_XOR', 27, 'reg')
+def_op('BINARY_OR', 28, 'reg')
+def_op('IS_OP', 29, 'reg')
+def_op('CONTAINS_OP', 30, 'reg')
+def_op('COMPARE_OP', 31, 'lit', 'reg')
 
 # inplace binary operators
-def_op('INPLACE_FLOOR_DIVIDE', 28, 'reg')
-def_op('INPLACE_TRUE_DIVIDE', 29, 'reg')
-def_op('INPLACE_ADD', 55, 'reg')
-def_op('INPLACE_SUBTRACT', 56, 'reg')
-def_op('INPLACE_MULTIPLY', 57, 'reg')
-def_op('INPLACE_LSHIFT', 75, 'reg')
-def_op('INPLACE_RSHIFT', 76, 'reg')
-def_op('INPLACE_AND', 77, 'reg')
-def_op('INPLACE_XOR', 78, 'reg')
-def_op('INPLACE_OR', 79, 'reg')
-def_op('INPLACE_MODULO', 59, 'reg')
-def_op('INPLACE_MATRIX_MULTIPLY', 17, 'reg')
-def_op('INPLACE_POWER', 67, 'reg')
+def_op('INPLACE_FLOOR_DIVIDE', 32, 'reg')
+def_op('INPLACE_TRUE_DIVIDE', 33, 'reg')
+def_op('INPLACE_ADD', 34, 'reg')
+def_op('INPLACE_SUBTRACT', 35, 'reg')
+def_op('INPLACE_MULTIPLY', 36, 'reg')
+def_op('INPLACE_LSHIFT', 37, 'reg')
+def_op('INPLACE_RSHIFT', 38, 'reg')
+def_op('INPLACE_AND', 39, 'reg')
+def_op('INPLACE_XOR', 40, 'reg')
+def_op('INPLACE_OR', 41, 'reg')
+def_op('INPLACE_MODULO', 42, 'reg')
+def_op('INPLACE_MATRIX_MULTIPLY', 43, 'reg')
+def_op('INPLACE_POWER', 44, 'reg')
 
 # load / store / delete
-def_op('LOAD_FAST', 124, 'reg')        # Local variable number
-def_op('LOAD_NAME', 101, 'str')        # Index in name list
-def_op('LOAD_CONST', 100, 'const')     # Index in const list
-def_op('LOAD_ATTR', 106, 'reg', 'str') # Index in name list
-def_op('LOAD_GLOBAL', 116, 'str', 'lit')      # Index in name list
-def_op('LOAD_METHOD', 160, 'reg', 'str')
-def_op('LOAD_EXC', 30)
-def_op('LOAD_INTRINSIC', 34, 'intrinsic')
+def_op('LOAD_FAST', 45, 'reg')
+def_op('LOAD_NAME', 46, 'str')
+def_op('LOAD_CONST', 47, 'const')
+def_op('LOAD_ATTR', 48, 'reg', 'str')
+def_op('LOAD_GLOBAL', 49, 'str', 'lit')
+def_op('LOAD_METHOD', 50, 'reg', 'str')
+def_op('LOAD_INTRINSIC', 51, 'intrinsic')
+def_op('LOAD_DEREF', 52, 'reg')
+def_op('LOAD_CLASSDEREF', 53, 'reg', 'str')
 
-def_op('STORE_FAST', 125, 'reg')       # Local variable number
-def_op('STORE_NAME', 90, 'str')        # Index in name list
-def_op('STORE_ATTR', 95, 'reg', 'str') # reg.name = acc
-def_op('STORE_GLOBAL', 97, 'str')      # ""
-def_op('STORE_SUBSCR', 60, 'reg', 'reg') # reg1[reg2] = acc
+def_op('STORE_FAST', 54, 'reg')
+def_op('STORE_NAME', 55, 'str')
+def_op('STORE_ATTR', 56, 'reg', 'str')
+def_op('STORE_GLOBAL', 57, 'str')
+def_op('STORE_SUBSCR', 58, 'reg', 'reg')
+def_op('STORE_DEREF', 59, 'reg')
 
-def_op('DELETE_FAST', 126, 'reg')      # Local variable number
-def_op('DELETE_NAME', 91, 'str')       # del name
-def_op('DELETE_ATTR', 96, 'str')       # del acc.name
-def_op('DELETE_GLOBAL', 98, 'str')     # del name
-def_op('DELETE_SUBSCR', 61, 'reg')     # del reg[acc]
-def_op('DELETE_DEREF', 138, 'reg')     # del <reg>?
+def_op('DELETE_FAST', 60, 'reg')
+def_op('DELETE_NAME', 61, 'str')
+def_op('DELETE_ATTR', 62, 'str')
+def_op('DELETE_GLOBAL', 63, 'str')
+def_op('DELETE_SUBSCR', 64, 'reg')
+def_op('DELETE_DEREF', 65, 'reg')
 
 # call / return / yield
-def_op('CALL_FUNCTION', 131, 'base', 'lit')     # #args
-def_op('CALL_FUNCTION_EX', 142, 'base')  # Flags
-def_op('CALL_METHOD', 161, 'base', 'lit')
-def_op('CALL_INTRINSIC_1', 35, 'intrinsic')
-def_op('CALL_INTRINSIC_N', 36, 'base', 'lit')
+def_op('CALL_FUNCTION', 66, 'base', 'imm16')
+def_op('CALL_FUNCTION_EX', 67, 'base')
+def_op('CALL_METHOD', 68, 'base', 'imm16')
+def_op('CALL_INTRINSIC_1', 69, 'intrinsic')
+def_op('CALL_INTRINSIC_N', 70, 'base', 'lit')
 
-def_op('RETURN_VALUE', 83)
-def_op('RAISE', 130)
-def_op('YIELD_VALUE', 86)
-def_op('YIELD_FROM', 72, 'reg')
+def_op('RETURN_VALUE', 71)
+def_op('RAISE', 72)
+def_op('YIELD_VALUE', 73)
+def_op('YIELD_FROM', 74, 'reg')
 
-# jmp
-def_op('JUMP', 113, None, 'jump')                 # Target byte offset from beginning of code
-def_op('JUMP_IF_FALSE', 111, None, 'jump')        # ""
-def_op('JUMP_IF_TRUE', 112, None, 'jump')         # ""
-def_op('JUMP_IF_NOT_EXC_MATCH', 121, 'reg', 'jump')
-def_op('POP_JUMP_IF_FALSE', 114, None, 'jump')    # "" while loop
-def_op('POP_JUMP_IF_TRUE', 115, None, 'jump')     # ""
+def_op('JUMP', 75, 'jump')
+def_op('JUMP_IF_FALSE', 76, 'jump')
+def_op('JUMP_IF_TRUE', 77, 'jump')
+def_op('JUMP_IF_NOT_EXC_MATCH', 78, 'reg', 'jump')
+def_op('POP_JUMP_IF_FALSE', 79, 'jump')
+def_op('POP_JUMP_IF_TRUE', 80, 'jump')
 
-def_op('GET_ITER', 68, 'reg')
-def_op('GET_YIELD_FROM_ITER', 69, 'reg')
-def_op('FOR_ITER', 93, 'reg', 'jump')
+def_op('GET_ITER', 81, 'reg')
+def_op('GET_YIELD_FROM_ITER', 82, 'reg')
+def_op('FOR_ITER', 83, 'reg', 'jump')
 
-# imports
-def_op('IMPORT_NAME', 108, 'str')      # Index in name list
-def_op('IMPORT_FROM', 109, 'reg', 'str')      # Index in name list
-def_op('IMPORT_STAR', 84, 'reg')
+def_op('IMPORT_NAME', 84, 'str')
+def_op('IMPORT_FROM', 85, 'reg', 'str')
+def_op('IMPORT_STAR', 86, 'reg')
 
-# build built-in objects
-def_op('BUILD_SLICE', 133, 'reg')      # Number of items
-def_op('BUILD_TUPLE', 102, 'reg', 'lit')      # Number of tuple items
-def_op('BUILD_LIST', 103, 'reg', 'lit')       # Number of list items
-def_op('BUILD_SET', 104, 'reg', 'lit')        # Number of set items
-def_op('BUILD_MAP', 105, 'lit')               # Number of dict entries
+def_op('BUILD_SLICE', 87, 'reg')
+def_op('BUILD_TUPLE', 88, 'reg', 'lit')
+def_op('BUILD_LIST', 89, 'reg', 'lit')
+def_op('BUILD_SET', 90, 'reg', 'lit')
+def_op('BUILD_MAP', 91, 'lit')
 
-
-# ----
-def_op('LOAD_DEREF', 136, 'reg')
-def_op('STORE_DEREF', 137, 'reg')
-def_op('LOAD_CLASSDEREF', 148, 'reg', 'str')
-
-def_op('END_EXCEPT', 89, 'reg')
-def_op('CALL_FINALLY', 123, 'reg', 'jump')
-def_op('END_FINALLY', 122, 'reg')
-
-def_op('PRINT_EXPR', 70)
-def_op('LOAD_BUILD_CLASS', 71)
-def_op('LOAD_ASSERTION_ERROR', 74)
-def_op('GET_AWAITABLE', 73, 'reg')
-def_op('GET_AITER', 50, 'reg')
-def_op('GET_ANEXT', 51, 'reg')
-def_op('LIST_TO_TUPLE', 82)
-def_op('SETUP_ANNOTATIONS', 85)
-def_op('POP_BLOCK', 87)
-def_op('WITH_EXCEPT_START', 49)
-def_op('END_ASYNC_WITH', 52, 'reg')
-def_op('END_ASYNC_FOR', 54, 'reg')
-def_op('UNPACK', 94, 'iconst')
-def_op('MAKE_FUNCTION', 132, 'const')    # Flags
-def_op('SETUP_WITH', 143, 'reg')
-def_op('END_WITH', 150, 'reg')
-def_op('EXTENDED_ARG', 144, 'lit')
-def_op('SETUP_ASYNC_WITH', 154, 'reg')
-def_op('BUILD_CONST_KEY_MAP', 156)
-def_op('LIST_EXTEND', 162, 'reg')
-def_op('LIST_APPEND', 145, 'reg')
-def_op('SET_ADD', 146, 'reg')
-def_op('SET_UPDATE', 163, 'reg')
-def_op('MAP_ADD', 147)
-def_op('DICT_MERGE', 164, 'reg')
-def_op('DICT_UPDATE', 165, 'reg')
-
-def_op('CLEAR_FAST', 168, 'reg')     # Index in name list
-def_op('COPY', 169, 'reg', 'reg')
-def_op('MOVE', 170, 'reg', 'reg')
+def_op('END_EXCEPT', 92, 'reg')
+def_op('CALL_FINALLY', 93, 'reg', 'jump')
+def_op('END_FINALLY', 94, 'reg')
+def_op('LOAD_BUILD_CLASS', 95)
+def_op('GET_AWAITABLE', 96, 'reg')
+def_op('GET_AITER', 97, 'reg')
+def_op('GET_ANEXT', 98, 'reg')
+def_op('END_ASYNC_WITH', 99, 'reg')
+def_op('END_ASYNC_FOR', 100, 'reg')
+def_op('UNPACK', 101, 'iconst')
+def_op('MAKE_FUNCTION', 102, 'const')
+def_op('SETUP_WITH', 103, 'reg')
+def_op('END_WITH', 104, 'reg')
+def_op('SETUP_ASYNC_WITH', 105, 'reg')
+def_op('LIST_EXTEND', 106, 'reg')
+def_op('LIST_APPEND', 107, 'reg')
+def_op('SET_ADD', 108, 'reg')
+def_op('SET_UPDATE', 109, 'reg')
+def_op('DICT_MERGE', 110, 'reg')
+def_op('DICT_UPDATE', 111, 'reg')
+def_op('WIDE', 112)
 
 def_intrinsic('PyObject_Str', 1)
 def_intrinsic('PyObject_Repr', 2)

@@ -185,12 +185,11 @@ def show_code(co, *, file=None):
     print(code_info(co), file=file)
 
 _Instruction = collections.namedtuple("_Instruction",
-     "opname opcode argA argD argval argrepr offset starts_line is_jump_target")
+     "opname opcode imm argval argrepr offset starts_line is_jump_target")
 
 _Instruction.opname.__doc__ = "Human readable name for operation"
 _Instruction.opcode.__doc__ = "Numeric code for operation"
-_Instruction.argA.__doc__ = "Numeric argument to operation (if any), otherwise None"
-_Instruction.argD.__doc__ = "Numeric argument to operation (if any), otherwise None"
+_Instruction.imm.__doc__ = "Immediate arguments"
 _Instruction.argval.__doc__ = "Resolved arg value (if known), otherwise same as arg"
 _Instruction.argrepr.__doc__ = "Human readable description of operation argument"
 _Instruction.offset.__doc__ = "Start index of operation within bytecode sequence"
@@ -244,7 +243,7 @@ class Instruction(_Instruction):
         # Column: Opcode name
         fields.append(self.opname.ljust(_OPNAME_WIDTH))
         # Column: Opcode argument
-        args = ' '.join(map(str, filter(lambda x: x is not None, [self.argA, self.argD])))
+        args = ' '.join(map(str, self.imm))
         if args != '':
             fields.append(args.rjust(_OPARG_WIDTH))
             if self.argrepr:
@@ -325,27 +324,27 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
     def get_str(idx):
         return _get_const_info(idx, constants)[0]
 
-    def get_repr(bytecode, argA, argD):
+    def get_repr(bytecode, *imm):
         argreprs = []
         if bytecode.name == 'CALL_FUNCTION':
-            return f'{format_reg(argA)} to {format_reg(argA+argD)}'
+            return f'{format_reg(imm[0])} to {format_reg(imm[0]+imm[1])}'
         elif bytecode.name == 'LOAD_ATTR':
-            return f"{format_reg(argA)}.{get_str(argD)}"
+            return f"{format_reg(imm[0])}.{get_str(imm[1])}"
         elif bytecode.name == 'STORE_ATTR':
-            return f"{format_reg(argA)}.{get_str(argD)}=acc"
+            return f"{format_reg(imm[0])}.{get_str(imm[1])}=acc"
         elif bytecode.name == 'BINARY_SUBSCR':
-            return f"{format_reg(argA)}[acc]"
+            return f"{format_reg(imm[0])}[acc]"
         elif bytecode.name == 'STORE_SUBSCR':
-            return f"{format_reg(argA)}[{format_reg(argD)}]=acc"
+            return f"{format_reg(imm[0])}[{format_reg(imm[1])}]=acc"
         elif bytecode.name == 'MOVE':
-            return f"{format_reg(argA)} <- {format_reg(argD)}"
+            return f"{format_reg(imm[0])} <- {format_reg(imm[1])}"
         elif bytecode.name == 'COPY':
-            return f"{format_reg(argA)} <- {format_reg(argD)}"
+            return f"{format_reg(imm[0])} <- {format_reg(imm[1])}"
         elif bytecode.name == 'UNPACK':
-            return f'{format_reg(iconstants[argA])} argcnt={iconstants[argA+1]} after={iconstants[argA+2]}'
-            # return ', '.join(str(x) for x in iconstants[argA:argA+3])
+            return f'{format_reg(iconstants[imm[0]])} argcnt={iconstants[imm[0]+1]} after={iconstants[imm[0]+2]}'
+            # return ', '.join(str(x) for x in iconstants[imm[0]:imm[0]+3])
 
-        for (arg, fmt) in [(argA, bytecode.opA), (argD, bytecode.opD)]:
+        for arg, fmt in zip(imm, bytecode.imm):
             argrepr = None
             if fmt == 'jump':
                 argval = offset + (arg if arg <= 0x7FFF else arg - 0x10000)
@@ -368,7 +367,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
 
     labels = findlabels(code)
     starts_line = None
-    for offset, op, argA, argD in _unpack_opargs(code):
+    for offset, op, *imm in _unpack_opargs(code):
         if linestarts is not None:
             starts_line = linestarts.get(offset, None)
             if starts_line is not None:
@@ -376,7 +375,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         is_jump_target = offset in labels
         argval = None
         bytecode = opcodes[op]
-        argrepr = get_repr(bytecode, argA, argD)
+        argrepr = get_repr(bytecode, *imm)
         # if arg is not None:
         #     #  Set argval to the dereferenced value of the argument when
         #     #  available, and argrepr to the string representation of argval.
@@ -408,7 +407,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         #         argrepr = ', '.join(s for i, s in enumerate(MAKE_FUNCTION_FLAGS)
         #                             if arg & (1<<i))
         yield Instruction(opname[op], op,
-                          argA, argD, argval, argrepr,
+                          imm, argval, argrepr,
                           offset, starts_line, is_jump_target)
 
 def disassemble(co, lasti=-1, *, file=None):
@@ -480,20 +479,37 @@ disco = disassemble                     # XXX For backwards compatibility
 def signed(x):
     return x if x < 32768 else (x - 65536)
 
+def decode_imm(code, offset, bytecode, wide):
+    sizes = {
+        'imm16': 2,
+        'jump': 4 if wide else 2,
+    }
+    offset += 1
+    if wide:
+        offset += 1
+    for imm in bytecode.imm:
+        signed = (imm == 'jump')
+        size = sizes.get(imm, 4 if wide else 1)
+        yield int.from_bytes(code[offset:offset+size], 'little', signed=signed)
+        offset += size
+
+
 def _unpack_opargs(code):
     extended_arg = 0
     i = 0
     while i < len(code):
+        wide = False
         op = code[i]
-        argA = code[i+1]
-        if opcodes[op].opA is None:
-            assert argA == 0
-            argA = None
-        argD = None
-        if opcodes[op].opD is not None:
-            argD = code[i+2] | (code[i+3] << 8)
-        yield (i, op, argA, argD)
-        i += opcodes[op].size
+        if opcodes[op].name == 'WIDE':
+            wide = True
+            op = code[i+1]
+            size = opcodes[op].wide_size
+        else:
+            size = opcodes[op].size
+
+        imm = list(decode_imm(code, i, opcodes[op], wide))
+        yield (i, op, *imm)
+        i += size
 
 def findlabels(code):
     """Detect all offsets in a byte code which are jump targets.
@@ -502,9 +518,9 @@ def findlabels(code):
 
     """
     labels = []
-    for offset, op, argA, argD in _unpack_opargs(code):
+    for offset, op, *imm in _unpack_opargs(code):
         if opcodes[op].is_jump():
-            label = offset + 4 * (argD + 1)
+            label = offset + imm[-1]
             if label not in labels:
                 labels.append(label)
     return labels

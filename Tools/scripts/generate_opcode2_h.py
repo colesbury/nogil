@@ -13,7 +13,7 @@ extern "C" {
 
 
 // Instruction opcodes for compiled code
-//    name                     opcode   size
+//    name                   opcode   size   wide_size
 #define OPCODE_LIST(_) \\
 """.lstrip()
 
@@ -26,7 +26,13 @@ OPCODE_LIST(OPCODE_NAME)
 };
 
 enum {
-#define OPSIZE(Name, Code, Size) OP_SIZE_##Name = Size,
+#define OPSIZE(Name, Code, Size, ...) OP_SIZE_##Name = Size,
+OPCODE_LIST(OPSIZE)
+#undef OPSIZE
+};
+
+enum {
+#define OPSIZE(Name, Code, Size, WideSize) OP_SIZE_WIDE_##Name = WideSize,
 OPCODE_LIST(OPSIZE)
 #undef OPSIZE
 };
@@ -48,10 +54,8 @@ def main(opcode_py, outfile='Include/opcode2.h'):
         fobj.write(header)
         for bytecode in opcodes:
             name = bytecode.name + ","
-            opcode = str(bytecode.opcode) + ","
-            size = bytecode.size
             terminator = ' \\' if bytecode != opcodes[-1] else ''
-            fobj.write("    _(%-24s %4s   %3s)%s\n" % (name, opcode, size, terminator))
+            fobj.write("    _(%-24s %4d,   %3d,    %3d)%s\n" % (name, bytecode.opcode, bytecode.size, bytecode.wide_size, terminator))
         fobj.write(footer)
 
     print("%s regenerated from %s" % (outfile, opcode_py))
