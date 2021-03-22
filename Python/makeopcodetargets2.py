@@ -31,9 +31,9 @@ def write_targets(opcode, f):
     """Write C code contents to the target file object.
     """
     targets = ['_unknown_opcode'] * 256
-    targets[255] = 'TARGET_debug_regs'
+    targets[255] = 'debug_regs'
     for opname, bytecode in opcode.opmap.items():
-        targets[bytecode.opcode] = "TARGET_%s" % opname
+        targets[bytecode.opcode] = opname
     f.write("static void *opcode_targets_base[256] = {\n")
     f.write(",\n".join(["    &&%s" % s for s in targets]))
     f.write("\n};\n")

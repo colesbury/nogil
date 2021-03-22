@@ -33,16 +33,16 @@
 #define DEBUG_FRAME 0
 
 #define TARGET(name) \
-    TARGET_##name: \
-    DEBUG_LABEL(TARGET_##name);
+    name: \
+    DEBUG_LABEL(name);
 
 
 #if defined(__clang__)
-#define COLD_TARGET(name) TARGET_##name:
+#define COLD_TARGET(name) name:
 #elif defined(__GNUC__)
-#define COLD_TARGET(name) TARGET_##name: __attribute__((cold));
+#define COLD_TARGET(name) name: __attribute__((cold));
 #else
-#define COLD_TARGET(name) TARGET_##name:
+#define COLD_TARGET(name) name:
 #endif
 
 #define CALL_VM(call) \
@@ -672,7 +672,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         }
         PyGen2_SetPC(gen, pc + OP_SIZE_COROGEN_HEADER);
         acc = PACK_OBJ((PyObject *)gen);
-        goto TARGET_RETURN_VALUE;
+        goto RETURN_VALUE;
     }
 
     TARGET(MAKE_FUNCTION) {
@@ -1745,7 +1745,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             acc.as_int64 = 0;
         }
         else {
-            goto TARGET_GET_ITER;
+            goto GET_ITER;
         }
         DISPATCH(GET_YIELD_FROM_ITER);
     }

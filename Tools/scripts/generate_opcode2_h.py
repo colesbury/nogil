@@ -12,10 +12,24 @@ extern "C" {
 #endif
 
 
-    /* Instruction opcodes for compiled code */
+// Instruction opcodes for compiled code
+//    name                     opcode   size
+#define OPCODE_LIST(_) \\
 """.lstrip()
 
 footer = """
+
+enum {
+#define OPCODE_NAME(Name, Code, ...) Name = Code,
+OPCODE_LIST(OPCODE_NAME)
+#undef OPCODE_NAME
+};
+
+enum {
+#define OPSIZE(Name, Code, Size) OP_SIZE_##Name = Size,
+OPCODE_LIST(OPSIZE)
+#undef OPSIZE
+};
 
 #ifdef __cplusplus
 }
@@ -29,16 +43,15 @@ def main(opcode_py, outfile='Include/opcode2.h'):
     with tokenize.open(opcode_py) as fp:
         code = fp.read()
     exec(code, opcode)
-    opcodes = opcode['opcodes']
+    opcodes = [op for op in opcode['opcodes'] if op is not None]
     with open(outfile, 'w') as fobj:
         fobj.write(header)
         for bytecode in opcodes:
-            if bytecode is not None:
-                fobj.write("#define %-23s %3s\n" % (bytecode.name, bytecode.opcode))
-        fobj.write("\n")
-        for bytecode in opcodes:
-            if bytecode is not None:
-                fobj.write("#define OP_SIZE_%-23s %3s\n" % (bytecode.name, bytecode.size))
+            name = bytecode.name + ","
+            opcode = str(bytecode.opcode) + ","
+            size = bytecode.size
+            terminator = ' \\' if bytecode != opcodes[-1] else ''
+            fobj.write("    _(%-24s %4s   %3s)%s\n" % (name, opcode, size, terminator))
         fobj.write(footer)
 
     print("%s regenerated from %s" % (outfile, opcode_py))

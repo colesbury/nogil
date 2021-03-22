@@ -6,253 +6,144 @@ extern "C" {
 #endif
 
 
-    /* Instruction opcodes for compiled code */
-#define CLEAR_ACC                 1
-#define FUNC_HEADER               2
-#define METHOD_HEADER             3
-#define COROGEN_HEADER            4
-#define CFUNC_HEADER              6
-#define FUNC_TPCALL_HEADER        7
-#define NOP                       9
-#define UNARY_POSITIVE           10
-#define UNARY_NEGATIVE           11
-#define UNARY_NOT                12
-#define UNARY_NOT_FAST           13
-#define UNARY_INVERT             15
-#define BINARY_MATRIX_MULTIPLY   16
-#define INPLACE_MATRIX_MULTIPLY  17
-#define BINARY_POWER             19
-#define BINARY_MULTIPLY          20
-#define BINARY_MODULO            22
-#define BINARY_ADD               23
-#define BINARY_SUBTRACT          24
-#define BINARY_SUBSCR            25
-#define BINARY_FLOOR_DIVIDE      26
-#define BINARY_TRUE_DIVIDE       27
-#define INPLACE_FLOOR_DIVIDE     28
-#define INPLACE_TRUE_DIVIDE      29
-#define LOAD_EXC                 30
-#define LOAD_INTRINSIC           34
-#define CALL_INTRINSIC_1         35
-#define CALL_INTRINSIC_N         36
-#define WITH_EXCEPT_START        49
-#define GET_AITER                50
-#define GET_ANEXT                51
-#define END_ASYNC_WITH           52
-#define END_ASYNC_FOR            54
-#define INPLACE_ADD              55
-#define INPLACE_SUBTRACT         56
-#define INPLACE_MULTIPLY         57
-#define INPLACE_MODULO           59
-#define STORE_SUBSCR             60
-#define DELETE_SUBSCR            61
-#define BINARY_LSHIFT            62
-#define BINARY_RSHIFT            63
-#define BINARY_AND               64
-#define BINARY_XOR               65
-#define BINARY_OR                66
-#define INPLACE_POWER            67
-#define GET_ITER                 68
-#define GET_YIELD_FROM_ITER      69
-#define PRINT_EXPR               70
-#define LOAD_BUILD_CLASS         71
-#define YIELD_FROM               72
-#define GET_AWAITABLE            73
-#define LOAD_ASSERTION_ERROR     74
-#define INPLACE_LSHIFT           75
-#define INPLACE_RSHIFT           76
-#define INPLACE_AND              77
-#define INPLACE_XOR              78
-#define INPLACE_OR               79
-#define LIST_TO_TUPLE            82
-#define RETURN_VALUE             83
-#define IMPORT_STAR              84
-#define SETUP_ANNOTATIONS        85
-#define YIELD_VALUE              86
-#define POP_BLOCK                87
-#define END_EXCEPT               89
-#define STORE_NAME               90
-#define DELETE_NAME              91
-#define FOR_ITER                 93
-#define UNPACK                   94
-#define STORE_ATTR               95
-#define DELETE_ATTR              96
-#define STORE_GLOBAL             97
-#define DELETE_GLOBAL            98
-#define LOAD_CONST              100
-#define LOAD_NAME               101
-#define BUILD_TUPLE             102
-#define BUILD_LIST              103
-#define BUILD_SET               104
-#define BUILD_MAP               105
-#define LOAD_ATTR               106
-#define COMPARE_OP              107
-#define IMPORT_NAME             108
-#define IMPORT_FROM             109
-#define JUMP_IF_FALSE           111
-#define JUMP_IF_TRUE            112
-#define JUMP                    113
-#define POP_JUMP_IF_FALSE       114
-#define POP_JUMP_IF_TRUE        115
-#define LOAD_GLOBAL             116
-#define IS_OP                   117
-#define CONTAINS_OP             118
-#define JUMP_IF_NOT_EXC_MATCH   121
-#define END_FINALLY             122
-#define CALL_FINALLY            123
-#define LOAD_FAST               124
-#define STORE_FAST              125
-#define DELETE_FAST             126
-#define RAISE                   130
-#define CALL_FUNCTION           131
-#define MAKE_FUNCTION           132
-#define BUILD_SLICE             133
-#define LOAD_DEREF              136
-#define STORE_DEREF             137
-#define DELETE_DEREF            138
-#define CALL_FUNCTION_EX        142
-#define SETUP_WITH              143
-#define EXTENDED_ARG            144
-#define LIST_APPEND             145
-#define SET_ADD                 146
-#define MAP_ADD                 147
-#define LOAD_CLASSDEREF         148
-#define END_WITH                150
-#define SETUP_ASYNC_WITH        154
-#define BUILD_CONST_KEY_MAP     156
-#define LOAD_METHOD             160
-#define CALL_METHOD             161
-#define LIST_EXTEND             162
-#define SET_UPDATE              163
-#define DICT_MERGE              164
-#define DICT_UPDATE             165
-#define CLEAR_FAST              168
-#define COPY                    169
-#define MOVE                    170
+// Instruction opcodes for compiled code
+//    name                     opcode   size
+#define OPCODE_LIST(_) \
+    _(CLEAR_ACC,                 1,     2) \
+    _(FUNC_HEADER,               2,     4) \
+    _(METHOD_HEADER,             3,     2) \
+    _(COROGEN_HEADER,            4,     2) \
+    _(CFUNC_HEADER,              6,     2) \
+    _(FUNC_TPCALL_HEADER,        7,     2) \
+    _(NOP,                       9,     2) \
+    _(UNARY_POSITIVE,           10,     2) \
+    _(UNARY_NEGATIVE,           11,     2) \
+    _(UNARY_NOT,                12,     2) \
+    _(UNARY_NOT_FAST,           13,     2) \
+    _(UNARY_INVERT,             15,     2) \
+    _(BINARY_MATRIX_MULTIPLY,   16,     2) \
+    _(INPLACE_MATRIX_MULTIPLY,  17,     2) \
+    _(BINARY_POWER,             19,     2) \
+    _(BINARY_MULTIPLY,          20,     2) \
+    _(BINARY_MODULO,            22,     2) \
+    _(BINARY_ADD,               23,     2) \
+    _(BINARY_SUBTRACT,          24,     2) \
+    _(BINARY_SUBSCR,            25,     2) \
+    _(BINARY_FLOOR_DIVIDE,      26,     2) \
+    _(BINARY_TRUE_DIVIDE,       27,     2) \
+    _(INPLACE_FLOOR_DIVIDE,     28,     2) \
+    _(INPLACE_TRUE_DIVIDE,      29,     2) \
+    _(LOAD_EXC,                 30,     2) \
+    _(LOAD_INTRINSIC,           34,     2) \
+    _(CALL_INTRINSIC_1,         35,     2) \
+    _(CALL_INTRINSIC_N,         36,     4) \
+    _(WITH_EXCEPT_START,        49,     2) \
+    _(GET_AITER,                50,     2) \
+    _(GET_ANEXT,                51,     2) \
+    _(END_ASYNC_WITH,           52,     2) \
+    _(END_ASYNC_FOR,            54,     2) \
+    _(INPLACE_ADD,              55,     2) \
+    _(INPLACE_SUBTRACT,         56,     2) \
+    _(INPLACE_MULTIPLY,         57,     2) \
+    _(INPLACE_MODULO,           59,     2) \
+    _(STORE_SUBSCR,             60,     4) \
+    _(DELETE_SUBSCR,            61,     2) \
+    _(BINARY_LSHIFT,            62,     2) \
+    _(BINARY_RSHIFT,            63,     2) \
+    _(BINARY_AND,               64,     2) \
+    _(BINARY_XOR,               65,     2) \
+    _(BINARY_OR,                66,     2) \
+    _(INPLACE_POWER,            67,     2) \
+    _(GET_ITER,                 68,     2) \
+    _(GET_YIELD_FROM_ITER,      69,     2) \
+    _(PRINT_EXPR,               70,     2) \
+    _(LOAD_BUILD_CLASS,         71,     2) \
+    _(YIELD_FROM,               72,     2) \
+    _(GET_AWAITABLE,            73,     2) \
+    _(LOAD_ASSERTION_ERROR,     74,     2) \
+    _(INPLACE_LSHIFT,           75,     2) \
+    _(INPLACE_RSHIFT,           76,     2) \
+    _(INPLACE_AND,              77,     2) \
+    _(INPLACE_XOR,              78,     2) \
+    _(INPLACE_OR,               79,     2) \
+    _(LIST_TO_TUPLE,            82,     2) \
+    _(RETURN_VALUE,             83,     2) \
+    _(IMPORT_STAR,              84,     2) \
+    _(SETUP_ANNOTATIONS,        85,     2) \
+    _(YIELD_VALUE,              86,     2) \
+    _(POP_BLOCK,                87,     2) \
+    _(END_EXCEPT,               89,     2) \
+    _(STORE_NAME,               90,     2) \
+    _(DELETE_NAME,              91,     2) \
+    _(FOR_ITER,                 93,     4) \
+    _(UNPACK,                   94,     2) \
+    _(STORE_ATTR,               95,     4) \
+    _(DELETE_ATTR,              96,     2) \
+    _(STORE_GLOBAL,             97,     2) \
+    _(DELETE_GLOBAL,            98,     2) \
+    _(LOAD_CONST,              100,     2) \
+    _(LOAD_NAME,               101,     2) \
+    _(BUILD_TUPLE,             102,     4) \
+    _(BUILD_LIST,              103,     4) \
+    _(BUILD_SET,               104,     4) \
+    _(BUILD_MAP,               105,     2) \
+    _(LOAD_ATTR,               106,     4) \
+    _(COMPARE_OP,              107,     4) \
+    _(IMPORT_NAME,             108,     2) \
+    _(IMPORT_FROM,             109,     4) \
+    _(JUMP_IF_FALSE,           111,     4) \
+    _(JUMP_IF_TRUE,            112,     4) \
+    _(JUMP,                    113,     4) \
+    _(POP_JUMP_IF_FALSE,       114,     4) \
+    _(POP_JUMP_IF_TRUE,        115,     4) \
+    _(LOAD_GLOBAL,             116,     4) \
+    _(IS_OP,                   117,     2) \
+    _(CONTAINS_OP,             118,     2) \
+    _(JUMP_IF_NOT_EXC_MATCH,   121,     4) \
+    _(END_FINALLY,             122,     2) \
+    _(CALL_FINALLY,            123,     4) \
+    _(LOAD_FAST,               124,     2) \
+    _(STORE_FAST,              125,     2) \
+    _(DELETE_FAST,             126,     2) \
+    _(RAISE,                   130,     2) \
+    _(CALL_FUNCTION,           131,     4) \
+    _(MAKE_FUNCTION,           132,     2) \
+    _(BUILD_SLICE,             133,     2) \
+    _(LOAD_DEREF,              136,     2) \
+    _(STORE_DEREF,             137,     2) \
+    _(DELETE_DEREF,            138,     2) \
+    _(CALL_FUNCTION_EX,        142,     2) \
+    _(SETUP_WITH,              143,     2) \
+    _(EXTENDED_ARG,            144,     2) \
+    _(LIST_APPEND,             145,     2) \
+    _(SET_ADD,                 146,     2) \
+    _(MAP_ADD,                 147,     2) \
+    _(LOAD_CLASSDEREF,         148,     4) \
+    _(END_WITH,                150,     2) \
+    _(SETUP_ASYNC_WITH,        154,     2) \
+    _(BUILD_CONST_KEY_MAP,     156,     2) \
+    _(LOAD_METHOD,             160,     4) \
+    _(CALL_METHOD,             161,     4) \
+    _(LIST_EXTEND,             162,     2) \
+    _(SET_UPDATE,              163,     2) \
+    _(DICT_MERGE,              164,     2) \
+    _(DICT_UPDATE,             165,     2) \
+    _(CLEAR_FAST,              168,     2) \
+    _(COPY,                    169,     4) \
+    _(MOVE,                    170,     4)
 
-#define OP_SIZE_CLEAR_ACC                 2
-#define OP_SIZE_FUNC_HEADER               4
-#define OP_SIZE_METHOD_HEADER             2
-#define OP_SIZE_COROGEN_HEADER            2
-#define OP_SIZE_CFUNC_HEADER              2
-#define OP_SIZE_FUNC_TPCALL_HEADER        2
-#define OP_SIZE_NOP                       2
-#define OP_SIZE_UNARY_POSITIVE            2
-#define OP_SIZE_UNARY_NEGATIVE            2
-#define OP_SIZE_UNARY_NOT                 2
-#define OP_SIZE_UNARY_NOT_FAST            2
-#define OP_SIZE_UNARY_INVERT              2
-#define OP_SIZE_BINARY_MATRIX_MULTIPLY    2
-#define OP_SIZE_INPLACE_MATRIX_MULTIPLY   2
-#define OP_SIZE_BINARY_POWER              2
-#define OP_SIZE_BINARY_MULTIPLY           2
-#define OP_SIZE_BINARY_MODULO             2
-#define OP_SIZE_BINARY_ADD                2
-#define OP_SIZE_BINARY_SUBTRACT           2
-#define OP_SIZE_BINARY_SUBSCR             2
-#define OP_SIZE_BINARY_FLOOR_DIVIDE       2
-#define OP_SIZE_BINARY_TRUE_DIVIDE        2
-#define OP_SIZE_INPLACE_FLOOR_DIVIDE      2
-#define OP_SIZE_INPLACE_TRUE_DIVIDE       2
-#define OP_SIZE_LOAD_EXC                  2
-#define OP_SIZE_LOAD_INTRINSIC            2
-#define OP_SIZE_CALL_INTRINSIC_1          2
-#define OP_SIZE_CALL_INTRINSIC_N          4
-#define OP_SIZE_WITH_EXCEPT_START         2
-#define OP_SIZE_GET_AITER                 2
-#define OP_SIZE_GET_ANEXT                 2
-#define OP_SIZE_END_ASYNC_WITH            2
-#define OP_SIZE_END_ASYNC_FOR             2
-#define OP_SIZE_INPLACE_ADD               2
-#define OP_SIZE_INPLACE_SUBTRACT          2
-#define OP_SIZE_INPLACE_MULTIPLY          2
-#define OP_SIZE_INPLACE_MODULO            2
-#define OP_SIZE_STORE_SUBSCR              4
-#define OP_SIZE_DELETE_SUBSCR             2
-#define OP_SIZE_BINARY_LSHIFT             2
-#define OP_SIZE_BINARY_RSHIFT             2
-#define OP_SIZE_BINARY_AND                2
-#define OP_SIZE_BINARY_XOR                2
-#define OP_SIZE_BINARY_OR                 2
-#define OP_SIZE_INPLACE_POWER             2
-#define OP_SIZE_GET_ITER                  2
-#define OP_SIZE_GET_YIELD_FROM_ITER       2
-#define OP_SIZE_PRINT_EXPR                2
-#define OP_SIZE_LOAD_BUILD_CLASS          2
-#define OP_SIZE_YIELD_FROM                2
-#define OP_SIZE_GET_AWAITABLE             2
-#define OP_SIZE_LOAD_ASSERTION_ERROR      2
-#define OP_SIZE_INPLACE_LSHIFT            2
-#define OP_SIZE_INPLACE_RSHIFT            2
-#define OP_SIZE_INPLACE_AND               2
-#define OP_SIZE_INPLACE_XOR               2
-#define OP_SIZE_INPLACE_OR                2
-#define OP_SIZE_LIST_TO_TUPLE             2
-#define OP_SIZE_RETURN_VALUE              2
-#define OP_SIZE_IMPORT_STAR               2
-#define OP_SIZE_SETUP_ANNOTATIONS         2
-#define OP_SIZE_YIELD_VALUE               2
-#define OP_SIZE_POP_BLOCK                 2
-#define OP_SIZE_END_EXCEPT                2
-#define OP_SIZE_STORE_NAME                2
-#define OP_SIZE_DELETE_NAME               2
-#define OP_SIZE_FOR_ITER                  4
-#define OP_SIZE_UNPACK                    2
-#define OP_SIZE_STORE_ATTR                4
-#define OP_SIZE_DELETE_ATTR               2
-#define OP_SIZE_STORE_GLOBAL              2
-#define OP_SIZE_DELETE_GLOBAL             2
-#define OP_SIZE_LOAD_CONST                2
-#define OP_SIZE_LOAD_NAME                 2
-#define OP_SIZE_BUILD_TUPLE               4
-#define OP_SIZE_BUILD_LIST                4
-#define OP_SIZE_BUILD_SET                 4
-#define OP_SIZE_BUILD_MAP                 2
-#define OP_SIZE_LOAD_ATTR                 4
-#define OP_SIZE_COMPARE_OP                4
-#define OP_SIZE_IMPORT_NAME               2
-#define OP_SIZE_IMPORT_FROM               4
-#define OP_SIZE_JUMP_IF_FALSE             4
-#define OP_SIZE_JUMP_IF_TRUE              4
-#define OP_SIZE_JUMP                      4
-#define OP_SIZE_POP_JUMP_IF_FALSE         4
-#define OP_SIZE_POP_JUMP_IF_TRUE          4
-#define OP_SIZE_LOAD_GLOBAL               4
-#define OP_SIZE_IS_OP                     2
-#define OP_SIZE_CONTAINS_OP               2
-#define OP_SIZE_JUMP_IF_NOT_EXC_MATCH     4
-#define OP_SIZE_END_FINALLY               2
-#define OP_SIZE_CALL_FINALLY              4
-#define OP_SIZE_LOAD_FAST                 2
-#define OP_SIZE_STORE_FAST                2
-#define OP_SIZE_DELETE_FAST               2
-#define OP_SIZE_RAISE                     2
-#define OP_SIZE_CALL_FUNCTION             4
-#define OP_SIZE_MAKE_FUNCTION             2
-#define OP_SIZE_BUILD_SLICE               2
-#define OP_SIZE_LOAD_DEREF                2
-#define OP_SIZE_STORE_DEREF               2
-#define OP_SIZE_DELETE_DEREF              2
-#define OP_SIZE_CALL_FUNCTION_EX          2
-#define OP_SIZE_SETUP_WITH                2
-#define OP_SIZE_EXTENDED_ARG              2
-#define OP_SIZE_LIST_APPEND               2
-#define OP_SIZE_SET_ADD                   2
-#define OP_SIZE_MAP_ADD                   2
-#define OP_SIZE_LOAD_CLASSDEREF           4
-#define OP_SIZE_END_WITH                  2
-#define OP_SIZE_SETUP_ASYNC_WITH          2
-#define OP_SIZE_BUILD_CONST_KEY_MAP       2
-#define OP_SIZE_LOAD_METHOD               4
-#define OP_SIZE_CALL_METHOD               4
-#define OP_SIZE_LIST_EXTEND               2
-#define OP_SIZE_SET_UPDATE                2
-#define OP_SIZE_DICT_MERGE                2
-#define OP_SIZE_DICT_UPDATE               2
-#define OP_SIZE_CLEAR_FAST                2
-#define OP_SIZE_COPY                      4
-#define OP_SIZE_MOVE                      4
 
+enum {
+#define OPCODE_NAME(Name, Code, ...) Name = Code,
+OPCODE_LIST(OPCODE_NAME)
+#undef OPCODE_NAME
+};
+
+enum {
+#define OPSIZE(Name, Code, Size) OP_SIZE_##Name = Size,
+OPCODE_LIST(OPSIZE)
+#undef OPSIZE
+};
 
 #ifdef __cplusplus
 }
