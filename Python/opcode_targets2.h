@@ -50,7 +50,6 @@ static void *opcode_targets_base[256] = {
     &&LOAD_ATTR,
     &&LOAD_GLOBAL,
     &&LOAD_METHOD,
-    &&LOAD_INTRINSIC,
     &&LOAD_DEREF,
     &&LOAD_CLASSDEREF,
     &&STORE_FAST,
@@ -254,6 +253,7 @@ static void *opcode_targets_base[256] = {
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,
+    &&_unknown_opcode,
     &&debug_regs
 };
 static void *wide_opcode_targets_base[256] = {
@@ -308,7 +308,6 @@ static void *wide_opcode_targets_base[256] = {
     &&WIDE_LOAD_ATTR,
     &&WIDE_LOAD_GLOBAL,
     &&WIDE_LOAD_METHOD,
-    &&WIDE_LOAD_INTRINSIC,
     &&WIDE_LOAD_DEREF,
     &&WIDE_LOAD_CLASSDEREF,
     &&WIDE_STORE_FAST,
@@ -369,6 +368,7 @@ static void *wide_opcode_targets_base[256] = {
     &&WIDE_SET_UPDATE,
     &&WIDE_DICT_MERGE,
     &&WIDE_DICT_UPDATE,
+    &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,

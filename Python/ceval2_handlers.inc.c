@@ -1906,12 +1906,6 @@ TARGET(END_ASYNC_WITH) {
     DISPATCH(END_ASYNC_WITH);
 }
 
-TARGET(LOAD_INTRINSIC) {
-    assert(IS_EMPTY(acc));
-    acc = PACK((UImm(0) << 1), NO_REFCOUNT_TAG);
-    DISPATCH(LOAD_INTRINSIC);
-}
-
 TARGET(CALL_INTRINSIC_1) {
     intrinsic1 fn = intrinsics_table[UImm(0)].intrinsic1;
     PyObject *value = AS_OBJ(acc);
@@ -1926,8 +1920,7 @@ TARGET(CALL_INTRINSIC_1) {
 
 TARGET(CALL_INTRINSIC_N) {
     PyObject *res;
-    intptr_t id = (acc.as_int64 >> 1);
-    CALL_VM(res = vm_call_intrinsic(ts, id, UImm(0), UImm(1)));
+    CALL_VM(res = vm_call_intrinsic(ts, UImm(0), UImm(1), UImm(2)));
     if (UNLIKELY(res == NULL)) {
         acc.as_int64 = 0;
         goto error;

@@ -486,8 +486,7 @@ class CodeGen(ast.NodeVisitor):
             self.CALL_INTRINSIC_1(intrinsic.code)
         else:
             assert intrinsic.nargs == nargs or intrinsic.nargs == 'N'
-            self.LOAD_INTRINSIC(intrinsic.code)
-            self.CALL_INTRINSIC_N(base, nargs)
+            self.CALL_INTRINSIC_N(intrinsic.code, base, nargs)
 
     def visit_FormattedValue(self, t):
         if t.format_spec is None:
