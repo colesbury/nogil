@@ -402,17 +402,19 @@ class CodeGen(ast.NodeVisitor):
         else:
             self.COPY(dst.allocate(), src.reg)
 
+    def meta_slot(self, name):
+        slot = self.metadata.get(name)
+        if slot is None:
+            slot = self.metadata[name] = self.new_metadata()
+        return slot
+
     def load(self, name):
         access = self.scope.access(name)
         if   access == 'fast':   self.LOAD_FAST(self.varnames[name])
         elif access == 'deref':  self.LOAD_DEREF(self.varnames[name])
         elif access == 'classderef':  self.LOAD_CLASSDEREF(self.varnames[name], self.names[name])
-        elif access == 'name':   self.LOAD_NAME(self.names[name])
-        elif access == 'global':
-            meta = self.metadata.get(name)
-            if meta is None:
-                meta = self.metadata[name] = self.new_metadata()
-            self.LOAD_GLOBAL(self.names[name], meta)
+        elif access == 'name':   self.LOAD_NAME(self.names[name], self.meta_slot(name))
+        elif access == 'global': self.LOAD_GLOBAL(self.names[name], self.meta_slot(name))
         else: assert False
 
     def store(self, name):

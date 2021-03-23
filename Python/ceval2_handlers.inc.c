@@ -607,11 +607,17 @@ TARGET(RETURN_VALUE) {
 
 TARGET(LOAD_NAME) {
     assert(IS_EMPTY(acc));
+    PyObject *locals = AS_OBJ(regs[0]);
     PyObject *name = CONSTANTS()[UImm(0)];
-    CALL_VM(acc = vm_load_name(regs, name));
-    if (UNLIKELY(acc.as_int64 == 0)) {
-        goto error;
+    PyObject *value;
+    CALL_VM(value = vm_load_name(ts, locals, name));
+    if (value == NULL) {
+        if (UNLIKELY(_PyErr_Occurred(ts->ts) != NULL)) {
+            goto error;
+        }
+        goto LABEL(LOAD_GLOBAL);
     }
+    acc = PACK_OBJ(value);
     DISPATCH(LOAD_NAME);
 }
 

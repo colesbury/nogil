@@ -54,7 +54,7 @@ extern "C" {
     _(INPLACE_MATRIX_MULTIPLY,   43,     2,      6) \
     _(INPLACE_POWER,             44,     2,      6) \
     _(LOAD_FAST,                 45,     2,      6) \
-    _(LOAD_NAME,                 46,     2,      6) \
+    _(LOAD_NAME,                 46,     3,     10) \
     _(LOAD_CONST,                47,     2,      6) \
     _(LOAD_ATTR,                 48,     3,     10) \
     _(LOAD_GLOBAL,               49,     3,     10) \

@@ -110,7 +110,7 @@ def_op('INPLACE_POWER', 44, 'reg')
 
 # load / store / delete
 def_op('LOAD_FAST', 45, 'reg')
-def_op('LOAD_NAME', 46, 'str')
+def_op('LOAD_NAME', 46, 'str', 'lit')
 def_op('LOAD_CONST', 47, 'const')
 def_op('LOAD_ATTR', 48, 'reg', 'str')
 def_op('LOAD_GLOBAL', 49, 'str', 'lit')

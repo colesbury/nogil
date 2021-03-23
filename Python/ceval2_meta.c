@@ -816,31 +816,17 @@ Error:
     return -1;
 }
 
-Register
-vm_load_name(Register *regs, PyObject *name)
+PyObject *
+vm_load_name(struct ThreadState *ts, PyObject *locals, PyObject *name)
 {
-    PyObject *locals = AS_OBJ(regs[0]);
-    assert(PyDict_Check(locals));
-    PyObject *value = PyDict_GetItemWithError2(locals, name);
-    if (value != NULL) {
-        return PACK_OBJ(value);
+    if (UNLIKELY(!PyDict_CheckExact(locals))) {
+        PyObject *value = PyObject_GetItem(locals, name);
+        if (value == NULL && _PyErr_ExceptionMatches(ts->ts, PyExc_KeyError)) {
+            _PyErr_Clear(ts->ts);
+        }
+        return value;
     }
-
-    PyFunc *this_func = (PyFunc *)AS_OBJ(regs[-1]);
-    PyObject *globals = this_func->globals;
-    value = PyDict_GetItemWithError2(globals, name);
-    if (value != NULL) {
-        return PACK_OBJ(value);
-    }
-
-    PyObject *builtins = this_func->builtins;
-    value = PyDict_GetItemWithError2(builtins, name);
-    if (value != NULL) {
-        return PACK_OBJ(value);
-    }
-
-    PyErr_Format(PyExc_NameError, "name %.200R is not defined", name);
-    return (Register){0};
+    return PyDict_GetItemWithError2(locals, name);
 }
 
 Register
