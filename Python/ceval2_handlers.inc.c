@@ -280,6 +280,7 @@ TARGET(FUNC_HEADER) {
     DISPATCH(FUNC_HEADER);
 }
 
+#ifndef WIDE_OP
 TARGET(METHOD_HEADER) {
     PyMethodObject *meth = (PyMethodObject *)AS_OBJ(regs[-1]);
     if ((acc.as_int64 & ACC_FLAG_VARARGS) != 0) {
@@ -359,6 +360,7 @@ TARGET(FUNC_TPCALL_HEADER) {
     ts->regs = regs;
     NEXT_INSTRUCTION();
 }
+#endif
 
 TARGET(COROGEN_HEADER) {
     // setup generator?
@@ -530,6 +532,7 @@ call_object_ex: {
 }
 #endif
 
+#ifndef WIDE_OP
 TARGET(YIELD_VALUE) {
     PyGenObject2 *gen = PyGen2_FromThread(ts);
     gen->status = GEN_YIELD;
@@ -537,6 +540,7 @@ TARGET(YIELD_VALUE) {
     // assert((regs[-2].as_int64 & FRAME_C) != 0);
     goto return_to_c;
 }
+#endif
 
 #define IMPL_YIELD_FROM(awaitable, res) do {                                \
     PyGen2_FromThread(ts)->yield_from = awaitable;                          \
@@ -563,6 +567,7 @@ TARGET(YIELD_FROM) {
     DISPATCH(YIELD_FROM);
 }
 
+#ifndef WIDE_OP
 TARGET(RETURN_VALUE) {
 #if DEBUG_FRAME
     Py_ssize_t frame_size = THIS_CODE()->co_framesize;
@@ -598,6 +603,7 @@ TARGET(RETURN_VALUE) {
     pc = (const uint8_t *)frame_link;
     NEXT_INSTRUCTION();
 }
+#endif
 
 TARGET(LOAD_NAME) {
     assert(IS_EMPTY(acc));
@@ -799,6 +805,7 @@ TARGET(CLEAR_FAST) {
     DISPATCH(CLEAR_FAST);
 }
 
+#ifndef WIDE_OP
 TARGET(CLEAR_ACC) {
     Register r = acc;
     acc.as_int64 = 0;
@@ -807,6 +814,7 @@ TARGET(CLEAR_ACC) {
     }
     DISPATCH(CLEAR_ACC);
 }
+#endif
 
 TARGET(LOAD_DEREF) {
     assert(IS_EMPTY(acc));
@@ -955,6 +963,7 @@ TARGET(CONTAINS_OP) {
     DISPATCH(CONTAINS_OP);
 }
 
+#ifndef WIDE_OP
 TARGET(UNARY_POSITIVE) {
     PyObject *value = AS_OBJ(acc);
     PyObject *res;
@@ -1005,6 +1014,7 @@ TARGET(UNARY_NOT_FAST) {
     acc = primitives[is_false];
     DISPATCH(UNARY_NOT_FAST);
 }
+#endif
 
 TARGET(BINARY_ADD) {
     assert(IS_OBJ(regs[UImm(0)]));
@@ -1745,6 +1755,7 @@ TARGET(UNPACK) {
     DISPATCH(UNPACK);
 }
 
+#ifndef WIDE_OP
 TARGET(LOAD_BUILD_CLASS) {
     PyObject *builtins = THIS_FUNC()->builtins;
     CALL_VM(acc = vm_load_build_class(ts, builtins));
@@ -1764,6 +1775,7 @@ TARGET(RAISE) {
     }
     goto error;
 }
+#endif
 
 TARGET(JUMP_IF_NOT_EXC_MATCH) {
     intptr_t link_reg = UImm(0);
@@ -1923,3 +1935,10 @@ TARGET(CALL_INTRINSIC_N) {
     acc = PACK_OBJ(res);
     DISPATCH(CALL_INTRINSIC_N);
 }
+
+#ifndef WIDE_OP
+TARGET(WIDE) {
+    opcode = pc[1];
+    goto *opcode_targets[128 + opcode];
+}
+#endif

@@ -306,10 +306,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #define UImm16(idx) (load_uimm16(&pc[idx + 1]))
     #define JumpImm(idx) ((int16_t)UImm16(idx))
     #include "ceval2_handlers.inc.c"
-    TARGET(WIDE) {
-        opcode = pc[1];
-        goto *opcode_targets[128 + opcode];
-    }
     #undef WIDTH_PREFIX
     #undef TARGET
     #undef UImm
@@ -317,7 +313,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #undef JumpImm
 
     #define WIDTH_PREFIX WIDE_
-    #define WIDE_OP
+    #define WIDE_OP 1
     #define TARGET(name) COLD_TARGET(WIDE_##name) DEBUG_LABEL(WIDE_##name);
     #define UImm(idx) (load_uimm32(&pc[2 + 4 * idx]))
     #define UImm16(idx) (load_uimm16(&pc[2 + 4 * idx]))
