@@ -1594,10 +1594,12 @@ TARGET(END_ASYNC_FOR) {
 }
 
 TARGET(BUILD_SLICE) {
-    CALL_VM(acc = vm_build_slice(&regs[UImm(0)]));
-    if (UNLIKELY(acc.as_int64 == 0)) {
+    PyObject *obj;
+    CALL_VM(obj = vm_build_slice(ts, UImm(0)));
+    if (UNLIKELY(obj == NULL)) {
         goto error;
     }
+    acc = PACK(obj, REFCOUNT_TAG);
     DISPATCH(BUILD_SLICE);
 }
 

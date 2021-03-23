@@ -286,7 +286,7 @@ int vm_import_star(struct ThreadState *ts, PyObject *module, PyObject *locals);
 
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_tuple_prepend(PyObject *tuple, PyObject *obj);
-Register vm_build_slice(Register *regs);
+PyObject *vm_build_slice(struct ThreadState *ts, Py_ssize_t base);
 
 int vm_callargs_to_tuple(struct ThreadState *ts);
 int vm_kwargs_to_dict(struct ThreadState *ts);

@@ -1477,18 +1477,6 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
     return 0;
 }
 
-Register vm_build_slice(Register *regs)
-{
-    PyObject *slice = PySlice_New(AS_OBJ(regs[0]), AS_OBJ(regs[1]), AS_OBJ(regs[2]));
-    DECREF(regs[2]);
-    regs[2].as_int64 = 0;
-    DECREF(regs[1]);
-    regs[1].as_int64 = 0;
-    DECREF(regs[0]);
-    regs[0].as_int64 = 0;
-    return PACK(slice, REFCOUNT_TAG);
-}
-
 Register
 vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {

@@ -18,6 +18,7 @@ this type and there is exactly one in existence.
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "structmember.h"
+#include "ceval2_meta.h"
 
 static PyObject *
 ellipsis_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
@@ -117,6 +118,42 @@ PySlice_New(PyObject *start, PyObject *stop, PyObject *step)
     Py_INCREF(start);
     if (stop == NULL) stop = Py_None;
     Py_INCREF(stop);
+
+    obj->step = step;
+    obj->start = start;
+    obj->stop = stop;
+
+    _PyObject_GC_TRACK(obj);
+    return (PyObject *) obj;
+}
+
+PyObject *
+vm_build_slice(struct ThreadState *ts, Py_ssize_t base)
+{
+    PySliceObject *obj = PyObject_GC_New(PySliceObject, &PySlice_Type);
+    if (obj == NULL) {
+        return NULL;
+    }
+
+    PyObject *start, *stop, *step;
+
+    start = AS_OBJ(ts->regs[base]);
+    if (!IS_RC(ts->regs[base])) {
+        Py_INCREF(start);
+    }
+
+    stop = AS_OBJ(ts->regs[base + 1]);
+    if (!IS_RC(ts->regs[base + 1])) {
+        Py_INCREF(stop);
+    }
+    step = AS_OBJ(ts->regs[base + 2]);
+    if (!IS_RC(ts->regs[base + 2])) {
+        Py_INCREF(step);
+    }
+
+    ts->regs[base + 0].as_int64 = 0;
+    ts->regs[base + 1].as_int64 = 0;
+    ts->regs[base + 2].as_int64 = 0;
 
     obj->step = step;
     obj->start = start;
