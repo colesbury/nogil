@@ -1489,19 +1489,6 @@ Register vm_build_slice(Register *regs)
     return PACK(slice, REFCOUNT_TAG);
 }
 
-Register vm_build_list(Register *regs, Py_ssize_t n)
-{
-    PyObject *obj = PyList_New(n);
-    if (obj == NULL) {
-        return (Register){0};
-    }
-    while (n) {
-        n--;
-        PyList_SET_ITEM(obj, n, vm_object_steal(&regs[n]));
-    }
-    return PACK(obj, REFCOUNT_TAG);
-}
-
 Register
 vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
@@ -1542,17 +1529,6 @@ build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
         PyTuple_SET_ITEM(obj, n, item);
     }
     return obj;
-}
-
-Register
-vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
-{
-    assert(n >= 0);
-    PyObject *obj = build_tuple(ts, base, n);
-    if (UNLIKELY(obj == NULL)) {
-        return (Register){0};
-    }
-    return PACK(obj, REFCOUNT_TAG);
 }
 
 Register

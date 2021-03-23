@@ -159,6 +159,16 @@ STRONG_REF(Register r)
     return r;
 }
 
+static inline PyObject *
+OWNING_REF(Register r)
+{
+    PyObject *value = AS_OBJ(r);
+    if (!IS_RC(r)) {
+        _Py_INCREF(value);
+    }
+    return value;
+}
+
 #define CLEAR(reg) do {     \
     Register _tmp = (reg);  \
     (reg).as_int64 = 0;     \
@@ -274,9 +284,7 @@ PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
 int vm_import_star(struct ThreadState *ts, PyObject *module, PyObject *locals);
 
 
-Register vm_build_list(Register *regs, Py_ssize_t n);
 Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
-Register vm_build_tuple(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_tuple_prepend(PyObject *tuple, PyObject *obj);
 Register vm_build_slice(Register *regs);
 

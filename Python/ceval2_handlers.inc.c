@@ -1602,16 +1602,25 @@ TARGET(BUILD_SLICE) {
 }
 
 TARGET(BUILD_LIST) {
-    // imm0 = reg, opD = N
-    CALL_VM(acc = vm_build_list(&regs[UImm(0)], UImm(1)));
-    if (UNLIKELY(acc.as_int64 == 0)) {
+    // imm0 = reg, imm1 = N
+    PyObject *obj;
+    CALL_VM(obj = PyList_New(UImm(1)));
+    if (UNLIKELY(obj == NULL)) {
         goto error;
+    }
+    acc = PACK(obj, REFCOUNT_TAG);
+    Py_ssize_t base = UImm(0);
+    Py_ssize_t n = UImm(1);
+    for (Py_ssize_t i  = 0; i != n; i++) {
+        PyObject *item = OWNING_REF(regs[base + i]);
+        regs[base + i].as_int64 = 0;
+        PyList_SET_ITEM(obj, i, item);
     }
     DISPATCH(BUILD_LIST);
 }
 
 TARGET(BUILD_SET) {
-    // imm0 = reg, opD = N
+    // imm0 = reg, imm1 = N
     CALL_VM(acc = vm_build_set(ts, UImm(0), UImm(1)));
     if (UNLIKELY(acc.as_int64 == 0)) {
         goto error;
@@ -1620,10 +1629,21 @@ TARGET(BUILD_SET) {
 }
 
 TARGET(BUILD_TUPLE) {
-    // imm0 = reg, opD = N
-    CALL_VM(acc = vm_build_tuple(ts, UImm(0), UImm(1)));
-    if (UNLIKELY(acc.as_int64 == 0)) {
+    // imm0 = reg, imm1 = N
+    PyObject *obj;
+    CALL_VM(obj = PyTuple_New(UImm(1)));
+    if (UNLIKELY(obj == NULL)) {
         goto error;
+    }
+    if (_PyObject_IS_IMMORTAL(obj)) abort();
+    assert(!_PyObject_IS_IMMORTAL(obj));
+    acc = PACK(obj, REFCOUNT_TAG);
+    Py_ssize_t base = UImm(0);
+    Py_ssize_t n = UImm(1);
+    for (Py_ssize_t i  = 0; i != n; i++) {
+        PyObject *item = OWNING_REF(regs[base + i]);
+        regs[base + i].as_int64 = 0;
+        PyTuple_SET_ITEM(obj, i, item);
     }
     DISPATCH(BUILD_TUPLE);
 }
