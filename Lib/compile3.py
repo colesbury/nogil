@@ -389,7 +389,10 @@ class CodeGen(ast.NodeVisitor):
             return self.copy_register(reg, t)
         elif isinstance(t, GetIter):
             self(t.seq)
-            self.GET_ITER(reg.allocate())
+            if t.is_async:
+                self.GET_AITER(reg.allocate())
+            else:
+                self.GET_ITER(reg.allocate())
         else:
             self(t)
             self.STORE_FAST(reg.allocate())
@@ -1230,6 +1233,29 @@ class CodeGen(ast.NodeVisitor):
             self(t.orelse)
         self.LABEL(loop.exit)
 
+    def visit_AsyncForIter(self, t):
+        print('AsyncForIter', self.next_register, self.varnames)
+        top, next, anchor = Label(), Label(), Label()
+        reg = self.new_register()
+        self.COPY(reg, self.as_register(t.iter))
+        self.JUMP(next)
+        self.LABEL(top)
+        self.assign_accumulator(t.target)
+        self(t.body)
+        self.LABEL(next)
+        awaitable = self.new_register()
+        assert awaitable == reg + 1, (reg, awaitable)  # GET_ANEXT uses two adjacent registers
+        self.GET_ANEXT(reg)
+        self.load_const(None)
+        self.YIELD_FROM(awaitable)
+        self.CLEAR_FAST(awaitable)
+        self.next_register = awaitable
+        self.JUMP(top)
+        link_reg = self.new_register(2)
+        self.LABEL(ExceptHandler(next, anchor, link_reg))
+        self.END_ASYNC_FOR(reg)
+        self.LABEL(anchor)
+
     def push_loop(self, reg=None):
         loop = Loop(reg)
         self.blocks.append(loop)
@@ -1522,9 +1548,12 @@ class SetAdd(ast.stmt):
     _fields = ('set', 'elt')
 
 class GetIter(ast.expr):
-    _fields = ('seq',)
+    _fields = ('seq', 'is_async')
 
 class ForIter(ast.stmt):
+    _fields = ('target', 'iter', 'body')
+
+class AsyncForIter(ast.stmt):
     _fields = ('target', 'iter', 'body')
 
 class Desugarer(ast.NodeTransformer):
@@ -1606,12 +1635,15 @@ class Desugarer(ast.NodeTransformer):
             assert False, type(t)
 
         for loop in reversed(t.generators):
+            print('loop', loop.is_async)
             for test in reversed(loop.ifs):
                 body = ast.If(test, [body], [])
             if loop == t.generators[0]:
-                body = ForIter(loop.target, ast.Name('.0', load), [body])
+                Type = AsyncForIter if loop.is_async else ForIter
+                body = Type(loop.target, ast.Name('.0', load), [body])
             else:
-                body = ast.For(loop.target, loop.iter, [body], [])
+                Type = ast.AsyncFor if loop.is_async else ast.For
+                body = Type(loop.target, loop.iter, [body], [])
         if isinstance(t, ast.GeneratorExp):
             body = [body]
         else:
@@ -1622,7 +1654,7 @@ class Desugarer(ast.NodeTransformer):
             ]
         args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
         return Call(Function(name, args, body),
-                    [GetIter(t.generators[0].iter)])
+                    [GetIter(t.generators[0].iter, t.generators[0].is_async)])
 
     @rewriter
     def visit_ListComp(self, t):
