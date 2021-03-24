@@ -1849,6 +1849,8 @@ PyTypeObject _PyNotImplemented_Type = {
 PyObject _Py_NotImplementedStruct =
     _PyObject_STRUCT_INIT(&_PyNotImplemented_Type);
 
+PyAPI_DATA(PyTypeObject) PyGen2_Type;
+PyAPI_DATA(PyTypeObject) PyCoro2_Type;
 PyAPI_DATA(PyTypeObject) _PyCoroWrapper2_Type;
 
 PyStatus
@@ -1911,6 +1913,7 @@ _PyTypes_Init(void)
     INIT_TYPE(&PyFunc_Type, "function");
     INIT_TYPE(&PyDictProxy_Type, "dict proxy");
     INIT_TYPE(&PyGen_Type, "generator");
+    INIT_TYPE(&PyGen2_Type, "generator");
     INIT_TYPE(&PyGetSetDescr_Type, "get-set descriptor");
     INIT_TYPE(&PyWrapperDescr_Type, "wrapper");
     INIT_TYPE(&_PyMethodWrapper_Type, "method wrapper");
@@ -1927,6 +1930,7 @@ _PyTypes_Init(void)
     INIT_TYPE(&PySeqIter_Type, "sequence iterator");
     INIT_TYPE(&PyPickleBuffer_Type, "pickle.PickleBuffer");
     INIT_TYPE(&PyCoro_Type, "coroutine");
+    INIT_TYPE(&PyCoro2_Type, "coroutine");
     INIT_TYPE(&_PyCoroWrapper_Type, "coroutine wrapper");
     INIT_TYPE(&_PyCoroWrapper2_Type, "coroutine wrapper");
     INIT_TYPE(&_PyInterpreterID_Type, "interpreter ID");

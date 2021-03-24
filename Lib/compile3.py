@@ -1340,6 +1340,8 @@ class CodeGen(ast.NodeVisitor):
             self(t.value)
         else:
             self.load_const(None)
+        if self.scope.is_async:
+            self.call_intrinsic('_PyAsyncGenValueWrapperNew')
         self.YIELD_VALUE()
 
     def visit_YieldFrom(self, t):
@@ -1385,7 +1387,9 @@ class CodeGen(ast.NodeVisitor):
     def compile_function(self, t):
         # self.load_const(ast.get_docstring(t))
         self.FUNC_HEADER(0)
-        if type(t) == AsyncFunction:
+        if type(t) == AsyncFunction and self.scope.is_generator:
+            self.COROGEN_HEADER(3)
+        elif type(t) == AsyncFunction:
             self.COROGEN_HEADER(2)
         elif self.scope.is_generator:
             self.COROGEN_HEADER(1)

@@ -438,7 +438,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
         if (frame_link <= 0) {
             if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
-                assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen));
+                assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen) || PyAsyncGen2_CheckExact(gen));
                 gen->status = GEN_ERROR;
                 return NULL;
             }

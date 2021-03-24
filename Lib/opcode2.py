@@ -197,5 +197,6 @@ def_intrinsic('PyList_AsTuple', 7)
 def_intrinsic('vm_raise_assertion_error', 8)
 def_intrinsic('vm_exc_set_cause', 9, nargs=2)
 def_intrinsic('vm_print', 10)
+def_intrinsic('_PyAsyncGenValueWrapperNew', 11)
 
 del def_op, def_intrinsic
