@@ -387,9 +387,9 @@ code_getexc_handlers(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
     for (Py_ssize_t i = 0; i != size; i++) {
         ExceptionHandler *h = &co->co_exc_handlers->entries[i];
         PyObject *entry = Py_BuildValue("(nnnn)",
-            h->start * sizeof(uint32_t),
-            h->handler * sizeof(uint32_t),
-            h->handler_end * sizeof(uint32_t),
+            h->start,
+            h->handler,
+            h->handler_end,
             h->reg);
         if (entry == NULL) {
             Py_DECREF(t);
