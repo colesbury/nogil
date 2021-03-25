@@ -1401,9 +1401,6 @@ class CodeGen(ast.NodeVisitor):
         for i in reversed(range(len(defaults))):
             regs[i].clear()
 
-    def visit_AsyncFunction(self, t):
-        return self.visit_Function(t)
-
     def sprout(self, t):
         return CodeGen(self.filename, self.scope.children[t])
 
@@ -1413,9 +1410,9 @@ class CodeGen(ast.NodeVisitor):
     def compile_function(self, t):
         # self.load_const(ast.get_docstring(t))
         self.FUNC_HEADER(0)
-        if type(t) == AsyncFunction and self.scope.is_generator:
+        if self.scope.is_async and self.scope.is_generator:
             self.COROGEN_HEADER(3)
-        elif type(t) == AsyncFunction:
+        elif self.scope.is_async:
             self.COROGEN_HEADER(2)
         elif self.scope.is_generator:
             self.COROGEN_HEADER(1)
@@ -1568,7 +1565,7 @@ class Desugarer(ast.NodeTransformer):
 
     @rewriter
     def visit_Lambda(self, t):
-        return Function('<lambda>', t.args, [ast.Return(t.body)])
+        return Function('<lambda>', t.args, [ast.Return(t.body)], False, False)
 
     @rewriter
     def visit_Index(self, t):
@@ -1594,14 +1591,14 @@ class Desugarer(ast.NodeTransformer):
 
     @rewriter
     def visit_FunctionDef(self, t):
-        fn = Function(t.name, t.args, t.body)
+        fn = Function(t.name, t.args, t.body, False, False)
         for d in reversed(t.decorator_list):
             fn = Call(d, [fn])
         return ast.Assign([ast.Name(t.name, store)], fn)
 
     @rewriter
     def visit_AsyncFunctionDef(self, t):
-        fn = AsyncFunction(t.name, t.args, t.body)
+        fn = Function(t.name, t.args, t.body, True, False)
         for d in reversed(t.decorator_list):
             fn = Call(d, [fn])
         return ast.Assign([ast.Name(t.name, store)], fn)
@@ -1635,7 +1632,7 @@ class Desugarer(ast.NodeTransformer):
             assert False, type(t)
 
         for loop in reversed(t.generators):
-            print('loop', loop.is_async)
+            print(f'loop is_async={loop.is_async}')
             for test in reversed(loop.ifs):
                 body = ast.If(test, [body], [])
             if loop == t.generators[0]:
@@ -1653,8 +1650,14 @@ class Desugarer(ast.NodeTransformer):
                 ast.Return(ast.Name('.1', load)),
             ]
         args = ast.arguments([], [ast.arg('.0', None)], None, [], [], [], [])
-        return Call(Function(name, args, body),
-                    [GetIter(t.generators[0].iter, t.generators[0].is_async)])
+        func = Function(name, args, body, False, True)
+        scope = Scope.Function(func)
+        for stmt in func.body:
+            scope.visit(stmt)
+        call = Call(func, [GetIter(t.generators[0].iter, t.generators[0].is_async)])
+        if scope.is_async:
+            return ast.Await(call)
+        return call
 
     @rewriter
     def visit_ListComp(self, t):
@@ -1673,10 +1676,7 @@ class Desugarer(ast.NodeTransformer):
         return self.rewrite_comprehension(t)
 
 class Function(ast.FunctionDef):
-    _fields = ('name', 'args', 'body')
-
-class AsyncFunction(ast.AsyncFunctionDef):
-    _fields = ('name', 'args', 'body')
+    _fields = ('name', 'args', 'body', 'is_async', 'is_comprehension')
 
 class Class(ast.ClassDef):
     _fields = ('name', 'bases', 'keywords', 'body')
@@ -1716,6 +1716,7 @@ class Scope(ast.NodeVisitor):
         self.scope_type = scope_type
         self.is_generator = False
         self.is_async = False
+        self.is_comprehension = False
         self.private = (t.name if scope_type == 'class' else
                         parent_scope.private if parent_scope is not None else
                         None)
@@ -1749,24 +1750,30 @@ class Scope(ast.NodeVisitor):
             upval = 'upvalTODO'
             self.free2reg[name] = (upval, reg)
 
-    def function(self, t, is_async):
+    @classmethod
+    def Function(cls, t):
+        args = t.args
+        all_args = args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
+        argnames = [mangle(None, arg.arg) for arg in all_args if arg]
+        subscope = Scope(t, 'function', argnames, None)
+        subscope.is_async = t.is_async
+        subscope.is_comprehension = t.is_comprehension
+        subscope.assign_defaults(t)
+        return subscope
+
+    def visit_Function(self, t):
         args = t.args
         all_args = args.posonlyargs + args.args + args.kwonlyargs + [args.vararg, args.kwarg]
         argnames = [mangle(self.private, arg.arg) for arg in all_args if arg]
         subscope = Scope(t, 'function', argnames, self)
-        subscope.is_async = is_async
+        subscope.is_async = t.is_async
+        subscope.is_comprehension = t.is_comprehension
         subscope.assign_defaults(t)
         self.children[t] = subscope
         for stmt in t.body: subscope.visit(stmt)
         for dflt in t.args.defaults + t.args.kw_defaults:
             if dflt is not None:
                 self.visit(dflt)
-
-    def visit_Function(self, t):
-        self.function(t, is_async=False)
-
-    def visit_AsyncFunction(self, t):
-        self.function(t, is_async=True)
 
     def define(self, name):
         name = mangle(self.private, name)
@@ -1811,7 +1818,8 @@ class Scope(ast.NodeVisitor):
         super().generic_visit(t)
 
     def visit_Await(self, t):
-        assert self.is_async, 'await outside of async function'
+        assert self.is_async or self.is_comprehension, 'await outside of async function'
+        self.is_async = True
         super().generic_visit(t)
 
     def visit_Global(self, t):
