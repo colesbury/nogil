@@ -35,6 +35,10 @@
 #include <setjmp.h>
 
 enum {
+    FRAME_EXTRA = 3 // FIXME get from ceval2_meta.h
+};
+
+enum {
     DEFAULT_INSTR_SIZE = 32,
     DEFAULT_LNOTAB_SIZE = 16,
     MAX_IMMEDIATES = 3
@@ -176,9 +180,9 @@ static void compiler_visit_expr(struct compiler *, expr_ty);
 // static int compiler_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_for(struct compiler *, stmt_ty);
-// static int compiler_call_helper(struct compiler *c, int n,
-//                                 asdl_seq *args,
-//                                 asdl_seq *keywords);
+// static void compiler_call_helper(struct compiler *c, int n,
+//                                  asdl_seq *args,
+//                                  asdl_seq *keywords);
 // static int compiler_try_except(struct compiler *, stmt_ty);
 // static int compiler_set_qualname(struct compiler *);
 
@@ -1333,6 +1337,27 @@ emit1(struct compiler *c, int opcode, int imm0)
         uint8_t *pc = next_instr(c, 2);
         pc[0] = opcode;
         pc[1] = (uint8_t)imm0;
+    }
+}
+
+static int
+reserve_regs(struct compiler *c, int n)
+{
+    int r = c->unit->next_register;
+    c->unit->next_register += n;
+    if (c->unit->next_register > c->unit->max_registers) {
+        c->unit->max_registers = c->unit->next_register;
+    }
+    return r;
+}
+
+static void
+expr_to_reg(struct compiler *c, expr_ty e, int reg)
+{
+    compiler_visit_expr(c, e);
+    emit1(c, STORE_FAST, reg);
+    if (reg <= c->unit->next_register) {
+        reserve_regs(c, c->unit->next_register - reg + 1);
     }
 }
 
@@ -4201,30 +4226,61 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
 //     return 1;
 // }
 
+static bool
+has_starred(asdl_seq *seq)
+{
+    for (Py_ssize_t  i = 0, n = asdl_seq_LEN(seq); i < n; i++) {
+        expr_ty elt = asdl_seq_GET(seq, i);
+        if (elt->kind == Starred_kind) {
+            return true;
+        }
+    }
+    return false; 
+}
+
+static bool
+has_kwdvarargs(asdl_seq *keywords)
+{
+    for (Py_ssize_t  i = 0, n = asdl_seq_LEN(keywords); i < n; i++) {
+        keyword_ty kw = asdl_seq_GET(keywords, i);
+        if (kw->arg == NULL) {
+            return true;
+        }
+    }
+    return false; 
+}
+
 static void
 compiler_call(struct compiler *c, expr_ty e)
 {
-//     int ret;
-//     ret = maybe_optimize_method_call(c, e);
-//     if (ret >= 0) {
-//         return ret;
-//     }
-//     expr_ty func = e->v.Call.func;
-//     if (!check_caller(c, func)) {
-//         return 0;
-//     }
-//     if (func->kind == Name_kind) {
-//         if (!compiler_nameop(c, func->v.Name.id, FuncLoad)) {
-//             return 0;
-//         }
-//     }
-//     else {
-//         VISIT(c, expr, func);
-//         ADDOP(c, DEFER_REFCOUNT);
-//     }
-//     return compiler_call_helper(c, 0,
-//                                 e->v.Call.args,
-//                                 e->v.Call.keywords);
+    // if (maybe_optimize_method_call(c, e)) {
+    //     return;
+    // }
+
+    expr_ty func = e->v.Call.func;
+    // if (!check_caller(c, func)) {
+    //     return;
+    // }
+
+    asdl_seq *args = e->v.Call.args;
+    asdl_seq *keywords = e->v.Call.keywords;
+    Py_ssize_t nargs = asdl_seq_LEN(args);
+    Py_ssize_t nkwds = asdl_seq_LEN(keywords);
+    if (nargs > 255 || nkwds > 255 ||
+        has_starred(args) ||
+        has_kwdvarargs(keywords)) {
+            // oops
+        PyErr_Format(PyExc_RuntimeError, "unsupported call");
+        COMPILER_ERROR(c);
+    }
+
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
+    expr_to_reg(c, func, base - 1);
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        expr_ty elt = asdl_seq_GET(args, i);
+        assert(elt->kind != Starred_kind);
+        expr_to_reg(c, elt, base + i);
+    }
 }
 
 // static int
