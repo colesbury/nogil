@@ -1509,7 +1509,9 @@ def load_file(filename, module_name):
     f.close()
     if True:
         code = compile(source, filename, 'exec', 0x10000)
-        exec(code, {})
+        print('code', code)
+        print(dis.dis(code))
+        # exec(code, {})
     else:
         astobj = compile(source, filename, 'exec', ast.PyCF_ONLY_AST|ast.PyCF_OPTIMIZE_AST)
         return module_from_ast(module_name, filename, astobj)
