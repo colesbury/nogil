@@ -314,7 +314,7 @@ compiler_init(struct compiler *c)
 }
 
 PyObject *
-PyAST_CompileObject2(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
+PyAST_CompileObject3(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
                      int optimize, PyArena *arena)
 {
     PyThreadState *tstate = PyThreadState_GET();
@@ -350,6 +350,9 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
         if (!_PyAST_Optimize(mod, arena, optimize)) {
             return NULL;
         }
+        return (PyCodeObject *)PyAST_CompileObject3(mod, filename, flags, optimize, arena);
+    }
+    else if (flags && (flags->cf_flags & PyCF_NEWER_BYTECODE)) {
         return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
     }
     if (!__doc__) {

@@ -326,6 +326,7 @@ PYTHON_OBJS=	\
 		Python/ceval2_meta.o \
 		Python/codecs.o \
 		Python/compile.o \
+		Python/compile2.o \
 		Python/context.o \
 		Python/dynamic_annotations.o \
 		Python/errors.o \
@@ -892,6 +893,7 @@ regen-symbol: $(srcdir)/Include/graminit.h
 		$(srcdir)/Lib/symbol.py
 
 Python/compile.o Python/symtable.o Python/ast_unparse.o Python/ast.o Python/future.o Parser/parsetok.o: $(srcdir)/Include/graminit.h $(srcdir)/Include/Python-ast.h
+Python/compile2.o Python/symtable.o Python/ast_unparse.o Python/ast.o Python/future.o Parser/parsetok.o: $(srcdir)/Include/graminit.h $(srcdir)/Include/Python-ast.h
 
 Python/getplatform.o: $(srcdir)/Python/getplatform.c
 		$(CC) -c $(PY_CORE_CFLAGS) -DPLATFORM='"$(MACHDEP)"' -o $@ $(srcdir)/Python/getplatform.c

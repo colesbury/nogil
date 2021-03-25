@@ -26,6 +26,7 @@ PyAPI_FUNC(PyCodeObject *) PyNode_Compile(struct _node *, const char *);
 #define PyCF_TYPE_COMMENTS 0x1000
 #define PyCF_ALLOW_TOP_LEVEL_AWAIT 0x2000
 #define PyCF_NEW_BYTECODE 0x8000
+#define PyCF_NEWER_BYTECODE 0x10000
 
 #ifndef Py_LIMITED_API
 typedef struct {
