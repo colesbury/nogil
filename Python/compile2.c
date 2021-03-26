@@ -2849,27 +2849,20 @@ check_compare(struct compiler *c, expr_ty e)
 //     return 1;
 // }
 
-// static int
-// compiler_ifexp(struct compiler *c, expr_ty e)
-// {
-//     basicblock *end, *next;
+static void
+compiler_ifexp(struct compiler *c, expr_ty e)
+{
+    struct bc_label end, next;
+    assert(e->kind == IfExp_kind);
 
-//     assert(e->kind == IfExp_kind);
-//     end = compiler_new_block(c);
-//     if (end == NULL)
-//         return 0;
-//     next = compiler_new_block(c);
-//     if (next == NULL)
-//         return 0;
-//     if (!compiler_jump_if(c, e->v.IfExp.test, next, 0))
-//         return 0;
-//     VISIT(c, expr, e->v.IfExp.body);
-//     ADDOP_JREL(c, JUMP_FORWARD, end);
-//     compiler_use_next_block(c, next);
-//     VISIT(c, expr, e->v.IfExp.orelse);
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+    compiler_visit_expr(c, e->v.IfExp.test);
+    emit_jump(c, POP_JUMP_IF_FALSE, &next);
+    compiler_visit_expr(c, e->v.IfExp.body);
+    emit_jump(c, JUMP, &end);
+    emit_label(c, &next);
+    compiler_visit_expr(c, e->v.IfExp.orelse);
+    emit_label(c, &end);
+}
 
 // static int
 // compiler_lambda(struct compiler *c, expr_ty e)
@@ -3724,7 +3717,7 @@ unaryop(unaryop_ty op)
     case UAdd:      return UNARY_POSITIVE;
     case USub:      return UNARY_NEGATIVE;
     }
-    // INTERNAL_COMPILER_ERROR("unimplemented unary op %d", op);
+    Py_UNREACHABLE();
 }
 
 static int
@@ -3745,6 +3738,7 @@ binop(operator_ty op)
     case BitAnd:    return BINARY_AND;
     case FloorDiv:  return BINARY_FLOOR_DIVIDE;
     }
+    Py_UNREACHABLE();
 }
 
 // static int
@@ -5275,8 +5269,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         break;
 //     case Lambda_kind:
 //         return compiler_lambda(c, e);
-//     case IfExp_kind:
-//         return compiler_ifexp(c, e);
+    case IfExp_kind:
+        compiler_ifexp(c, e);
+        break;
 //     case Dict_kind:
 //         return compiler_dict(c, e);
 //     case Set_kind:
