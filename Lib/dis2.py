@@ -500,14 +500,18 @@ def _unpack_opargs(code):
     while i < len(code):
         wide = False
         op = code[i]
-        if opcodes[op].name == 'WIDE':
+        bytecode = opcodes[op]
+        if bytecode is None:
+            raise RuntimeError(f'bad opcode {op}')
+
+        if bytecode.name == 'WIDE':
             wide = True
             op = code[i+1]
-            size = opcodes[op].wide_size
+            size = bytecode.wide_size
         else:
-            size = opcodes[op].size
+            size = bytecode.size
 
-        imm = list(decode_imm(code, i, opcodes[op], wide))
+        imm = list(decode_imm(code, i, bytecode, wide))
         yield (i, op, *imm)
         i += size
 

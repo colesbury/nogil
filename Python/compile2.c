@@ -163,6 +163,7 @@ static void compiler_unit_free(struct compiler_unit *u);
 // static int compiler_error(struct compiler *, const char *);
 // static int compiler_warn(struct compiler *, const char *, ...);
 static void compiler_nameop(struct compiler *, identifier, expr_context_ty);
+static void compiler_store(struct compiler *, identifier);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
@@ -204,6 +205,16 @@ static PyCodeObject2 *assemble(struct compiler *, int addNone);
 
 // TODO: copy _Py_Mangle from compile.c
 PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
+
+static PyObject *
+mangle(struct compiler *c, PyObject *name)
+{
+    PyObject *mangled = _Py_Mangle(c->unit->private, name);
+    if (!mangled) {
+        COMPILER_ERROR(c);
+    }
+    return mangled;
+}
 
 // static int
 // compiler_init(struct compiler *c)
@@ -580,6 +591,9 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
 static void
 compiler_exit_scope(struct compiler *c)
 {
+    struct compiler_unit *unit = c->unit;
+    c->unit = unit->prev;
+    compiler_unit_free(unit);
     // Py_ssize_t n;
     // PyObject *capsule;
 
@@ -2061,20 +2075,17 @@ compiler_mod(struct compiler *c, mod_ty mod)
 //     return 1;
 // }
 
-// static int
-// compiler_decorators(struct compiler *c, asdl_seq* decos)
-// {
-//     int i;
 
-//     if (!decos)
-//         return 1;
-
-//     for (i = 0; i < asdl_seq_LEN(decos); i++) {
-//         VISIT(c, expr, (expr_ty)asdl_seq_GET(decos, i));
-//         ADDOP(c, DEFER_REFCOUNT);
-//     }
-//     return 1;
-// }
+static Py_ssize_t
+compiler_decorators(struct compiler *c, asdl_seq* decos)
+{
+    Py_ssize_t base = -1;
+    for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
+        base = c->unit->next_register + FRAME_EXTRA + 1;
+        expr_to_reg(c, asdl_seq_GET(decos, i), base - 1);
+    }
+    return base;
+}
 
 // static int
 // compiler_visit_kwonlydefaults(struct compiler *c, asdl_seq *kwonlyargs,
@@ -2239,7 +2250,7 @@ compiler_mod(struct compiler *c, mod_ty mod)
 //     return 0;
 // }
 
-// static int
+// static void
 // compiler_visit_defaults(struct compiler *c, arguments_ty args)
 // {
 //     VISIT_SEQ(c, expr, args->defaults);
@@ -2247,124 +2258,126 @@ compiler_mod(struct compiler *c, mod_ty mod)
 //     return 1;
 // }
 
-// static Py_ssize_t
-// compiler_default_arguments(struct compiler *c, arguments_ty args)
-// {
-//     Py_ssize_t funcflags = 0;
-//     if (args->defaults && asdl_seq_LEN(args->defaults) > 0) {
-//         if (!compiler_visit_defaults(c, args))
-//             return -1;
-//         funcflags |= 0x01;
-//     }
-//     if (args->kwonlyargs) {
-//         int res = compiler_visit_kwonlydefaults(c, args->kwonlyargs,
-//                                                 args->kw_defaults);
-//         if (res == 0) {
-//             return -1;
-//         }
-//         else if (res > 0) {
-//             funcflags |= 0x02;
-//         }
-//     }
-//     return funcflags;
-// }
+static Py_ssize_t
+compiler_default_arguments(struct compiler *c, arguments_ty args)
+{
+    Py_ssize_t funcflags = 0;
+    if (args->defaults && asdl_seq_LEN(args->defaults) > 0) {
+        PyErr_Format(PyExc_RuntimeError, "compiler_visit_defaults NYI");
+        COMPILER_ERROR(c);
+        // compiler_visit_defaults(c, args);
+        // funcflags |= 0x01;
+    }
+    if (args->kwonlyargs) {
+        PyErr_Format(PyExc_RuntimeError, "compiler_visit_kwonlydefaults NYI");
+        COMPILER_ERROR(c);
+        // int res = compiler_visit_kwonlydefaults(c, args->kwonlyargs,
+        //                                         args->kw_defaults);
+        // if (res > 0) {
+        //     funcflags |= 0x02;
+        // }
+    }
+    return funcflags;
+}
 
-// static int
-// compiler_function(struct compiler *c, stmt_ty s, int is_async)
-// {
-//     PyCodeObject *co;
-//     PyObject *qualname, *docstring = NULL;
-//     arguments_ty args;
-//     expr_ty returns;
-//     identifier name;
-//     asdl_seq* decos;
-//     asdl_seq *body;
-//     Py_ssize_t i, funcflags;
-//     int annotations;
-//     int scope_type;
-//     int firstlineno;
+static void
+compiler_function(struct compiler *c, stmt_ty s, int is_async)
+{
+    PyCodeObject2 *co;
+    PyObject *qualname, *docstring = NULL;
+    arguments_ty args;
+    expr_ty returns;
+    identifier name;
+    asdl_seq* decos;
+    asdl_seq *body;
+    Py_ssize_t i, funcflags, deco_base;
+    int annotations;
+    int scope_type;
+    int firstlineno;
 
-//     if (is_async) {
-//         assert(s->kind == AsyncFunctionDef_kind);
+    if (is_async) {
+        assert(s->kind == AsyncFunctionDef_kind);
 
-//         args = s->v.AsyncFunctionDef.args;
-//         returns = s->v.AsyncFunctionDef.returns;
-//         decos = s->v.AsyncFunctionDef.decorator_list;
-//         name = s->v.AsyncFunctionDef.name;
-//         body = s->v.AsyncFunctionDef.body;
+        args = s->v.AsyncFunctionDef.args;
+        returns = s->v.AsyncFunctionDef.returns;
+        decos = s->v.AsyncFunctionDef.decorator_list;
+        name = s->v.AsyncFunctionDef.name;
+        body = s->v.AsyncFunctionDef.body;
 
-//         scope_type = COMPILER_SCOPE_ASYNC_FUNCTION;
-//     } else {
-//         assert(s->kind == FunctionDef_kind);
+        scope_type = COMPILER_SCOPE_ASYNC_FUNCTION;
+    } else {
+        assert(s->kind == FunctionDef_kind);
 
-//         args = s->v.FunctionDef.args;
-//         returns = s->v.FunctionDef.returns;
-//         decos = s->v.FunctionDef.decorator_list;
-//         name = s->v.FunctionDef.name;
-//         body = s->v.FunctionDef.body;
+        args = s->v.FunctionDef.args;
+        returns = s->v.FunctionDef.returns;
+        decos = s->v.FunctionDef.decorator_list;
+        name = s->v.FunctionDef.name;
+        body = s->v.FunctionDef.body;
 
-//         scope_type = COMPILER_SCOPE_FUNCTION;
-//     }
+        scope_type = COMPILER_SCOPE_FUNCTION;
+    }
 
-//     if (!compiler_decorators(c, decos))
-//         return 0;
+    deco_base = compiler_decorators(c, decos);
 
-//     firstlineno = s->lineno;
-//     if (asdl_seq_LEN(decos)) {
-//         firstlineno = ((expr_ty)asdl_seq_GET(decos, 0))->lineno;
-//     }
+    firstlineno = s->lineno;
+    if (asdl_seq_LEN(decos)) {
+        firstlineno = ((expr_ty)asdl_seq_GET(decos, 0))->lineno;
+    }
 
-//     funcflags = compiler_default_arguments(c, args);
-//     if (funcflags == -1) {
-//         return 0;
-//     }
+    funcflags = compiler_default_arguments(c, args); // FIXME
+    // annotations = compiler_visit_annotations(c, args, returns);
+    // if (annotations == 0) {
+    //     return 0;
+    // }
+    // else if (annotations > 0) {
+    //     funcflags |= 0x04;
+    // }
 
-//     annotations = compiler_visit_annotations(c, args, returns);
-//     if (annotations == 0) {
-//         return 0;
-//     }
-//     else if (annotations > 0) {
-//         funcflags |= 0x04;
-//     }
+    compiler_enter_scope(c, name, scope_type, (void *)s, firstlineno);
 
-//     if (!compiler_enter_scope(c, name, scope_type, (void *)s, firstlineno)) {
-//         return 0;
-//     }
+    emit1(c, FUNC_HEADER, 0);
 
-//     /* if not -OO mode, add docstring */
-//     if (c->c_optimize < 2) {
-//         docstring = _PyAST_GetDocString(body);
-//     }
-//     if (compiler_add_const(c, docstring ? docstring : Py_None) < 0) {
-//         compiler_exit_scope(c);
-//         return 0;
-//     }
+    /* if not -OO mode, add docstring */
+    if (c->optimize < 2) {
+        docstring = _PyAST_GetDocString(body);
+    }
+    compiler_add_const(c, docstring ? docstring : Py_None); //?????
 
-//     c->u->u_argcount = asdl_seq_LEN(args->args);
-//     c->u->u_posonlyargcount = asdl_seq_LEN(args->posonlyargs);
-//     c->u->u_kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
-//     VISIT_SEQ_IN_SCOPE(c, stmt, body);
-//     co = assemble(c, 1);
-//     qualname = c->u->u_qualname;
-//     Py_INCREF(qualname);
-//     compiler_exit_scope(c);
-//     if (co == NULL) {
-//         Py_XDECREF(qualname);
-//         Py_XDECREF(co);
-//         return 0;
-//     }
+    c->unit->argcount = asdl_seq_LEN(args->args);
+    c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
+    c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
+    compiler_visit_stmts(c, body);
+    co = assemble(c, 1);
 
-//     compiler_make_closure(c, co, funcflags, qualname);
-//     Py_DECREF(qualname);
-//     Py_DECREF(co);
+    Py_ssize_t co_idx = compiler_add_o(c, c->unit->prev->consts, co);
+    Py_DECREF(co); //????
+    compiler_exit_scope(c);
 
-//     /* decorators */
-//     for (i = 0; i < asdl_seq_LEN(decos); i++) {
-//         ADDOP_I(c, CALL_FUNCTION, 1);
-//     }
+    emit1(c, MAKE_FUNCTION, co_idx);
 
-//     return compiler_nameop(c, name, Store);
-// }
+    qualname = c->unit->qualname;
+    // Py_INCREF(qualname);
+    // compiler_exit_scope(c);
+    // if (co == NULL) {
+    //     Py_XDECREF(qualname);
+    //     Py_XDECREF(co);
+    //     return 0;
+    // }
+
+    // compiler_make_closure(c, co, funcflags, qualname);
+    // Py_DECREF(qualname);
+    // Py_DECREF(co);
+
+    /* decorators */
+    for (i = 0; i < asdl_seq_LEN(decos); i++) {
+        emit1(c, STORE_FAST, deco_base);
+        emit_call(c, CALL_FUNCTION, deco_base, 1);
+        deco_base -= FRAME_EXTRA - 1;
+    }
+
+    compiler_store(c, name);
+    // return compiler_nameop(c, name, Store);
+}
 
 // static int
 // compiler_class(struct compiler *c, stmt_ty s)
@@ -3447,8 +3460,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     c->unit->lineno_set = 0;
 
     switch (s->kind) {
-//     case FunctionDef_kind:
-//         return compiler_function(c, s, 0);
+    case FunctionDef_kind:
+        compiler_function(c, s, 0); break;
 //     case ClassDef_kind:
 //         return compiler_class(c, s);
 //     case Return_kind:
@@ -3654,9 +3667,9 @@ compiler_access(struct compiler *c, PyObject *mangled_name)
 static void
 compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
 {
-    int op, scope, access;
-    Py_ssize_t arg;
-    enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
+    // int op, scope;
+    // Py_ssize_t arg;
+    // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
 
     PyObject *mangled;
     /* XXX AugStore isn't used anywhere! */
@@ -3665,12 +3678,8 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
            !_PyUnicode_EqualToASCIIString(name, "True") &&
            !_PyUnicode_EqualToASCIIString(name, "False"));
 
-    mangled = _Py_Mangle(c->unit->private, name);
-    if (!mangled) {
-        COMPILER_ERROR(c);
-    }
-
-    access = compiler_access(c, mangled);
+    mangled = mangle(c, name);
+    int access = compiler_access(c, mangled);
     switch (access) {
     case ACCESS_FAST:
         emit1(c, LOAD_FAST, compiler_varname(c, mangled));
@@ -3697,7 +3706,34 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
               compiler_metaslot(c, mangled));
         break;
     }
+    Py_DECREF(mangled); // FIXME error handling
 }
+
+static void
+compiler_store(struct compiler *c, PyObject *name)
+{
+    PyObject *mangled = mangle(c, name);
+    int access = compiler_access(c, mangled);
+    switch (access) {
+    case ACCESS_FAST:
+        emit1(c, STORE_FAST, compiler_varname(c, mangled));
+        break;
+    case ACCESS_DEREF:
+        emit1(c, STORE_DEREF, compiler_varname(c, mangled));
+        break;
+    case ACCESS_NAME:
+        emit1(c, STORE_NAME, compiler_const(c, mangled));
+        break;
+    case ACCESS_GLOBAL:
+        emit1(c, STORE_GLOBAL, compiler_const(c, mangled));
+        break;
+    default:
+        PyErr_SetString(PyExc_RuntimeError, "bad access for store");
+        COMPILER_ERROR(c);
+    }
+    Py_DECREF(mangled); // FIXME error handling
+}
+
 
 // static int
 // compiler_boolop(struct compiler *c, expr_ty e)
@@ -6143,6 +6179,11 @@ static PyCodeObject2 *
 assemble(struct compiler *c, int addNone)
 {
     PyCodeObject2 *co;
+    if (c->unit->reachable) {
+        emit1(c, LOAD_CONST, const_none(c));
+        emit0(c, RETURN_VALUE);
+    }
+
     co = makecode(c);
     // assemble_free(&a);
     return co;
