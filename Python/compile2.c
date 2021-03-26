@@ -1411,6 +1411,38 @@ emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
     }
 }
 
+struct multi_label {
+    struct bc_label *arr;
+    Py_ssize_t n;
+    Py_ssize_t allocated;
+};
+
+static struct bc_label *
+multi_label_next(struct compiler *c, struct multi_label *labels)
+{
+    if (labels->n == labels->allocated) {
+        Py_ssize_t newsize = (labels->allocated * 2) + 1;
+        struct bc_label *arr;
+        arr = mi_heap_recalloc(c->heap, labels->arr, newsize, sizeof(*labels->arr));
+        if (arr == NULL) {
+            COMPILER_ERROR(c);
+        }
+        labels->arr = arr;
+        labels->allocated = newsize;
+    }
+    return &labels->arr[labels->n++];
+}
+
+static void
+multi_label_emit(struct compiler *c, struct multi_label *labels)
+{
+    for (Py_ssize_t i = 0, n = labels->n; i != n; i++) {
+        emit_label(c, &labels->arr[i]);
+    }
+    mi_free(labels->arr);
+    memset(labels, 0, sizeof(*labels));
+}
+
 static int
 reserve_regs(struct compiler *c, int n)
 {
@@ -3683,24 +3715,17 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
     }
 }
 
-// static int
-// unaryop(unaryop_ty op)
-// {
-//     switch (op) {
-//     case Invert:
-//         return UNARY_INVERT;
-//     case Not:
-//         return UNARY_NOT;
-//     case UAdd:
-//         return UNARY_POSITIVE;
-//     case USub:
-//         return UNARY_NEGATIVE;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//             "unary op %d should not be possible", op);
-//         return 0;
-//     }
-// }
+static int
+unaryop(unaryop_ty op)
+{
+    switch (op) {
+    case Invert:    return UNARY_INVERT;
+    case Not:       return UNARY_NOT;
+    case UAdd:      return UNARY_POSITIVE;
+    case USub:      return UNARY_NEGATIVE;
+    }
+    // INTERNAL_COMPILER_ERROR("unimplemented unary op %d", op);
+}
 
 static int
 binop(operator_ty op)
@@ -3850,33 +3875,32 @@ compiler_store(struct compiler *c, PyObject *name)
 }
 
 
-// static int
-// compiler_boolop(struct compiler *c, expr_ty e)
-// {
-//     basicblock *end;
-//     int jumpi;
-//     Py_ssize_t i, n;
-//     asdl_seq *s;
+static void
+compiler_boolop(struct compiler *c, expr_ty e)
+{
+    int jump_opcode;
+    Py_ssize_t i, n;
+    asdl_seq *s;
 
-//     assert(e->kind == BoolOp_kind);
-//     if (e->v.BoolOp.op == And)
-//         jumpi = JUMP_IF_FALSE_OR_POP;
-//     else
-//         jumpi = JUMP_IF_TRUE_OR_POP;
-//     end = compiler_new_block(c);
-//     if (end == NULL)
-//         return 0;
-//     s = e->v.BoolOp.values;
-//     n = asdl_seq_LEN(s) - 1;
-//     assert(n >= 0);
-//     for (i = 0; i < n; ++i) {
-//         VISIT(c, expr, (expr_ty)asdl_seq_GET(s, i));
-//         ADDOP_JABS(c, jumpi, end);
-//     }
-//     VISIT(c, expr, (expr_ty)asdl_seq_GET(s, n));
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+    if (e->v.BoolOp.op == And)
+        jump_opcode = JUMP_IF_FALSE;
+    else
+        jump_opcode = JUMP_IF_TRUE;
+    
+    s = e->v.BoolOp.values;
+    n = asdl_seq_LEN(s);
+
+    struct multi_label labels;
+    memset(&labels, 0, sizeof(labels));
+
+    compiler_visit_expr(c, asdl_seq_GET(s, 0));
+    for (i = 1; i < n; ++i) {
+        emit_jump(c, jump_opcode, multi_label_next(c, &labels));
+        emit0(c, CLEAR_ACC);
+        compiler_visit_expr(c, asdl_seq_GET(s, i));
+    }
+    multi_label_emit(c, &labels);
+}
 
 // static int
 // starunpack_helper(struct compiler *c, asdl_seq *elts, int pushed,
@@ -4143,38 +4167,6 @@ shuffle_down(struct compiler *c, Py_ssize_t lhs, Py_ssize_t rhs)
         free_reg(c, rhs);
         return lhs;
     }
-}
-
-struct multi_label {
-    struct bc_label *arr;
-    Py_ssize_t n;
-    Py_ssize_t allocated;
-};
-
-static struct bc_label *
-multi_label_next(struct compiler *c, struct multi_label *labels)
-{
-    if (labels->n == labels->allocated) {
-        Py_ssize_t newsize = (labels->allocated * 2) + 1;
-        struct bc_label *arr;
-        arr = mi_heap_recalloc(c->heap, labels->arr, newsize, sizeof(*labels->arr));
-        if (arr == NULL) {
-            COMPILER_ERROR(c);
-        }
-        labels->arr = arr;
-        labels->allocated = newsize;
-    }
-    return &labels->arr[labels->n++];
-}
-
-static void
-multi_label_emit(struct compiler *c, struct multi_label *labels)
-{
-    for (Py_ssize_t i = 0, n = labels->n; i != n; i++) {
-        emit_label(c, &labels->arr[i]);
-    }
-    mi_free(labels->arr);
-    memset(labels, 0, sizeof(*labels));
 }
 
 static void
@@ -5268,18 +5260,19 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //         ADDOP(c, DUP_TOP);
 //         VISIT(c, expr, e->v.NamedExpr.target);
 //         break;
-//     case BoolOp_kind:
-//         return compiler_boolop(c, e);
+    case BoolOp_kind:
+        compiler_boolop(c, e);
+        break;
     case BinOp_kind:
         reg = expr_to_any_reg(c, e->v.BinOp.left);
         compiler_visit_expr(c, e->v.BinOp.right);
         emit1(c, binop(e->v.BinOp.op), reg);
         clear_reg(c, reg);
         break;
-//     case UnaryOp_kind:
-//         VISIT(c, expr, e->v.UnaryOp.operand);
-//         ADDOP(c, unaryop(e->v.UnaryOp.op));
-//         break;
+    case UnaryOp_kind:
+        compiler_visit_expr(c, e->v.UnaryOp.operand);
+        emit0(c, unaryop(e->v.UnaryOp.op));
+        break;
 //     case Lambda_kind:
 //         return compiler_lambda(c, e);
 //     case IfExp_kind:
