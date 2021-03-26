@@ -99,6 +99,7 @@ struct compiler_unit {
     PyObject *varnames;  /* local variables */
     PyObject *cellvars;  /* cell variables */
     PyObject *freevars;  /* free variables */
+    PyObject *metadata;
 
     PyObject *private;        /* for private name mangling */
 
@@ -161,7 +162,7 @@ static void compiler_unit_free(struct compiler_unit *u);
 // static int compiler_addop_j(struct compiler *, int, basicblock *, int);
 // static int compiler_error(struct compiler *, const char *);
 // static int compiler_warn(struct compiler *, const char *, ...);
-// static int compiler_nameop(struct compiler *, identifier, expr_context_ty);
+static void compiler_nameop(struct compiler *, identifier, expr_context_ty);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
@@ -201,73 +202,8 @@ static PyCodeObject2 *assemble(struct compiler *, int addNone);
 
 // #define CAPSULE_NAME "compile.c compiler unit"
 
-// PyObject *
-// _Py_Mangle(PyObject *privateobj, PyObject *ident)
-// {
-//     /* Name mangling: __private becomes _classname__private.
-//        This is independent from how the name is used. */
-//     PyObject *result;
-//     size_t nlen, plen, ipriv;
-//     Py_UCS4 maxchar;
-//     if (privateobj == NULL || !PyUnicode_Check(privateobj) ||
-//         PyUnicode_READ_CHAR(ident, 0) != '_' ||
-//         PyUnicode_READ_CHAR(ident, 1) != '_') {
-//         Py_INCREF(ident);
-//         return ident;
-//     }
-//     nlen = PyUnicode_GET_LENGTH(ident);
-//     plen = PyUnicode_GET_LENGTH(privateobj);
-//     /* Don't mangle __id__ or names with dots.
-
-//        The only time a name with a dot can occur is when
-//        we are compiling an import statement that has a
-//        package name.
-
-//        TODO(jhylton): Decide whether we want to support
-//        mangling of the module name, e.g. __M.X.
-//     */
-//     if ((PyUnicode_READ_CHAR(ident, nlen-1) == '_' &&
-//          PyUnicode_READ_CHAR(ident, nlen-2) == '_') ||
-//         PyUnicode_FindChar(ident, '.', 0, nlen, 1) != -1) {
-//         Py_INCREF(ident);
-//         return ident; /* Don't mangle __whatever__ */
-//     }
-//     /* Strip leading underscores from class name */
-//     ipriv = 0;
-//     while (PyUnicode_READ_CHAR(privateobj, ipriv) == '_')
-//         ipriv++;
-//     if (ipriv == plen) {
-//         Py_INCREF(ident);
-//         return ident; /* Don't mangle if class is just underscores */
-//     }
-//     plen -= ipriv;
-
-//     if (plen + nlen >= PY_SSIZE_T_MAX - 1) {
-//         PyErr_SetString(PyExc_OverflowError,
-//                         "private identifier too large to be mangled");
-//         return NULL;
-//     }
-
-//     maxchar = PyUnicode_MAX_CHAR_VALUE(ident);
-//     if (PyUnicode_MAX_CHAR_VALUE(privateobj) > maxchar)
-//         maxchar = PyUnicode_MAX_CHAR_VALUE(privateobj);
-
-//     result = PyUnicode_New(1 + nlen + plen, maxchar);
-//     if (!result)
-//         return 0;
-//     /* ident = "_" + priv[ipriv:] + ident # i.e. 1+plen+nlen bytes */
-//     PyUnicode_WRITE(PyUnicode_KIND(result), PyUnicode_DATA(result), 0, '_');
-//     if (PyUnicode_CopyCharacters(result, 1, privateobj, ipriv, plen) < 0) {
-//         Py_DECREF(result);
-//         return NULL;
-//     }
-//     if (PyUnicode_CopyCharacters(result, plen+1, ident, 0, nlen) < 0) {
-//         Py_DECREF(result);
-//         return NULL;
-//     }
-//     assert(_PyUnicode_CheckConsistency(result, 1));
-//     return result;
-// }
+// TODO: copy _Py_Mangle from compile.c
+PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
 
 // static int
 // compiler_init(struct compiler *c)
@@ -538,16 +474,16 @@ compiler_unit_free(struct compiler_unit *u)
     //     PyObject_Free((void *)b);
     //     b = next;
     // }
-    // Py_CLEAR(u->u_ste);
-    // Py_CLEAR(u->u_name);
-    // Py_CLEAR(u->u_qualname);
-    // Py_CLEAR(u->u_consts);
-    // Py_CLEAR(u->u_names);
-    // Py_CLEAR(u->u_varnames);
-    // Py_CLEAR(u->u_freevars);
-    // Py_CLEAR(u->u_cellvars);
-    // Py_CLEAR(u->u_private);
-    // PyObject_Free(u);
+    Py_CLEAR(u->ste);
+    Py_CLEAR(u->name);
+    Py_CLEAR(u->qualname);
+    Py_CLEAR(u->consts);
+    Py_CLEAR(u->varnames);
+    Py_CLEAR(u->cellvars);
+    Py_CLEAR(u->freevars);
+    Py_CLEAR(u->metadata);
+    Py_CLEAR(u->private);
+    PyObject_Free(u);
 }
 
 static int
@@ -613,6 +549,10 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->freevars = dictbytype(u->ste->ste_symbols, FREE, DEF_FREE_CLASS,
                                PyDict_GET_SIZE(u->cellvars));
     if (!u->freevars) {
+        COMPILER_ERROR(c);
+    }
+    u->metadata = PyDict_New();
+    if (u->metadata == NULL) {
         COMPILER_ERROR(c);
     }
 
@@ -1317,6 +1257,13 @@ write_uint32(uint8_t *pc, int imm)
 }
 
 static void
+write_uint16(uint8_t *pc, int imm)
+{
+    uint16_t value = (uint16_t)imm;
+    memcpy(pc, &value, sizeof(uint16_t));
+}
+
+static void
 emit0(struct compiler *c, int opcode)
 {
     uint8_t *pc = next_instr(c, 1);
@@ -1337,6 +1284,44 @@ emit1(struct compiler *c, int opcode, int imm0)
         uint8_t *pc = next_instr(c, 2);
         pc[0] = opcode;
         pc[1] = (uint8_t)imm0;
+    }
+}
+
+static void
+emit2(struct compiler *c, int opcode, int imm0, int imm1)
+{
+    int wide = (imm0 > 255);
+    if (wide) {
+        uint8_t *pc = next_instr(c, 10);
+        pc[0] = WIDE;
+        pc[1] = opcode;
+        write_uint32(&pc[2], imm0);
+        write_uint32(&pc[6], imm1);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 3);
+        pc[0] = opcode;
+        pc[1] = (uint8_t)imm0;
+        pc[2] = (uint8_t)imm1;
+    }
+}
+
+static void
+emit_call(struct compiler *c, int opcode, int base, int flags)
+{
+    int wide = (base > 255);
+    if (wide) {
+        uint8_t *pc = next_instr(c, 8);
+        pc[0] = WIDE;
+        pc[1] = opcode;
+        write_uint32(&pc[2], base);
+        write_uint16(&pc[6], flags);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 4);
+        pc[0] = opcode;
+        pc[1] = base;
+        write_uint16(&pc[2], flags);
     }
 }
 
@@ -1409,6 +1394,31 @@ compiler_add_o(struct compiler *c, PyObject *dict, PyObject *o)
     else
         arg = PyLong_AsLong(v);
     return arg;
+}
+
+static int32_t
+compiler_varname(struct compiler *c, PyObject *mangled_name)
+{
+    PyObject *v = PyDict_GetItemWithError(c->unit->varnames, mangled_name);
+    if (v == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_RuntimeError, "missing name %U", mangled_name);
+        }
+        COMPILER_ERROR(c);
+    }
+    return PyLong_AsLong(v);
+}
+
+static int32_t
+compiler_const(struct compiler *c, PyObject *value)
+{
+    return compiler_add_o(c, c->unit->consts, value);
+}
+
+static int32_t
+compiler_metaslot(struct compiler *c, PyObject *name)
+{
+    return compiler_add_o(c, c->unit->metadata, name);
 }
 
 // Merge const *o* recursively and return constant key object.
@@ -3613,152 +3623,81 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
 //     }
 // }
 
-// static int
-// compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
-// {
-//     int op, scope;
-//     Py_ssize_t arg;
-//     enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
+enum {
+    ACCESS_FAST = 0,
+    ACCESS_DEREF = 1,
+    ACCESS_CLASSDEREF = 2,
+    ACCESS_NAME = 3,
+    ACCESS_GLOBAL = 4
+};
 
-//     PyObject *dict = c->u->u_names;
-//     PyObject *mangled;
-//     /* XXX AugStore isn't used anywhere! */
+static int
+compiler_access(struct compiler *c, PyObject *mangled_name)
+{
+    int scope = PyST_GetScope(c->unit->ste, mangled_name);
+    PySTEntryObject *ste = c->unit->ste;
+    switch (scope) {
+    case FREE:
+    case CELL:
+        return ste->ste_type == ClassBlock ? ACCESS_CLASSDEREF : ACCESS_DEREF;
+    case LOCAL:
+        return ste->ste_type == FunctionBlock ? ACCESS_FAST : ACCESS_NAME;
+    case GLOBAL_IMPLICIT:
+        return ste->ste_type == FunctionBlock ? ACCESS_GLOBAL : ACCESS_NAME;
+    case GLOBAL_EXPLICIT:
+        return ACCESS_GLOBAL;
+    default:
+        return ACCESS_NAME;
+    }
+}
 
-//     assert(!_PyUnicode_EqualToASCIIString(name, "None") &&
-//            !_PyUnicode_EqualToASCIIString(name, "True") &&
-//            !_PyUnicode_EqualToASCIIString(name, "False"));
+static void
+compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
+{
+    int op, scope, access;
+    Py_ssize_t arg;
+    enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
 
-//     mangled = _Py_Mangle(c->u->u_private, name);
-//     if (!mangled)
-//         return 0;
+    PyObject *mangled;
+    /* XXX AugStore isn't used anywhere! */
 
-//     op = 0;
-//     optype = OP_NAME;
-//     scope = PyST_GetScope(c->u->u_ste, mangled);
-//     switch (scope) {
-//     case FREE:
-//         dict = c->u->u_freevars;
-//         optype = OP_DEREF;
-//         break;
-//     case CELL:
-//         dict = c->u->u_cellvars;
-//         optype = OP_DEREF;
-//         break;
-//     case LOCAL:
-//         if (c->u->u_ste->ste_type == FunctionBlock)
-//             optype = OP_FAST;
-//         break;
-//     case GLOBAL_IMPLICIT:
-//         if (c->u->u_ste->ste_type == FunctionBlock)
-//             optype = OP_GLOBAL;
-//         break;
-//     case GLOBAL_EXPLICIT:
-//         optype = OP_GLOBAL;
-//         break;
-//     default:
-//         /* scope can be 0 */
-//         break;
-//     }
+    assert(!_PyUnicode_EqualToASCIIString(name, "None") &&
+           !_PyUnicode_EqualToASCIIString(name, "True") &&
+           !_PyUnicode_EqualToASCIIString(name, "False"));
 
-//     /* XXX Leave assert here, but handle __doc__ and the like better */
-//     assert(scope || PyUnicode_READ_CHAR(name, 0) == '_');
+    mangled = _Py_Mangle(c->unit->private, name);
+    if (!mangled) {
+        COMPILER_ERROR(c);
+    }
 
-//     switch (optype) {
-//     case OP_DEREF:
-//         switch (ctx) {
-//         case FuncLoad:
-//         case Load:
-//             op = (c->u->u_ste->ste_type == ClassBlock) ? LOAD_CLASSDEREF : LOAD_DEREF;
-//             break;
-//         case Store:
-//             op = STORE_DEREF;
-//             break;
-//         case AugLoad:
-//         case AugStore:
-//             break;
-//         case Del: op = DELETE_DEREF; break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                             "param invalid for deref variable");
-//             return 0;
-//         }
-//         break;
-//     case OP_FAST:
-//         switch (ctx) {
-//         case FuncLoad:
-//             op = LOAD_FAST_FOR_CALL;
-//             break;
-//         case Load: op = LOAD_FAST; break;
-//         case Store:
-//             op = STORE_FAST;
-//             break;
-//         case Del: op = DELETE_FAST; break;
-//         case AugLoad:
-//         case AugStore:
-//             break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                             "param invalid for local variable");
-//             return 0;
-//         }
-//         ADDOP_N(c, op, mangled, varnames);
-//         if (ctx == FuncLoad && op != LOAD_FAST_FOR_CALL) {
-//             ADDOP(c, DEFER_REFCOUNT);
-//         }
-//         return 1;
-//     case OP_GLOBAL:
-//         switch (ctx) {
-//         case FuncLoad: op = LOAD_GLOBAL_FOR_CALL; break;
-//         case Load: op = LOAD_GLOBAL; break;
-//         case Store:
-//             op = STORE_GLOBAL;
-//             break;
-//         case Del: op = DELETE_GLOBAL; break;
-//         case AugLoad:
-//         case AugStore:
-//             break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                             "param invalid for global variable");
-//             return 0;
-//         }
-//         break;
-//     case OP_NAME:
-//         switch (ctx) {
-//         case FuncLoad:
-//         case Load: op = LOAD_NAME; break;
-//         case Store:
-//             op = STORE_NAME;
-//             break;
-//         case Del: op = DELETE_NAME; break;
-//         case AugLoad:
-//         case AugStore:
-//             break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                             "param invalid for name variable");
-//             return 0;
-//         }
-//         break;
-//     }
-
-//     assert(op);
-//     arg = compiler_add_o(c, dict, mangled);
-//     Py_DECREF(mangled);
-//     if (arg < 0)
-//         return 0;
-//     ADDOP_I(c, op, arg);
-//     if (ctx == FuncLoad) {
-//         if (op != LOAD_GLOBAL_FOR_CALL) {
-//             ADDOP(c, DEFER_REFCOUNT);
-//         }
-//     }
-//     return 1;
-// }
+    access = compiler_access(c, mangled);
+    switch (access) {
+    case ACCESS_FAST:
+        emit1(c, LOAD_FAST, compiler_varname(c, mangled));
+        break;
+    case ACCESS_DEREF:
+        emit1(c, LOAD_DEREF, compiler_varname(c, mangled));
+        break;
+    case ACCESS_CLASSDEREF:
+        emit2(c,
+              LOAD_CLASSDEREF,
+              compiler_varname(c, mangled),
+              compiler_const(c, mangled));
+        break;
+    case ACCESS_NAME:
+        emit2(c, 
+              LOAD_NAME,
+              compiler_const(c, mangled),
+              compiler_metaslot(c, mangled));
+        break;
+    case ACCESS_GLOBAL:
+        emit2(c,
+              LOAD_GLOBAL,
+              compiler_const(c, mangled),
+              compiler_metaslot(c, mangled));
+        break;
+    }
+}
 
 // static int
 // compiler_boolop(struct compiler *c, expr_ty e)
@@ -4274,13 +4213,15 @@ compiler_call(struct compiler *c, expr_ty e)
         COMPILER_ERROR(c);
     }
 
-    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
+    int flags = nargs | (nkwds << 8);
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA + 1;
     expr_to_reg(c, func, base - 1);
     for (Py_ssize_t i = 0; i < nargs; i++) {
         expr_ty elt = asdl_seq_GET(args, i);
         assert(elt->kind != Starred_kind);
         expr_to_reg(c, elt, base + i);
     }
+    emit_call(c, CALL_FUNCTION, base, flags);
 }
 
 // static int
@@ -5156,9 +5097,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Call_kind:
         compiler_call(c, e);
         break;
-//     case Constant_kind:
-//         ADDOP_LOAD_CONST(c, e->v.Constant.value);
-//         break;
+    case Constant_kind:
+        emit1(c, LOAD_CONST, compiler_const(c, e->v.Constant.value));
+        break;
 //     case JoinedStr_kind:
 //         return compiler_joined_str(c, e);
 //     case FormattedValue_kind:
@@ -5235,8 +5176,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //             return compiler_error(c,
 //                 "can't use starred expression here");
 //         }
-//     case Name_kind:
-//         return compiler_nameop(c, e->v.Name.id, e->v.Name.ctx);
+    case Name_kind:
+        compiler_nameop(c, e->v.Name.id, e->v.Name.ctx);
+        break;
 //     /* child nodes of List and Tuple will have expr_context set */
 //     case List_kind:
 //         return compiler_list(c, e);
@@ -6120,7 +6062,7 @@ makecode(struct compiler *c)
     Py_ssize_t instr_size = c->unit->instr.offset;
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
     Py_ssize_t niconsts = 0;
-    Py_ssize_t nmeta = 0;
+    Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
     Py_ssize_t ncells = 0;
     Py_ssize_t ncaptures = 0;
     Py_ssize_t nexc_handlers = 0;

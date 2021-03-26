@@ -46,7 +46,9 @@ PyFunc_New(PyObject *co, PyObject *globals)
         Py_DECREF(func);
         return NULL;
     }
-    Py_INCREF(func->func_module);
+    else if (func->func_module != NULL) {
+        Py_INCREF(func->func_module);
+    }
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;
