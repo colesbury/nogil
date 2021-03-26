@@ -71,6 +71,11 @@ struct instr_array {
     uint32_t allocated;
 };
 
+struct bc_label {
+    int bound;
+    uint32_t offset;
+};
+
 /* The following items change on entry and exit of code blocks.
    They must be saved and restored when returning to a block.
 */
@@ -177,7 +182,7 @@ static void compiler_visit_expr(struct compiler *, expr_ty);
 
 // static int inplace_binop(struct compiler *, operator_ty);
 // static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
-// static int expr_constant(expr_ty);
+static int expr_constant(expr_ty);
 
 // static int compiler_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_with(struct compiler *, stmt_ty, int);
@@ -233,26 +238,6 @@ mangle(struct compiler *c, PyObject *name)
 //     }
 
 //     return 1;
-// }
-
-// PyObject *
-// PyAST_CompileObject3(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
-//                      int optimize, PyArena *arena)
-// {
-//     PyThreadState *tstate = PyThreadState_GET();
-//     int old_use_new_bytecode = tstate->use_new_bytecode;
-//     tstate->use_new_bytecode = 0;
-//     PyObject *compile3 = PyImport_ImportModule("compile3");
-//     tstate->use_new_bytecode = old_use_new_bytecode;
-//     if (compile3 == NULL) {
-//         return NULL;
-//     }
-//     PyObject *ast = PyAST_mod2obj(mod);
-//     if (ast == NULL) {
-//         Py_DECREF(compile3);
-//         return NULL;
-//     }
-//     return PyObject_CallMethod(compile3, "compile3", "OOi", ast, filename, optimize);
 // }
 
 static PyCodeObject2 *
@@ -1278,6 +1263,13 @@ write_uint16(uint8_t *pc, int imm)
 }
 
 static void
+write_int16(uint8_t *pc, int imm)
+{
+    int16_t value = (int16_t)imm;
+    memcpy(pc, &value, sizeof(int16_t));
+}
+
+static void
 emit0(struct compiler *c, int opcode)
 {
     uint8_t *pc = next_instr(c, 1);
@@ -1337,6 +1329,37 @@ emit_call(struct compiler *c, int opcode, int base, int flags)
         pc[1] = base;
         write_uint16(&pc[2], flags);
     }
+}
+
+static void
+emit_jump(struct compiler *c, int opcode, struct bc_label *label)
+{
+    uint8_t *pc = next_instr(c, 3);
+    pc[0] = opcode;
+    write_uint16(&pc[1], 0);
+    label->bound = 0;
+    label->offset = pc - c->unit->instr.arr;
+}
+
+static void
+emit_label(struct compiler *c, struct bc_label *label)
+{
+    assert(!label->bound);
+    uint32_t pos = c->unit->instr.offset;
+    Py_ssize_t delta = (Py_ssize_t)pos - (Py_ssize_t)label->offset;
+    if (delta > INT16_MAX) {
+        PyErr_Format(PyExc_RuntimeError, "jump too big: %d", (int)delta);
+        COMPILER_ERROR(c);
+    }
+    if (delta <= 0) {
+        // forward jumps should go forward
+        PyErr_Format(PyExc_RuntimeError, "negative jmp: %d", (int)delta);
+        COMPILER_ERROR(c);
+    }
+    assert(delta >= 0);
+    uint8_t *jmp =  &c->unit->instr.arr[label->offset];
+    write_int16(&jmp[1], delta);
+    label->bound = 1;
 }
 
 static int
@@ -1676,6 +1699,17 @@ const_none(struct compiler *c)
 // }
 
 // MACROS were here
+
+/* These macros allows to check only for errors and not emmit bytecode
+ * while visiting nodes.
+*/
+
+#define BEGIN_DO_NOT_EMIT_BYTECODE { \
+    c->do_not_emit_bytecode++;
+
+#define END_DO_NOT_EMIT_BYTECODE \
+    c->do_not_emit_bytecode--; \
+}
 
 // /* Search if variable annotations are present statically in a block. */
 
@@ -2291,7 +2325,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     asdl_seq* decos;
     asdl_seq *body;
     Py_ssize_t i, funcflags, deco_base;
-    int annotations;
+    // int annotations;
     int scope_type;
     int firstlineno;
 
@@ -2325,6 +2359,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     }
 
     funcflags = compiler_default_arguments(c, args); // FIXME
+    (void)funcflags; (void)qualname; (void)returns;
     // annotations = compiler_visit_annotations(c, args, returns);
     // if (annotations == 0) {
     //     return 0;
@@ -2349,7 +2384,10 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     compiler_visit_stmts(c, body);
     co = assemble(c, 1);
 
-    Py_ssize_t co_idx = compiler_add_o(c, c->unit->prev->consts, co);
+    Py_ssize_t co_idx = compiler_add_o(
+        c,
+        c->unit->prev->consts,
+        (PyObject *)co);
     Py_DECREF(co); //????
     compiler_exit_scope(c);
 
@@ -2771,56 +2809,71 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 //     return 1;
 // }
 
-// static int
-// compiler_if(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *end, *next;
-//     int constant;
-//     assert(s->kind == If_kind);
-//     end = compiler_new_block(c);
-//     if (end == NULL)
-//         return 0;
+static void
+compiler_if(struct compiler *c, stmt_ty s)
+{
+    // basicblock *end, *next;
+    int constant;
+    // assert(s->kind == If_kind);
+    // end = compiler_new_block(c);
+    // if (end == NULL)
+    //     return 0;
 
-//     constant = expr_constant(s->v.If.test);
-//     /* constant = 0: "if 0"
-//      * constant = 1: "if 1", "if 2", ...
-//      * constant = -1: rest */
-//     if (constant == 0) {
-//         BEGIN_DO_NOT_EMIT_BYTECODE
-//         VISIT_SEQ(c, stmt, s->v.If.body);
-//         END_DO_NOT_EMIT_BYTECODE
-//         if (s->v.If.orelse) {
-//             VISIT_SEQ(c, stmt, s->v.If.orelse);
-//         }
-//     } else if (constant == 1) {
-//         VISIT_SEQ(c, stmt, s->v.If.body);
-//         if (s->v.If.orelse) {
-//             BEGIN_DO_NOT_EMIT_BYTECODE
-//             VISIT_SEQ(c, stmt, s->v.If.orelse);
-//             END_DO_NOT_EMIT_BYTECODE
-//         }
-//     } else {
-//         if (asdl_seq_LEN(s->v.If.orelse)) {
-//             next = compiler_new_block(c);
-//             if (next == NULL)
-//                 return 0;
-//         }
-//         else {
-//             next = end;
-//         }
-//         if (!compiler_jump_if(c, s->v.If.test, next, 0)) {
-//             return 0;
-//         }
-//         VISIT_SEQ(c, stmt, s->v.If.body);
-//         if (asdl_seq_LEN(s->v.If.orelse)) {
-//             ADDOP_JREL(c, JUMP_FORWARD, end);
-//             compiler_use_next_block(c, next);
-//             VISIT_SEQ(c, stmt, s->v.If.orelse);
-//         }
-//     }
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+    constant = expr_constant(s->v.If.test);
+    /* constant = 0: "if 0"
+     * constant = 1: "if 1", "if 2", ...
+     * constant = -1: rest */
+    if (constant == 0) {
+        BEGIN_DO_NOT_EMIT_BYTECODE
+        compiler_visit_stmts(c, s->v.If.body);
+        END_DO_NOT_EMIT_BYTECODE
+        if (s->v.If.orelse) {
+            compiler_visit_stmts(c, s->v.If.orelse);
+        }
+    } else if (constant == 1) {
+        compiler_visit_stmts(c, s->v.If.body);
+        if (s->v.If.orelse) {
+            BEGIN_DO_NOT_EMIT_BYTECODE
+            compiler_visit_stmts(c, s->v.If.orelse);
+            END_DO_NOT_EMIT_BYTECODE
+        }
+    } else {
+        struct bc_label next;
+        compiler_visit_expr(c, s->v.If.test);
+        emit_jump(c, POP_JUMP_IF_FALSE, &next);
+        compiler_visit_stmts(c, s->v.If.body);
+        if (asdl_seq_LEN(s->v.If.orelse)) {
+            struct bc_label after;
+            emit_jump(c, JUMP, &after);
+            emit_label(c, &next);
+            compiler_visit_stmts(c, s->v.If.orelse);
+            emit_label(c, &after);
+        }
+        else {
+            emit_label(c, &next);
+        }
+    }
+    //     if (asdl_seq_LEN(s->v.If.orelse)) {
+    //         next = compiler_new_block(c);
+    //         if (next == NULL)
+    //             return 0;
+    //     }
+    //     else {
+    //         next = end;
+    //     }
+    //     if (!compiler_jump_if(c, s->v.If.test, next, 0)) {
+    //         return 0;
+    //     }
+    //     VISIT_SEQ(c, stmt, s->v.If.body);
+    //     if (asdl_seq_LEN(s->v.If.orelse)) {
+    //         ADDOP_JREL(c, JUMP_FORWARD, end);
+    //         compiler_use_next_block(c, next);
+    //         VISIT_SEQ(c, stmt, s->v.If.orelse);
+    //     }
+    // }
+    // compiler_use_next_block(c, end);
+    // return 1;
+}
 
 // static int
 // compiler_for(struct compiler *c, stmt_ty s)
@@ -3487,8 +3540,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //         return compiler_for(c, s);
 //     case While_kind:
 //         return compiler_while(c, s);
-//     case If_kind:
-//         return compiler_if(c, s);
+    case If_kind:
+        compiler_if(c, s); break;
 //     case Raise_kind:
 //         n = 0;
 //         if (s->v.Raise.exc) {
@@ -4012,9 +4065,9 @@ compiler_store(struct compiler *c, PyObject *name)
 //     return 1;
 // }
 
-// static int
-// compiler_compare(struct compiler *c, expr_ty e)
-// {
+static void
+compiler_compare(struct compiler *c, expr_ty e)
+{
 //     Py_ssize_t i, n;
 
 //     if (!check_compare(c, e)) {
@@ -4052,7 +4105,7 @@ compiler_store(struct compiler *c, PyObject *name)
 //         compiler_use_next_block(c, end);
 //     }
 //     return 1;
-// }
+}
 
 // static PyTypeObject *
 // infer_type(expr_ty e)
@@ -4214,7 +4267,7 @@ has_starred(asdl_seq *seq)
 }
 
 static bool
-has_kwdvarargs(asdl_seq *keywords)
+has_varkeywords(asdl_seq *keywords)
 {
     for (Py_ssize_t  i = 0, n = asdl_seq_LEN(keywords); i < n; i++) {
         keyword_ty kw = asdl_seq_GET(keywords, i);
@@ -4243,7 +4296,8 @@ compiler_call(struct compiler *c, expr_ty e)
     Py_ssize_t nkwds = asdl_seq_LEN(keywords);
     if (nargs > 255 || nkwds > 255 ||
         has_starred(args) ||
-        has_kwdvarargs(keywords)) {
+        has_varkeywords(keywords))
+    {
             // oops
         PyErr_Format(PyExc_RuntimeError, "unsupported call");
         COMPILER_ERROR(c);
@@ -4258,6 +4312,7 @@ compiler_call(struct compiler *c, expr_ty e)
         expr_to_reg(c, elt, base + i);
     }
     emit_call(c, CALL_FUNCTION, base, flags);
+    c->unit->next_register = base - FRAME_EXTRA - 1;
 }
 
 // static int
@@ -4837,14 +4892,14 @@ compiler_call(struct compiler *c, expr_ty e)
 //    Return values: 1 for true, 0 for false, -1 for non-constant.
 //  */
 
-// static int
-// expr_constant(expr_ty e)
-// {
-//     if (e->kind == Constant_kind) {
-//         return PyObject_IsTrue(e->v.Constant.value);
-//     }
-//     return -1;
-// }
+static int
+expr_constant(expr_ty e)
+{
+    if (e->kind == Constant_kind) {
+        return PyObject_IsTrue(e->v.Constant.value);
+    }
+    return -1;
+}
 
 // static int
 // compiler_with_except_finish(struct compiler *c) {
@@ -5128,8 +5183,8 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //         ADDOP_LOAD_CONST(c, Py_None);
 //         ADDOP(c, YIELD_FROM);
 //         break;
-//     case Compare_kind:
-//         return compiler_compare(c, e);
+    case Compare_kind:
+        compiler_compare(c, e); break;
     case Call_kind:
         compiler_call(c, e);
         break;
@@ -5439,35 +5494,35 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
 //     return 1;
 // }
 
-// /* Raises a SyntaxError and returns 0.
-//    If something goes wrong, a different exception may be raised.
-// */
+/* Raises a SyntaxError and performs a non-local jump.
+   If something goes wrong, a different exception may be raised.
+*/
 
-// static int
-// compiler_error(struct compiler *c, const char *errstr)
-// {
-//     PyObject *loc;
-//     PyObject *u = NULL, *v = NULL;
+static void
+compiler_error(struct compiler *c, const char *errstr)
+{
+    PyObject *loc;
+    PyObject *u = NULL, *v = NULL;
 
-//     loc = PyErr_ProgramTextObject(c->c_filename, c->u->u_lineno);
-//     if (!loc) {
-//         Py_INCREF(Py_None);
-//         loc = Py_None;
-//     }
-//     u = Py_BuildValue("(OiiO)", c->c_filename, c->u->u_lineno,
-//                       c->u->u_col_offset + 1, loc);
-//     if (!u)
-//         goto exit;
-//     v = Py_BuildValue("(zO)", errstr, u);
-//     if (!v)
-//         goto exit;
-//     PyErr_SetObject(PyExc_SyntaxError, v);
-//  exit:
-//     Py_DECREF(loc);
-//     Py_XDECREF(u);
-//     Py_XDECREF(v);
-//     return 0;
-// }
+    loc = PyErr_ProgramTextObject(c->filename, c->unit->lineno);
+    if (!loc) {
+        Py_INCREF(Py_None);
+        loc = Py_None;
+    }
+    u = Py_BuildValue("(OiiO)", c->filename, c->unit->lineno,
+                      c->unit->col_offset + 1, loc);
+    if (!u)
+        goto exit;
+    v = Py_BuildValue("(zO)", errstr, u);
+    if (!v)
+        goto exit;
+    PyErr_SetObject(PyExc_SyntaxError, v);
+ exit:
+    Py_DECREF(loc);
+    Py_XDECREF(u);
+    Py_XDECREF(v);
+    COMPILER_ERROR(c);
+}
 
 // /* Emits a SyntaxWarning and returns 1 on success.
 //    If a SyntaxWarning raised as error, replaces it with a SyntaxError
@@ -6114,7 +6169,7 @@ makecode(struct compiler *c)
     co->co_nlocals = c->unit->nlocals;
     // co->co_ndefaultargs = ndefaultargs;
     // co->co_flags = flags;
-    // co->co_framesize = framesize;
+    co->co_framesize = c->unit->max_registers;
     co->co_varnames = PyTuple_New(0);
     co->co_freevars = PyTuple_New(0);
     co->co_cellvars = PyTuple_New(0);
