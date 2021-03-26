@@ -65,6 +65,14 @@ enum {
     COMPILER_SCOPE_COMPREHENSION,
 };
 
+enum {
+    ACCESS_FAST = 0,
+    ACCESS_DEREF = 1,
+    ACCESS_CLASSDEREF = 2,
+    ACCESS_NAME = 3,
+    ACCESS_GLOBAL = 4
+};
+
 struct instr_array {
     uint8_t *arr;
     uint32_t offset;
@@ -154,6 +162,7 @@ struct compiler {
                                     nodes without emitting bytecode to
                                     check only errors. */
     PyArena *arena;            /* pointer to memory allocation arena */
+    mi_heap_t *heap;
     jmp_buf jb;
 };
 
@@ -165,10 +174,12 @@ static void compiler_unit_free(struct compiler_unit *u);
 // static int compiler_addop(struct compiler *, int);
 // static int compiler_addop_i(struct compiler *, int, Py_ssize_t);
 // static int compiler_addop_j(struct compiler *, int, basicblock *, int);
-// static int compiler_error(struct compiler *, const char *);
-// static int compiler_warn(struct compiler *, const char *, ...);
+static void compiler_error(struct compiler *, const char *);
+static void compiler_warn(struct compiler *, const char *, ...);
 static void compiler_nameop(struct compiler *, identifier, expr_context_ty);
 static void compiler_store(struct compiler *, identifier);
+static int compiler_access(struct compiler *c, PyObject *mangled_name);
+static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
@@ -255,6 +266,7 @@ compile_object(struct compiler *c, mod_ty mod, PyObject *filename,
         COMPILER_ERROR(c);
     }
     Py_INCREF(filename);
+    c->heap = mi_heap_new();
     c->filename = filename;
     c->arena = arena;
     c->optimize = optimize;
@@ -344,6 +356,10 @@ compiler_free(struct compiler *c)
         struct compiler_unit *u = c->unit;
         c->unit = u->prev;
         compiler_unit_free(u);
+    }
+    if (c->heap) {
+        mi_heap_destroy(c->heap);
+        c->heap = NULL;
     }
 }
 
@@ -675,6 +691,18 @@ compiler_exit_scope(struct compiler *c)
 //     return 1;
 // }
 
+static bool
+is_local(struct compiler *c, Py_ssize_t reg)
+{
+    assert(reg >= 0 && reg < c->unit->next_register);
+    return reg < c->unit->nlocals;
+}
+
+static bool
+is_temporary(struct compiler *c, Py_ssize_t reg)
+{
+    return !is_local(c, reg);
+}
 
 // /* Allocate a new block and return a pointer to it.
 //    Returns NULL on error.
@@ -1362,6 +1390,27 @@ emit_label(struct compiler *c, struct bc_label *label)
     label->bound = 1;
 }
 
+static void
+emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
+{
+    switch (cmp) {
+    case Eq:    emit2(c, COMPARE_OP, Py_EQ, reg); break;
+    case NotEq: emit2(c, COMPARE_OP, Py_NE, reg); break;
+    case Lt:    emit2(c, COMPARE_OP, Py_LT, reg); break;
+    case LtE:   emit2(c, COMPARE_OP, Py_LE, reg); break;
+    case Gt:    emit2(c, COMPARE_OP, Py_GT, reg); break;
+    case GtE:   emit2(c, COMPARE_OP, Py_GE, reg); break;
+
+    case Is:    emit1(c, IS_OP, reg); break;
+    case IsNot: emit1(c, IS_OP, reg); 
+                emit0(c, UNARY_NOT_FAST); break;
+
+    case In:    emit1(c, CONTAINS_OP, reg); break;
+    case NotIn: emit1(c, CONTAINS_OP, reg);
+                emit0(c, UNARY_NOT_FAST); break;
+    }
+}
+
 static int
 reserve_regs(struct compiler *c, int n)
 {
@@ -1374,13 +1423,48 @@ reserve_regs(struct compiler *c, int n)
 }
 
 static void
-expr_to_reg(struct compiler *c, expr_ty e, int reg)
+free_reg(struct compiler *c, Py_ssize_t reg)
+{
+    if (is_temporary(c, reg)) {
+        c->unit->next_register -= 1;
+        assert(c->unit->next_register == reg);
+    }
+}
+
+static void
+clear_reg(struct compiler *c, Py_ssize_t reg)
+{
+    if (is_temporary(c, reg)) {
+        emit1(c, CLEAR_FAST, reg);
+        free_reg(c, reg);
+    }
+}
+
+static void
+expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
 {
     compiler_visit_expr(c, e);
     emit1(c, STORE_FAST, reg);
     if (reg <= c->unit->next_register) {
         reserve_regs(c, c->unit->next_register - reg + 1);
     }
+}
+
+static Py_ssize_t
+expr_to_any_reg(struct compiler *c, expr_ty e)
+{
+    if (e->kind == Name_kind) {
+        PyObject *mangled = mangle(c, e->v.Name.id);
+        int access = compiler_access(c, mangled);
+        if (access == ACCESS_FAST) {
+            return compiler_varname(c, mangled);
+        }
+    }
+
+    compiler_visit_expr(c, e);
+    Py_ssize_t reg = reserve_regs(c, 1);
+    emit1(c, STORE_FAST, reg);
+    return reg;
 }
 
 // static int
@@ -2552,46 +2636,46 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 //     return 1;
 // }
 
-// /* Return 0 if the expression is a constant value except named singletons.
-//    Return 1 otherwise. */
-// static int
-// check_is_arg(expr_ty e)
-// {
-//     if (e->kind != Constant_kind) {
-//         return 1;
-//     }
-//     PyObject *value = e->v.Constant.value;
-//     return (value == Py_None
-//          || value == Py_False
-//          || value == Py_True
-//          || value == Py_Ellipsis);
-// }
+/* Return 0 if the expression is a constant value except named singletons.
+   Return 1 otherwise. */
+static int
+check_is_arg(expr_ty e)
+{
+    if (e->kind != Constant_kind) {
+        return 1;
+    }
+    PyObject *value = e->v.Constant.value;
+    return (value == Py_None
+         || value == Py_False
+         || value == Py_True
+         || value == Py_Ellipsis);
+}
 
-// /* Check operands of identity chacks ("is" and "is not").
-//    Emit a warning if any operand is a constant except named singletons.
-//    Return 0 on error.
-//  */
-// static int
-// check_compare(struct compiler *c, expr_ty e)
-// {
-//     Py_ssize_t i, n;
-//     int left = check_is_arg(e->v.Compare.left);
-//     n = asdl_seq_LEN(e->v.Compare.ops);
-//     for (i = 0; i < n; i++) {
-//         cmpop_ty op = (cmpop_ty)asdl_seq_GET(e->v.Compare.ops, i);
-//         int right = check_is_arg((expr_ty)asdl_seq_GET(e->v.Compare.comparators, i));
-//         if (op == Is || op == IsNot) {
-//             if (!right || !left) {
-//                 const char *msg = (op == Is)
-//                         ? "\"is\" with a literal. Did you mean \"==\"?"
-//                         : "\"is not\" with a literal. Did you mean \"!=\"?";
-//                 return compiler_warn(c, msg);
-//             }
-//         }
-//         left = right;
-//     }
-//     return 1;
-// }
+/* Check operands of identity chacks ("is" and "is not").
+   Emit a warning if any operand is a constant except named singletons.
+   Return 0 on error.
+ */
+static void
+check_compare(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t i, n;
+    int left = check_is_arg(e->v.Compare.left);
+    n = asdl_seq_LEN(e->v.Compare.ops);
+    for (i = 0; i < n; i++) {
+        cmpop_ty op = (cmpop_ty)asdl_seq_GET(e->v.Compare.ops, i);
+        int right = check_is_arg((expr_ty)asdl_seq_GET(e->v.Compare.comparators, i));
+        if (op == Is || op == IsNot) {
+            if (!right || !left) {
+                const char *msg = (op == Is)
+                        ? "\"is\" with a literal. Did you mean \"==\"?"
+                        : "\"is not\" with a literal. Did you mean \"!=\"?";
+                compiler_warn(c, msg);
+                return;
+            }
+        }
+        left = right;
+    }
+}
 
 // static int compiler_addcompare(struct compiler *c, cmpop_ty op)
 // {
@@ -3506,6 +3590,7 @@ static void
 compiler_visit_stmt(struct compiler *c, stmt_ty s)
 {
 //     Py_ssize_t i, n;
+    Py_ssize_t next_register = c->unit->next_register;
 
     /* Always assign a lineno to the next instruction for a stmt. */
     c->unit->lineno = s->lineno;
@@ -3562,13 +3647,13 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //         return compiler_import(c, s);
 //     case ImportFrom_kind:
 //         return compiler_from_import(c, s);
-//     case Global_kind:
-//     case Nonlocal_kind:
-//         break;
+    case Global_kind:
+    case Nonlocal_kind:
+        break;
     case Expr_kind:
         return compiler_visit_stmt_expr(c, s->v.Expr.value);
-//     case Pass_kind:
-//         break;
+    case Pass_kind:
+        break;
 //     case Break_kind:
 //         return compiler_break(c);
 //     case Continue_kind:
@@ -3585,6 +3670,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
             PyErr_Format(PyExc_RuntimeError, "unhandled stmt %d", s->kind);
             COMPILER_ERROR(c);
     }
+
+    assert(next_register == c->unit->next_register);
 }
 
 static void
@@ -3688,14 +3775,6 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
 //         return 0;
 //     }
 // }
-
-enum {
-    ACCESS_FAST = 0,
-    ACCESS_DEREF = 1,
-    ACCESS_CLASSDEREF = 2,
-    ACCESS_NAME = 3,
-    ACCESS_GLOBAL = 4
-};
 
 static int
 compiler_access(struct compiler *c, PyObject *mangled_name)
@@ -4065,17 +4144,106 @@ compiler_store(struct compiler *c, PyObject *name)
 //     return 1;
 // }
 
+static Py_ssize_t
+shuffle_down(struct compiler *c, Py_ssize_t lhs, Py_ssize_t rhs)
+{
+    if (is_local(c, lhs)) {
+        return rhs;
+    }
+    else if (is_local(c, rhs)) {
+        emit1(c, CLEAR_FAST, lhs);
+        free_reg(c, lhs);
+        return rhs;
+    }
+    else {
+        emit2(c, MOVE, lhs, rhs);
+        free_reg(c, rhs);
+        return lhs;
+    }
+}
+
+struct multi_label {
+    struct bc_label *arr;
+    Py_ssize_t n;
+    Py_ssize_t allocated;
+};
+
+static struct bc_label *
+multi_label_next(struct compiler *c, struct multi_label *labels)
+{
+    if (labels->n == labels->allocated) {
+        Py_ssize_t newsize = (labels->allocated * 2) + 1;
+        struct bc_label *arr;
+        arr = mi_heap_recalloc(c->heap, labels->arr, newsize, sizeof(*labels->arr));
+        if (arr == NULL) {
+            COMPILER_ERROR(c);
+        }
+        labels->arr = arr;
+        labels->allocated = newsize;
+    }
+    return &labels->arr[labels->n++];
+}
+
+static void
+multi_label_emit(struct compiler *c, struct multi_label *labels)
+{
+    for (Py_ssize_t i = 0, n = labels->n; i != n; i++) {
+        emit_label(c, &labels->arr[i]);
+    }
+    mi_free(labels->arr);
+    memset(labels, 0, sizeof(*labels));
+}
+
 static void
 compiler_compare(struct compiler *c, expr_ty e)
 {
-//     Py_ssize_t i, n;
+    struct multi_label labels;
+    Py_ssize_t n, lhs, rhs = -1;
 
-//     if (!check_compare(c, e)) {
-//         return 0;
-//     }
+    // warn for things like "x is 4"
+    check_compare(c, e);
+
+    memset(&labels, 0, sizeof(labels));
+
+    assert(asdl_seq_LEN(e->v.Compare.ops) > 0);
+    lhs = expr_to_any_reg(c, e->v.Compare.left);    
+
+    n = asdl_seq_LEN(e->v.Compare.ops);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty comparator = asdl_seq_GET(e->v.Compare.comparators, i);
+        cmpop_ty op = asdl_seq_GET(e->v.Compare.ops, i);
+
+        if (i > 0) {
+            // After the first comparison, the previous right-hand-side of the
+            // comparison is the new left-hand-side. We perform this "shuffle"
+            // without re-evaluating the expression.
+            lhs = shuffle_down(c, lhs, rhs);
+            rhs = -1;
+
+            emit_jump(c, JUMP_IF_FALSE, multi_label_next(c, &labels));
+        }
+
+        // Load the right-hand-side of the comparison into the accumulator.
+        // If this is not the final comparison, also ensure that it's saved
+        // in a register.
+        if (i < n - 1) {
+            rhs = expr_to_any_reg(c, comparator);
+            emit1(c, LOAD_FAST, rhs);
+        }
+        else {
+            compiler_visit_expr(c, comparator);
+        }
+
+        // emit: <reg> OP <acc>
+        assert(lhs >= 0);
+        emit_compare(c, lhs, op);
+    }
+
+    multi_label_emit(c, &labels);
+    clear_reg(c, lhs);
+
+
 //     VISIT(c, expr, e->v.Compare.left);
-//     assert(asdl_seq_LEN(e->v.Compare.ops) > 0);
-//     n = asdl_seq_LEN(e->v.Compare.ops) - 1;
 //     if (n == 0) {
 //         VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Compare.comparators, 0));
 //         ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, 0));
@@ -5296,7 +5464,9 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
     /* Updating the column offset is always harmless. */
     c->unit->col_offset = e->col_offset;
 
+    Py_ssize_t base = c->unit->next_register;
     compiler_visit_expr1(c, e);
+    assert(c->unit->next_register == base);
 
     if (old_lineno != c->unit->lineno) {
         c->unit->lineno = old_lineno;
@@ -5499,7 +5669,7 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
 */
 
 static void
-compiler_error(struct compiler *c, const char *errstr)
+compiler_error_u(struct compiler *c, PyObject *err)
 {
     PyObject *loc;
     PyObject *u = NULL, *v = NULL;
@@ -5513,51 +5683,61 @@ compiler_error(struct compiler *c, const char *errstr)
                       c->unit->col_offset + 1, loc);
     if (!u)
         goto exit;
-    v = Py_BuildValue("(zO)", errstr, u);
+    v = Py_BuildValue("(OO)", err, u);
     if (!v)
         goto exit;
     PyErr_SetObject(PyExc_SyntaxError, v);
  exit:
+    Py_DECREF(err);
     Py_DECREF(loc);
     Py_XDECREF(u);
     Py_XDECREF(v);
     COMPILER_ERROR(c);
 }
 
-// /* Emits a SyntaxWarning and returns 1 on success.
-//    If a SyntaxWarning raised as error, replaces it with a SyntaxError
-//    and returns 0.
-// */
-// static int
-// compiler_warn(struct compiler *c, const char *format, ...)
-// {
-//     va_list vargs;
-// #ifdef HAVE_STDARG_PROTOTYPES
-//     va_start(vargs, format);
-// #else
-//     va_start(vargs);
-// #endif
-//     PyObject *msg = PyUnicode_FromFormatV(format, vargs);
-//     va_end(vargs);
-//     if (msg == NULL) {
-//         return 0;
-//     }
-//     if (PyErr_WarnExplicitObject(PyExc_SyntaxWarning, msg, c->c_filename,
-//                                  c->u->u_lineno, NULL, NULL) < 0)
-//     {
-//         if (PyErr_ExceptionMatches(PyExc_SyntaxWarning)) {
-//             /* Replace the SyntaxWarning exception with a SyntaxError
-//                to get a more accurate error report */
-//             PyErr_Clear();
-//             assert(PyUnicode_AsUTF8(msg) != NULL);
-//             compiler_error(c, PyUnicode_AsUTF8(msg));
-//         }
-//         Py_DECREF(msg);
-//         return 0;
-//     }
-//     Py_DECREF(msg);
-//     return 1;
-// }
+static void
+compiler_error(struct compiler *c, const char *errstr)
+{
+    PyObject *err = PyUnicode_FromString(errstr);
+    if (err == NULL) {
+        COMPILER_ERROR(c);
+    }
+    compiler_error_u(c, err);
+}
+
+/* Emits a SyntaxWarning and returns 1 on success.
+   If a SyntaxWarning raised as error, replaces it with a SyntaxError
+   and returns 0.
+*/
+static void
+compiler_warn(struct compiler *c, const char *format, ...)
+{
+    va_list vargs;
+#ifdef HAVE_STDARG_PROTOTYPES
+    va_start(vargs, format);
+#else
+    va_start(vargs);
+#endif
+    PyObject *msg = PyUnicode_FromFormatV(format, vargs);
+    va_end(vargs);
+    if (msg == NULL) {
+        COMPILER_ERROR(c);
+    }
+    if (PyErr_WarnExplicitObject(PyExc_SyntaxWarning, msg, c->filename,
+                                 c->unit->lineno, NULL, NULL) < 0)
+    {
+        if (PyErr_ExceptionMatches(PyExc_SyntaxWarning)) {
+            /* Replace the SyntaxWarning exception with a SyntaxError
+               to get a more accurate error report */
+            PyErr_Clear();
+            compiler_error_u(c, msg);
+            /* UNREACHABLE */;
+        }
+        Py_DECREF(msg);
+        COMPILER_ERROR(c);
+    }
+    Py_DECREF(msg);
+}
 
 // static int
 // compiler_handle_subscr(struct compiler *c, const char *kind,
