@@ -1445,8 +1445,8 @@ expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
 {
     compiler_visit_expr(c, e);
     emit1(c, STORE_FAST, reg);
-    if (reg <= c->unit->next_register) {
-        reserve_regs(c, c->unit->next_register - reg + 1);
+    if (reg >= c->unit->next_register) {
+        reserve_regs(c, reg - c->unit->next_register + 1);
     }
 }
 
@@ -3702,42 +3702,25 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
 //     }
 // }
 
-// static int
-// binop(struct compiler *c, operator_ty op)
-// {
-//     switch (op) {
-//     case Add:
-//         return BINARY_ADD;
-//     case Sub:
-//         return BINARY_SUBTRACT;
-//     case Mult:
-//         return BINARY_MULTIPLY;
-//     case MatMult:
-//         return BINARY_MATRIX_MULTIPLY;
-//     case Div:
-//         return BINARY_TRUE_DIVIDE;
-//     case Mod:
-//         return BINARY_MODULO;
-//     case Pow:
-//         return BINARY_POWER;
-//     case LShift:
-//         return BINARY_LSHIFT;
-//     case RShift:
-//         return BINARY_RSHIFT;
-//     case BitOr:
-//         return BINARY_OR;
-//     case BitXor:
-//         return BINARY_XOR;
-//     case BitAnd:
-//         return BINARY_AND;
-//     case FloorDiv:
-//         return BINARY_FLOOR_DIVIDE;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//             "binary op %d should not be possible", op);
-//         return 0;
-//     }
-// }
+static int
+binop(operator_ty op)
+{
+    switch (op) {
+    case Add:       return BINARY_ADD;
+    case Sub:       return BINARY_SUBTRACT;
+    case Mult:      return BINARY_MULTIPLY;
+    case MatMult:   return BINARY_MATRIX_MULTIPLY;
+    case Div:       return BINARY_TRUE_DIVIDE;
+    case Mod:       return BINARY_MODULO;
+    case Pow:       return BINARY_POWER;
+    case LShift:    return BINARY_LSHIFT;
+    case RShift:    return BINARY_RSHIFT;
+    case BitOr:     return BINARY_OR;
+    case BitXor:    return BINARY_XOR;
+    case BitAnd:    return BINARY_AND;
+    case FloorDiv:  return BINARY_FLOOR_DIVIDE;
+    }
+}
 
 // static int
 // inplace_binop(struct compiler *c, operator_ty op)
@@ -5278,6 +5261,7 @@ expr_constant(expr_ty e)
 static void
 compiler_visit_expr1(struct compiler *c, expr_ty e)
 {
+    Py_ssize_t reg;
     switch (e->kind) {
 //     case NamedExpr_kind:
 //         VISIT(c, expr, e->v.NamedExpr.value);
@@ -5286,11 +5270,12 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //         break;
 //     case BoolOp_kind:
 //         return compiler_boolop(c, e);
-//     case BinOp_kind:
-//         VISIT(c, expr, e->v.BinOp.left);
-//         VISIT(c, expr, e->v.BinOp.right);
-//         ADDOP(c, binop(c, e->v.BinOp.op));
-//         break;
+    case BinOp_kind:
+        reg = expr_to_any_reg(c, e->v.BinOp.left);
+        compiler_visit_expr(c, e->v.BinOp.right);
+        emit1(c, binop(e->v.BinOp.op), reg);
+        clear_reg(c, reg);
+        break;
 //     case UnaryOp_kind:
 //         VISIT(c, expr, e->v.UnaryOp.operand);
 //         ADDOP(c, unaryop(e->v.UnaryOp.op));
