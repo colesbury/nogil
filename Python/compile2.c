@@ -35,7 +35,8 @@
 #include <setjmp.h>
 
 enum {
-    FRAME_EXTRA = 3 // FIXME get from ceval2_meta.h
+    FRAME_EXTRA = 3, // FIXME get from ceval2_meta.h
+    REG_ACCUMULATOR = -1
 };
 
 enum {
@@ -452,6 +453,33 @@ dictbytype(PyObject *src, int scope_type, int flag, Py_ssize_t offset)
     return dest;
 }
 
+static void
+add_local_variables(struct compiler *c, PyObject *varnames, PyObject *symbols)
+{
+    Py_ssize_t pos = 0;
+    PyObject *key;
+    PyObject *value;
+    while (PyDict_Next(symbols, &pos, &key, &value)) {
+        long vi = PyLong_AS_LONG(value);
+        Py_ssize_t scope = (vi >> SCOPE_OFFSET) & SCOPE_MASK;
+        printf("symbol %s scope %zd\n", PyUnicode_AsUTF8(key), scope);
+        if (scope != LOCAL) {
+            continue;
+        }
+        if (PyDict_Contains(varnames, key)) {
+            continue;
+        }
+        PyObject *idx = PyLong_FromLong(PyDict_GET_SIZE(varnames));
+        if (idx == NULL) {
+            COMPILER_ERROR(c);
+        }
+        if (PyDict_SetItem(varnames, key, idx) < 0) {
+            Py_DECREF(idx);
+            COMPILER_ERROR(c);
+        }
+    }
+}
+
 // static void
 // compiler_unit_check(struct compiler_unit *u)
 // {
@@ -534,6 +562,9 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->varnames = list2dict(u->ste->ste_varnames);
     if (u->varnames == NULL) {
         COMPILER_ERROR(c);
+    }
+    if (u->ste->ste_type == FunctionBlock) {
+        add_local_variables(c, u->varnames, u->ste->ste_symbols);
     }
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
@@ -1483,7 +1514,7 @@ expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
 }
 
 static Py_ssize_t
-expr_to_any_reg(struct compiler *c, expr_ty e)
+expr_discharge(struct compiler *c, expr_ty e)
 {
     if (e->kind == Name_kind) {
         PyObject *mangled = mangle(c, e->v.Name.id);
@@ -1494,9 +1525,27 @@ expr_to_any_reg(struct compiler *c, expr_ty e)
     }
 
     compiler_visit_expr(c, e);
-    Py_ssize_t reg = reserve_regs(c, 1);
-    emit1(c, STORE_FAST, reg);
+    return REG_ACCUMULATOR;
+}
+
+static Py_ssize_t
+expr_to_any_reg(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t reg = expr_discharge(c, e);
+    if (reg == REG_ACCUMULATOR) {
+        reg = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, reg);
+    }
     return reg;
+}
+
+static void
+to_accumulator(struct compiler *c, Py_ssize_t reg)
+{
+    if (reg != REG_ACCUMULATOR) {
+        assert(reg >= 0 && reg < c->unit->max_registers);
+        emit1(c, LOAD_FAST, reg);
+    }
 }
 
 // static int
@@ -3561,6 +3610,76 @@ compiler_if(struct compiler *c, stmt_ty s)
 //     return 1;
 // }
 
+static void
+assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
+{
+    PyObject *mangled = mangle(c, e->v.Name.id);
+    int access = compiler_access(c, mangled);
+    switch (access) {
+    case ACCESS_FAST: {
+        Py_ssize_t dst = compiler_varname(c, mangled);
+        if (src != REG_ACCUMULATOR && is_temporary(c, src)) {
+            emit2(c, MOVE, dst, src);
+        }
+        else {
+            to_accumulator(c, src);
+            emit1(c, STORE_FAST, dst);
+        }
+        break;
+    }
+    case ACCESS_DEREF:
+        to_accumulator(c, src);
+        emit1(c, STORE_DEREF, compiler_varname(c, mangled));
+        break;
+    case ACCESS_NAME:
+        to_accumulator(c, src);
+        emit1(c, STORE_NAME, compiler_const(c, mangled));
+        break;
+    case ACCESS_GLOBAL:
+        to_accumulator(c, src);
+        emit1(c, STORE_GLOBAL, compiler_const(c, mangled));
+        break;
+    default:
+        PyErr_Format(PyExc_SystemError, "unsupported access: %d", access);
+        COMPILER_ERROR(c);
+    }
+}
+
+static void
+compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src)
+{
+    switch (target->kind) {
+    case Name_kind:
+        assign_name(c, target, src);
+        break;
+    case Attribute_kind:
+        break;
+    }
+}
+
+static void
+compiler_assign(struct compiler *c, stmt_ty s)
+{
+    Py_ssize_t n, src;
+
+    asdl_seq *targets = s->v.Assign.targets;
+    n = asdl_seq_LEN(targets);
+
+    if (n == 1) {
+        expr_ty target = asdl_seq_GET(targets, 0);
+        src = expr_discharge(c, s->v.Assign.value);
+        compiler_assign1(c, target, src);
+        return;
+    }
+
+    src = expr_to_any_reg(c, s->v.Assign.value); 
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty target = asdl_seq_GET(targets, i);
+        compiler_assign1(c, target, src);
+    }
+    clear_reg(c, src);
+}
+
 // static int
 // compiler_assert(struct compiler *c, stmt_ty s)
 // {
@@ -3632,16 +3751,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //     case Delete_kind:
 //         VISIT_SEQ(c, expr, s->v.Delete.targets)
 //         break;
-//     case Assign_kind:
-//         n = asdl_seq_LEN(s->v.Assign.targets);
-//         VISIT(c, expr, s->v.Assign.value);
-//         for (i = 0; i < n; i++) {
-//             if (i < n - 1)
-//                 ADDOP(c, DUP_TOP);
-//             VISIT(c, expr,
-//                   (expr_ty)asdl_seq_GET(s->v.Assign.targets, i));
-//         }
-//         break;
+    case Assign_kind:
+        compiler_assign(c, s);
+        break;
 //     case AugAssign_kind:
 //         return compiler_augassign(c, s);
 //     case AnnAssign_kind:
@@ -6300,6 +6412,24 @@ compiler_warn(struct compiler *c, const char *format, ...)
 //     return 1;
 // }
 
+static PyObject *
+dict_keys_as_tuple(struct compiler *c, PyObject *dict)
+{
+    Py_ssize_t i = 0;
+    Py_ssize_t pos = 0;
+    PyObject *key, *value, *tuple;
+
+    tuple = PyTuple_New(PyDict_GET_SIZE(dict));
+    if (tuple == NULL) {
+        COMPILER_ERROR(c);
+    }  
+    while (PyDict_Next(dict, &pos, &key, &value)) {
+        Py_INCREF(key);
+        PyTuple_SET_ITEM(tuple, i++, key);
+    }
+    return tuple;
+}
+
 static PyCodeObject2 *
 makecode(struct compiler *c)
 {
@@ -6315,6 +6445,7 @@ makecode(struct compiler *c)
     if (co == NULL) {
         COMPILER_ERROR(c);
     }
+    // FIXME: co leaked on error
 
     co->co_argcount = c->unit->argcount;
     co->co_posonlyargcount = c->unit->posonlyargcount;
@@ -6323,7 +6454,7 @@ makecode(struct compiler *c)
     // co->co_ndefaultargs = ndefaultargs;
     // co->co_flags = flags;
     co->co_framesize = c->unit->max_registers;
-    co->co_varnames = PyTuple_New(0);
+    co->co_varnames = dict_keys_as_tuple(c, c->unit->varnames);
     co->co_freevars = PyTuple_New(0);
     co->co_cellvars = PyTuple_New(0);
     co->co_filename = c->filename;
