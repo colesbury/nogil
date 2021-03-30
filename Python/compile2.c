@@ -85,6 +85,20 @@ struct bc_label {
     uint32_t offset;
 };
 
+struct multi_label {
+    struct bc_label *arr;
+    Py_ssize_t n;
+    Py_ssize_t allocated;
+};
+
+#define MULTI_LABEL_INIT {NULL, 0, 0}
+
+struct loop_block {
+    uint32_t top_offset;
+    struct multi_label break_label;
+    struct multi_label continue_label;
+};
+
 /* The following items change on entry and exit of code blocks.
    They must be saved and restored when returning to a block.
 */
@@ -98,6 +112,12 @@ struct compiler_unit {
         uint32_t offset;
         uint32_t allocated;
     } lineno_table;
+
+    struct loop_table {
+        struct loop_block *arr;
+        uint32_t offset;
+        uint32_t allocated;
+    } loops;
 
     PySTEntryObject *ste;
 
@@ -113,23 +133,23 @@ struct compiler_unit {
     PyObject *varnames;  /* local variables */
     PyObject *cellvars;  /* cell variables */
     PyObject *freevars;  /* free variables */
-    PyObject *metadata;
+    PyObject *metadata;  /* hints for global loads */
 
     PyObject *private;        /* for private name mangling */
 
     Py_ssize_t argcount;        /* number of arguments for block */
-    Py_ssize_t posonlyargcount;        /* number of positional only arguments for block */
-    Py_ssize_t kwonlyargcount; /* number of keyword only arguments for block */
+    Py_ssize_t posonlyargcount; /* number of positional only arguments for block */
+    Py_ssize_t kwonlyargcount;  /* number of keyword only arguments for block */
     Py_ssize_t nlocals;
     Py_ssize_t max_registers;
     Py_ssize_t next_register;
 
     int reachable;
-    int firstlineno; /* the first lineno of the block */
-    int lineno;          /* the lineno for the current stmt */
-    int col_offset;      /* the offset of the current stmt */
-    int lineno_set;  /* boolean to indicate whether instr
-                          has been generated with current lineno */
+    int firstlineno;    /* the first lineno of the block */
+    int lineno;         /* the lineno for the current stmt */
+    int col_offset;     /* the offset of the current stmt */
+    int lineno_set;     /* boolean to indicate whether instr
+                           has been generated with current lineno */
 };
 
 /* This struct captures the global state of a compilation.
@@ -1276,6 +1296,29 @@ is_temporary(struct compiler *c, Py_ssize_t reg)
 //     return maxdepth;
 // }
 
+static void
+resize_array(struct compiler *c, void **arr, uint32_t *size, Py_ssize_t min_size, Py_ssize_t unit)
+{
+    Py_ssize_t old_size = *size;
+    if (old_size > INT32_MAX / 2) {
+        PyErr_NoMemory();
+        COMPILER_ERROR(c);
+    }
+
+    Py_ssize_t new_size = old_size * 2;
+    if (new_size < min_size) {
+        new_size = min_size;
+    }
+
+    void *ptr = mi_recalloc(*arr, new_size, unit);
+    if (ptr == NULL) {
+        PyErr_NoMemory();
+        COMPILER_ERROR(c);
+    }
+    *arr = ptr;
+    *size = new_size;
+}
+
 /* Add an opcode with no argument.
    Returns 0 on failure, 1 on success.
 */
@@ -1285,22 +1328,12 @@ next_instr(struct compiler *c, int size)
 {
     struct instr_array *instr = &c->unit->instr;
     if (instr->offset + size >= instr->allocated) {
-        if (instr->allocated > INT32_MAX / 2) {
-            PyErr_NoMemory();
-            COMPILER_ERROR(c);
-        }
-        Py_ssize_t new_size = instr->allocated * 2;
-        if (new_size < DEFAULT_INSTR_SIZE) {
-            new_size = DEFAULT_INSTR_SIZE;
-        }
-
-        uint8_t *arr = mi_rezalloc(instr->arr, new_size);
-        if (arr == NULL) {
-            PyErr_NoMemory();
-            COMPILER_ERROR(c);
-        }
-        instr->arr = arr;
-        instr->allocated = new_size;
+        resize_array(
+            c,
+            (void**)&instr->arr, 
+            &instr->allocated,
+            DEFAULT_INSTR_SIZE,
+            sizeof(*instr->arr));
     }
     uint8_t *ptr = &instr->arr[instr->offset];
     instr->offset += size;
@@ -1401,6 +1434,24 @@ emit_jump(struct compiler *c, int opcode, struct bc_label *label)
 }
 
 static void
+emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
+{
+    Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
+    assert(offset < 0 && offset >= INT32_MIN);
+    if (offset > INT16_MIN) {
+        uint8_t *pc = next_instr(c, 3);
+        pc[0] = opcode;
+        write_uint16(&pc[1], (uint16_t)offset);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 6);
+        pc[0] = WIDE;
+        pc[1] = opcode;
+        write_uint32(&pc[2], (uint32_t)offset);
+    }
+}
+
+static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
     assert(!label->bound);
@@ -1442,12 +1493,6 @@ emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
     }
 }
 
-struct multi_label {
-    struct bc_label *arr;
-    Py_ssize_t n;
-    Py_ssize_t allocated;
-};
-
 static struct bc_label *
 multi_label_next(struct compiler *c, struct multi_label *labels)
 {
@@ -1465,7 +1510,7 @@ multi_label_next(struct compiler *c, struct multi_label *labels)
 }
 
 static void
-multi_label_emit(struct compiler *c, struct multi_label *labels)
+emit_multi_label(struct compiler *c, struct multi_label *labels)
 {
     for (Py_ssize_t i = 0, n = labels->n; i != n; i++) {
         emit_label(c, &labels->arr[i]);
@@ -2970,12 +3015,8 @@ compiler_ifexp(struct compiler *c, expr_ty e)
 static void
 compiler_if(struct compiler *c, stmt_ty s)
 {
-    // basicblock *end, *next;
     int constant;
-    // assert(s->kind == If_kind);
-    // end = compiler_new_block(c);
-    // if (end == NULL)
-    //     return 0;
+    assert(s->kind == If_kind);
 
     constant = expr_constant(s->v.If.test);
     /* constant = 0: "if 0"
@@ -3011,26 +3052,6 @@ compiler_if(struct compiler *c, stmt_ty s)
             emit_label(c, &next);
         }
     }
-    //     if (asdl_seq_LEN(s->v.If.orelse)) {
-    //         next = compiler_new_block(c);
-    //         if (next == NULL)
-    //             return 0;
-    //     }
-    //     else {
-    //         next = end;
-    //     }
-    //     if (!compiler_jump_if(c, s->v.If.test, next, 0)) {
-    //         return 0;
-    //     }
-    //     VISIT_SEQ(c, stmt, s->v.If.body);
-    //     if (asdl_seq_LEN(s->v.If.orelse)) {
-    //         ADDOP_JREL(c, JUMP_FORWARD, end);
-    //         compiler_use_next_block(c, next);
-    //         VISIT_SEQ(c, stmt, s->v.If.orelse);
-    //     }
-    // }
-    // compiler_use_next_block(c, end);
-    // return 1;
 }
 
 // static int
@@ -3114,13 +3135,39 @@ compiler_if(struct compiler *c, stmt_ty s)
 //     return 1;
 // }
 
-// static int
-// compiler_while(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *loop, *orelse, *end, *anchor = NULL;
-//     int constant = expr_constant(s->v.While.test);
+static struct loop_block *
+compiler_push_loop(struct compiler *c)
+{
+    struct loop_table *loops = &c->unit->loops;
+    if (loops->offset == loops->allocated) {
+        resize_array(
+            c,
+            (void**)&loops->arr,
+            &loops->allocated,
+            /*min_size=*/8,
+            sizeof(*loops->arr));
+    }
+    struct loop_block *loop = &loops->arr[loops->offset++];
+    memset(loop, 0, sizeof(*loop));
+    return loop;
+}
 
-//     if (constant == 0) {
+static void
+compiler_pop_loop(struct compiler *c, struct loop_block *loop)
+{
+    struct loop_table *loops = &c->unit->loops;
+    assert(loop == &loops->arr[loops->offset - 1]);
+    loops->offset--;
+    memset(&loops->arr[loops->offset], 0, sizeof(*loop));
+}
+
+static void
+compiler_while(struct compiler *c, stmt_ty s)
+{
+//     basicblock *loop, *orelse, *end, *anchor = NULL;
+    int constant = expr_constant(s->v.While.test);
+
+    if (constant == 0) {
 //         BEGIN_DO_NOT_EMIT_BYTECODE
 //         // Push a dummy block so the VISIT_SEQ knows that we are
 //         // inside a while loop so it can correctly evaluate syntax
@@ -3136,14 +3183,32 @@ compiler_if(struct compiler *c, stmt_ty s)
 //             VISIT_SEQ(c, stmt, s->v.While.orelse);
 //         }
 //         return 1;
-//     }
+    }
 //     loop = compiler_new_block(c);
 //     end = compiler_new_block(c);
-//     if (constant == -1) {
-//         anchor = compiler_new_block(c);
-//         if (anchor == NULL)
-//             return 0;
-//     }
+
+    struct multi_label continue_label = MULTI_LABEL_INIT;
+    struct multi_label break_label = MULTI_LABEL_INIT;
+    struct loop_block *loop;
+    
+    loop = compiler_push_loop(c);
+
+    emit_jump(c, JUMP, multi_label_next(c, &continue_label));
+    loop->top_offset = c->unit->instr.offset;
+    compiler_visit_stmts(c, s->v.While.body);
+    emit_multi_label(c, &continue_label);
+    compiler_visit_expr(c, s->v.While.test);
+    emit_bwd_jump(c, POP_JUMP_IF_TRUE, loop->top_offset);
+
+    compiler_pop_loop(c, loop);
+
+    if (s->v.While.orelse) {
+        compiler_visit_stmts(c, s->v.While.orelse);
+    }
+
+    emit_multi_label(c, &break_label);
+
+
 //     if (loop == NULL || end == NULL)
 //         return 0;
 //     if (s->v.While.orelse) {
@@ -3177,7 +3242,7 @@ compiler_if(struct compiler *c, stmt_ty s)
 //     compiler_use_next_block(c, end);
 
 //     return 1;
-// }
+}
 
 // static int
 // compiler_return(struct compiler *c, stmt_ty s)
@@ -3654,6 +3719,9 @@ compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src)
         break;
     case Attribute_kind:
         break;
+    default:
+        PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", target->kind);
+        COMPILER_ERROR(c);
     }
 }
 
@@ -3760,8 +3828,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //         return compiler_annassign(c, s);
 //     case For_kind:
 //         return compiler_for(c, s);
-//     case While_kind:
-//         return compiler_while(c, s);
+    case While_kind:
+        compiler_while(c, s);
+        break;
     case If_kind:
         compiler_if(c, s); break;
 //     case Raise_kind:
@@ -4005,7 +4074,7 @@ compiler_boolop(struct compiler *c, expr_ty e)
         emit0(c, CLEAR_ACC);
         compiler_visit_expr(c, asdl_seq_GET(s, i));
     }
-    multi_label_emit(c, &labels);
+    emit_multi_label(c, &labels);
 }
 
 // static int
@@ -4320,7 +4389,7 @@ compiler_compare(struct compiler *c, expr_ty e)
         emit_compare(c, lhs, op);
     }
 
-    multi_label_emit(c, &labels);
+    emit_multi_label(c, &labels);
     clear_reg(c, lhs);
 
 
