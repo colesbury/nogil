@@ -58,6 +58,11 @@ enum {
 // #define COMP_DICTCOMP 3
 
 enum {
+    WHILE_LOOP,
+    FOR_LOOP
+};
+
+enum {
     COMPILER_SCOPE_MODULE,
     COMPILER_SCOPE_CLASS,
     COMPILER_SCOPE_FUNCTION,
@@ -95,8 +100,9 @@ struct multi_label {
 
 struct loop_block {
     uint32_t top_offset;
-    struct multi_label break_label;
-    struct multi_label continue_label;
+    int loop_type;
+    struct multi_label *break_label;
+    struct multi_label *continue_label;
 };
 
 /* The following items change on entry and exit of code blocks.
@@ -211,6 +217,7 @@ static void compiler_visit_expr(struct compiler *, expr_ty);
 // static int compiler_annassign(struct compiler *, stmt_ty);
 // static int compiler_visit_slice(struct compiler *, slice_ty,
 //                                 expr_context_ty);
+static void compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src);
 
 // static int inplace_binop(struct compiler *, operator_ty);
 // static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
@@ -1388,7 +1395,7 @@ emit1(struct compiler *c, int opcode, int imm0)
 static void
 emit2(struct compiler *c, int opcode, int imm0, int imm1)
 {
-    int wide = (imm0 > 255);
+    int wide = (imm0 > 255 || imm1 > 255);
     if (wide) {
         uint8_t *pc = next_instr(c, 10);
         pc[0] = WIDE;
@@ -1448,6 +1455,26 @@ emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
         pc[0] = WIDE;
         pc[1] = opcode;
         write_uint32(&pc[2], (uint32_t)offset);
+    }
+}
+
+static void
+emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
+{
+    Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
+    assert(offset < 0 && offset >= INT32_MIN);
+    if (offset > INT16_MIN && reg < 256) {
+        uint8_t *pc = next_instr(c, 4);
+        pc[0] = FOR_ITER;
+        pc[1] = reg;
+        write_uint16(&pc[2], (uint16_t)offset);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 10);
+        pc[0] = WIDE;
+        pc[1] = FOR_ITER;
+        write_uint32(&pc[2], reg);
+        write_uint32(&pc[6], (uint32_t)offset);
     }
 }
 
@@ -3054,35 +3081,67 @@ compiler_if(struct compiler *c, stmt_ty s)
     }
 }
 
-// static int
-// compiler_for(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *start, *cleanup, *end;
+static struct loop_block *
+compiler_push_loop(struct compiler *c,
+                   int loop_type,
+                   struct multi_label *break_label,
+                   struct multi_label *continue_label)
+{
+    struct loop_table *loops = &c->unit->loops;
+    if (loops->offset == loops->allocated) {
+        resize_array(
+            c,
+            (void**)&loops->arr,
+            &loops->allocated,
+            /*min_size=*/8,
+            sizeof(*loops->arr));
+    }
+    struct loop_block *loop = &loops->arr[loops->offset++];
+    loop->top_offset = 0;
+    loop->loop_type = loop_type;
+    loop->break_label = break_label;
+    loop->continue_label = continue_label;
+    return loop;
+}
 
-//     start = compiler_new_block(c);
-//     cleanup = compiler_new_block(c);
-//     end = compiler_new_block(c);
-//     if (start == NULL || end == NULL || cleanup == NULL) {
-//         return 0;
-//     }
-//     if (!compiler_push_fblock(c, FOR_LOOP, start, end, NULL)) {
-//         return 0;
-//     }
-//     VISIT(c, expr, s->v.For.iter);
-//     ADDOP(c, GET_ITER);
-//     compiler_use_next_block(c, start);
-//     ADDOP_JREL(c, FOR_ITER, cleanup);
-//     VISIT(c, expr, s->v.For.target);
-//     VISIT_SEQ(c, stmt, s->v.For.body);
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, start);
-//     compiler_use_next_block(c, cleanup);
+static void
+compiler_pop_loop(struct compiler *c, struct loop_block *loop)
+{
+    struct loop_table *loops = &c->unit->loops;
+    assert(loop == &loops->arr[loops->offset - 1]);
+    loops->offset--;
+    memset(&loops->arr[loops->offset], 0, sizeof(*loop));
+}
 
-//     compiler_pop_fblock(c, FOR_LOOP, start);
+static void
+compiler_for(struct compiler *c, stmt_ty s)
+{
+    struct multi_label break_label = MULTI_LABEL_INIT;
+    struct multi_label continue_label = MULTI_LABEL_INIT;
+    struct loop_block *loop;
+    Py_ssize_t reg;
 
-//     VISIT_SEQ(c, stmt, s->v.For.orelse);
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+    loop = compiler_push_loop(c, FOR_LOOP, &break_label, &continue_label);
+
+    compiler_visit_expr(c, s->v.For.iter);
+    reg = reserve_regs(c, 1);
+    emit1(c, GET_ITER, reg);
+    emit_jump(c, JUMP, multi_label_next(c, &continue_label));
+    loop->top_offset = c->unit->instr.offset;
+    compiler_assign1(c, s->v.For.target, REG_ACCUMULATOR);
+    compiler_visit_stmts(c, s->v.For.body);
+    emit_multi_label(c, &continue_label);
+    emit_for(c, reg, loop->top_offset);
+    free_reg(c, reg);
+
+    compiler_pop_loop(c, loop);
+
+    if (s->v.For.orelse) {
+        compiler_visit_stmts(c, s->v.For.orelse);
+    }
+
+    emit_multi_label(c, &break_label);
+}
 
 
 // static int
@@ -3135,32 +3194,6 @@ compiler_if(struct compiler *c, stmt_ty s)
 //     return 1;
 // }
 
-static struct loop_block *
-compiler_push_loop(struct compiler *c)
-{
-    struct loop_table *loops = &c->unit->loops;
-    if (loops->offset == loops->allocated) {
-        resize_array(
-            c,
-            (void**)&loops->arr,
-            &loops->allocated,
-            /*min_size=*/8,
-            sizeof(*loops->arr));
-    }
-    struct loop_block *loop = &loops->arr[loops->offset++];
-    memset(loop, 0, sizeof(*loop));
-    return loop;
-}
-
-static void
-compiler_pop_loop(struct compiler *c, struct loop_block *loop)
-{
-    struct loop_table *loops = &c->unit->loops;
-    assert(loop == &loops->arr[loops->offset - 1]);
-    loops->offset--;
-    memset(&loops->arr[loops->offset], 0, sizeof(*loop));
-}
-
 static void
 compiler_while(struct compiler *c, stmt_ty s)
 {
@@ -3187,11 +3220,11 @@ compiler_while(struct compiler *c, stmt_ty s)
 //     loop = compiler_new_block(c);
 //     end = compiler_new_block(c);
 
-    struct multi_label continue_label = MULTI_LABEL_INIT;
     struct multi_label break_label = MULTI_LABEL_INIT;
+    struct multi_label continue_label = MULTI_LABEL_INIT;
     struct loop_block *loop;
     
-    loop = compiler_push_loop(c);
+    loop = compiler_push_loop(c, WHILE_LOOP, &break_label, &continue_label);
 
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
     loop->top_offset = c->unit->instr.offset;
@@ -3826,8 +3859,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //         return compiler_augassign(c, s);
 //     case AnnAssign_kind:
 //         return compiler_annassign(c, s);
-//     case For_kind:
-//         return compiler_for(c, s);
+    case For_kind:
+        compiler_for(c, s);
+        break;
     case While_kind:
         compiler_while(c, s);
         break;
@@ -4077,12 +4111,11 @@ compiler_boolop(struct compiler *c, expr_ty e)
     emit_multi_label(c, &labels);
 }
 
-// static int
-// starunpack_helper(struct compiler *c, asdl_seq *elts, int pushed,
-//                   int build, int add, int extend, int tuple)
-// {
-//     Py_ssize_t n = asdl_seq_LEN(elts);
-//     Py_ssize_t i, seen_star = 0;
+static void
+starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
+{
+    Py_ssize_t n = asdl_seq_LEN(elts);
+    Py_ssize_t i, seen_star = 0;
 //     if (n > 2 && are_all_items_const(elts, 0, n)) {
 //         PyObject *folded = PyTuple_New(n);
 //         if (folded == NULL) {
@@ -4109,50 +4142,44 @@ compiler_boolop(struct compiler *c, expr_ty e)
 //         }
 //         return 1;
 //     }
-
-//     for (i = 0; i < n; i++) {
-//         expr_ty elt = asdl_seq_GET(elts, i);
-//         if (elt->kind == Starred_kind) {
-//             seen_star = 1;
-//         }
-//     }
-//     if (seen_star) {
-//         seen_star = 0;
-//         for (i = 0; i < n; i++) {
-//             expr_ty elt = asdl_seq_GET(elts, i);
-//             if (elt->kind == Starred_kind) {
-//                 if (seen_star == 0) {
-//                     ADDOP_I(c, build, i+pushed);
-//                     seen_star = 1;
-//                 }
-//                 VISIT(c, expr, elt->v.Starred.value);
-//                 ADDOP_I(c, extend, 1);
-//             }
-//             else {
-//                 VISIT(c, expr, elt);
-//                 if (seen_star) {
-//                     ADDOP_I(c, add, 1);
-//                 }
-//             }
-//         }
-//         assert(seen_star);
-//         if (tuple) {
-//             ADDOP(c, LIST_TO_TUPLE);
-//         }
-//     }
-//     else {
-//         for (i = 0; i < n; i++) {
-//             expr_ty elt = asdl_seq_GET(elts, i);
-//             VISIT(c, expr, elt);
-//         }
-//         if (tuple) {
-//             ADDOP_I(c, BUILD_TUPLE, n+pushed);
-//         } else {
-//             ADDOP_I(c, build, n+pushed);
-//         }
-//     }
+    Py_ssize_t base = c->unit->next_register;
+    for (i = 0; i < n; i++) {
+        expr_ty elt = asdl_seq_GET(elts, i);
+        if (elt->kind == Starred_kind) {
+            if (seen_star == 0) {
+                emit2(c, Set_kind ? BUILD_SET : BUILD_LIST, base, i);
+                emit1(c, STORE_FAST, base);
+                c->unit->next_register = base + 1;
+                seen_star = 1;
+            }
+            compiler_visit_expr(c, elt->v.Starred.value);
+            emit1(c, Set_kind ? SET_UPDATE : LIST_EXTEND, base);
+        }
+        else if (seen_star) {
+            compiler_visit_expr(c, elt);
+            emit1(c, Set_kind ? SET_ADD : LIST_APPEND, base);
+        }
+        else {
+            expr_to_reg(c, elt, base + i);
+        }
+    }
+    if (!seen_star) {
+        int opcode = (kind == Set_kind ? BUILD_SET :
+                      kind == List_kind ? BUILD_LIST :
+                      /*kind == Tuple_kind*/ BUILD_TUPLE);
+        emit2(c, opcode, base, n);
+        c->unit->next_register = base;
+    }
+    else {
+        emit1(c, LOAD_FAST, base);
+        emit1(c, CLEAR_FAST, base);
+        free_reg(c, base);
+        if (kind == Tuple_kind) {
+            // FIXME
+        }
+    }
 //     return 1;
-// }
+}
 
 // static int
 // assignment_helper(struct compiler *c, asdl_seq *elts)
@@ -4184,21 +4211,23 @@ compiler_boolop(struct compiler *c, expr_ty e)
 //     return 1;
 // }
 
-// static int
-// compiler_list(struct compiler *c, expr_ty e)
-// {
-//     asdl_seq *elts = e->v.List.elts;
-//     if (e->v.List.ctx == Store) {
-//         return assignment_helper(c, elts);
-//     }
-//     else if (e->v.List.ctx == Load) {
-//         return starunpack_helper(c, elts, 0, BUILD_LIST,
-//                                  LIST_APPEND, LIST_EXTEND, 0);
-//     }
-//     else
-//         VISIT_SEQ(c, expr, elts);
-//     return 1;
-// }
+static void
+compiler_list(struct compiler *c, expr_ty e)
+{
+    assert(e->v.List.ctx == Load);
+    starunpack_helper(c, e->v.List.elts, e->kind);
+    // asdl_seq *elts = e->v.List.elts;
+    // if (e->v.List.ctx == Store) {
+    //     return assignment_helper(c, elts);
+    // }
+    // else if (e->v.List.ctx == Load) {
+    //     return starunpack_helper(c, elts, 0, BUILD_LIST,
+    //                              LIST_APPEND, LIST_EXTEND, 0);
+    // }
+    // else
+    //     VISIT_SEQ(c, expr, elts);
+    // return 1;
+}
 
 // static int
 // compiler_tuple(struct compiler *c, expr_ty e)
@@ -5593,8 +5622,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         compiler_nameop(c, e->v.Name.id, e->v.Name.ctx);
         break;
 //     /* child nodes of List and Tuple will have expr_context set */
-//     case List_kind:
-//         return compiler_list(c, e);
+    case List_kind:
+        compiler_list(c, e);
+        break;
 //     case Tuple_kind:
 //         return compiler_tuple(c, e);
         default:
