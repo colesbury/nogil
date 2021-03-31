@@ -35,7 +35,7 @@
 #include <setjmp.h>
 
 enum {
-    FRAME_EXTRA = 3, // FIXME get from ceval2_meta.h
+    FRAME_EXTRA = 4, // FIXME get from ceval2_meta.h
     REG_ACCUMULATOR = -1
 };
 
@@ -176,6 +176,7 @@ struct compiler {
     struct symtable *st;
     PyObject *const_cache;     /* dict holding all constants */
 
+    PyCodeObject2 *code;
     PyObject *filename;
     PyFutureFeatures *future; /* pointer to module's __future__ */
     PyCompilerFlags flags;
@@ -229,8 +230,9 @@ static int expr_constant(expr_ty);
 // static void compiler_call_helper(struct compiler *c, int n,
 //                                  asdl_seq *args,
 //                                  asdl_seq *keywords);
+static void compiler_call(struct compiler *c, expr_ty e);
 // static int compiler_try_except(struct compiler *, stmt_ty);
-// static int compiler_set_qualname(struct compiler *);
+static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
 
 // static int compiler_sync_comprehension_generator(
 //                                       struct compiler *c,
@@ -242,10 +244,15 @@ static int expr_constant(expr_ty);
 //                                       asdl_seq *generators, int gen_index,
 //                                       expr_ty elt, expr_ty val, int type);
 
-static PyCodeObject2 *assemble(struct compiler *, int addNone);
+static void assemble(struct compiler *, int addNone);
 // static PyObject *__doc__, *__annotations__;
 
 // #define CAPSULE_NAME "compile.c compiler unit"
+_Py_IDENTIFIER(__name__);
+_Py_IDENTIFIER(__module__);
+_Py_IDENTIFIER(__qualname__);
+_Py_IDENTIFIER(__class__);
+static _Py_Identifier build_class_ident = _Py_static_string_init("$__build_class__");
 
 // TODO: copy _Py_Mangle from compile.c
 PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
@@ -380,6 +387,7 @@ compiler_free(struct compiler *c)
         PyObject_Free(c->future);
     Py_XDECREF(c->filename);
     Py_DECREF(c->const_cache);
+    Py_CLEAR(c->code);
     while(c->unit != NULL) {
         struct compiler_unit *u = c->unit;
         c->unit = u->prev;
@@ -415,6 +423,16 @@ list2dict(PyObject *list)
         Py_DECREF(v);
     }
     return dict;
+}
+
+static PyObject *
+unicode_from_id(struct compiler *c, _Py_Identifier *id)
+{
+    PyObject *s = _PyUnicode_FromId(id);
+    if (s == NULL) {
+        COMPILER_ERROR(c);
+    } 
+    return s;
 }
 
 /* Return new dict containing names from src that match scope(s).
@@ -507,6 +525,21 @@ add_local_variables(struct compiler *c, PyObject *varnames, PyObject *symbols)
     }
 }
 
+static void
+add_locals(struct compiler *c, PyObject *varnames)
+{
+    _Py_static_string(PyId_locals, "<locals>");
+    PyObject *idx = PyLong_FromLong(PyDict_GET_SIZE(varnames));
+    assert(PyDict_GET_SIZE(varnames) == 0);
+    if (idx == NULL) {
+        COMPILER_ERROR(c);
+    }
+    if (_PyDict_SetItemId(varnames, &PyId_locals, idx) < 0) {
+        Py_DECREF(idx);
+        COMPILER_ERROR(c);
+    }
+}
+
 // static void
 // compiler_unit_check(struct compiler_unit *u)
 // {
@@ -593,6 +626,9 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     if (u->ste->ste_type == FunctionBlock) {
         add_local_variables(c, u->varnames, u->ste->ste_symbols);
     }
+    else {
+        add_locals(c, u->varnames);
+    }
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
     u->cellvars = dictbytype(u->ste->ste_symbols, CELL, 0, 0);
@@ -601,7 +637,6 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
     if (u->ste->ste_needs_class_closure) {
         /* Cook up an implicit __class__ cell. */
-        _Py_IDENTIFIER(__class__);
         PyObject *name;
         int res;
         assert(u->scope_type == COMPILER_SCOPE_CLASS);
@@ -634,12 +669,13 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     if (!u->consts) {
         COMPILER_ERROR(c);
     }
-
     u->private = NULL;
+    if (u->scope_type != COMPILER_SCOPE_MODULE) {
+        compiler_set_qualname(c, u);
+    }
     c->unit = u;
     c->nestlevel++;
 
-    // if (u->u_scope_type != COMPILER_SCOPE_MODULE) {
     //     if (!compiler_set_qualname(c))
     //         return 0;
     // }
@@ -673,81 +709,66 @@ compiler_exit_scope(struct compiler *c)
     //     c->u = NULL;
 }
 
-// static int
-// compiler_set_qualname(struct compiler *c)
-// {
-//     _Py_static_string(dot, ".");
-//     _Py_static_string(dot_locals, ".<locals>");
-//     Py_ssize_t stack_size;
-//     struct compiler_unit *u = c->u;
-//     PyObject *name, *base, *dot_str, *dot_locals_str;
+static void
+compiler_set_qualname(struct compiler *c, struct compiler_unit *u)
+{
+    _Py_static_string(dot, ".");
+    _Py_static_string(dot_locals, ".<locals>");
+    PyObject *dot_str, *dot_locals_str;
 
-//     base = NULL;
-//     stack_size = PyList_GET_SIZE(c->c_stack);
-//     assert(stack_size >= 1);
-//     if (stack_size > 1) {
-//         int scope, force_global = 0;
-//         struct compiler_unit *parent;
-//         PyObject *mangled, *capsule;
+    dot_str = unicode_from_id(c, &dot);
+    dot_locals_str = unicode_from_id(c, &dot_locals);
 
-//         capsule = PyList_GET_ITEM(c->c_stack, stack_size - 1);
-//         parent = (struct compiler_unit *)PyCapsule_GetPointer(capsule, CAPSULE_NAME);
-//         assert(parent);
+    Py_INCREF(u->name);    
+    u->qualname = u->name;
 
-//         if (u->u_scope_type == COMPILER_SCOPE_FUNCTION
-//             || u->u_scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
-//             || u->u_scope_type == COMPILER_SCOPE_CLASS) {
-//             assert(u->u_name);
-//             mangled = _Py_Mangle(parent->u_private, u->u_name);
-//             if (!mangled)
-//                 return 0;
-//             scope = PyST_GetScope(parent->u_ste, mangled);
-//             Py_DECREF(mangled);
-//             assert(scope != GLOBAL_IMPLICIT);
-//             if (scope == GLOBAL_EXPLICIT)
-//                 force_global = 1;
-//         }
+    if (c->unit != NULL) {
+        int scope;
+        struct compiler_unit *parent = c->unit;
+        PyObject *mangled;
 
-//         if (!force_global) {
-//             if (parent->u_scope_type == COMPILER_SCOPE_FUNCTION
-//                 || parent->u_scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
-//                 || parent->u_scope_type == COMPILER_SCOPE_LAMBDA) {
-//                 dot_locals_str = _PyUnicode_FromId(&dot_locals);
-//                 if (dot_locals_str == NULL)
-//                     return 0;
-//                 base = PyUnicode_Concat(parent->u_qualname, dot_locals_str);
-//                 if (base == NULL)
-//                     return 0;
-//             }
-//             else {
-//                 Py_INCREF(parent->u_qualname);
-//                 base = parent->u_qualname;
-//             }
-//         }
-//     }
+        assert(parent);
 
-//     if (base != NULL) {
-//         dot_str = _PyUnicode_FromId(&dot);
-//         if (dot_str == NULL) {
-//             Py_DECREF(base);
-//             return 0;
-//         }
-//         name = PyUnicode_Concat(base, dot_str);
-//         Py_DECREF(base);
-//         if (name == NULL)
-//             return 0;
-//         PyUnicode_Append(&name, u->u_name);
-//         if (name == NULL)
-//             return 0;
-//     }
-//     else {
-//         Py_INCREF(u->u_name);
-//         name = u->u_name;
-//     }
-//     u->u_qualname = name;
+        if (u->scope_type == COMPILER_SCOPE_FUNCTION
+            || u->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
+            || u->scope_type == COMPILER_SCOPE_CLASS) {
+            assert(u->name);
+            mangled = mangle(c, u->name);
+            scope = PyST_GetScope(parent->ste, mangled);
+            Py_DECREF(mangled);
+            assert(scope != GLOBAL_IMPLICIT);
+            if (scope == GLOBAL_EXPLICIT) {
+                return;
+            }
+        }
 
-//     return 1;
-// }
+        PyObject *base;
+        if (parent->scope_type == COMPILER_SCOPE_FUNCTION
+            || parent->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
+            || parent->scope_type == COMPILER_SCOPE_LAMBDA) {
+            base = PyUnicode_Concat(parent->qualname, dot_locals_str);
+            if (base == NULL) {
+                COMPILER_ERROR(c);
+            }
+        }
+        else {
+             base = parent->qualname;
+             Py_INCREF(base);
+        }
+
+        PyObject *name = PyUnicode_Concat(base, dot_str);
+        Py_DECREF(base);
+        if (name == NULL) {
+            COMPILER_ERROR(c);
+        }
+
+        PyUnicode_Append(&name, u->name);
+        if (name == NULL) {
+            COMPILER_ERROR(c);
+        }
+        Py_SETREF(u->qualname, name);
+    }
+}
 
 static bool
 is_local(struct compiler *c, Py_ssize_t reg)
@@ -2252,8 +2273,10 @@ compiler_mod(struct compiler *c, mod_ty mod)
         COMPILER_ERROR(c);
     }
 
-    PyCodeObject2 *co = assemble(c, /*addNOne???*/0);
+    assemble(c, /*addNOne???*/0);
     compiler_exit_scope(c);
+    PyCodeObject2 *co = c->code;
+    c->code = NULL;
     return co;
 }
 
@@ -2352,7 +2375,7 @@ compiler_decorators(struct compiler *c, asdl_seq* decos)
 {
     Py_ssize_t base = -1;
     for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
-        base = c->unit->next_register + FRAME_EXTRA + 1;
+        base = c->unit->next_register + FRAME_EXTRA;
         expr_to_reg(c, asdl_seq_GET(decos, i), base - 1);
     }
     return base;
@@ -2554,7 +2577,6 @@ compiler_default_arguments(struct compiler *c, arguments_ty args)
 static void
 compiler_function(struct compiler *c, stmt_ty s, int is_async)
 {
-    PyCodeObject2 *co;
     PyObject *qualname, *docstring = NULL;
     arguments_ty args;
     expr_ty returns;
@@ -2619,16 +2641,10 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
     c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
     compiler_visit_stmts(c, body);
-    co = assemble(c, 1);
-
-    Py_ssize_t co_idx = compiler_add_o(
-        c,
-        c->unit->prev->consts,
-        (PyObject *)co);
-    Py_DECREF(co); //????
+    assemble(c, 1);
     compiler_exit_scope(c);
 
-    emit1(c, MAKE_FUNCTION, co_idx);
+    emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
 
     qualname = c->unit->qualname;
     // Py_INCREF(qualname);
@@ -2654,116 +2670,116 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     // return compiler_nameop(c, name, Store);
 }
 
-// static int
-// compiler_class(struct compiler *c, stmt_ty s)
-// {
-//     PyCodeObject *co;
-//     PyObject *str;
-//     int i, firstlineno;
-//     asdl_seq* decos = s->v.ClassDef.decorator_list;
+static void
+compiler_class(struct compiler *c, stmt_ty s)
+{
+    int firstlineno;
+    Py_ssize_t deco_base;
+    asdl_seq* decos = s->v.ClassDef.decorator_list;
 
-//     if (!compiler_decorators(c, decos))
-//         return 0;
+    deco_base = compiler_decorators(c, decos);
 
-//     firstlineno = s->lineno;
-//     if (asdl_seq_LEN(decos)) {
-//         firstlineno = ((expr_ty)asdl_seq_GET(decos, 0))->lineno;
+    firstlineno = s->lineno;
+    if (asdl_seq_LEN(decos)) {
+        firstlineno = ((expr_ty)asdl_seq_GET(decos, 0))->lineno;
+    }
+
+    /* ultimately generate code for:
+         <name> = __build_class__(<func>, <name>, *<bases>, **<keywords>)
+       where:
+         <func> is a function/closure created from the class body;
+            it has a single argument (__locals__) where the dict
+            (or MutableSequence) representing the locals is passed
+         <name> is the class name
+         <bases> is the positional arguments and *varargs argument
+         <keywords> is the keyword arguments and **kwds argument
+       This borrows from compiler_call.
+    */
+
+    /* 1. compile the class body into a code object */
+    compiler_enter_scope(c, s->v.ClassDef.name,
+                         COMPILER_SCOPE_CLASS, (void *)s, firstlineno);
+    /* this block represents what we do in the new scope */
+    {
+        /* use the class name for name mangling */
+        Py_INCREF(s->v.ClassDef.name);
+        Py_XSETREF(c->unit->private, s->v.ClassDef.name);
+        /* load (global) __name__ ... */
+        compiler_nameop(c, _PyUnicode_FromId(&PyId___name__), Load);
+        /* ... and store it as __module__ */
+        compiler_nameop(c, _PyUnicode_FromId(&PyId___module__), Store);
+        assert(c->unit->qualname);
+        /* store the qualified name */
+        emit1(c, LOAD_CONST, compiler_add_const(c, c->unit->qualname));
+        compiler_nameop(c, _PyUnicode_FromId(&PyId___qualname__), Store);
+
+        /* compile the body proper */
+        compiler_body(c, s->v.ClassDef.body);
+        /* Return __classcell__ if it is referenced, otherwise return None */
+        if (c->unit->ste->ste_needs_class_closure) {
+            assert(false && "ste_needs_class_closure NYI");
+            // /* Store __classcell__ into class namespace & return it */
+            // str = PyUnicode_InternFromString("__class__");
+            // if (str == NULL) {
+            //     compiler_exit_scope(c);
+            //     return 0;
+            // }
+            // i = compiler_lookup_arg(c->unit->cellvars, str);
+            // Py_DECREF(str);
+            // if (i < 0) {
+            //     compiler_exit_scope(c);
+            //     return 0;
+            // }
+            // assert(i == 0);
+
+            // ADDOP_I(c, LOAD_CLOSURE, i);
+            // ADDOP(c, DUP_TOP);
+            // str = PyUnicode_InternFromString("__classcell__");
+            // if (!str || !compiler_nameop(c, str, Store)) {
+            //     Py_XDECREF(str);
+            //     compiler_exit_scope(c);
+            //     return 0;
+            // }
+            // Py_DECREF(str);
+        }
+        else {
+            /* No methods referenced __class__, so just return None */
+            assert(PyDict_GET_SIZE(c->unit->cellvars) == 0);
+            emit1(c, LOAD_CONST, const_none(c));
+        }
+        emit0(c, RETURN_VALUE);
+        /* create the code object */
+        assemble(c, 1);
+    }
+
+    /* leave the new scope */
+    compiler_exit_scope(c);
+
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
+    reserve_regs(c, FRAME_EXTRA + 2);
+    emit0(c, LOAD_BUILD_CLASS);
+    emit1(c, STORE_FAST, base - 1);
+    emit1(c, LOAD_CONST, compiler_const(c, (PyObject *)c->code));
+    emit1(c, STORE_FAST, base);
+    emit1(c, LOAD_CONST, compiler_const(c, s->v.ClassDef.name));
+    emit1(c, STORE_FAST, base + 1);
+
+    Py_ssize_t n = asdl_seq_LEN(s->v.ClassDef.bases);
+    assert(n <= 253);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty b = asdl_seq_GET(s->v.ClassDef.bases, i);
+        expr_to_reg(c, b, base + i + 2);
+    }
+
+    assert(asdl_seq_LEN(s->v.ClassDef.keywords) == 0);
+    emit_call(c, CALL_FUNCTION, base, n + 2);
+    c->unit->next_register = base - FRAME_EXTRA;
+
+//     /* 6. apply decorators */
+//     for (i = 0; i < asdl_seq_LEN(decos); i++) {
+//         ADDOP_I(c, CALL_FUNCTION, 1);
 //     }
 
-//     /* ultimately generate code for:
-//          <name> = __build_class__(<func>, <name>, *<bases>, **<keywords>)
-//        where:
-//          <func> is a function/closure created from the class body;
-//             it has a single argument (__locals__) where the dict
-//             (or MutableSequence) representing the locals is passed
-//          <name> is the class name
-//          <bases> is the positional arguments and *varargs argument
-//          <keywords> is the keyword arguments and **kwds argument
-//        This borrows from compiler_call.
-//     */
-
-//     /* 1. compile the class body into a code object */
-//     if (!compiler_enter_scope(c, s->v.ClassDef.name,
-//                               COMPILER_SCOPE_CLASS, (void *)s, firstlineno))
-//         return 0;
-//     /* this block represents what we do in the new scope */
-//     {
-//         /* use the class name for name mangling */
-//         Py_INCREF(s->v.ClassDef.name);
-//         Py_XSETREF(c->u->u_private, s->v.ClassDef.name);
-//         /* load (global) __name__ ... */
-//         str = PyUnicode_InternFromString("__name__");
-//         if (!str || !compiler_nameop(c, str, Load)) {
-//             Py_XDECREF(str);
-//             compiler_exit_scope(c);
-//             return 0;
-//         }
-//         Py_DECREF(str);
-//         /* ... and store it as __module__ */
-//         str = PyUnicode_InternFromString("__module__");
-//         if (!str || !compiler_nameop(c, str, Store)) {
-//             Py_XDECREF(str);
-//             compiler_exit_scope(c);
-//             return 0;
-//         }
-//         Py_DECREF(str);
-//         assert(c->u->u_qualname);
-//         ADDOP_LOAD_CONST(c, c->u->u_qualname);
-//         str = PyUnicode_InternFromString("__qualname__");
-//         if (!str || !compiler_nameop(c, str, Store)) {
-//             Py_XDECREF(str);
-//             compiler_exit_scope(c);
-//             return 0;
-//         }
-//         Py_DECREF(str);
-//         /* compile the body proper */
-//         if (!compiler_body(c, s->v.ClassDef.body)) {
-//             compiler_exit_scope(c);
-//             return 0;
-//         }
-//         /* Return __classcell__ if it is referenced, otherwise return None */
-//         if (c->u->u_ste->ste_needs_class_closure) {
-//             /* Store __classcell__ into class namespace & return it */
-//             str = PyUnicode_InternFromString("__class__");
-//             if (str == NULL) {
-//                 compiler_exit_scope(c);
-//                 return 0;
-//             }
-//             i = compiler_lookup_arg(c->u->u_cellvars, str);
-//             Py_DECREF(str);
-//             if (i < 0) {
-//                 compiler_exit_scope(c);
-//                 return 0;
-//             }
-//             assert(i == 0);
-
-//             ADDOP_I(c, LOAD_CLOSURE, i);
-//             ADDOP(c, DUP_TOP);
-//             str = PyUnicode_InternFromString("__classcell__");
-//             if (!str || !compiler_nameop(c, str, Store)) {
-//                 Py_XDECREF(str);
-//                 compiler_exit_scope(c);
-//                 return 0;
-//             }
-//             Py_DECREF(str);
-//         }
-//         else {
-//             /* No methods referenced __class__, so just return None */
-//             assert(PyDict_GET_SIZE(c->u->u_cellvars) == 0);
-//             ADDOP_LOAD_CONST(c, Py_None);
-//         }
-//         ADDOP_IN_SCOPE(c, RETURN_VALUE);
-//         /* create the code object */
-//         co = assemble(c, 1);
-//     }
-//     /* leave the new scope */
-//     compiler_exit_scope(c);
-//     if (co == NULL)
-//         return 0;
-
-//     /* 2. load the 'build_class' function */
-//     ADDOP(c, LOAD_BUILD_CLASS);
-//     ADDOP(c, DEFER_REFCOUNT); // FIXME: make load_build_class defer rc
 
 //     /* 3. load a function (or closure) made from the code object */
 //     compiler_make_closure(c, co, 0, NULL);
@@ -2778,16 +2794,12 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 //                               s->v.ClassDef.keywords))
 //         return 0;
 
-//     /* 6. apply decorators */
-//     for (i = 0; i < asdl_seq_LEN(decos); i++) {
-//         ADDOP_I(c, CALL_FUNCTION, 1);
-//     }
 
 //     /* 7. store into <name> */
 //     if (!compiler_nameop(c, s->v.ClassDef.name, Store))
 //         return 0;
 //     return 1;
-// }
+}
 
 /* Return 0 if the expression is a constant value except named singletons.
    Return 1 otherwise. */
@@ -2829,47 +2841,6 @@ check_compare(struct compiler *c, expr_ty e)
         left = right;
     }
 }
-
-// static int compiler_addcompare(struct compiler *c, cmpop_ty op)
-// {
-//     int cmp;
-//     switch (op) {
-//     case Eq:
-//         cmp = Py_EQ;
-//         break;
-//     case NotEq:
-//         cmp = Py_NE;
-//         break;
-//     case Lt:
-//         cmp = Py_LT;
-//         break;
-//     case LtE:
-//         cmp = Py_LE;
-//         break;
-//     case Gt:
-//         cmp = Py_GT;
-//         break;
-//     case GtE:
-//         cmp = Py_GE;
-//         break;
-//     case Is:
-//         ADDOP_I(c, IS_OP, 0);
-//         return 1;
-//     case IsNot:
-//         ADDOP_I(c, IS_OP, 1);
-//         return 1;
-//     case In:
-//         ADDOP_I(c, CONTAINS_OP, 0);
-//         return 1;
-//     case NotIn:
-//         ADDOP_I(c, CONTAINS_OP, 1);
-//         return 1;
-//     default:
-//         Py_UNREACHABLE();
-//     }
-//     ADDOP_I(c, COMPARE_OP, cmp);
-//     return 1;
-// }
 
 
 
@@ -3277,34 +3248,32 @@ compiler_while(struct compiler *c, stmt_ty s)
 //     return 1;
 }
 
-// static int
-// compiler_return(struct compiler *c, stmt_ty s)
-// {
+static void
+compiler_return(struct compiler *c, stmt_ty s)
+{
 //     int preserve_tos = ((s->v.Return.value != NULL) &&
 //                         (s->v.Return.value->kind != Constant_kind));
-//     if (c->u->u_ste->ste_type != FunctionBlock)
-//         return compiler_error(c, "'return' outside function");
-//     if (s->v.Return.value != NULL &&
-//         c->u->u_ste->ste_coroutine && c->u->u_ste->ste_generator)
-//     {
-//             return compiler_error(
-//                 c, "'return' with value in async generator");
-//     }
+    if (c->unit->ste->ste_type != FunctionBlock)
+        return compiler_error(c, "'return' outside function");
+    if (s->v.Return.value != NULL &&
+        c->unit->ste->ste_coroutine && c->unit->ste->ste_generator)
+    {
+            return compiler_error(
+                c, "'return' with value in async generator");
+    }
 //     if (preserve_tos) {
 //         VISIT(c, expr, s->v.Return.value);
 //     }
 //     if (!compiler_unwind_fblock_stack(c, preserve_tos, NULL))
 //         return 0;
-//     if (s->v.Return.value == NULL) {
-//         ADDOP_LOAD_CONST(c, Py_None);
-//     }
-//     else if (!preserve_tos) {
-//         VISIT(c, expr, s->v.Return.value);
-//     }
-//     ADDOP(c, RETURN_VALUE);
-
-//     return 1;
-// }
+    if (s->v.Return.value == NULL) {
+        emit1(c, LOAD_CONST, const_none(c));
+    }
+    else {
+        compiler_visit_expr(c, s->v.Return.value);
+    }
+    emit0(c, RETURN_VALUE);
+}
 
 // static int
 // compiler_break(struct compiler *c)
@@ -3712,6 +3681,7 @@ static void
 assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
 {
     PyObject *mangled = mangle(c, e->v.Name.id);
+    // FIXME: leaks mangled?
     int access = compiler_access(c, mangled);
     switch (access) {
     case ACCESS_FAST: {
@@ -3741,6 +3711,7 @@ assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
         PyErr_Format(PyExc_SystemError, "unsupported access: %d", access);
         COMPILER_ERROR(c);
     }
+    Py_DECREF(mangled); // FIXME
 }
 
 static void
@@ -3844,11 +3815,13 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 
     switch (s->kind) {
     case FunctionDef_kind:
-        compiler_function(c, s, 0); break;
-//     case ClassDef_kind:
-//         return compiler_class(c, s);
-//     case Return_kind:
-//         return compiler_return(c, s);
+        compiler_function(c, s, 0);
+        break;
+    case ClassDef_kind:
+        compiler_class(c, s);
+        break;
+    case Return_kind:
+        return compiler_return(c, s);
 //     case Delete_kind:
 //         VISIT_SEQ(c, expr, s->v.Delete.targets)
 //         break;
@@ -4016,9 +3989,17 @@ compiler_access(struct compiler *c, PyObject *mangled_name)
 static void
 compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
 {
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
     // int op, scope;
     // Py_ssize_t arg;
     // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
+
+    if (name == build_class_ident.object) {
+        emit0(c, LOAD_BUILD_CLASS);
+        return;
+    }
 
     PyObject *mangled;
     /* XXX AugStore isn't used anywhere! */
@@ -4651,7 +4632,7 @@ compiler_call(struct compiler *c, expr_ty e)
     }
 
     int flags = nargs | (nkwds << 8);
-    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA + 1;
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
     expr_to_reg(c, func, base - 1);
     for (Py_ssize_t i = 0; i < nargs; i++) {
         expr_ty elt = asdl_seq_GET(args, i);
@@ -4659,7 +4640,7 @@ compiler_call(struct compiler *c, expr_ty e)
         expr_to_reg(c, elt, base + i);
     }
     emit_call(c, CALL_FUNCTION, base, flags);
-    c->unit->next_register = base - FRAME_EXTRA - 1;
+    c->unit->next_register = base - FRAME_EXTRA;
 }
 
 // static int
@@ -6613,7 +6594,7 @@ makecode(struct compiler *c)
 // }
 // #endif
 
-static PyCodeObject2 *
+static void
 assemble(struct compiler *c, int addNone)
 {
     PyCodeObject2 *co;
@@ -6623,8 +6604,8 @@ assemble(struct compiler *c, int addNone)
     }
 
     co = makecode(c);
+    Py_XSETREF(c->code, co);
     // assemble_free(&a);
-    return co;
 }
 
 // static PyCodeObject *
