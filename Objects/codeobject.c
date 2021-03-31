@@ -861,6 +861,10 @@ _PyCode_ConstantKey(PyObject *op)
         Py_DECREF(set);
         return key;
     }
+    else if (PySlice_Check(op)) {
+        PySliceObject *slice = (PySliceObject *)op;
+        return Py_BuildValue("(O(OOO))", Py_TYPE(op), slice->start, slice->stop, slice->step);
+    }
     else {
         /* for other types, use the object identifier as a unique identifier
          * to ensure that they are seen as unequal. */

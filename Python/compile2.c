@@ -238,20 +238,20 @@ static void compiler_nameop(struct compiler *, identifier, expr_context_ty);
 static void compiler_store(struct compiler *, identifier);
 static int compiler_access(struct compiler *c, PyObject *mangled_name);
 static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
+static int32_t const_none(struct compiler *c);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
 static void compiler_visit_stmt(struct compiler *, stmt_ty);
 // static int compiler_visit_keyword(struct compiler *, keyword_ty);
 static void compiler_visit_expr(struct compiler *, expr_ty);
-// static int compiler_augassign(struct compiler *, stmt_ty);
+static void compiler_augassign(struct compiler *, stmt_ty);
 // static int compiler_annassign(struct compiler *, stmt_ty);
-// static int compiler_visit_slice(struct compiler *, slice_ty,
-//                                 expr_context_ty);
-static void compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src);
+static void compiler_slice(struct compiler *, slice_ty);
+static void compiler_assign_reg(struct compiler *c, expr_ty target, Py_ssize_t value);
 
-// static int inplace_binop(struct compiler *, operator_ty);
-// static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
+static int inplace_binop(struct compiler *, operator_ty);
+static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
 static int expr_constant(expr_ty);
 
 // static int compiler_with(struct compiler *, stmt_ty, int);
@@ -1422,6 +1422,9 @@ write_int16(uint8_t *pc, int imm)
 static void
 emit0(struct compiler *c, int opcode)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     uint8_t *pc = next_instr(c, 1);
     pc[0] = opcode;
 }
@@ -1429,6 +1432,9 @@ emit0(struct compiler *c, int opcode)
 static void
 emit1(struct compiler *c, int opcode, int imm0)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     int wide = (imm0 > 255);
     if (wide) {
         uint8_t *pc = next_instr(c, 6);
@@ -1446,6 +1452,9 @@ emit1(struct compiler *c, int opcode, int imm0)
 static void
 emit2(struct compiler *c, int opcode, int imm0, int imm1)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     int wide = (imm0 > 255 || imm1 > 255);
     if (wide) {
         uint8_t *pc = next_instr(c, 10);
@@ -1463,8 +1472,35 @@ emit2(struct compiler *c, int opcode, int imm0, int imm1)
 }
 
 static void
+emit3(struct compiler *c, int opcode, int imm0, int imm1, int imm2)
+{
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
+    int wide = (imm0 > 255 || imm1 > 255 || imm2 > 255);
+    if (wide) {
+        uint8_t *pc = next_instr(c, 14);
+        pc[0] = WIDE;
+        pc[1] = opcode;
+        write_uint32(&pc[2], imm0);
+        write_uint32(&pc[6], imm1);
+        write_uint32(&pc[10], imm2);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 4);
+        pc[0] = opcode;
+        pc[1] = (uint8_t)imm0;
+        pc[2] = (uint8_t)imm1;
+        pc[3] = (uint8_t)imm2;
+    }
+}
+
+static void
 emit_call(struct compiler *c, int opcode, int base, int flags)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     int wide = (base > 255);
     if (wide) {
         uint8_t *pc = next_instr(c, 8);
@@ -1484,6 +1520,9 @@ emit_call(struct compiler *c, int opcode, int base, int flags)
 static void
 emit_jump(struct compiler *c, int opcode, struct bc_label *label)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     uint8_t *pc = next_instr(c, 3);
     pc[0] = opcode;
     write_uint16(&pc[1], 0);
@@ -1494,6 +1533,9 @@ emit_jump(struct compiler *c, int opcode, struct bc_label *label)
 static void
 emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
     assert(offset < 0 && offset >= INT32_MIN);
     if (offset > INT16_MIN) {
@@ -1512,6 +1554,9 @@ emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
 static void
 emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
     assert(offset < 0 && offset >= INT32_MIN);
     if (offset > INT16_MIN && reg < 256) {
@@ -1532,6 +1577,9 @@ emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
     assert(!label->bound);
     uint32_t pos = c->unit->instr.offset;
     Py_ssize_t delta = (Py_ssize_t)pos - (Py_ssize_t)label->offset;
@@ -1619,6 +1667,14 @@ free_reg(struct compiler *c, Py_ssize_t reg)
 }
 
 static void
+free_regs_above(struct compiler *c, Py_ssize_t base)
+{
+    if (base > c->unit->next_register) {
+        c->unit->next_register = base;
+    }
+}
+
+static void
 clear_reg(struct compiler *c, Py_ssize_t reg)
 {
     if (is_temporary(c, reg)) {
@@ -1630,7 +1686,12 @@ clear_reg(struct compiler *c, Py_ssize_t reg)
 static void
 expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
 {
-    compiler_visit_expr(c, e);
+    if (e == NULL) {
+        emit1(c, LOAD_CONST, const_none(c));
+    }
+    else {
+        compiler_visit_expr(c, e);
+    }
     emit1(c, STORE_FAST, reg);
     if (reg >= c->unit->next_register) {
         reserve_regs(c, reg - c->unit->next_register + 1);
@@ -1733,23 +1794,6 @@ compiler_varname(struct compiler *c, PyObject *mangled_name)
         COMPILER_ERROR(c);
     }
     return PyLong_AsLong(v);
-}
-
-static int32_t
-compiler_const(struct compiler *c, PyObject *value)
-{
-    return compiler_add_o(c, c->unit->consts, value);
-}
-
-static int32_t
-compiler_new_const(struct compiler *c, PyObject *value)
-{
-    Py_ssize_t idx = compiler_add_o(c, c->unit->consts, value);
-    Py_DECREF(value);
-    if (idx < 0) {
-        COMPILER_ERROR(c);
-    }
-    return idx;
 }
 
 static int32_t
@@ -1872,23 +1916,41 @@ static Py_ssize_t
 compiler_add_const(struct compiler *c, PyObject *o)
 {
     if (c->do_not_emit_bytecode) {
+        Py_DECREF(o);
         return 0;
     }
 
     PyObject *key = merge_consts_recursive(c, o);
+    Py_DECREF(o);
     if (key == NULL) {
         COMPILER_ERROR(c);
     }
 
     Py_ssize_t arg = compiler_add_o(c, c->unit->consts, key);
     Py_DECREF(key);
+    if (arg < 0) {
+        COMPILER_ERROR(c);
+    }
     return arg;
+}
+
+static int32_t
+compiler_const(struct compiler *c, PyObject *value)
+{
+    Py_INCREF(value);
+    return compiler_add_const(c, value);
+}
+
+static int32_t
+compiler_new_const(struct compiler *c, PyObject *value)
+{
+    return compiler_add_const(c, value);
 }
 
 static int32_t
 const_none(struct compiler *c)
 {
-    return compiler_add_const(c, Py_None);
+    return compiler_const(c, Py_None);
 }
 
 // static int
@@ -2616,7 +2678,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     if (c->optimize < 2) {
         docstring = _PyAST_GetDocString(body);
     }
-    compiler_add_const(c, docstring ? docstring : Py_None); //?????
+    compiler_const(c, docstring ? docstring : Py_None); //?????
 
     c->unit->argcount = asdl_seq_LEN(args->args);
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
@@ -2691,7 +2753,7 @@ compiler_class(struct compiler *c, stmt_ty s)
         compiler_nameop(c, _PyUnicode_FromId(&PyId___module__), Store);
         assert(c->unit->qualname);
         /* store the qualified name */
-        emit1(c, LOAD_CONST, compiler_add_const(c, c->unit->qualname));
+        emit1(c, LOAD_CONST, compiler_const(c, c->unit->qualname));
         compiler_nameop(c, _PyUnicode_FromId(&PyId___qualname__), Store);
 
         /* compile the body proper */
@@ -3080,7 +3142,7 @@ compiler_for(struct compiler *c, stmt_ty s)
     loop->ForLoop.break_label = &break_label;
     loop->ForLoop.continue_label = &continue_label;
 
-    compiler_assign1(c, s->v.For.target, REG_ACCUMULATOR);
+    compiler_assign_reg(c, s->v.For.target, REG_ACCUMULATOR);
     compiler_visit_stmts(c, s->v.For.body);
     emit_multi_label(c, &continue_label);
     emit_for(c, reg, top_offset);
@@ -3657,13 +3719,12 @@ compiler_from_import(struct compiler *c, stmt_ty s)
     }
     /* remove imported module */
     clear_reg(c, reg);
-    return 1;
 }
 
 static void
-assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
+assign_name(struct compiler *c, PyObject *name, Py_ssize_t src)
 {
-    PyObject *mangled = mangle(c, e->v.Name.id);
+    PyObject *mangled = mangle(c, name);
     // FIXME: leaks mangled?
     int access = compiler_access(c, mangled);
     switch (access) {
@@ -3698,16 +3759,116 @@ assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
 }
 
 static void
-compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src)
+compiler_store(struct compiler *c, PyObject *name)
 {
-    switch (target->kind) {
+    // FIXME: just merge with assign_name ?
+    assign_name(c, name, REG_ACCUMULATOR);
+}
+
+static void
+assignment_helper(struct compiler *c, asdl_seq *elts)
+{
+    Py_ssize_t n = asdl_seq_LEN(elts);
+    Py_ssize_t i;
+    Py_ssize_t argcnt = n;
+    Py_ssize_t after = -1; // FIXME: make non-negative
+    int seen_star = 0;
+    for (i = 0; i < n; i++) {
+        expr_ty elt = asdl_seq_GET(elts, i);
+        if (elt->kind != Starred_kind) {
+            continue;
+        }
+        if (seen_star) {
+            compiler_error(c,
+                "two starred expressions in assignment");
+        }
+        seen_star = 1;
+        argcnt = i;
+        after = n - i - 1;
+    }
+    Py_ssize_t base = reserve_regs(c, n);
+    emit3(c, UNPACK, base, argcnt, after);
+    for (i = 0; i < n; i++) {
+        expr_ty elt = asdl_seq_GET(elts, i);
+        if (elt->kind == Starred_kind) {
+            elt = elt->v.Starred.value;
+        }
+        compiler_assign_reg(c, elt, base + i);
+    }
+    free_regs_above(c, base);
+}
+
+static void
+compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg)
+{
+    // FIXME: when is reg preserved or cleared?
+    switch (t->kind) {
     case Name_kind:
-        assign_name(c, target, src);
+        assign_name(c, t->v.Name.id, reg);
         break;
-    case Attribute_kind:
+    case Attribute_kind: {
+        Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
+        to_accumulator(c, reg);
+        emit2(c, STORE_ATTR, owner, compiler_const(c, t->v.Attribute.attr));
+        break;
+    }
+    case Subscript_kind: {
+        Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
+        Py_ssize_t sub = PY_SSIZE_T_MAX; // FIXME: need slice to reg
+        // Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
+        to_accumulator(c, reg);
+        emit2(c, STORE_SUBSCR, container, sub);
+        clear_reg(c, sub);
+        clear_reg(c, container);
+        break;
+    }
+    case List_kind:
+        emit1(c, LOAD_FAST, reg);
+        assignment_helper(c, t->v.List.elts);
+        break;
+    case Tuple_kind:
+        emit1(c, LOAD_FAST, reg);
+        assignment_helper(c, t->v.Tuple.elts);
         break;
     default:
-        PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", target->kind);
+        PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", t->kind);
+        COMPILER_ERROR(c);
+    }
+}
+
+static void
+compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
+{
+    switch (t->kind) {
+    case Name_kind:
+        assign_name(c, t, expr_discharge(c, value));
+        break;
+    case Attribute_kind: {
+        Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
+        compiler_visit_expr(c, value);
+        emit2(c, STORE_ATTR, owner, compiler_const(c, t->v.Attribute.attr));
+        break;
+    }
+    case Subscript_kind: {
+        Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
+        Py_ssize_t sub = PY_SSIZE_T_MAX; // FIXME: need slice to reg
+        // Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
+        compiler_visit_expr(c, value);
+        emit2(c, STORE_SUBSCR, container, sub);
+        clear_reg(c, sub);
+        clear_reg(c, container);
+        break;
+    }
+    case List_kind:
+        compiler_visit_expr(c, value);
+        assignment_helper(c, t->v.List.elts);
+        break;
+    case Tuple_kind:
+        compiler_visit_expr(c, value);
+        assignment_helper(c, t->v.Tuple.elts);
+        break;
+    default:
+        PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", t->kind);
         COMPILER_ERROR(c);
     }
 }
@@ -3715,24 +3876,21 @@ compiler_assign1(struct compiler *c, expr_ty target, Py_ssize_t src)
 static void
 compiler_assign(struct compiler *c, stmt_ty s)
 {
-    Py_ssize_t n, src;
-
     asdl_seq *targets = s->v.Assign.targets;
-    n = asdl_seq_LEN(targets);
+    Py_ssize_t n = asdl_seq_LEN(targets);
 
     if (n == 1) {
         expr_ty target = asdl_seq_GET(targets, 0);
-        src = expr_discharge(c, s->v.Assign.value);
-        compiler_assign1(c, target, src);
+        compiler_assign_expr(c, target, s->v.Assign.value);
         return;
     }
 
-    src = expr_to_any_reg(c, s->v.Assign.value); 
+    Py_ssize_t value = expr_to_any_reg(c, s->v.Assign.value); 
     for (Py_ssize_t i = 0; i < n; i++) {
         expr_ty target = asdl_seq_GET(targets, i);
-        compiler_assign1(c, target, src);
+        compiler_assign_reg(c, target, value);
     }
-    clear_reg(c, src);
+    clear_reg(c, value);
 }
 
 static void
@@ -3804,8 +3962,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Assign_kind:
         compiler_assign(c, s);
         break;
-//     case AugAssign_kind:
-//         return compiler_augassign(c, s);
+    case AugAssign_kind:
+        compiler_augassign(c, s);
+        break;
 //     case AnnAssign_kind:
 //         return compiler_annassign(c, s);
     case For_kind:
@@ -3911,42 +4070,29 @@ binop(operator_ty op)
     Py_UNREACHABLE();
 }
 
-// static int
-// inplace_binop(struct compiler *c, operator_ty op)
-// {
-//     switch (op) {
-//     case Add:
-//         return INPLACE_ADD;
-//     case Sub:
-//         return INPLACE_SUBTRACT;
-//     case Mult:
-//         return INPLACE_MULTIPLY;
-//     case MatMult:
-//         return INPLACE_MATRIX_MULTIPLY;
-//     case Div:
-//         return INPLACE_TRUE_DIVIDE;
-//     case Mod:
-//         return INPLACE_MODULO;
-//     case Pow:
-//         return INPLACE_POWER;
-//     case LShift:
-//         return INPLACE_LSHIFT;
-//     case RShift:
-//         return INPLACE_RSHIFT;
-//     case BitOr:
-//         return INPLACE_OR;
-//     case BitXor:
-//         return INPLACE_XOR;
-//     case BitAnd:
-//         return INPLACE_AND;
-//     case FloorDiv:
-//         return INPLACE_FLOOR_DIVIDE;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//             "inplace binary op %d should not be possible", op);
-//         return 0;
-//     }
-// }
+static int
+inplace_binop(struct compiler *c, operator_ty op)
+{
+    switch (op) {
+    case Add:       return INPLACE_ADD;
+    case Sub:       return INPLACE_SUBTRACT;
+    case Mult:      return INPLACE_MULTIPLY;
+    case MatMult:   return INPLACE_MATRIX_MULTIPLY;
+    case Div:       return INPLACE_TRUE_DIVIDE;
+    case Mod:       return INPLACE_MODULO;
+    case Pow:       return INPLACE_POWER;
+    case LShift:    return INPLACE_LSHIFT;
+    case RShift:    return INPLACE_RSHIFT;
+    case BitOr:     return INPLACE_OR;
+    case BitXor:    return INPLACE_XOR;
+    case BitAnd:    return INPLACE_AND;
+    case FloorDiv:  return INPLACE_FLOOR_DIVIDE;
+    default:
+        PyErr_Format(PyExc_SystemError,
+            "inplace binary op %d should not be possible", op);
+        COMPILER_ERROR(c);
+    }
+}
 
 static int
 compiler_access(struct compiler *c, PyObject *mangled_name)
@@ -4017,31 +4163,6 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
               compiler_const(c, mangled),
               compiler_metaslot(c, mangled));
         break;
-    }
-    Py_DECREF(mangled); // FIXME error handling
-}
-
-static void
-compiler_store(struct compiler *c, PyObject *name)
-{
-    PyObject *mangled = mangle(c, name);
-    int access = compiler_access(c, mangled);
-    switch (access) {
-    case ACCESS_FAST:
-        emit1(c, STORE_FAST, compiler_varname(c, mangled));
-        break;
-    case ACCESS_DEREF:
-        emit1(c, STORE_DEREF, compiler_varname(c, mangled));
-        break;
-    case ACCESS_NAME:
-        emit1(c, STORE_NAME, compiler_const(c, mangled));
-        break;
-    case ACCESS_GLOBAL:
-        emit1(c, STORE_GLOBAL, compiler_const(c, mangled));
-        break;
-    default:
-        PyErr_SetString(PyExc_RuntimeError, "bad access for store");
-        COMPILER_ERROR(c);
     }
     Py_DECREF(mangled); // FIXME error handling
 }
@@ -4144,36 +4265,6 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
 //     return 1;
 }
 
-// static int
-// assignment_helper(struct compiler *c, asdl_seq *elts)
-// {
-//     Py_ssize_t n = asdl_seq_LEN(elts);
-//     Py_ssize_t i;
-//     int seen_star = 0;
-//     for (i = 0; i < n; i++) {
-//         expr_ty elt = asdl_seq_GET(elts, i);
-//         if (elt->kind == Starred_kind && !seen_star) {
-//             if ((i >= (1 << 8)) ||
-//                 (n-i-1 >= (INT_MAX >> 8)))
-//                 return compiler_error(c,
-//                     "too many expressions in "
-//                     "star-unpacking assignment");
-//             ADDOP_I(c, UNPACK_EX, (i + ((n-i-1) << 8)));
-//             seen_star = 1;
-//             asdl_seq_SET(elts, i, elt->v.Starred.value);
-//         }
-//         else if (elt->kind == Starred_kind) {
-//             return compiler_error(c,
-//                 "two starred expressions in assignment");
-//         }
-//     }
-//     if (!seen_star) {
-//         ADDOP_I(c, UNPACK_SEQUENCE, n);
-//     }
-//     VISIT_SEQ(c, expr, elts);
-//     return 1;
-// }
-
 static void
 compiler_list(struct compiler *c, expr_ty e)
 {
@@ -4215,17 +4306,17 @@ compiler_list(struct compiler *c, expr_ty e)
 //                              SET_ADD, SET_UPDATE, 0);
 // }
 
-// static int
-// are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
-// {
-//     Py_ssize_t i;
-//     for (i = begin; i < end; i++) {
-//         expr_ty key = (expr_ty)asdl_seq_GET(seq, i);
-//         if (key == NULL || key->kind != Constant_kind)
-//             return 0;
-//     }
-//     return 1;
-// }
+static int
+are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
+{
+    Py_ssize_t i;
+    for (i = begin; i < end; i++) {
+        expr_ty key = (expr_ty)asdl_seq_GET(seq, i);
+        if (key == NULL || key->kind != Constant_kind)
+            return 0;
+    }
+    return 1;
+}
 
 // static int
 // compiler_subdict(struct compiler *c, expr_ty e, Py_ssize_t begin, Py_ssize_t end)
@@ -5196,11 +5287,11 @@ compiler_call(struct compiler *c, expr_ty e)
 //     return 1;
 // }
 
-// /* Test whether expression is constant.  For constants, report
-//    whether they are true or false.
+/* Test whether expression is constant.  For constants, report
+   whether they are true or false.
 
-//    Return values: 1 for true, 0 for false, -1 for non-constant.
-//  */
+   Return values: 1 for true, 0 for false, -1 for non-constant.
+ */
 
 static int
 expr_constant(expr_ty e)
@@ -5510,7 +5601,13 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //     case FormattedValue_kind:
 //         return compiler_formatted_value(c, e);
 //     /* The following exprs can be assignment targets. */
-//     case Attribute_kind:
+    case Attribute_kind: {
+        assert(e->v.Attribute.ctx == Load);
+        Py_ssize_t reg = expr_to_any_reg(c, e->v.Attribute.value);
+        emit2(c, LOAD_ATTR, reg, compiler_const(c, e->v.Attribute.attr));
+        clear_reg(c, reg);
+        break;
+    }
 //         if (e->v.Attribute.ctx != AugStore)
 //             VISIT(c, expr, e->v.Attribute.value);
 //         switch (e->v.Attribute.ctx) {
@@ -5536,7 +5633,14 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 //             return 0;
 //         }
 //         break;
-//     case Subscript_kind:
+    case Subscript_kind: {
+        assert(e->v.Subscript.ctx == Load);
+        Py_ssize_t reg = expr_to_any_reg(c, e->v.Subscript.value);
+        compiler_slice(c, e->v.Subscript.slice);
+        emit1(c, BINARY_SUBSCR, reg);
+        clear_reg(c, reg);
+        break;
+    }
 //         switch (e->v.Subscript.ctx) {
 //         case AugLoad:
 //             VISIT(c, expr, e->v.Subscript.value);
@@ -5622,53 +5726,59 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
     c->unit->col_offset = old_col_offset;
 }
 
-// static int
-// compiler_augassign(struct compiler *c, stmt_ty s)
-// {
-//     expr_ty e = s->v.AugAssign.target;
-//     expr_ty auge;
+static void
+compiler_augassign(struct compiler *c, stmt_ty s)
+{
+    Py_ssize_t reg1, reg2, reg3, const_slot;
+    expr_ty e = s->v.AugAssign.target;
+    expr_ty name;
 
-//     assert(s->kind == AugAssign_kind);
+    assert(s->kind == AugAssign_kind);
 
-//     switch (e->kind) {
-//     case Attribute_kind:
-//         auge = Attribute(e->v.Attribute.value, e->v.Attribute.attr,
-//                          AugLoad, e->lineno, e->col_offset,
-//                          e->end_lineno, e->end_col_offset, c->c_arena);
-//         if (auge == NULL)
-//             return 0;
-//         VISIT(c, expr, auge);
-//         VISIT(c, expr, s->v.AugAssign.value);
-//         ADDOP(c, inplace_binop(c, s->v.AugAssign.op));
-//         auge->v.Attribute.ctx = AugStore;
-//         VISIT(c, expr, auge);
-//         break;
-//     case Subscript_kind:
-//         auge = Subscript(e->v.Subscript.value, e->v.Subscript.slice,
-//                          AugLoad, e->lineno, e->col_offset,
-//                          e->end_lineno, e->end_col_offset, c->c_arena);
-//         if (auge == NULL)
-//             return 0;
-//         VISIT(c, expr, auge);
-//         VISIT(c, expr, s->v.AugAssign.value);
-//         ADDOP(c, inplace_binop(c, s->v.AugAssign.op));
-//         auge->v.Subscript.ctx = AugStore;
-//         VISIT(c, expr, auge);
-//         break;
-//     case Name_kind:
-//         if (!compiler_nameop(c, e->v.Name.id, Load))
-//             return 0;
-//         VISIT(c, expr, s->v.AugAssign.value);
-//         ADDOP(c, inplace_binop(c, s->v.AugAssign.op));
-//         return compiler_nameop(c, e->v.Name.id, Store);
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//             "invalid node type (%d) for augmented assignment",
-//             e->kind);
-//         return 0;
-//     }
-//     return 1;
-// }
+    switch (e->kind) {
+    case Attribute_kind:
+        reg1 = expr_to_any_reg(c, e->v.Attribute.value);
+        const_slot = compiler_const(c, e->v.Attribute.attr);
+        emit2(c, LOAD_ATTR, reg1, const_slot);
+        reg2 = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, reg2);
+        compiler_visit_expr(c, s->v.AugAssign.value);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg2);
+        emit2(c, STORE_ATTR, reg1, const_slot);
+        clear_reg(c, reg2);
+        clear_reg(c, reg1);
+        break;
+    case Subscript_kind:
+        reg1 = expr_to_any_reg(c, e->v.Subscript.value);
+        assert(false && "NYI slice");
+        // reg2 = expr_to_any_reg(c, e->v.Subscript.slice);
+        emit1(c, LOAD_FAST, reg2);
+        emit1(c, BINARY_SUBSCR, reg1);
+        reg3 = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, reg3);
+        compiler_visit_expr(c, s->v.AugAssign.value);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg3);
+        emit2(c, STORE_SUBSCR, reg1, reg2);
+        clear_reg(c, reg3);
+        clear_reg(c, reg2);
+        clear_reg(c, reg1);
+        break;
+    case Name_kind:
+        name = Name(e->v.Name.id, Load, e->lineno, e->col_offset,
+                    e->end_lineno, e->end_col_offset, c->arena);
+        reg1 = expr_to_any_reg(c, name);
+        compiler_visit_expr(c, s->v.AugAssign.value);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg1);
+        compiler_store(c, e->v.Name.id);
+        clear_reg(c, reg1);
+        break;
+    default:
+        PyErr_Format(PyExc_SystemError,
+            "invalid node type (%d) for augmented assignment",
+            e->kind);
+        COMPILER_ERROR(c);
+    }
+}
 
 // static int
 // check_ann_expr(struct compiler *c, expr_ty e)
@@ -5916,92 +6026,58 @@ compiler_warn(struct compiler *c, const char *format, ...)
 //     return 1;
 // }
 
-// static int
-// compiler_slice(struct compiler *c, slice_ty s, expr_context_ty ctx)
-// {
-//     int n = 2;
-//     assert(s->kind == Slice_kind);
+static PyObject *
+expr_as_const(expr_ty e)
+{
+    if (e == NULL) {
+        return Py_None;
+    }
+    if (e->kind == Constant_kind) {
+        return e->v.Constant.value;
+    }
+    return NULL;
+}
 
-//     /* only handles the cases where BUILD_SLICE is emitted */
-//     if (s->v.Slice.lower) {
-//         VISIT(c, expr, s->v.Slice.lower);
-//     }
-//     else {
-//         ADDOP_LOAD_CONST(c, Py_None);
-//     }
+static void
+compiler_slice(struct compiler *c, slice_ty s)
+{
+    if (s->kind == Index_kind) {
+        compiler_visit_expr(c, s->v.Index.value);
+        return;
+    }
+    if (s->kind == ExtSlice_kind) {
+        Py_ssize_t base = c->unit->next_register;
+        Py_ssize_t i, n = asdl_seq_LEN(s->v.ExtSlice.dims);
+        for (i = 0; i < n; i++) {
+            slice_ty sub = (slice_ty)asdl_seq_GET(s->v.ExtSlice.dims, i);
+            compiler_slice(c, sub);
+            emit1(c, STORE_FAST, reserve_regs(c, 1));
+        }
+        emit2(c, BUILD_TUPLE, base, n);
+        c->unit->next_register = base;
+        return;
+    }
 
-//     if (s->v.Slice.upper) {
-//         VISIT(c, expr, s->v.Slice.upper);
-//     }
-//     else {
-//         ADDOP_LOAD_CONST(c, Py_None);
-//     }
+    PyObject *lower, *upper, *step;
+    lower = expr_as_const(s->v.Slice.lower);
+    upper = expr_as_const(s->v.Slice.upper);
+    step = expr_as_const(s->v.Slice.step);
+    if (lower && upper && step) {
+        PyObject *slice = PySlice_New(lower, upper, step);
+        if (slice == NULL) {
+            COMPILER_ERROR(c);
+        }
+        emit1(c, LOAD_CONST, compiler_new_const(c, slice));
+        return;
+    }
 
-//     if (s->v.Slice.step) {
-//         n++;
-//         VISIT(c, expr, s->v.Slice.step);
-//     }
-//     ADDOP_I(c, BUILD_SLICE, n);
-//     return 1;
-// }
-
-// static int
-// compiler_visit_nested_slice(struct compiler *c, slice_ty s,
-//                             expr_context_ty ctx)
-// {
-//     switch (s->kind) {
-//     case Slice_kind:
-//         return compiler_slice(c, s, ctx);
-//     case Index_kind:
-//         VISIT(c, expr, s->v.Index.value);
-//         break;
-//     case ExtSlice_kind:
-//     default:
-//         PyErr_SetString(PyExc_SystemError,
-//                         "extended slice invalid in nested slice");
-//         return 0;
-//     }
-//     return 1;
-// }
-
-// static int
-// compiler_visit_slice(struct compiler *c, slice_ty s, expr_context_ty ctx)
-// {
-//     const char * kindname = NULL;
-//     switch (s->kind) {
-//     case Index_kind:
-//         kindname = "index";
-//         if (ctx != AugStore) {
-//             VISIT(c, expr, s->v.Index.value);
-//         }
-//         break;
-//     case Slice_kind:
-//         kindname = "slice";
-//         if (ctx != AugStore) {
-//             if (!compiler_slice(c, s, ctx))
-//                 return 0;
-//         }
-//         break;
-//     case ExtSlice_kind:
-//         kindname = "extended slice";
-//         if (ctx != AugStore) {
-//             Py_ssize_t i, n = asdl_seq_LEN(s->v.ExtSlice.dims);
-//             for (i = 0; i < n; i++) {
-//                 slice_ty sub = (slice_ty)asdl_seq_GET(
-//                     s->v.ExtSlice.dims, i);
-//                 if (!compiler_visit_nested_slice(c, sub, ctx))
-//                     return 0;
-//             }
-//             ADDOP_I(c, BUILD_TUPLE, n);
-//         }
-//         break;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//                      "invalid subscript kind %d", s->kind);
-//         return 0;
-//     }
-//     return compiler_handle_subscr(c, kindname, ctx);
-// }
+    Py_ssize_t base = c->unit->next_register;
+    expr_to_reg(c, s->v.Slice.lower, base + 0);
+    expr_to_reg(c, s->v.Slice.upper, base + 1);
+    expr_to_reg(c, s->v.Slice.step,  base + 2);
+    emit1(c, BUILD_SLICE, base);
+    c->unit->next_register = base;
+}
 
 // /* End of the compiler section, beginning of the assembler section */
 
@@ -6387,6 +6463,24 @@ compiler_warn(struct compiler *c, const char *format, ...)
 //     return tuple;
 // }
 
+static PyObject *
+unpack_const_key(PyObject *key)
+{
+    if (!PyTuple_CheckExact(key)) {
+        Py_INCREF(key);
+        return key;
+    }
+    PyObject *type = PyTuple_GET_ITEM(key, 0);
+    PyObject *value = PyTuple_GET_ITEM(key, 1);
+    if (type == (PyObject *)&PySlice_Type) {
+        return PySlice_New(PyTuple_GET_ITEM(value, 0),
+                           PyTuple_GET_ITEM(value, 1),
+                           PyTuple_GET_ITEM(value, 2));
+    }
+    Py_INCREF(value);
+    return value;
+}
+
 // static PyObject *
 // consts_dict_keys_inorder(PyObject *dict)
 // {
@@ -6531,7 +6625,10 @@ makecode(struct compiler *c)
     Py_ssize_t pos = 0, i = 0;
     PyObject *key, *value;
     while (PyDict_Next(consts, &pos, &key, &value)) {
-        Py_INCREF(key);
+        key = unpack_const_key(key);
+        if (key == NULL) {
+            COMPILER_ERROR(c);
+        }
         if (PyUnicode_CheckExact(key)) {
             PyUnicode_InternInPlace(&key);
         }
