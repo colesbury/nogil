@@ -3251,36 +3251,43 @@ compiler_return(struct compiler *c, stmt_ty s)
     c->unit->reachable = false;
 }
 
-// static int
-// compiler_break(struct compiler *c)
-// {
-//     struct fblockinfo *loop = NULL;
-//     if (!compiler_unwind_fblock_stack(c, 0, &loop)) {
-//         return 0;
-//     }
-//     if (loop == NULL) {
-//         return compiler_error(c, "'break' outside loop");
-//     }
-//     if (!compiler_unwind_fblock(c, loop, 0)) {
-//         return 0;
-//     }
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, loop->fb_exit);
-//     return 1;
-// }
+static void
+compiler_break(struct compiler *c)
+{
+    struct block_table *blocks = &c->unit->blocks;
+    for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
+        struct fblock *block = &blocks->arr[i];
+        compiler_unwind_block(c, block);
+        if (block->type == FOR_LOOP) {
+            emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.break_label));
+            return;
+        }
+        if (block->type == WHILE_LOOP) {
+            emit_jump(c, JUMP, multi_label_next(c, block->WhileLoop.break_label));
+            return;
+        }
+    }
+    compiler_error(c, "'break' outside loop");
+}
 
-// static int
-// compiler_continue(struct compiler *c)
-// {
-//     struct fblockinfo *loop = NULL;
-//     if (!compiler_unwind_fblock_stack(c, 0, &loop)) {
-//         return 0;
-//     }
-//     if (loop == NULL) {
-//         return compiler_error(c, "'continue' not properly in loop");
-//     }
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, loop->fb_block);
-//     return 1;
-// }
+static void
+compiler_continue(struct compiler *c)
+{
+    struct block_table *blocks = &c->unit->blocks;
+    for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
+        struct fblock *block = &blocks->arr[i];
+        compiler_unwind_block(c, block);
+        if (block->type == FOR_LOOP) {
+            emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.continue_label));
+            return;
+        }
+        if (block->type == WHILE_LOOP) {
+            emit_jump(c, JUMP, multi_label_next(c, block->WhileLoop.continue_label));
+            return;
+        }
+    }
+    compiler_error(c, "'continue' not properly in loop");
+}
 
 
 // /* Code generated for "try: <body> finally: <finalbody>" is as follows:
@@ -3843,10 +3850,12 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         return compiler_visit_stmt_expr(c, s->v.Expr.value);
     case Pass_kind:
         break;
-//     case Break_kind:
-//         return compiler_break(c);
-//     case Continue_kind:
-//         return compiler_continue(c);
+    case Break_kind:
+        compiler_break(c);
+        break;
+    case Continue_kind:
+        compiler_continue(c);
+        break;
 //     case With_kind:
 //         return compiler_with(c, s, 0);
 //     case AsyncFunctionDef_kind:
