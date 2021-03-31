@@ -58,11 +58,6 @@ enum {
 // #define COMP_DICTCOMP 3
 
 enum {
-    WHILE_LOOP,
-    FOR_LOOP
-};
-
-enum {
     COMPILER_SCOPE_MODULE,
     COMPILER_SCOPE_CLASS,
     COMPILER_SCOPE_FUNCTION,
@@ -98,11 +93,46 @@ struct multi_label {
 
 #define MULTI_LABEL_INIT {NULL, 0, 0}
 
-struct loop_block {
-    uint32_t top_offset;
-    int loop_type;
-    struct multi_label *break_label;
-    struct multi_label *continue_label;
+enum frame_block_type {
+    WHILE_LOOP,
+    FOR_LOOP,
+    TRY_FINALLY,
+    EXCEPT,
+    WITH,
+    ASYNC_WITH
+};
+
+struct fblock {
+    enum frame_block_type type;
+    union {
+        struct {
+            Py_ssize_t reg;
+            struct multi_label *break_label;
+            struct multi_label *continue_label;
+        } ForLoop;
+
+        struct {
+            struct multi_label *break_label;
+            struct multi_label *continue_label;
+        } WhileLoop;
+
+        struct {
+            struct multi_label *label;
+            Py_ssize_t reg;
+        } TryFinally;
+
+        struct {
+            Py_ssize_t reg;
+        } Except;
+
+        struct {
+            Py_ssize_t reg;
+        } With;
+
+        struct {
+            Py_ssize_t reg;
+        } AsyncWith;
+    };
 };
 
 /* The following items change on entry and exit of code blocks.
@@ -119,11 +149,11 @@ struct compiler_unit {
         uint32_t allocated;
     } lineno_table;
 
-    struct loop_table {
-        struct loop_block *arr;
+    struct block_table {
+        struct fblock *arr;
         uint32_t offset;
         uint32_t allocated;
-    } loops;
+    } blocks;
 
     PySTEntryObject *ste;
 
@@ -1518,6 +1548,7 @@ emit_label(struct compiler *c, struct bc_label *label)
     uint8_t *jmp =  &c->unit->instr.arr[label->offset];
     write_int16(&jmp[1], delta);
     label->bound = 1;
+    c->unit->reachable = true;
 }
 
 static void
@@ -2068,102 +2099,41 @@ const_none(struct compiler *c)
 //     return 1;
 // }
 
-// /* Unwind a frame block.  If preserve_tos is true, the TOS before
-//  * popping the blocks will be restored afterwards, unless another
-//  * return, break or continue is found. In which case, the TOS will
-//  * be popped.
-//  */
-// static int
-// compiler_unwind_fblock(struct compiler *c, struct fblockinfo *info,
-//                        int preserve_tos)
-// {
-//     switch (info->fb_type) {
-//         case WHILE_LOOP:
-//             return 1;
+/* Unwind a frame block.  If preserve_tos is true, the TOS before
+ * popping the blocks will be restored afterwards, unless another
+ * return, break or continue is found. In which case, the TOS will
+ * be popped.
+ * FIXME: docs
+ */
+static void
+compiler_unwind_block(struct compiler *c, struct fblock *block)
+{
+    switch (block->type) {
+    case WHILE_LOOP:
+        return;
 
-//         case FOR_LOOP:
-//             /* Pop the iterator */
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_TWO);
-//             }
-//             ADDOP(c, POP_TOP);
-//             return 1;
+    case FOR_LOOP:
+        emit1(c, CLEAR_FAST, block->ForLoop.reg);
+        return;
 
-//         case EXCEPT:
-//             ADDOP(c, POP_BLOCK);
-//             return 1;
+    case TRY_FINALLY:
+        assert(false && "NYI: TryFinally");
+        break;
 
-//         case FINALLY_TRY:
-//             ADDOP(c, POP_BLOCK);
-//             if (preserve_tos) {
-//                 if (!compiler_push_fblock(c, POP_VALUE, NULL, NULL, NULL)) {
-//                     return 0;
-//                 }
-//             }
-//             /* Emit the finally block, restoring the line number when done */
-//             int saved_lineno = c->u->u_lineno;
-//             VISIT_SEQ(c, stmt, info->fb_datum);
-//             c->u->u_lineno = saved_lineno;
-//             c->u->u_lineno_set = 0;
-//             if (preserve_tos) {
-//                 compiler_pop_fblock(c, POP_VALUE, NULL);
-//             }
-//             return 1;
+    case EXCEPT:
+        emit1(c, END_EXCEPT, block->Except.reg);
+        return;
 
-//         case FINALLY_END:
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_FOUR);
-//             }
-//             ADDOP(c, POP_TOP);
-//             ADDOP(c, POP_TOP);
-//             ADDOP(c, POP_TOP);
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_FOUR);
-//             }
-//             ADDOP(c, POP_EXCEPT);
-//             return 1;
+    case WITH:
+        emit1(c, END_WITH, block->With.reg);
+        return;
 
-//         case WITH:
-//         case ASYNC_WITH:
-//             ADDOP(c, POP_BLOCK);
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_TWO);
-//             }
-//             if(!compiler_call_exit_with_nones(c)) {
-//                 return 0;
-//             }
-//             if (info->fb_type == ASYNC_WITH) {
-//                 ADDOP(c, GET_AWAITABLE);
-//                 ADDOP_LOAD_CONST(c, Py_None);
-//                 ADDOP(c, YIELD_FROM);
-//             }
-//             ADDOP(c, POP_TOP);
-//             return 1;
-
-//         case HANDLER_CLEANUP:
-//             if (info->fb_datum) {
-//                 ADDOP(c, POP_BLOCK);
-//             }
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_FOUR);
-//             }
-//             ADDOP(c, POP_EXCEPT);
-//             if (info->fb_datum) {
-//                 ADDOP_LOAD_CONST(c, Py_None);
-//                 compiler_nameop(c, info->fb_datum, Store);
-//                 compiler_nameop(c, info->fb_datum, Del);
-//             }
-//             return 1;
-
-//         case POP_VALUE:
-//             if (preserve_tos) {
-//                 ADDOP(c, ROT_TWO);
-//             }
-//             ADDOP(c, POP_TOP);
-//             return 1;
-//     }
-//     Py_UNREACHABLE();
-// }
+    case ASYNC_WITH:
+        emit1(c, END_ASYNC_WITH, block->AsyncWith.reg);
+        return;
+    }
+    Py_UNREACHABLE();
+}
 
 // /** Unwind block stack. If loop is not NULL, then stop when the first loop is encountered. */
 // static int
@@ -3052,36 +3022,30 @@ compiler_if(struct compiler *c, stmt_ty s)
     }
 }
 
-static struct loop_block *
-compiler_push_loop(struct compiler *c,
-                   int loop_type,
-                   struct multi_label *break_label,
-                   struct multi_label *continue_label)
+static struct fblock *
+compiler_push_loop(struct compiler *c, int loop_type)
 {
-    struct loop_table *loops = &c->unit->loops;
-    if (loops->offset == loops->allocated) {
+    struct block_table *blocks = &c->unit->blocks;
+    if (blocks->offset == blocks->allocated) {
         resize_array(
             c,
-            (void**)&loops->arr,
-            &loops->allocated,
+            (void**)&blocks->arr,
+            &blocks->allocated,
             /*min_size=*/8,
-            sizeof(*loops->arr));
+            sizeof(*blocks->arr));
     }
-    struct loop_block *loop = &loops->arr[loops->offset++];
-    loop->top_offset = 0;
-    loop->loop_type = loop_type;
-    loop->break_label = break_label;
-    loop->continue_label = continue_label;
+    struct fblock *loop = &blocks->arr[blocks->offset++];
+    loop->type = loop_type;
     return loop;
 }
 
 static void
-compiler_pop_loop(struct compiler *c, struct loop_block *loop)
+compiler_pop_loop(struct compiler *c, struct fblock *loop)
 {
-    struct loop_table *loops = &c->unit->loops;
-    assert(loop == &loops->arr[loops->offset - 1]);
-    loops->offset--;
-    memset(&loops->arr[loops->offset], 0, sizeof(*loop));
+    struct block_table *blocks = &c->unit->blocks;
+    assert(loop == &blocks->arr[blocks->offset - 1]);
+    blocks->offset--;
+    memset(&blocks->arr[blocks->offset], 0, sizeof(*loop));
 }
 
 static void
@@ -3089,20 +3053,26 @@ compiler_for(struct compiler *c, stmt_ty s)
 {
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
-    struct loop_block *loop;
+    struct fblock *loop;
     Py_ssize_t reg;
-
-    loop = compiler_push_loop(c, FOR_LOOP, &break_label, &continue_label);
+    uint32_t top_offset;
 
     compiler_visit_expr(c, s->v.For.iter);
     reg = reserve_regs(c, 1);
+
     emit1(c, GET_ITER, reg);
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
-    loop->top_offset = c->unit->instr.offset;
+    top_offset = c->unit->instr.offset;
+
+    loop = compiler_push_loop(c, FOR_LOOP);
+    loop->ForLoop.reg = reg;
+    loop->ForLoop.break_label = &break_label;
+    loop->ForLoop.continue_label = &continue_label;
+
     compiler_assign1(c, s->v.For.target, REG_ACCUMULATOR);
     compiler_visit_stmts(c, s->v.For.body);
     emit_multi_label(c, &continue_label);
-    emit_for(c, reg, loop->top_offset);
+    emit_for(c, reg, top_offset);
     free_reg(c, reg);
 
     compiler_pop_loop(c, loop);
@@ -3193,16 +3163,20 @@ compiler_while(struct compiler *c, stmt_ty s)
 
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
-    struct loop_block *loop;
+    struct fblock *loop;
+    uint32_t top_offset;
     
-    loop = compiler_push_loop(c, WHILE_LOOP, &break_label, &continue_label);
-
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
-    loop->top_offset = c->unit->instr.offset;
+    top_offset = c->unit->instr.offset;
+
+    loop = compiler_push_loop(c, WHILE_LOOP);
+    loop->WhileLoop.break_label = &break_label;
+    loop->WhileLoop.continue_label = &continue_label;
+
     compiler_visit_stmts(c, s->v.While.body);
     emit_multi_label(c, &continue_label);
     compiler_visit_expr(c, s->v.While.test);
-    emit_bwd_jump(c, POP_JUMP_IF_TRUE, loop->top_offset);
+    emit_bwd_jump(c, POP_JUMP_IF_TRUE, top_offset);
 
     compiler_pop_loop(c, loop);
 
@@ -3251,8 +3225,6 @@ compiler_while(struct compiler *c, stmt_ty s)
 static void
 compiler_return(struct compiler *c, stmt_ty s)
 {
-//     int preserve_tos = ((s->v.Return.value != NULL) &&
-//                         (s->v.Return.value->kind != Constant_kind));
     if (c->unit->ste->ste_type != FunctionBlock)
         return compiler_error(c, "'return' outside function");
     if (s->v.Return.value != NULL &&
@@ -3261,18 +3233,22 @@ compiler_return(struct compiler *c, stmt_ty s)
             return compiler_error(
                 c, "'return' with value in async generator");
     }
-//     if (preserve_tos) {
-//         VISIT(c, expr, s->v.Return.value);
-//     }
-//     if (!compiler_unwind_fblock_stack(c, preserve_tos, NULL))
-//         return 0;
     if (s->v.Return.value == NULL) {
         emit1(c, LOAD_CONST, const_none(c));
     }
     else {
         compiler_visit_expr(c, s->v.Return.value);
     }
+    struct block_table *blocks = &c->unit->blocks;
+    for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
+        struct fblock *block = &blocks->arr[i];
+        if (block->type == TRY_FINALLY) {
+            emit1(c, STORE_FAST, block->TryFinally.reg + 1);
+        }
+        compiler_unwind_block(c, block);
+    }
     emit0(c, RETURN_VALUE);
+    c->unit->reachable = false;
 }
 
 // static int
