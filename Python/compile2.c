@@ -1742,6 +1742,17 @@ compiler_const(struct compiler *c, PyObject *value)
 }
 
 static int32_t
+compiler_new_const(struct compiler *c, PyObject *value)
+{
+    Py_ssize_t idx = compiler_add_o(c, c->unit->consts, value);
+    Py_DECREF(value);
+    if (idx < 0) {
+        COMPILER_ERROR(c);
+    }
+    return idx;
+}
+
+static int32_t
 compiler_metaslot(struct compiler *c, PyObject *name)
 {
     return compiler_add_o(c, c->unit->metadata, name);
@@ -3511,154 +3522,143 @@ compiler_continue(struct compiler *c)
 // }
 
 
-// static int
-// compiler_import_as(struct compiler *c, identifier name, identifier asname)
-// {
-//     /* The IMPORT_NAME opcode was already generated.  This function
-//        merely needs to bind the result to a name.
+static void
+compiler_import_as(struct compiler *c, identifier name, identifier asname)
+{
+    /* The IMPORT_NAME opcode was already generated.  This function
+       merely needs to bind the result to a name.
 
-//        If there is a dot in name, we need to split it and emit a
-//        IMPORT_FROM for each name.
-//     */
-//     Py_ssize_t len = PyUnicode_GET_LENGTH(name);
-//     Py_ssize_t dot = PyUnicode_FindChar(name, '.', 0, len, 1);
-//     if (dot == -2)
-//         return 0;
-//     if (dot != -1) {
-//         /* Consume the base module name to get the first attribute */
-//         while (1) {
-//             Py_ssize_t pos = dot + 1;
-//             PyObject *attr;
-//             dot = PyUnicode_FindChar(name, '.', pos, len, 1);
-//             if (dot == -2)
-//                 return 0;
-//             attr = PyUnicode_Substring(name, pos, (dot != -1) ? dot : len);
-//             if (!attr)
-//                 return 0;
-//             ADDOP_N(c, IMPORT_FROM, attr, names);
-//             if (dot == -1) {
-//                 break;
-//             }
-//             ADDOP(c, ROT_TWO);
-//             ADDOP(c, POP_TOP);
-//         }
-//         if (!compiler_nameop(c, asname, Store)) {
-//             return 0;
-//         }
-//         ADDOP(c, POP_TOP);
-//         return 1;
-//     }
-//     return compiler_nameop(c, asname, Store);
-// }
+       If there is a dot in name, we need to split it and emit a
+       IMPORT_FROM for each name.
+    */
+    Py_ssize_t len = PyUnicode_GET_LENGTH(name);
+    Py_ssize_t dot = PyUnicode_FindChar(name, '.', 0, len, 1);
+    if (dot == -2) {
+        COMPILER_ERROR(c);
+    }
+    if (dot != -1) {
+        /* Consume the base module name to get the first attribute */
+        Py_ssize_t reg = reserve_regs(c, 1);
+        while (1) {
+            Py_ssize_t pos = dot + 1;
+            PyObject *attr;
+            Py_ssize_t const_slot;
+            dot = PyUnicode_FindChar(name, '.', pos, len, 1);
+            if (dot == -2) {
+                COMPILER_ERROR(c);
+            }
+            attr = PyUnicode_Substring(name, pos, (dot != -1) ? dot : len);
+            if (!attr) {
+                COMPILER_ERROR(c);
+            }
+            const_slot = compiler_new_const(c, attr);
 
-// static int
-// compiler_import(struct compiler *c, stmt_ty s)
-// {
-//     /* The Import node stores a module name like a.b.c as a single
-//        string.  This is convenient for all cases except
-//          import a.b.c as d
-//        where we need to parse that string to extract the individual
-//        module names.
-//        XXX Perhaps change the representation to make this case simpler?
-//      */
-//     Py_ssize_t i, n = asdl_seq_LEN(s->v.Import.names);
+            emit1(c, STORE_FAST, reg);
+            emit2(c, IMPORT_FROM, reg, const_slot);
+        }
+        clear_reg(c, reg);
+    }
+    compiler_store(c, asname);
+}
 
-//     for (i = 0; i < n; i++) {
-//         alias_ty alias = (alias_ty)asdl_seq_GET(s->v.Import.names, i);
-//         int r;
+static void
+compiler_import(struct compiler *c, stmt_ty s)
+{
+    /* The Import node stores a module name like a.b.c as a single
+       string.  This is convenient for all cases except
+         import a.b.c as d
+       where we need to parse that string to extract the individual
+       module names.
+       XXX Perhaps change the representation to make this case simpler?
+     */
+    Py_ssize_t i, n = asdl_seq_LEN(s->v.Import.names);
 
-//         ADDOP_LOAD_CONST(c, _PyLong_Zero);
-//         ADDOP_LOAD_CONST(c, Py_None);
-//         ADDOP_NAME(c, IMPORT_NAME, alias->name, names);
+    for (i = 0; i < n; i++) {
+        alias_ty alias = (alias_ty)asdl_seq_GET(s->v.Import.names, i);
 
-//         if (alias->asname) {
-//             r = compiler_import_as(c, alias->name, alias->asname);
-//             if (!r)
-//                 return r;
-//         }
-//         else {
-//             identifier tmp = alias->name;
-//             Py_ssize_t dot = PyUnicode_FindChar(
-//                 alias->name, '.', 0, PyUnicode_GET_LENGTH(alias->name), 1);
-//             if (dot != -1) {
-//                 tmp = PyUnicode_Substring(alias->name, 0, dot);
-//                 if (tmp == NULL)
-//                     return 0;
-//             }
-//             r = compiler_nameop(c, tmp, Store);
-//             if (dot != -1) {
-//                 Py_DECREF(tmp);
-//             }
-//             if (!r)
-//                 return r;
-//         }
-//     }
-//     return 1;
-// }
+        PyObject *arg = Py_BuildValue("(OOi)", alias->name, Py_None, 0);
+        if (arg == NULL) {
+            COMPILER_ERROR(c);
+        }
+        emit1(c, IMPORT_NAME, compiler_new_const(c, arg));
 
-// static int
-// compiler_from_import(struct compiler *c, stmt_ty s)
-// {
-//     Py_ssize_t i, n = asdl_seq_LEN(s->v.ImportFrom.names);
-//     PyObject *names;
-//     static PyObject *empty_string;
+        if (alias->asname) {
+            compiler_import_as(c, alias->name, alias->asname);
+        }
+        else {
+            identifier tmp = alias->name;
+            Py_ssize_t dot = PyUnicode_FindChar(
+                alias->name, '.', 0, PyUnicode_GET_LENGTH(alias->name), 1);
+            if (dot != -1) {
+                tmp = PyUnicode_Substring(alias->name, 0, dot);
+                if (tmp == NULL) {
+                    COMPILER_ERROR(c);
+                }
+                PyArena_AddPyObject(c->arena, tmp); // FIXME: wrong
+            }
+            compiler_store(c, tmp);
+        }
+    }
+}
 
-//     if (!empty_string) {
-//         empty_string = PyUnicode_FromString("");
-//         if (!empty_string)
-//             return 0;
-//     }
+static void
+compiler_from_import(struct compiler *c, stmt_ty s)
+{
+    _Py_static_string(PyId_empty_string, "");
+    Py_ssize_t i, n = asdl_seq_LEN(s->v.ImportFrom.names);
+    PyObject *fromlist, *arg;
 
-//     ADDOP_LOAD_CONST_NEW(c, PyLong_FromLong(s->v.ImportFrom.level));
+    fromlist = PyTuple_New(n);
+    if (fromlist == NULL) {
+        COMPILER_ERROR(c);
+    }
 
-//     names = PyTuple_New(n);
-//     if (!names)
-//         return 0;
+    /* build up the names */
+    for (i = 0; i < n; i++) {
+        alias_ty alias = (alias_ty)asdl_seq_GET(s->v.ImportFrom.names, i);
+        Py_INCREF(alias->name);
+        PyTuple_SET_ITEM(fromlist, i, alias->name);
+    }
 
-//     /* build up the names */
-//     for (i = 0; i < n; i++) {
-//         alias_ty alias = (alias_ty)asdl_seq_GET(s->v.ImportFrom.names, i);
-//         Py_INCREF(alias->name);
-//         PyTuple_SET_ITEM(names, i, alias->name);
-//     }
+    PyObject *module = s->v.ImportFrom.module;
+    if (module == NULL) {
+        module = _PyUnicode_FromId(&PyId_empty_string);
+    }
 
-//     if (s->lineno > c->c_future->ff_lineno && s->v.ImportFrom.module &&
-//         _PyUnicode_EqualToASCIIString(s->v.ImportFrom.module, "__future__")) {
-//         Py_DECREF(names);
-//         return compiler_error(c, "from __future__ imports must occur "
-//                               "at the beginning of the file");
-//     }
-//     ADDOP_LOAD_CONST_NEW(c, names);
+    arg = Py_BuildValue("(ONi)", module, fromlist, s->v.ImportFrom.level);
+    if (arg == NULL) {
+        COMPILER_ERROR(c);
+    }
 
-//     if (s->v.ImportFrom.module) {
-//         ADDOP_NAME(c, IMPORT_NAME, s->v.ImportFrom.module, names);
-//     }
-//     else {
-//         ADDOP_NAME(c, IMPORT_NAME, empty_string, names);
-//     }
-//     for (i = 0; i < n; i++) {
-//         alias_ty alias = (alias_ty)asdl_seq_GET(s->v.ImportFrom.names, i);
-//         identifier store_name;
+    emit1(c, IMPORT_NAME, compiler_new_const(c, arg));
 
-//         if (i == 0 && PyUnicode_READ_CHAR(alias->name, 0) == '*') {
-//             assert(n == 1);
-//             ADDOP(c, IMPORT_STAR);
-//             return 1;
-//         }
+    if (s->lineno > c->future->ff_lineno && s->v.ImportFrom.module &&
+        _PyUnicode_EqualToASCIIString(s->v.ImportFrom.module, "__future__")) {
+        compiler_error(c, "from __future__ imports must occur "
+                           "at the beginning of the file");
+    }
 
-//         ADDOP_NAME(c, IMPORT_FROM, alias->name, names);
-//         store_name = alias->name;
-//         if (alias->asname)
-//             store_name = alias->asname;
+    Py_ssize_t reg = reserve_regs(c, 1);
+    emit1(c, STORE_FAST, reg);
+    for (i = 0; i < n; i++) {
+        alias_ty alias = (alias_ty)asdl_seq_GET(s->v.ImportFrom.names, i);
+        identifier store_name;
 
-//         if (!compiler_nameop(c, store_name, Store)) {
-//             return 0;
-//         }
-//     }
-//     /* remove imported module */
-//     ADDOP(c, POP_TOP);
-//     return 1;
-// }
+        if (i == 0 && PyUnicode_READ_CHAR(alias->name, 0) == '*') {
+            assert(n == 1);
+            emit1(c, IMPORT_STAR, reg); // TODO: make IMPORT_STAR operate on acc
+        }
+        else {
+            emit2(c, IMPORT_FROM, reg, compiler_const(c, alias->name));
+
+            store_name = alias->asname ? alias->asname : alias->name;
+            compiler_store(c, store_name);
+        }
+    }
+    /* remove imported module */
+    clear_reg(c, reg);
+    return 1;
+}
 
 static void
 assign_name(struct compiler *c, expr_ty e, Py_ssize_t src)
@@ -3834,10 +3834,12 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Assert_kind:
         compiler_assert(c, s);
         break;
-//     case Import_kind:
-//         return compiler_import(c, s);
-//     case ImportFrom_kind:
-//         return compiler_from_import(c, s);
+    case Import_kind:
+        compiler_import(c, s);
+        break;
+    case ImportFrom_kind:
+        compiler_from_import(c, s);
+        break;
     case Global_kind:
     case Nonlocal_kind:
         break;
