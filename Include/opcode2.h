@@ -121,6 +121,19 @@ extern "C" {
     _(DICT_UPDATE,              110,     2,      6) \
     _(WIDE,                     111,     1,      2)
 
+#define INTRINSIC_LIST(_) \
+    _(PyObject_Str,                   1) \
+    _(PyObject_Repr,                  2) \
+    _(PyObject_ASCII,                 3) \
+    _(vm_format_value,                4) \
+    _(vm_format_value_spec,           5) \
+    _(vm_build_string,                6) \
+    _(PyList_AsTuple,                 7) \
+    _(vm_raise_assertion_error,       8) \
+    _(vm_exc_set_cause,               9) \
+    _(vm_print,                      10) \
+    _(_PyAsyncGenValueWrapperNew,    11)
+
 
 enum {
 #define OPCODE_NAME(Name, Code, ...) Name = Code,
@@ -138,6 +151,12 @@ enum {
 #define OPSIZE(Name, Code, Size, WideSize) OP_SIZE_WIDE_##Name = WideSize,
 OPCODE_LIST(OPSIZE)
 #undef OPSIZE
+};
+
+enum {
+#define INTRINSIC_CODE(Name, Code) Intrinsic_##Name = Code,
+INTRINSIC_LIST(INTRINSIC_CODE)
+#undef INTRINSIC_CODE
 };
 
 #ifdef __cplusplus

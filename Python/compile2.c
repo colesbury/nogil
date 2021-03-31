@@ -3735,37 +3735,29 @@ compiler_assign(struct compiler *c, stmt_ty s)
     clear_reg(c, src);
 }
 
-// static int
-// compiler_assert(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *end;
+static void
+compiler_assert(struct compiler *c, stmt_ty s)
+{
+    struct bc_label end;
 
-//     if (c->c_optimize)
-//         return 1;
-//     if (s->v.Assert.test->kind == Tuple_kind &&
-//         asdl_seq_LEN(s->v.Assert.test->v.Tuple.elts) > 0)
-//     {
-//         if (!compiler_warn(c, "assertion is always true, "
-//                               "perhaps remove parentheses?"))
-//         {
-//             return 0;
-//         }
-//     }
-//     end = compiler_new_block(c);
-//     if (end == NULL)
-//         return 0;
-//     if (!compiler_jump_if(c, s->v.Assert.test, end, 1))
-//         return 0;
-//     ADDOP(c, LOAD_ASSERTION_ERROR);
-//     if (s->v.Assert.msg) {
-//         ADDOP(c, DEFER_REFCOUNT); // PyExc_AssertionError is immortal, but whatever
-//         VISIT(c, expr, s->v.Assert.msg);
-//         ADDOP_I(c, CALL_FUNCTION, 1);
-//     }
-//     ADDOP_I(c, RAISE_VARARGS, 1);
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+    if (c->optimize) {
+        return;
+    }
+    if (s->v.Assert.test->kind == Tuple_kind &&
+        asdl_seq_LEN(s->v.Assert.test->v.Tuple.elts) > 0)
+    {
+        compiler_warn(c, "assertion is always true, "
+                         "perhaps remove parentheses?");
+    }
+
+    compiler_visit_expr(c, s->v.Assert.test);
+    emit_jump(c, POP_JUMP_IF_TRUE, &end);
+    if (s->v.Assert.msg) {
+        compiler_visit_expr(c, s->v.Assert.msg);
+    }
+    emit1(c, CALL_INTRINSIC_1, Intrinsic_vm_raise_assertion_error);
+    emit_label(c, &end);
+}
 
 static void
 compiler_visit_stmt_expr(struct compiler *c, expr_ty value)
@@ -3804,7 +3796,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         compiler_class(c, s);
         break;
     case Return_kind:
-        return compiler_return(c, s);
+        compiler_return(c, s);
+        break;
 //     case Delete_kind:
 //         VISIT_SEQ(c, expr, s->v.Delete.targets)
 //         break;
@@ -3822,7 +3815,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         compiler_while(c, s);
         break;
     case If_kind:
-        compiler_if(c, s); break;
+        compiler_if(c, s);
+        break;
 //     case Raise_kind:
 //         n = 0;
 //         if (s->v.Raise.exc) {
@@ -3837,8 +3831,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
 //         break;
 //     case Try_kind:
 //         return compiler_try(c, s);
-//     case Assert_kind:
-//         return compiler_assert(c, s);
+    case Assert_kind:
+        compiler_assert(c, s);
+        break;
 //     case Import_kind:
 //         return compiler_import(c, s);
 //     case ImportFrom_kind:

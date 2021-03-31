@@ -17,6 +17,10 @@ extern "C" {
 #define OPCODE_LIST(_) \\
 """.lstrip()
 
+intrinsics_header = """
+#define INTRINSIC_LIST(_) \\
+"""
+
 footer = """
 
 enum {
@@ -37,6 +41,12 @@ OPCODE_LIST(OPSIZE)
 #undef OPSIZE
 };
 
+enum {
+#define INTRINSIC_CODE(Name, Code) Intrinsic_##Name = Code,
+INTRINSIC_LIST(INTRINSIC_CODE)
+#undef INTRINSIC_CODE
+};
+
 #ifdef __cplusplus
 }
 #endif
@@ -50,12 +60,19 @@ def main(opcode_py, outfile='Include/opcode2.h'):
         code = fp.read()
     exec(code, opcode)
     opcodes = [op for op in opcode['opcodes'] if op is not None]
+    intrinsics = [i for i in opcode['intrinsics'] if i is not None]
     with open(outfile, 'w') as fobj:
         fobj.write(header)
         for bytecode in opcodes:
             name = bytecode.name + ","
             terminator = ' \\' if bytecode != opcodes[-1] else ''
             fobj.write("    _(%-24s %4d,   %3d,    %3d)%s\n" % (name, bytecode.opcode, bytecode.size, bytecode.wide_size, terminator))
+
+        fobj.write(intrinsics_header)
+        for intrinsic in intrinsics:
+            name = intrinsic.name + ","
+            terminator = ' \\' if intrinsic != intrinsics[-1] else ''
+            fobj.write("    _(%-28s %4d)%s\n" % (name, intrinsic.code, terminator))
         fobj.write(footer)
 
     print("%s regenerated from %s" % (outfile, opcode_py))
