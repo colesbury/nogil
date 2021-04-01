@@ -36,7 +36,8 @@
 
 enum {
     FRAME_EXTRA = 4, // FIXME get from ceval2_meta.h
-    REG_ACCUMULATOR = -1
+    REG_ACCUMULATOR = -1,
+    MAX_HEADER_SIZE = 6
 };
 
 enum {
@@ -1676,6 +1677,23 @@ emit_label(struct compiler *c, struct bc_label *label)
     c->unit->reachable = true;
 }
 
+static Py_ssize_t
+write_func_header(uint8_t *pc, Py_ssize_t max_registers)
+{
+    if (max_registers > 255) {
+        pc[0] = WIDE;
+        pc[1] = FUNC_HEADER;
+        write_uint32(&pc[2], max_registers);
+        return 6;
+    }
+    else {
+        pc[0] = FUNC_HEADER;
+        pc[1] = (uint8_t)max_registers;
+        return 2;
+    }
+}
+
+
 static void
 emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
 {
@@ -2323,7 +2341,6 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
 static void
 compiler_body(struct compiler *c, asdl_seq *stmts)
 {
-    emit1(c, FUNC_HEADER, 0);
     compiler_visit_stmts(c, stmts);
     if (c->unit->reachable) {
         emit1(c, LOAD_CONST, const_none(c));
@@ -2449,10 +2466,10 @@ compiler_mod(struct compiler *c, mod_ty mod)
 //     return PyLong_AS_LONG(v);
 // }
 
-// static int
-// compiler_make_closure(struct compiler *c, PyCodeObject *co, Py_ssize_t flags, PyObject *qualname)
+// static void
+// compiler_make_closure(struct compiler *c, PyCodeObject2 *co, Py_ssize_t flags, PyObject *qualname)
 // {
-//     Py_ssize_t i, free = PyCode_GetNumFree(co);
+//     Py_ssize_t i, free = PyCode2_GetNumFree(co);
 //     if (qualname == NULL)
 //         qualname = co->co_name;
 
@@ -2759,8 +2776,6 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     // }
 
     compiler_enter_scope(c, name, scope_type, (void *)s, firstlineno);
-
-    emit1(c, FUNC_HEADER, 0);
 
     /* if not -OO mode, add docstring */
     if (c->optimize < 2) {
@@ -3087,59 +3102,52 @@ compiler_ifexp(struct compiler *c, expr_ty e)
     emit_label(c, &end);
 }
 
-// static int
-// compiler_lambda(struct compiler *c, expr_ty e)
-// {
-//     PyCodeObject *co;
-//     PyObject *qualname;
-//     static identifier name;
-//     Py_ssize_t funcflags;
-//     arguments_ty args = e->v.Lambda.args;
-//     assert(e->kind == Lambda_kind);
+static void
+compiler_lambda(struct compiler *c, expr_ty e)
+{
+    PyCodeObject2 *co;
+    PyObject *qualname;
+    _Py_static_string(PyId_lambda, "<lambda>");
+    PyObject *name;
+    Py_ssize_t funcflags;
+    arguments_ty args = e->v.Lambda.args;
+    int is_generator;
+    assert(e->kind == Lambda_kind);
 
-//     if (!name) {
-//         name = PyUnicode_InternFromString("<lambda>");
-//         if (!name)
-//             return 0;
-//     }
+    funcflags = compiler_default_arguments(c, args);
+    if (funcflags == -1) {
+        return 0;
+    }
 
-//     funcflags = compiler_default_arguments(c, args);
-//     if (funcflags == -1) {
-//         return 0;
-//     }
+    name = unicode_from_id(c, &PyId_lambda);
+    compiler_enter_scope(c, name, COMPILER_SCOPE_LAMBDA,
+                         (void *)e, e->lineno);
 
-//     if (!compiler_enter_scope(c, name, COMPILER_SCOPE_LAMBDA,
-//                               (void *)e, e->lineno))
-//         return 0;
+    /* Make None the first constant, so the lambda can't have a
+       docstring. */
+    const_none(c);  // ????
 
-//     /* Make None the first constant, so the lambda can't have a
-//        docstring. */
-//     if (compiler_add_const(c, Py_None) < 0)
-//         return 0;
+    c->unit->argcount = asdl_seq_LEN(args->args);
+    c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
+    c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
 
-//     c->u->u_argcount = asdl_seq_LEN(args->args);
-//     c->u->u_posonlyargcount = asdl_seq_LEN(args->posonlyargs);
-//     c->u->u_kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
-//     VISIT_IN_SCOPE(c, expr, e->v.Lambda.body);
-//     if (c->u->u_ste->ste_generator) {
-//         co = assemble(c, 0);
-//     }
-//     else {
-//         ADDOP_IN_SCOPE(c, RETURN_VALUE);
-//         co = assemble(c, 1);
-//     }
-//     qualname = c->u->u_qualname;
-//     Py_INCREF(qualname);
-//     compiler_exit_scope(c);
-//     if (co == NULL)
-//         return 0;
+    is_generator = c->unit->ste->ste_generator;
 
-//     compiler_make_closure(c, co, funcflags, qualname);
-//     Py_DECREF(qualname);
-//     Py_DECREF(co);
+    compiler_visit_expr(c, e->v.Lambda.body);
+    if (!is_generator) {
+        emit0(c, RETURN_VALUE);
+    }
+    assemble(c, !is_generator); // ??? addNone, can always be zero???
 
-//     return 1;
-// }
+    // qualname = c->unit->qualname;
+    // Py_INCREF(qualname);
+
+    compiler_exit_scope(c);
+
+    emit1(c, MAKE_FUNCTION, compiler_const(c, c->code));
+
+    // Py_DECREF(qualname);    // FIXME: leak
+}
 
 static void
 compiler_if(struct compiler *c, stmt_ty s)
@@ -5632,8 +5640,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         compiler_visit_expr(c, e->v.UnaryOp.operand);
         emit0(c, unaryop(e->v.UnaryOp.op));
         break;
-//     case Lambda_kind:
-//         return compiler_lambda(c, e);
+    case Lambda_kind:
+        compiler_lambda(c, e);
+        break;
     case IfExp_kind:
         compiler_ifexp(c, e);
         break;
@@ -6623,6 +6632,11 @@ makecode(struct compiler *c)
     Py_ssize_t ncells = 0;
     Py_ssize_t ncaptures = 0;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
+    Py_ssize_t header_size;
+
+    uint8_t header[MAX_HEADER_SIZE];
+    header_size = write_func_header(header, c->unit->max_registers);
+    instr_size += header_size;
 
     PyCodeObject2 *co = PyCode2_New(instr_size, nconsts, niconsts, nmeta, ncells, ncaptures, nexc_handlers);
     if (co == NULL) {
@@ -6646,7 +6660,10 @@ makecode(struct compiler *c)
     Py_INCREF(co->co_name);
     co->co_firstlineno = c->unit->firstlineno;
     co->co_lnotab = PyBytes_FromStringAndSize("", 0);
-    memcpy(PyCode2_GET_CODE(co), c->unit->instr.arr, c->unit->instr.offset);
+
+    uint8_t *code = PyCode2_GET_CODE(co);
+    memcpy(code, header, header_size);
+    memcpy(code + header_size, c->unit->instr.arr, c->unit->instr.offset);
 
     PyObject *consts = c->unit->consts;
     Py_ssize_t pos = 0, i = 0;
