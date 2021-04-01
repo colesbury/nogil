@@ -246,7 +246,7 @@ static void compiler_visit_stmt(struct compiler *, stmt_ty);
 // static int compiler_visit_keyword(struct compiler *, keyword_ty);
 static void compiler_visit_expr(struct compiler *, expr_ty);
 static void compiler_augassign(struct compiler *, stmt_ty);
-// static int compiler_annassign(struct compiler *, stmt_ty);
+static void compiler_annassign(struct compiler *, stmt_ty);
 static void compiler_slice(struct compiler *, slice_ty);
 static void compiler_assign_reg(struct compiler *c, expr_ty target, Py_ssize_t value);
 
@@ -282,6 +282,7 @@ _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__module__);
 _Py_IDENTIFIER(__qualname__);
 _Py_IDENTIFIER(__class__);
+_Py_IDENTIFIER(__annotations__);
 
 // TODO: copy _Py_Mangle from compile.c
 PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
@@ -293,7 +294,12 @@ mangle(struct compiler *c, PyObject *name)
     if (!mangled) {
         COMPILER_ERROR(c);
     }
-    return mangled;
+    PyObject *t = PyDict_SetDefault(c->const_cache, mangled, mangled);
+    Py_DECREF(mangled);
+    if (t == NULL) {
+        COMPILER_ERROR(c);
+    }
+    return t;
 }
 
 // static int
@@ -764,7 +770,6 @@ compiler_set_qualname(struct compiler *c, struct compiler_unit *u)
             assert(u->name);
             mangled = mangle(c, u->name);
             scope = PyST_GetScope(parent->ste, mangled);
-            Py_DECREF(mangled);
             assert(scope != GLOBAL_IMPLICIT);
             if (scope == GLOBAL_EXPLICIT) {
                 return;
@@ -1668,7 +1673,7 @@ free_reg(struct compiler *c, Py_ssize_t reg)
 static void
 free_regs_above(struct compiler *c, Py_ssize_t base)
 {
-    if (base > c->unit->next_register) {
+    if (base < c->unit->next_register) {
         c->unit->next_register = base;
     }
 }
@@ -2480,12 +2485,15 @@ compiler_decorators(struct compiler *c, asdl_seq* decos)
 //     return 0;
 // }
 
-// static int
-// compiler_visit_annexpr(struct compiler *c, expr_ty annotation)
-// {
-//     ADDOP_LOAD_CONST_NEW(c, _PyAST_ExprAsUnicode(annotation));
-//     return 1;
-// }
+static void
+compiler_visit_annexpr(struct compiler *c, expr_ty annotation)
+{
+    PyObject *str = _PyAST_ExprAsUnicode(annotation);
+    if (str == NULL) {
+        COMPILER_ERROR(c);
+    }
+    emit1(c, LOAD_CONST, compiler_new_const(c, str));
+}
 
 // static int
 // compiler_visit_argannotation(struct compiler *c, identifier id,
@@ -3362,6 +3370,23 @@ compiler_continue(struct compiler *c)
 }
 
 
+static void
+compiler_raise(struct compiler *c, stmt_ty s)
+{
+    if (s->v.Raise.cause) {
+        Py_ssize_t base = c->unit->next_register;
+        expr_to_reg(c, s->v.Raise.exc, base);
+        expr_to_reg(c, s->v.Raise.cause, base + 1);
+        emit3(c, CALL_INTRINSIC_N, Intrinsic_vm_exc_set_cause, base, 2);
+        free_regs_above(c, base);
+    }
+    else if (s->v.Raise.exc) {
+        compiler_visit_expr(c, s->v.Raise.exc);
+    }
+    emit0(c, RAISE);
+}
+
+
 // /* Code generated for "try: <body> finally: <finalbody>" is as follows:
 
 //         SETUP_FINALLY           L
@@ -3729,17 +3754,13 @@ static struct var_info
 resolve(struct compiler *c, PyObject *name)
 {
     struct var_info r;
-    PyObject *mangled = _Py_Mangle(c->unit->private, name);
-    if (mangled == NULL) {
-        COMPILER_ERROR(c);
-    }
+    PyObject *mangled = mangle(c, name);
     r.access = compiler_access(c, mangled);
     if (r.access == ACCESS_FAST || r.access == ACCESS_DEREF) {
         r.slot = compiler_varname(c, mangled);
-        Py_DECREF(mangled);
     }
     else {
-        r.slot = compiler_new_const(c, mangled);
+        r.slot = compiler_const(c, mangled);
     }
     return r;
 }
@@ -4017,8 +4038,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case AugAssign_kind:
         compiler_augassign(c, s);
         break;
-//     case AnnAssign_kind:
-//         return compiler_annassign(c, s);
+    case AnnAssign_kind:
+        compiler_annassign(c, s);
+        break;
     case For_kind:
         compiler_for(c, s);
         break;
@@ -4028,18 +4050,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case If_kind:
         compiler_if(c, s);
         break;
-//     case Raise_kind:
-//         n = 0;
-//         if (s->v.Raise.exc) {
-//             VISIT(c, expr, s->v.Raise.exc);
-//             n++;
-//             if (s->v.Raise.cause) {
-//                 VISIT(c, expr, s->v.Raise.cause);
-//                 n++;
-//             }
-//         }
-//         ADDOP_I(c, RAISE_VARARGS, (int)n);
-//         break;
+    case Raise_kind:
+        compiler_raise(c, s);
+        break;
 //     case Try_kind:
 //         return compiler_try(c, s);
     case Assert_kind:
@@ -4211,9 +4224,17 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
               compiler_metaslot(c, mangled));
         break;
     }
-    Py_DECREF(mangled); // FIXME error handling
 }
 
+static void
+load_name_id(struct compiler *c, _Py_Identifier *id)
+{
+    PyObject *name = _PyUnicode_FromId(id);
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
+    compiler_nameop(c, name, Load);
+}
 
 static void
 compiler_boolop(struct compiler *c, expr_ty e)
@@ -5827,146 +5848,139 @@ compiler_augassign(struct compiler *c, stmt_ty s)
     }
 }
 
-// static int
-// check_ann_expr(struct compiler *c, expr_ty e)
-// {
-//     VISIT(c, expr, e);
-//     ADDOP(c, POP_TOP);
-//     return 1;
-// }
+static void
+check_ann_expr(struct compiler *c, expr_ty e)
+{
+    compiler_visit_expr(c, e);
+    emit0(c, CLEAR_ACC);
+}
 
-// static int
-// check_annotation(struct compiler *c, stmt_ty s)
-// {
-//     /* Annotations are only evaluated in a module or class. */
-//     if (c->u->u_scope_type == COMPILER_SCOPE_MODULE ||
-//         c->u->u_scope_type == COMPILER_SCOPE_CLASS) {
-//         return check_ann_expr(c, s->v.AnnAssign.annotation);
-//     }
-//     return 1;
-// }
+static void
+check_annotation(struct compiler *c, stmt_ty s)
+{
+    /* Annotations are only evaluated in a module or class. */
+    if (c->unit->scope_type == COMPILER_SCOPE_MODULE ||
+        c->unit->scope_type == COMPILER_SCOPE_CLASS) {
+        check_ann_expr(c, s->v.AnnAssign.annotation);
+    }
+}
 
-// static int
-// check_ann_slice(struct compiler *c, slice_ty sl)
-// {
-//     switch(sl->kind) {
-//     case Index_kind:
-//         return check_ann_expr(c, sl->v.Index.value);
-//     case Slice_kind:
-//         if (sl->v.Slice.lower && !check_ann_expr(c, sl->v.Slice.lower)) {
-//             return 0;
-//         }
-//         if (sl->v.Slice.upper && !check_ann_expr(c, sl->v.Slice.upper)) {
-//             return 0;
-//         }
-//         if (sl->v.Slice.step && !check_ann_expr(c, sl->v.Slice.step)) {
-//             return 0;
-//         }
-//         break;
-//     default:
-//         PyErr_SetString(PyExc_SystemError,
-//                         "unexpected slice kind");
-//         return 0;
-//     }
-//     return 1;
-// }
+static void
+check_ann_slice(struct compiler *c, slice_ty sl)
+{
+    switch(sl->kind) {
+    case Index_kind:
+        check_ann_expr(c, sl->v.Index.value);
+        break;
+    case Slice_kind:
+        if (sl->v.Slice.lower) {
+            check_ann_expr(c, sl->v.Slice.lower);
+        }
+        if (sl->v.Slice.upper) {
+            check_ann_expr(c, sl->v.Slice.upper);
+        }
+        if (sl->v.Slice.step) {
+            check_ann_expr(c, sl->v.Slice.step);
+        }
+        break;
+    default:
+        PyErr_SetString(PyExc_SystemError,
+                        "unexpected slice kind");
+        COMPILER_ERROR(c);
+    }
+}
 
-// static int
-// check_ann_subscr(struct compiler *c, slice_ty sl)
-// {
-//     /* We check that everything in a subscript is defined at runtime. */
-//     Py_ssize_t i, n;
+static void
+check_ann_subscr(struct compiler *c, slice_ty sl)
+{
+    /* We check that everything in a subscript is defined at runtime. */
+    Py_ssize_t i, n;
 
-//     switch (sl->kind) {
-//     case Index_kind:
-//     case Slice_kind:
-//         if (!check_ann_slice(c, sl)) {
-//             return 0;
-//         }
-//         break;
-//     case ExtSlice_kind:
-//         n = asdl_seq_LEN(sl->v.ExtSlice.dims);
-//         for (i = 0; i < n; i++) {
-//             slice_ty subsl = (slice_ty)asdl_seq_GET(sl->v.ExtSlice.dims, i);
-//             switch (subsl->kind) {
-//             case Index_kind:
-//             case Slice_kind:
-//                 if (!check_ann_slice(c, subsl)) {
-//                     return 0;
-//                 }
-//                 break;
-//             case ExtSlice_kind:
-//             default:
-//                 PyErr_SetString(PyExc_SystemError,
-//                                 "extended slice invalid in nested slice");
-//                 return 0;
-//             }
-//         }
-//         break;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//                      "invalid subscript kind %d", sl->kind);
-//         return 0;
-//     }
-//     return 1;
-// }
+    switch (sl->kind) {
+    case Index_kind:
+    case Slice_kind:
+        check_ann_slice(c, sl);
+        break;
+    case ExtSlice_kind:
+        n = asdl_seq_LEN(sl->v.ExtSlice.dims);
+        for (i = 0; i < n; i++) {
+            slice_ty subsl = (slice_ty)asdl_seq_GET(sl->v.ExtSlice.dims, i);
+            switch (subsl->kind) {
+            case Index_kind:
+            case Slice_kind:
+                check_ann_slice(c, subsl);
+                break;
+            case ExtSlice_kind:
+            default:
+                PyErr_SetString(PyExc_SystemError,
+                                "extended slice invalid in nested slice");
+                COMPILER_ERROR(c);
+            }
+        }
+        break;
+    default:
+        PyErr_Format(PyExc_SystemError,
+                     "invalid subscript kind %d", sl->kind);
+        COMPILER_ERROR(c);
+    }
+}
 
-// static int
-// compiler_annassign(struct compiler *c, stmt_ty s)
-// {
-//     expr_ty targ = s->v.AnnAssign.target;
-//     PyObject* mangled;
+static void
+compiler_annassign(struct compiler *c, stmt_ty s)
+{
+    expr_ty targ = s->v.AnnAssign.target;
 
-//     assert(s->kind == AnnAssign_kind);
+    assert(s->kind == AnnAssign_kind);
 
-//     /* We perform the actual assignment first. */
-//     if (s->v.AnnAssign.value) {
-//         VISIT(c, expr, s->v.AnnAssign.value);
-//         VISIT(c, expr, targ);
-//     }
-//     switch (targ->kind) {
-//     case Name_kind:
-//         /* If we have a simple name in a module or class, store annotation. */
-//         if (s->v.AnnAssign.simple &&
-//             (c->u->u_scope_type == COMPILER_SCOPE_MODULE ||
-//              c->u->u_scope_type == COMPILER_SCOPE_CLASS)) {
-//             if (c->c_future->ff_features & CO_FUTURE_ANNOTATIONS) {
-//                 VISIT(c, annexpr, s->v.AnnAssign.annotation)
-//             }
-//             else {
-//                 VISIT(c, expr, s->v.AnnAssign.annotation);
-//             }
-//             ADDOP_NAME(c, LOAD_NAME, __annotations__, names);
-//             mangled = _Py_Mangle(c->u->u_private, targ->v.Name.id);
-//             ADDOP_LOAD_CONST_NEW(c, mangled);
-//             ADDOP(c, STORE_SUBSCR);
-//         }
-//         break;
-//     case Attribute_kind:
-//         if (!s->v.AnnAssign.value &&
-//             !check_ann_expr(c, targ->v.Attribute.value)) {
-//             return 0;
-//         }
-//         break;
-//     case Subscript_kind:
-//         if (!s->v.AnnAssign.value &&
-//             (!check_ann_expr(c, targ->v.Subscript.value) ||
-//              !check_ann_subscr(c, targ->v.Subscript.slice))) {
-//                 return 0;
-//         }
-//         break;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//                      "invalid node type (%d) for annotated assignment",
-//                      targ->kind);
-//             return 0;
-//     }
-//     /* Annotation is evaluated last. */
-//     if (!s->v.AnnAssign.simple && !check_annotation(c, s)) {
-//         return 0;
-//     }
-//     return 1;
-// }
+    /* We perform the actual assignment first. */
+    if (s->v.AnnAssign.value) {
+        compiler_assign_expr(c, targ, s->v.AnnAssign.value);
+    }
+    switch (targ->kind) {
+    case Name_kind:
+        /* If we have a simple name in a module or class, store annotation. */
+        if (s->v.AnnAssign.simple &&
+            (c->unit->scope_type == COMPILER_SCOPE_MODULE ||
+             c->unit->scope_type == COMPILER_SCOPE_CLASS))
+        {
+            Py_ssize_t reg = reserve_regs(c, 2);
+            load_name_id(c, &PyId___annotations__);
+            emit1(c, STORE_FAST, reg);
+            emit1(c, LOAD_CONST, compiler_const(c, mangle(c, targ->v.Name.id)));
+            emit1(c, STORE_FAST, reg + 1);
+            if (c->future->ff_features & CO_FUTURE_ANNOTATIONS) {
+                compiler_visit_annexpr(c, s->v.AnnAssign.annotation);
+            }
+            else {
+                compiler_visit_expr(c, s->v.AnnAssign.annotation);
+            }
+            emit2(c, STORE_SUBSCR, reg, reg + 1);
+            clear_reg(c, reg + 1);
+            clear_reg(c, reg);
+        }
+        break;
+    case Attribute_kind:
+        if (s->v.AnnAssign.value) {
+            check_ann_expr(c, targ->v.Attribute.value);
+        }
+        break;
+    case Subscript_kind:
+        if (s->v.AnnAssign.value) {
+            check_ann_expr(c, targ->v.Subscript.value);
+            check_ann_subscr(c, targ->v.Subscript.slice);
+        }
+        break;
+    default:
+        PyErr_Format(PyExc_SystemError,
+                     "invalid node type (%d) for annotated assignment",
+                     targ->kind);
+        COMPILER_ERROR(c);
+    }
+    /* Annotation is evaluated last. */
+    if (!s->v.AnnAssign.simple) {
+        check_annotation(c, s);
+    }
+}
 
 /* Raises a SyntaxError and performs a non-local jump.
    If something goes wrong, a different exception may be raised.
