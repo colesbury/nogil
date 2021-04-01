@@ -98,6 +98,8 @@ enum frame_block_type {
     FOR_LOOP,
     TRY_FINALLY,
     EXCEPT,
+    EXCEPT_HANDLER,
+    FINALLY,
     WITH,
     ASYNC_WITH
 };
@@ -126,6 +128,14 @@ struct fblock {
         } Except;
 
         struct {
+            PyObject *name;
+        } ExceptHandler;
+
+        struct {
+            Py_ssize_t reg;
+        } Finally;
+
+        struct {
             Py_ssize_t reg;
         } With;
 
@@ -133,6 +143,13 @@ struct fblock {
             Py_ssize_t reg;
         } AsyncWith;
     };
+};
+
+struct growable_table {
+    void *arr;
+    uint32_t offset;
+    uint32_t allocated;
+    Py_ssize_t unit_size;
 };
 
 /* The following items change on entry and exit of code blocks.
@@ -149,11 +166,8 @@ struct compiler_unit {
         uint32_t allocated;
     } lineno_table;
 
-    struct block_table {
-        struct fblock *arr;
-        uint32_t offset;
-        uint32_t allocated;
-    } blocks;
+    struct growable_table blocks;
+    struct growable_table except_handlers;
 
     PySTEntryObject *ste;
 
@@ -239,6 +253,7 @@ static void compiler_store(struct compiler *, identifier);
 static int compiler_access(struct compiler *c, PyObject *mangled_name);
 static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
 static int32_t const_none(struct compiler *c);
+static void clear_name(struct compiler *c, PyObject *name);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
@@ -261,7 +276,7 @@ static int expr_constant(expr_ty);
 //                                  asdl_seq *args,
 //                                  asdl_seq *keywords);
 static void compiler_call(struct compiler *c, expr_ty e);
-// static int compiler_try_except(struct compiler *, stmt_ty);
+static void compiler_try_except(struct compiler *, stmt_ty);
 static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
 
 // static int compiler_sync_comprehension_generator(
@@ -643,6 +658,8 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
     c->unit = u;
 
+    u->blocks.unit_size = sizeof(struct fblock);
+    u->except_handlers.unit_size = sizeof(ExceptionHandler);
     u->reachable = true;
     u->scope_type = scope_type;
     u->argcount = 0;
@@ -1381,6 +1398,42 @@ resize_array(struct compiler *c, void **arr, uint32_t *size, Py_ssize_t min_size
     *size = new_size;
 }
 
+#define TABLE_NEXT(c, t) (table_reserve(c, t, 1))
+#define TABLE_RESERVE(c, t, n) (table_reserve(c, t, n))
+#define TABLE_ENTRY(t, i) ((void*)((char*)t->arr + t->unit_size * (i)))
+#define TABLE_MIN_SIZE 8
+
+static void *
+table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n)
+{
+    if (t->offset + n >= t->allocated) {
+        Py_ssize_t old_size = t->allocated;
+        if (old_size > INT32_MAX / 2) {
+            PyErr_NoMemory();
+            COMPILER_ERROR(c);
+        }
+
+        Py_ssize_t new_size = old_size * 2;
+        if (new_size < TABLE_MIN_SIZE) {
+            new_size = TABLE_MIN_SIZE;
+        }
+        if (new_size < t->offset + n) {
+            new_size = t->offset + n;
+        }
+
+        void *ptr = mi_recalloc(t->arr, new_size, t->unit_size);
+        if (ptr == NULL) {
+            PyErr_NoMemory();
+            COMPILER_ERROR(c);
+        }
+        t->arr = ptr;
+        t->allocated = new_size;
+    }
+    char *ptr = (char*)t->arr + (t->offset * t->unit_size);
+    t->offset += n;
+    return ptr;
+}
+
 /* Add an opcode with no argument.
    Returns 0 on failure, 1 on success.
 */
@@ -1579,6 +1632,21 @@ emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 }
 
 static void
+emit_jump_if_not_exc_match(struct compiler *c, Py_ssize_t reg, struct bc_label *label)
+{
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
+    assert(reg <= 255);
+    uint8_t *pc = next_instr(c, 4);
+    pc[0] = JUMP_IF_NOT_EXC_MATCH;
+    pc[1] = (uint8_t)reg;
+    write_uint16(&pc[2], 0);
+    label->bound = 0;
+    label->offset = pc - c->unit->instr.arr;
+}
+
+static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
     if (c->do_not_emit_bytecode) {
@@ -1598,7 +1666,12 @@ emit_label(struct compiler *c, struct bc_label *label)
     }
     assert(delta >= 0);
     uint8_t *jmp =  &c->unit->instr.arr[label->offset];
-    write_int16(&jmp[1], delta);
+    if (jmp[0] == JUMP_IF_NOT_EXC_MATCH) {
+        write_int16(&jmp[2], delta);
+    }
+    else {
+        write_int16(&jmp[1], delta);
+    }
     label->bound = 1;
     c->unit->reachable = true;
 }
@@ -2199,6 +2272,14 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
 
     case EXCEPT:
         emit1(c, END_EXCEPT, block->Except.reg);
+        return;
+
+    case EXCEPT_HANDLER:
+        clear_name(c, block->ExceptHandler.name);
+        return;
+
+    case FINALLY:
+        emit1(c, END_FINALLY, block->Finally.reg);
         return;
 
     case WITH:
@@ -3105,27 +3186,18 @@ compiler_if(struct compiler *c, stmt_ty s)
 static struct fblock *
 compiler_push_loop(struct compiler *c, int loop_type)
 {
-    struct block_table *blocks = &c->unit->blocks;
-    if (blocks->offset == blocks->allocated) {
-        resize_array(
-            c,
-            (void**)&blocks->arr,
-            &blocks->allocated,
-            /*min_size=*/8,
-            sizeof(*blocks->arr));
-    }
-    struct fblock *loop = &blocks->arr[blocks->offset++];
-    loop->type = loop_type;
-    return loop;
+    struct fblock *block = TABLE_NEXT(c, &c->unit->blocks);
+    block->type = loop_type;
+    return block;
 }
 
 static void
 compiler_pop_loop(struct compiler *c, struct fblock *loop)
 {
-    struct block_table *blocks = &c->unit->blocks;
-    assert(loop == &blocks->arr[blocks->offset - 1]);
+    struct growable_table *blocks = &c->unit->blocks;
+    assert(loop == TABLE_ENTRY(blocks, blocks->offset - 1));
     blocks->offset--;
-    memset(&blocks->arr[blocks->offset], 0, sizeof(*loop));
+    // memset(&blocks->arr[blocks->offset], 0, sizeof(*loop));
 }
 
 static void
@@ -3319,9 +3391,9 @@ compiler_return(struct compiler *c, stmt_ty s)
     else {
         compiler_visit_expr(c, s->v.Return.value);
     }
-    struct block_table *blocks = &c->unit->blocks;
+    struct growable_table *blocks = &c->unit->blocks;
     for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
-        struct fblock *block = &blocks->arr[i];
+        struct fblock *block = TABLE_ENTRY(blocks, i);
         if (block->type == TRY_FINALLY) {
             emit1(c, STORE_FAST, block->TryFinally.reg + 1);
         }
@@ -3334,9 +3406,9 @@ compiler_return(struct compiler *c, stmt_ty s)
 static void
 compiler_break(struct compiler *c)
 {
-    struct block_table *blocks = &c->unit->blocks;
+    struct growable_table *blocks = &c->unit->blocks;
     for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
-        struct fblock *block = &blocks->arr[i];
+        struct fblock *block = TABLE_ENTRY(blocks, i);
         compiler_unwind_block(c, block);
         if (block->type == FOR_LOOP) {
             emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.break_label));
@@ -3353,9 +3425,9 @@ compiler_break(struct compiler *c)
 static void
 compiler_continue(struct compiler *c)
 {
-    struct block_table *blocks = &c->unit->blocks;
+    struct growable_table *blocks = &c->unit->blocks;
     for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
-        struct fblock *block = &blocks->arr[i];
+        struct fblock *block = TABLE_ENTRY(blocks, i);
         compiler_unwind_block(c, block);
         if (block->type == FOR_LOOP) {
             emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.continue_label));
@@ -3387,225 +3459,210 @@ compiler_raise(struct compiler *c, stmt_ty s)
 }
 
 
-// /* Code generated for "try: <body> finally: <finalbody>" is as follows:
+/* Code generated for "try: <body> finally: <finalbody>" is as follows:
 
-//         SETUP_FINALLY           L
-//         <code for body>
-//         POP_BLOCK
-//         <code for finalbody>
-//         JUMP E
-//     L:
-//         <code for finalbody>
-//     E:
+        <code for body>
+        <code for finalbody>
+        END_FINALLY
 
-//    The special instructions use the block stack.  Each block
-//    stack entry contains the instruction that created it (here
-//    SETUP_FINALLY), the level of the value stack at the time the
-//    block stack entry was created, and a label (here L).
+   The special instructions use the block stack.  Each block
+   stack entry contains the instruction that created it (here
+   SETUP_FINALLY), the level of the value stack at the time the
+   block stack entry was created, and a label (here L).
 
-//    SETUP_FINALLY:
-//     Pushes the current value stack level and the label
-//     onto the block stack.
-//    POP_BLOCK:
-//     Pops en entry from the block stack.
+   SETUP_FINALLY:
+    Pushes the current value stack level and the label
+    onto the block stack.
+   POP_BLOCK:
+    Pops en entry from the block stack.
 
-//    The block stack is unwound when an exception is raised:
-//    when a SETUP_FINALLY entry is found, the raised and the caught
-//    exceptions are pushed onto the value stack (and the exception
-//    condition is cleared), and the interpreter jumps to the label
-//    gotten from the block stack.
-// */
+   The block stack is unwound when an exception is raised:
+   when a SETUP_FINALLY entry is found, the raised and the caught
+   exceptions are pushed onto the value stack (and the exception
+   condition is cleared), and the interpreter jumps to the label
+   gotten from the block stack.
+*/
 
-// static int
-// compiler_try_finally(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *body, *end, *exit;
+static void
+compiler_try_finally(struct compiler *c, stmt_ty s)
+{
+    struct fblock *block;
+    ExceptionHandler *handler;
+    struct multi_label finally_label = MULTI_LABEL_INIT;
 
-//     body = compiler_new_block(c);
-//     end = compiler_new_block(c);
-//     exit = compiler_new_block(c);
-//     if (body == NULL || end == NULL || exit == NULL)
-//         return 0;
+    handler = TABLE_NEXT(c, &c->unit->except_handlers);
+    handler->start = c->unit->instr.offset;
 
-//     /* `try` block */
-//     ADDOP_JREL(c, SETUP_FINALLY, end);
-//     compiler_use_next_block(c, body);
-//     if (!compiler_push_fblock(c, FINALLY_TRY, body, end, s->v.Try.finalbody))
-//         return 0;
-//     if (s->v.Try.handlers && asdl_seq_LEN(s->v.Try.handlers)) {
-//         if (!compiler_try_except(c, s))
-//             return 0;
-//     }
-//     else {
-//         VISIT_SEQ(c, stmt, s->v.Try.body);
-//     }
-//     ADDOP(c, POP_BLOCK);
-//     compiler_pop_fblock(c, FINALLY_TRY, body);
-//     VISIT_SEQ(c, stmt, s->v.Try.finalbody);
-//     ADDOP_JREL(c, JUMP_FORWARD, exit);
-//     /* `finally` block */
-//     compiler_use_next_block(c, end);
-//     if (!compiler_push_fblock(c, FINALLY_END, end, NULL, NULL))
-//         return 0;
-//     VISIT_SEQ(c, stmt, s->v.Try.finalbody);
-//     compiler_pop_fblock(c, FINALLY_END, end);
-//     ADDOP(c, RERAISE);
-//     compiler_use_next_block(c, exit);
-//     return 1;
-// }
+    // Try body
+    block = compiler_push_loop(c, TRY_FINALLY);
+    block->TryFinally.label = &finally_label;
+    block->TryFinally.reg = c->unit->next_register;
+    if (s->v.Try.handlers && asdl_seq_LEN(s->v.Try.handlers)) {
+        compiler_try_except(c, s);
+    }
+    else {
+        compiler_visit_stmts(c, s->v.Try.body);
+    }
+    assert(c->unit->next_register == block->TryFinally.reg);
+    compiler_pop_loop(c, block);
 
-// /*
-//    Code generated for "try: S except E1 as V1: S1 except E2 as V2: S2 ...":
-//    (The contents of the value stack is shown in [], with the top
-//    at the right; 'tb' is trace-back info, 'val' the exception's
-//    associated value, and 'exc' the exception.)
+    // Finally body
+    block = compiler_push_loop(c, FINALLY);
+    block->Finally.reg = reserve_regs(c, 2);
+    handler->handler = c->unit->instr.offset;
+    handler->reg = block->Finally.reg;
 
-//    Value stack          Label   Instruction     Argument
-//    []                           SETUP_FINALLY   L1
-//    []                           <code for S>
-//    []                           POP_BLOCK
-//    []                           JUMP_FORWARD    L0
+    emit_multi_label(c, &finally_label);
+    compiler_visit_stmts(c, s->v.Try.finalbody);
+    emit1(c, END_FINALLY, block->Finally.reg);
+    handler->handler_end = c->unit->instr.offset;
+    free_regs_above(c, block->Finally.reg);
+    compiler_pop_loop(c, block);
+}
 
-//    [tb, val, exc]       L1:     DUP                             )
-//    [tb, val, exc, exc]          <evaluate E1>                   )
-//    [tb, val, exc, exc, E1]      JUMP_IF_NOT_EXC_MATCH L2        ) only if E1
-//    [tb, val, exc]               POP
-//    [tb, val]                    <assign to V1>  (or POP if no V1)
-//    [tb]                         POP
-//    []                           <code for S1>
-//                                 JUMP_FORWARD    L0
+/*
+    Implements the fragment
 
-//    [tb, val, exc]       L2:     DUP
-//    .............................etc.......................
+        except type as name:
+            # body
 
-//    [tb, val, exc]       Ln+1:   RERAISE     # re-raise exception
+    as
+        name = <exception>
+        try:
+            # body
+        finally:
+            name = None # in case body contains "del name"
+            del name
+*/
+static void
+compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
+{
+    ExceptionHandler *h;
+    struct fblock *block;
 
-//    []                   L0:     <next statement>
+    // store the active exception in `name`
+    PyObject *name = handler->v.ExceptHandler.name;
+    compiler_store(c, name);
 
-//    Of course, parts are not generated if Vi or Ei is not present.
-// */
-// static int
-// compiler_try_except(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *body, *orelse, *except, *end;
-//     Py_ssize_t i, n;
+    // start an inner exception handler around the handler body
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = c->unit->instr.offset;
+    block = compiler_push_loop(c, EXCEPT_HANDLER);
+    block->ExceptHandler.name = name;
 
-//     body = compiler_new_block(c);
-//     except = compiler_new_block(c);
-//     orelse = compiler_new_block(c);
-//     end = compiler_new_block(c);
-//     if (body == NULL || except == NULL || orelse == NULL || end == NULL)
-//         return 0;
-//     ADDOP_JREL(c, SETUP_FINALLY, except);
-//     compiler_use_next_block(c, body);
-//     if (!compiler_push_fblock(c, EXCEPT, body, NULL, NULL))
-//         return 0;
-//     VISIT_SEQ(c, stmt, s->v.Try.body);
-//     ADDOP(c, POP_BLOCK);
-//     compiler_pop_fblock(c, EXCEPT, body);
-//     ADDOP_JREL(c, JUMP_FORWARD, orelse);
-//     n = asdl_seq_LEN(s->v.Try.handlers);
-//     compiler_use_next_block(c, except);
-//     for (i = 0; i < n; i++) {
-//         excepthandler_ty handler = (excepthandler_ty)asdl_seq_GET(
-//             s->v.Try.handlers, i);
-//         if (!handler->v.ExceptHandler.type && i < n-1)
-//             return compiler_error(c, "default 'except:' must be last");
-//         c->u->u_lineno_set = 0;
-//         c->u->u_lineno = handler->lineno;
-//         c->u->u_col_offset = handler->col_offset;
-//         except = compiler_new_block(c);
-//         if (except == NULL)
-//             return 0;
-//         if (handler->v.ExceptHandler.type) {
-//             ADDOP(c, DUP_TOP);
-//             VISIT(c, expr, handler->v.ExceptHandler.type);
-//             ADDOP_JABS(c, JUMP_IF_NOT_EXC_MATCH, except);
-//         }
-//         ADDOP(c, POP_TOP);
-//         if (handler->v.ExceptHandler.name) {
-//             basicblock *cleanup_end, *cleanup_body;
+    compiler_visit_stmts(c, handler->v.ExceptHandler.body);
 
-//             cleanup_end = compiler_new_block(c);
-//             cleanup_body = compiler_new_block(c);
-//             if (cleanup_end == NULL || cleanup_body == NULL) {
-//                 return 0;
-//             }
+    compiler_pop_loop(c, block);
+    h->handler = c->unit->instr.offset;
+    h->reg = reserve_regs(c, 2);
 
-//             compiler_nameop(c, handler->v.ExceptHandler.name, Store);
-//             ADDOP(c, POP_TOP);
+    // clear `name`
+    clear_name(c, name);
+    emit1(c, END_FINALLY, h->reg);
 
-//             /*
-//               try:
-//                   # body
-//               except type as name:
-//                   try:
-//                       # body
-//                   finally:
-//                       name = None # in case body contains "del name"
-//                       del name
-//             */
+    h->handler_end = c->unit->instr.offset;
+    free_regs_above(c, h->reg);
+}
 
-//             /* second try: */
-//             ADDOP_JREL(c, SETUP_FINALLY, cleanup_end);
-//             compiler_use_next_block(c, cleanup_body);
-//             if (!compiler_push_fblock(c, HANDLER_CLEANUP, cleanup_body, NULL, handler->v.ExceptHandler.name))
-//                 return 0;
+/*
+   Code generated for "try: S except E1 as V1: S1 except E2 as V2: S2 ...":
+   (The contents of the value stack is shown in [], with the top
+   at the right; 'tb' is trace-back info, 'val' the exception's
+   associated value, and 'exc' the exception.)
 
-//             /* second # body */
-//             VISIT_SEQ(c, stmt, handler->v.ExceptHandler.body);
-//             compiler_pop_fblock(c, HANDLER_CLEANUP, cleanup_body);
-//             ADDOP(c, POP_BLOCK);
-//             ADDOP(c, POP_EXCEPT);
-//             /* name = None; del name */
-//             ADDOP_LOAD_CONST(c, Py_None);
-//             compiler_nameop(c, handler->v.ExceptHandler.name, Store);
-//             compiler_nameop(c, handler->v.ExceptHandler.name, Del);
-//             ADDOP_JREL(c, JUMP_FORWARD, end);
+   Value stack          Label   Instruction     Argument
+   []                           SETUP_FINALLY   L1
+   []                           <code for S>
+   []                           POP_BLOCK
+   []                           JUMP_FORWARD    L0
 
-//             /* except: */
-//             compiler_use_next_block(c, cleanup_end);
+   [tb, val, exc]       L1:     DUP                             )
+   [tb, val, exc, exc]          <evaluate E1>                   )
+   [tb, val, exc, exc, E1]      JUMP_IF_NOT_EXC_MATCH L2        ) only if E1
+   [tb, val, exc]               POP
+   [tb, val]                    <assign to V1>  (or POP if no V1)
+   [tb]                         POP
+   []                           <code for S1>
+                                JUMP_FORWARD    L0
 
-//             /* name = None; del name */
-//             ADDOP_LOAD_CONST(c, Py_None);
-//             compiler_nameop(c, handler->v.ExceptHandler.name, Store);
-//             compiler_nameop(c, handler->v.ExceptHandler.name, Del);
+   [tb, val, exc]       L2:     DUP
+   .............................etc.......................
 
-//             ADDOP(c, RERAISE);
-//         }
-//         else {
-//             basicblock *cleanup_body;
+   [tb, val, exc]       Ln+1:   RERAISE     # re-raise exception
 
-//             cleanup_body = compiler_new_block(c);
-//             if (!cleanup_body)
-//                 return 0;
+   []                   L0:     <next statement>
 
-//             ADDOP(c, POP_TOP);
-//             ADDOP(c, POP_TOP);
-//             compiler_use_next_block(c, cleanup_body);
-//             if (!compiler_push_fblock(c, HANDLER_CLEANUP, cleanup_body, NULL, NULL))
-//                 return 0;
-//             VISIT_SEQ(c, stmt, handler->v.ExceptHandler.body);
-//             compiler_pop_fblock(c, HANDLER_CLEANUP, cleanup_body);
-//             ADDOP(c, POP_EXCEPT);
-//             ADDOP_JREL(c, JUMP_FORWARD, end);
-//         }
-//         compiler_use_next_block(c, except);
-//     }
-//     ADDOP(c, RERAISE);
-//     compiler_use_next_block(c, orelse);
-//     VISIT_SEQ(c, stmt, s->v.Try.orelse);
-//     compiler_use_next_block(c, end);
-//     return 1;
-// }
+   Of course, parts are not generated if Vi or Ei is not present.
+*/
+static void
+compiler_try_except(struct compiler *c, stmt_ty s)
+{
+    struct bc_label orelse;
+    struct multi_label end = MULTI_LABEL_INIT;
+    ExceptionHandler *h;
+    struct fblock *block;
 
-// static int
-// compiler_try(struct compiler *c, stmt_ty s) {
-//     if (s->v.Try.finalbody && asdl_seq_LEN(s->v.Try.finalbody))
-//         return compiler_try_finally(c, s);
-//     else
-//         return compiler_try_except(c, s);
-// }
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = c->unit->instr.offset;
+
+    // Try body
+    compiler_visit_stmts(c, s->v.Try.body);
+    emit_jump(c, JUMP, &orelse);
+
+    // Handler bodies
+    block = compiler_push_loop(c, EXCEPT);
+    block->Except.reg = h->reg = reserve_regs(c, 2);
+    h->handler = c->unit->instr.offset;
+
+    Py_ssize_t n = asdl_seq_LEN(s->v.Try.handlers);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        struct bc_label label;
+
+        excepthandler_ty handler = asdl_seq_GET(s->v.Try.handlers, i);
+        if (!handler->v.ExceptHandler.type && i < n-1) {
+            compiler_error(c, "default 'except:' must be last");
+        }
+
+        c->unit->lineno_set = 0;
+        c->unit->lineno = handler->lineno;
+        c->unit->col_offset = handler->col_offset;
+
+        if (handler->v.ExceptHandler.type) {
+            compiler_visit_expr(c, handler->v.ExceptHandler.type);
+            emit_jump_if_not_exc_match(c, h->reg, &label);
+        }
+        if (handler->v.ExceptHandler.name) {
+            emit1(c, LOAD_FAST, h->reg + 1);
+            compiler_try_except_handler(c, handler);
+        }
+        else {
+            compiler_visit_stmts(c, handler->v.ExceptHandler.body);
+        }
+        emit1(c, END_EXCEPT, h->reg);
+        emit_jump(c, JUMP, multi_label_next(c, &end));
+        if (handler->v.ExceptHandler.type) {
+            emit_label(c, &label);
+        }
+    }
+    emit1(c, END_FINALLY, h->reg);
+    free_regs_above(c, h->reg);
+    h->handler_end = c->unit->instr.offset;
+    emit_label(c, &orelse);
+    if (s->v.Try.orelse) {
+        compiler_visit_stmts(c, s->v.Try.orelse);
+    }
+    emit_multi_label(c, &end);
+}
+
+static void
+compiler_try(struct compiler *c, stmt_ty s) {
+    if (s->v.Try.finalbody && asdl_seq_LEN(s->v.Try.finalbody)) {
+        compiler_try_finally(c, s);
+    }
+    else {
+        compiler_try_except(c, s);
+    }
+}
 
 
 static void
@@ -3925,7 +3982,7 @@ compiler_assign(struct compiler *c, stmt_ty s)
 }
 
 static void
-compiler_delete_expr(struct compiler *c, expr_ty t)
+delete_name(struct compiler *c, PyObject *name)
 {
     static int opcodes[] = {
         [ACCESS_FAST]   = DELETE_FAST,
@@ -3933,11 +3990,18 @@ compiler_delete_expr(struct compiler *c, expr_ty t)
         [ACCESS_NAME]   = DELETE_NAME,
         [ACCESS_GLOBAL] = DELETE_GLOBAL,
     };
+
+    struct var_info a = resolve(c, name);
+    assert(a.access != ACCESS_CLASSDEREF);
+    emit1(c, opcodes[a.access], a.slot);
+}
+
+static void
+compiler_delete_expr(struct compiler *c, expr_ty t)
+{
     switch (t->kind) {
     case Name_kind: {
-        struct var_info a = resolve(c, t->v.Name.id);
-        assert(a.access != ACCESS_CLASSDEREF);
-        emit1(c, opcodes[a.access], a.slot);
+        delete_name(c, t->v.Name.id);
         break;
     }
     case Attribute_kind:
@@ -3963,6 +4027,20 @@ compiler_delete(struct compiler *c, stmt_ty s)
     for (Py_ssize_t i = 0; i < n; i++) {
         expr_ty target = asdl_seq_GET(targets, i);
         compiler_delete_expr(c, target);
+    }
+}
+
+static void
+clear_name(struct compiler *c, PyObject *name)
+{
+    struct var_info a = resolve(c, name);
+    if (a.access == ACCESS_FAST) {
+        emit1(c, CLEAR_FAST, a.slot);
+    }
+    else {
+        emit1(c, LOAD_FAST, const_none(c));
+        compiler_store(c, name);
+        delete_name(c, name);
     }
 }
 
@@ -4053,8 +4131,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Raise_kind:
         compiler_raise(c, s);
         break;
-//     case Try_kind:
-//         return compiler_try(c, s);
+    case Try_kind:
+        compiler_try(c, s);
+        break;
     case Assert_kind:
         compiler_assert(c, s);
         break;
@@ -4068,7 +4147,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Nonlocal_kind:
         break;
     case Expr_kind:
-        return compiler_visit_stmt_expr(c, s->v.Expr.value);
+        compiler_visit_stmt_expr(c, s->v.Expr.value);
+        break;
     case Pass_kind:
         break;
     case Break_kind:
@@ -6656,7 +6736,7 @@ makecode(struct compiler *c)
     Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
     Py_ssize_t ncells = 0;
     Py_ssize_t ncaptures = 0;
-    Py_ssize_t nexc_handlers = 0;
+    Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
 
     PyCodeObject2 *co = PyCode2_New(instr_size, nconsts, niconsts, nmeta, ncells, ncaptures, nexc_handlers);
     if (co == NULL) {
@@ -6696,6 +6776,11 @@ makecode(struct compiler *c)
         co->co_constants[i] = key;
         i++;
     }
+
+    // exception handlers
+    struct growable_table *eh = &c->unit->except_handlers;
+    ExceptionHandler *dst = co->co_exc_handlers->entries;
+    memcpy(dst, eh->arr, eh->offset * sizeof(ExceptionHandler));
 
     return co;
 }
