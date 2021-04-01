@@ -148,9 +148,25 @@ struct fblock {
 
 struct growable_table {
     void *arr;
-    uint32_t offset;
-    uint32_t allocated;
+    Py_ssize_t offset;
+    Py_ssize_t allocated;
     Py_ssize_t unit_size;
+};
+
+#define TABLE_NEXT(c, t) (table_reserve(c, t, 1))
+#define TABLE_RESERVE(c, t, n) (table_reserve(c, t, n))
+#define TABLE_ENTRY(t, i) ((void*)((char*)(t)->arr + (t)->unit_size * (i)))
+#define TABLE_MIN_SIZE 8
+
+struct freevar {
+    PyObject *name;
+    uint32_t reg;
+    uint32_t parent_reg;
+};
+
+struct cellvar {
+    PyObject *name;
+    uint32_t reg;
 };
 
 /* The following items change on entry and exit of code blocks.
@@ -169,6 +185,8 @@ struct compiler_unit {
 
     struct growable_table blocks;
     struct growable_table except_handlers;
+    struct growable_table freevarz;
+    struct growable_table cellvarz;
 
     PySTEntryObject *ste;
 
@@ -279,6 +297,9 @@ static void compiler_with(struct compiler *, stmt_ty, int);
 static void compiler_call(struct compiler *c, expr_ty e);
 static void compiler_try_except(struct compiler *, stmt_ty);
 static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
+
+static void *
+table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
 
 // static int compiler_sync_comprehension_generator(
 //                                       struct compiler *c,
@@ -549,35 +570,68 @@ dictbytype(PyObject *src, int scope_type, int flag, Py_ssize_t offset)
     return dest;
 }
 
+static Py_ssize_t
+add_variable(PyObject *varnames, PyObject *name)
+{
+    PyObject *idx = PyDict_GetItemWithError2(varnames, name);
+    if (idx != NULL) {
+        return PyLong_AsSize_t(idx);
+    }
+    else if (PyErr_Occurred()) {
+        return -1;
+    }
+
+    Py_ssize_t reg = PyDict_GET_SIZE(varnames);
+    idx = PyLong_FromSsize_t(reg);
+    if (idx == NULL) {
+        return -1;
+    }
+    if (PyDict_SetItem(varnames, name, idx) < 0) {
+        Py_DECREF(idx);
+        return -1;
+    }
+    Py_DECREF(idx);
+    return reg;
+}
+
 static void
 add_local_variables(struct compiler *c, PyObject *varnames, PyObject *symbols)
 {
     Py_ssize_t pos = 0;
-    PyObject *key;
-    PyObject *value;
+    PyObject *key, *value;
     while (PyDict_Next(symbols, &pos, &key, &value)) {
         long vi = PyLong_AS_LONG(value);
         Py_ssize_t scope = (vi >> SCOPE_OFFSET) & SCOPE_MASK;
-        printf("symbol %s scope %zd\n", PyUnicode_AsUTF8(key), scope);
-        if (scope != LOCAL) {
+        printf("symbol %s scope %zd vi=0x%lx free=%d\n", PyUnicode_AsUTF8(key), scope, vi, (int)(scope & DEF_FREE));
+        if (scope != FREE && scope != LOCAL && scope != CELL) {
+            printf(" skipping %s\n", PyUnicode_AsUTF8(key));
             continue;
         }
-        if (PyDict_Contains(varnames, key)) {
-            continue;
-        }
-        PyObject *idx = PyLong_FromLong(PyDict_GET_SIZE(varnames));
-        if (idx == NULL) {
+
+        Py_ssize_t reg = add_variable(varnames, key);
+        if (reg == -1) {
             COMPILER_ERROR(c);
         }
-        if (PyDict_SetItem(varnames, key, idx) < 0) {
-            Py_DECREF(idx);
-            COMPILER_ERROR(c);
+        if (scope == CELL) {
+            struct cellvar *cv = TABLE_NEXT(c, &c->unit->cellvarz);
+            cv->name = key;
+            cv->reg = reg;
+            printf("adding cellvar %s\n", PyUnicode_AsUTF8(key));
         }
+        if (scope == FREE || (vi & DEF_FREE_CLASS)) {
+            PyObject *p = PyDict_GetItemWithError2(c->unit->prev->varnames, key);
+            assert(p);
+            struct freevar *fv = TABLE_NEXT(c, &c->unit->freevarz);
+            fv->name = key;
+            fv->reg = reg;
+            fv->parent_reg = PyLong_AS_LONG(p);
+        }
+        // c->unit->free2reg
     }
 }
 
 static void
-add_locals(struct compiler *c, PyObject *varnames)
+add_locals_psuedovar(struct compiler *c, PyObject *varnames)
 {
     _Py_static_string(PyId_locals, "<locals>");
     PyObject *idx = PyLong_FromLong(PyDict_GET_SIZE(varnames));
@@ -661,6 +715,8 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
 
     u->blocks.unit_size = sizeof(struct fblock);
     u->except_handlers.unit_size = sizeof(ExceptionHandler);
+    u->freevarz.unit_size = sizeof(struct freevar);
+    u->cellvarz.unit_size = sizeof(struct cellvar);
     u->reachable = true;
     u->scope_type = scope_type;
     u->argcount = 0;
@@ -680,7 +736,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
         add_local_variables(c, u->varnames, u->ste->ste_symbols);
     }
     else {
-        add_locals(c, u->varnames);
+        add_locals_psuedovar(c, u->varnames);
     }
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
@@ -741,25 +797,8 @@ compiler_exit_scope(struct compiler *c)
 {
     struct compiler_unit *unit = c->unit;
     c->unit = unit->prev;
+    c->nestlevel--;
     compiler_unit_free(unit);
-    // Py_ssize_t n;
-    // PyObject *capsule;
-
-    // c->nestlevel--;
-    // compiler_unit_free(c->u);
-    // /* Restore c->u to the parent unit. */
-    // n = PyList_GET_SIZE(c->c_stack) - 1;
-    // if (n >= 0) {
-    //     capsule = PyList_GET_ITEM(c->c_stack, n);
-    //     c->u = (struct compiler_unit *)PyCapsule_GetPointer(capsule, CAPSULE_NAME);
-    //     assert(c->u);
-    //     /* we are deleting from a list so this really shouldn't fail */
-    //     if (PySequence_DelItem(c->c_stack, n) < 0)
-    //         Py_FatalError("compiler_exit_scope()");
-    //     compiler_unit_check(c->u);
-    // }
-    // else
-    //     c->u = NULL;
 }
 
 static void
@@ -1398,11 +1437,6 @@ resize_array(struct compiler *c, void **arr, uint32_t *size, Py_ssize_t min_size
     *arr = ptr;
     *size = new_size;
 }
-
-#define TABLE_NEXT(c, t) (table_reserve(c, t, 1))
-#define TABLE_RESERVE(c, t, n) (table_reserve(c, t, n))
-#define TABLE_ENTRY(t, i) ((void*)((char*)t->arr + t->unit_size * (i)))
-#define TABLE_MIN_SIZE 8
 
 static void *
 table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n)
@@ -2787,6 +2821,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
     c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
     compiler_visit_stmts(c, body);
+
     assemble(c, 1);
     compiler_exit_scope(c);
 
@@ -3105,7 +3140,6 @@ compiler_ifexp(struct compiler *c, expr_ty e)
 static void
 compiler_lambda(struct compiler *c, expr_ty e)
 {
-    PyCodeObject2 *co;
     PyObject *qualname;
     _Py_static_string(PyId_lambda, "<lambda>");
     PyObject *name;
@@ -3115,9 +3149,6 @@ compiler_lambda(struct compiler *c, expr_ty e)
     assert(e->kind == Lambda_kind);
 
     funcflags = compiler_default_arguments(c, args);
-    if (funcflags == -1) {
-        return 0;
-    }
 
     name = unicode_from_id(c, &PyId_lambda);
     compiler_enter_scope(c, name, COMPILER_SCOPE_LAMBDA,
@@ -3144,7 +3175,7 @@ compiler_lambda(struct compiler *c, expr_ty e)
 
     compiler_exit_scope(c);
 
-    emit1(c, MAKE_FUNCTION, compiler_const(c, c->code));
+    emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
 
     // Py_DECREF(qualname);    // FIXME: leak
 }
@@ -6629,12 +6660,12 @@ makecode(struct compiler *c)
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
     Py_ssize_t niconsts = 0;
     Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
-    Py_ssize_t ncells = 0;
-    Py_ssize_t ncaptures = 0;
+    Py_ssize_t ncells = c->unit->cellvarz.offset;
+    Py_ssize_t ncaptures = c->unit->freevarz.offset;;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
     Py_ssize_t header_size;
-
     uint8_t header[MAX_HEADER_SIZE];
+
     header_size = write_func_header(header, c->unit->max_registers);
     instr_size += header_size;
 
@@ -6653,7 +6684,6 @@ makecode(struct compiler *c)
     co->co_framesize = c->unit->max_registers;
     co->co_varnames = dict_keys_as_tuple(c, c->unit->varnames);
     co->co_freevars = PyTuple_New(0);
-    co->co_cellvars = PyTuple_New(0);
     co->co_filename = c->filename;
     Py_INCREF(co->co_filename);
     co->co_name = c->unit->name;
@@ -6685,6 +6715,32 @@ makecode(struct compiler *c)
     ExceptionHandler *dst = co->co_exc_handlers->entries;
     memcpy(dst, eh->arr, eh->offset * sizeof(ExceptionHandler));
 
+    // cell variables
+    co->co_cellvars = PyTuple_New(ncells);
+    if (co->co_cellvars == NULL) {
+        COMPILER_ERROR(c);
+    }
+    for (Py_ssize_t i = 0; i < ncells; i++) {
+        struct cellvar *cv = TABLE_ENTRY(&c->unit->cellvarz, i);
+        co->co_cell2reg[i] = cv->reg;
+        Py_INCREF(cv->name);
+        PyTuple_SET_ITEM(co->co_cellvars, i, cv->name);
+    }
+
+    // free variables
+    co->co_freevars = PyTuple_New(ncaptures);
+    if (co->co_freevars == NULL) {
+        COMPILER_ERROR(c);
+    }
+    for (Py_ssize_t i = 0; i < ncaptures; i++) {
+        struct freevar *fv = TABLE_ENTRY(&c->unit->freevarz, i);
+        co->co_free2reg[i*2+0] = fv->parent_reg;
+        co->co_free2reg[i*2+1] = fv->reg;
+        Py_INCREF(fv->name);
+        PyTuple_SET_ITEM(co->co_freevars, i, fv->name);
+    }
+
+    PyCode2_UpdateFlags(co);
     return co;
 }
 

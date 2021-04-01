@@ -247,15 +247,20 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         handler->reg = PyLong_AsSsize_t(PyTuple_GET_ITEM(entry, 3));
     }
 
+    PyCode2_UpdateFlags(co);
+    return (PyObject *)co;
+}
+
+void
+PyCode2_UpdateFlags(PyCodeObject2 *co)
+{
     co->co_packed_flags = 0;
-    co->co_packed_flags |= (argcount < 256 ? argcount : CODE_FLAG_OVERFLOW);
+    co->co_packed_flags |= (co->co_argcount < 256 ? co->co_argcount : CODE_FLAG_OVERFLOW);
     co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
     co->co_packed_flags |= (co->co_nfreevars > co->co_ndefaultargs ? CODE_FLAG_HAS_FREEVARS : 0);
-    co->co_packed_flags |= (flags & CO_VARARGS) ? CODE_FLAG_VARARGS : 0;
-    co->co_packed_flags |= (flags & CO_VARKEYWORDS) ? CODE_FLAG_VARKEYWORDS : 0;
+    co->co_packed_flags |= (co->co_flags & CO_VARARGS) ? CODE_FLAG_VARARGS : 0;
+    co->co_packed_flags |= (co->co_flags & CO_VARKEYWORDS) ? CODE_FLAG_VARKEYWORDS : 0;
     co->co_packed_flags |= (co->co_totalargcount > co->co_argcount ? CODE_FLAG_KWD_ONLY_ARGS : 0);
-
-    return (PyObject *)co;
 }
 
 static void

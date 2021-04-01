@@ -112,6 +112,8 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
    use PyFrame_GetLineNumber() instead. */
 PyAPI_FUNC(int) PyCode2_Addr2Line(PyCodeObject2 *, int);
 
+PyAPI_FUNC(void) PyCode2_UpdateFlags(PyCodeObject2 *);
+
 #define PyCode2_GET_CODE(co) (PyCode2_Code((PyCodeObject2 *)(co)))
 #define PyCode2_FROM_FUNC(func) (PyCode2_FromInstr(((PyFuncBase *)func)->first_instr))
 
