@@ -36,8 +36,7 @@
 
 enum {
     FRAME_EXTRA = 4, // FIXME get from ceval2_meta.h
-    REG_ACCUMULATOR = -1,
-    MAX_HEADER_SIZE = 6
+    REG_ACCUMULATOR = -1
 };
 
 enum {
@@ -4469,96 +4468,39 @@ are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
     return 1;
 }
 
-// static int
-// compiler_subdict(struct compiler *c, expr_ty e, Py_ssize_t begin, Py_ssize_t end)
-// {
-//     Py_ssize_t i, n = end - begin;
-//     PyObject *keys, *key;
-//     if (n > 1 && are_all_items_const(e->v.Dict.keys, begin, end)) {
-//         for (i = begin; i < end; i++) {
-//             VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Dict.values, i));
-//         }
-//         keys = PyTuple_New(n);
-//         if (keys == NULL) {
-//             return 0;
-//         }
-//         for (i = begin; i < end; i++) {
-//             key = ((expr_ty)asdl_seq_GET(e->v.Dict.keys, i))->v.Constant.value;
-//             Py_INCREF(key);
-//             PyTuple_SET_ITEM(keys, i - begin, key);
-//         }
-//         ADDOP_LOAD_CONST_NEW(c, keys);
-//         ADDOP_I(c, BUILD_CONST_KEY_MAP, n);
-//     }
-//     else {
-//         for (i = begin; i < end; i++) {
-//             VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Dict.keys, i));
-//             VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Dict.values, i));
-//         }
-//         ADDOP_I(c, BUILD_MAP, n);
-//     }
-//     return 1;
-// }
+static void
+compiler_dict(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t i, n, reg_dict;
 
-// static int
-// compiler_dict(struct compiler *c, expr_ty e)
-// {
-//     Py_ssize_t i, n, elements;
-//     int have_dict;
-//     int is_unpacking = 0;
-//     n = asdl_seq_LEN(e->v.Dict.values);
-//     have_dict = 0;
-//     elements = 0;
-//     for (i = 0; i < n; i++) {
-//         is_unpacking = (expr_ty)asdl_seq_GET(e->v.Dict.keys, i) == NULL;
-//         if (is_unpacking) {
-//             if (elements) {
-//                 if (!compiler_subdict(c, e, i - elements, i)) {
-//                     return 0;
-//                 }
-//                 if (have_dict) {
-//                     ADDOP_I(c, DICT_UPDATE, 1);
-//                 }
-//                 have_dict = 1;
-//                 elements = 0;
-//             }
-//             if (have_dict == 0) {
-//                 ADDOP_I(c, BUILD_MAP, 0);
-//                 have_dict = 1;
-//             }
-//             VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Dict.values, i));
-//             ADDOP_I(c, DICT_UPDATE, 1);
-//         }
-//         else {
-//             if (elements == 0xFFFF) {
-//                 if (!compiler_subdict(c, e, i - elements, i)) {
-//                     return 0;
-//                 }
-//                 if (have_dict) {
-//                     ADDOP_I(c, DICT_UPDATE, 1);
-//                 }
-//                 have_dict = 1;
-//                 elements = 0;
-//             }
-//             else {
-//                 elements++;
-//             }
-//         }
-//     }
-//     if (elements) {
-//         if (!compiler_subdict(c, e, n - elements, n)) {
-//             return 0;
-//         }
-//         if (have_dict) {
-//             ADDOP_I(c, DICT_UPDATE, 1);
-//         }
-//         have_dict = 1;
-//     }
-//     if (!have_dict) {
-//         ADDOP_I(c, BUILD_MAP, 0);
-//     }
-//     return 1;
-// }
+    n = asdl_seq_LEN(e->v.Dict.values);
+    reg_dict = reserve_regs(c, 1);
+
+    emit1(c, BUILD_MAP, n);
+    if (n == 0) {
+        return;
+    }
+
+    emit1(c, STORE_FAST, reg_dict);
+
+    for (i = 0; i < n; i++) {
+        expr_ty key = asdl_seq_GET(e->v.Dict.keys, i);
+        expr_ty value = asdl_seq_GET(e->v.Dict.values, i);
+        if (key != NULL) {
+            Py_ssize_t reg_key = expr_to_any_reg(c, key);
+            compiler_visit_expr(c, value);
+            emit2(c, STORE_SUBSCR, reg_dict, reg_key);
+            clear_reg(c, reg_key);
+        }
+        else {
+            compiler_visit_expr(c, value);
+            emit1(c, DICT_UPDATE, reg_dict);
+        }
+    }
+
+    emit1(c, LOAD_FAST, reg_dict);
+    clear_reg(c, reg_dict);
+}
 
 static Py_ssize_t
 shuffle_down(struct compiler *c, Py_ssize_t lhs, Py_ssize_t rhs)
@@ -5677,8 +5619,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case IfExp_kind:
         compiler_ifexp(c, e);
         break;
-//     case Dict_kind:
-//         return compiler_dict(c, e);
+    case Dict_kind:
+        compiler_dict(c, e);
+        break;
 //     case Set_kind:
 //         return compiler_set(c, e);
 //     case GeneratorExp_kind:
@@ -6664,7 +6607,7 @@ makecode(struct compiler *c)
     Py_ssize_t ncaptures = c->unit->freevarz.offset;;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
     Py_ssize_t header_size;
-    uint8_t header[MAX_HEADER_SIZE];
+    uint8_t header[OP_SIZE_WIDE_FUNC_HEADER];
 
     header_size = write_func_header(header, c->unit->max_registers);
     instr_size += header_size;
