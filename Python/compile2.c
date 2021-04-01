@@ -4802,60 +4802,71 @@ compiler_call(struct compiler *c, expr_ty e)
     c->unit->next_register = base - FRAME_EXTRA;
 }
 
-// static int
-// compiler_joined_str(struct compiler *c, expr_ty e)
-// {
-//     VISIT_SEQ(c, expr, e->v.JoinedStr.values);
-//     if (asdl_seq_LEN(e->v.JoinedStr.values) != 1)
-//         ADDOP_I(c, BUILD_STRING, asdl_seq_LEN(e->v.JoinedStr.values));
-//     return 1;
-// }
+static void
+compiler_joined_str(struct compiler *c, expr_ty e)
+{
+    asdl_seq *values = e->v.JoinedStr.values;
+    Py_ssize_t n = asdl_seq_LEN(values);
+    if (n == 1) {
+        compiler_visit_expr(c, asdl_seq_GET(values, 0));
+        return;
+    }
+    Py_ssize_t base = c->unit->next_register;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty e = asdl_seq_GET(values, i);
+        expr_to_reg(c, e, base + i);
+    }
+    emit3(c, CALL_INTRINSIC_N, Intrinsic_vm_build_string, base, n);
+    free_regs_above(c, base);
+}
 
-// /* Used to implement f-strings. Format a single value. */
-// static int
-// compiler_formatted_value(struct compiler *c, expr_ty e)
-// {
-//     /* Our oparg encodes 2 pieces of information: the conversion
-//        character, and whether or not a format_spec was provided.
+static int
+conversion_intrinsic(struct compiler *c, int conversion)
+{
+    switch (conversion) {
+    case 's': return Intrinsic_PyObject_Str;
+    case 'r': return Intrinsic_PyObject_Repr;
+    case 'a': return Intrinsic_PyObject_ASCII;
+    case -1:  return -1;
+    default:
+        PyErr_Format(PyExc_SystemError,
+                     "Unrecognized conversion character %d", conversion);
+        return 0;
+    }
+}
 
-//        Convert the conversion char to 3 bits:
-//            : 000  0x0  FVC_NONE   The default if nothing specified.
-//        !s  : 001  0x1  FVC_STR
-//        !r  : 010  0x2  FVC_REPR
-//        !a  : 011  0x3  FVC_ASCII
+/* Used to implement f-strings. Format a single value. */
+static void
+compiler_formatted_value(struct compiler *c, expr_ty e)
+{
+    int conversion = e->v.FormattedValue.conversion;
+    expr_ty format_spec = e->v.FormattedValue.format_spec;
+    expr_ty value = e->v.FormattedValue.value;
 
-//        next bit is whether or not we have a format spec:
-//        yes : 100  0x4
-//        no  : 000  0x0
-//     */
+    if (format_spec == NULL) {
+        compiler_visit_expr(c, value);
+        if (conversion != -1) {
+            emit1(c, CALL_INTRINSIC_1, conversion_intrinsic(c, conversion));
+        }
+        emit1(c, CALL_INTRINSIC_1, Intrinsic_vm_format_value);
+        return;
+    }
 
-//     int conversion = e->v.FormattedValue.conversion;
-//     int oparg;
-
-//     /* The expression to be formatted. */
-//     VISIT(c, expr, e->v.FormattedValue.value);
-
-//     switch (conversion) {
-//     case 's': oparg = FVC_STR;   break;
-//     case 'r': oparg = FVC_REPR;  break;
-//     case 'a': oparg = FVC_ASCII; break;
-//     case -1:  oparg = FVC_NONE;  break;
-//     default:
-//         PyErr_Format(PyExc_SystemError,
-//                      "Unrecognized conversion character %d", conversion);
-//         return 0;
-//     }
-//     if (e->v.FormattedValue.format_spec) {
-//         /* Evaluate the format spec, and update our opcode arg. */
-//         VISIT(c, expr, e->v.FormattedValue.format_spec);
-//         oparg |= FVS_HAVE_SPEC;
-//     }
-
-//     /* And push our opcode and oparg */
-//     ADDOP_I(c, FORMAT_VALUE, oparg);
-
-//     return 1;
-// }
+    Py_ssize_t reg;
+    if (conversion != -1) {
+        compiler_visit_expr(c, value);
+        emit1(c, CALL_INTRINSIC_1, conversion_intrinsic(c, conversion));
+        reg = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, reg);
+    }
+    else {
+        reg = c->unit->next_register;
+        expr_to_reg(c, value, reg);
+    }
+    expr_to_reg(c, format_spec, reg + 1);
+    emit3(c, CALL_INTRINSIC_N, Intrinsic_vm_format_value_spec, reg, 2);
+    free_regs_above(c, reg);
+}
 
 // static int
 // compiler_subkwargs(struct compiler *c, asdl_seq *keywords, Py_ssize_t begin, Py_ssize_t end)
@@ -5674,11 +5685,12 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Constant_kind:
         emit1(c, LOAD_CONST, compiler_const(c, e->v.Constant.value));
         break;
-//     case JoinedStr_kind:
-//         return compiler_joined_str(c, e);
-//     case FormattedValue_kind:
-//         return compiler_formatted_value(c, e);
-//     /* The following exprs can be assignment targets. */
+    case JoinedStr_kind:
+        compiler_joined_str(c, e);
+        break;
+    case FormattedValue_kind:
+        compiler_formatted_value(c, e);
+        break;
     case Attribute_kind: {
         assert(e->v.Attribute.ctx == Load);
         Py_ssize_t reg = expr_to_any_reg(c, e->v.Attribute.value);
