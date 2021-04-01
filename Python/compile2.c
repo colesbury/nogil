@@ -282,7 +282,6 @@ _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__module__);
 _Py_IDENTIFIER(__qualname__);
 _Py_IDENTIFIER(__class__);
-static _Py_Identifier build_class_ident = _Py_static_string_init("$__build_class__");
 
 // TODO: copy _Py_Mangle from compile.c
 PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
@@ -3721,41 +3720,52 @@ compiler_from_import(struct compiler *c, stmt_ty s)
     clear_reg(c, reg);
 }
 
+struct var_info {
+    int access;
+    Py_ssize_t slot;
+};
+
+static struct var_info
+resolve(struct compiler *c, PyObject *name)
+{
+    struct var_info r;
+    PyObject *mangled = _Py_Mangle(c->unit->private, name);
+    if (mangled == NULL) {
+        COMPILER_ERROR(c);
+    }
+    r.access = compiler_access(c, mangled);
+    if (r.access == ACCESS_FAST || r.access == ACCESS_DEREF) {
+        r.slot = compiler_varname(c, mangled);
+        Py_DECREF(mangled);
+    }
+    else {
+        r.slot = compiler_new_const(c, mangled);
+    }
+    return r;
+}
+
 static void
 assign_name(struct compiler *c, PyObject *name, Py_ssize_t src)
 {
-    PyObject *mangled = mangle(c, name);
-    // FIXME: leaks mangled?
-    int access = compiler_access(c, mangled);
-    switch (access) {
-    case ACCESS_FAST: {
-        Py_ssize_t dst = compiler_varname(c, mangled);
-        if (src != REG_ACCUMULATOR && is_temporary(c, src)) {
-            emit2(c, MOVE, dst, src);
-        }
-        else {
-            to_accumulator(c, src);
-            emit1(c, STORE_FAST, dst);
-        }
-        break;
+    struct var_info a = resolve(c, name);
+    int opcodes[] = {
+        [ACCESS_FAST]   = STORE_FAST,
+        [ACCESS_DEREF]  = STORE_DEREF,
+        [ACCESS_NAME]   = STORE_NAME,
+        [ACCESS_GLOBAL] = STORE_GLOBAL,
+    };
+
+    assert(a.access != ACCESS_CLASSDEREF);
+    if (a.access == ACCESS_FAST &&
+        src != REG_ACCUMULATOR &&
+        is_temporary(c, src))
+    {
+        emit2(c, MOVE, a.slot, src);
+        return;
     }
-    case ACCESS_DEREF:
-        to_accumulator(c, src);
-        emit1(c, STORE_DEREF, compiler_varname(c, mangled));
-        break;
-    case ACCESS_NAME:
-        to_accumulator(c, src);
-        emit1(c, STORE_NAME, compiler_const(c, mangled));
-        break;
-    case ACCESS_GLOBAL:
-        to_accumulator(c, src);
-        emit1(c, STORE_GLOBAL, compiler_const(c, mangled));
-        break;
-    default:
-        PyErr_Format(PyExc_SystemError, "unsupported access: %d", access);
-        COMPILER_ERROR(c);
-    }
-    Py_DECREF(mangled); // FIXME
+
+    to_accumulator(c, src);
+    emit1(c, opcodes[a.access], a.slot);
 }
 
 static void
@@ -3841,7 +3851,7 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
 {
     switch (t->kind) {
     case Name_kind:
-        assign_name(c, t, expr_discharge(c, value));
+        assign_name(c, t->v.Name.id, expr_discharge(c, value));
         break;
     case Attribute_kind: {
         Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
@@ -3891,6 +3901,48 @@ compiler_assign(struct compiler *c, stmt_ty s)
         compiler_assign_reg(c, target, value);
     }
     clear_reg(c, value);
+}
+
+static void
+compiler_delete_expr(struct compiler *c, expr_ty t)
+{
+    static int opcodes[] = {
+        [ACCESS_FAST]   = DELETE_FAST,
+        [ACCESS_DEREF]  = DELETE_DEREF,
+        [ACCESS_NAME]   = DELETE_NAME,
+        [ACCESS_GLOBAL] = DELETE_GLOBAL,
+    };
+    switch (t->kind) {
+    case Name_kind: {
+        struct var_info a = resolve(c, t->v.Name.id);
+        assert(a.access != ACCESS_CLASSDEREF);
+        emit1(c, opcodes[a.access], a.slot);
+        break;
+    }
+    case Attribute_kind:
+        compiler_visit_expr(c, t->v.Attribute.value);
+        emit1(c, DELETE_ATTR, compiler_const(c, t->v.Attribute.attr));
+        break;
+    case Subscript_kind: {
+        Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
+        compiler_slice(c, t->v.Subscript.slice);
+        emit1(c, DELETE_SUBSCR, container);
+        clear_reg(c, container);
+        break;
+    }
+    default: Py_UNREACHABLE();
+    }
+}
+
+static void
+compiler_delete(struct compiler *c, stmt_ty s)
+{
+    asdl_seq *targets = s->v.Delete.targets;
+    Py_ssize_t n = asdl_seq_LEN(targets);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty target = asdl_seq_GET(targets, i);
+        compiler_delete_expr(c, target);
+    }
 }
 
 static void
@@ -3956,9 +4008,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Return_kind:
         compiler_return(c, s);
         break;
-//     case Delete_kind:
-//         VISIT_SEQ(c, expr, s->v.Delete.targets)
-//         break;
+    case Delete_kind:
+        compiler_delete(c, s);
+        break;
     case Assign_kind:
         compiler_assign(c, s);
         break;
@@ -4123,11 +4175,6 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
     // int op, scope;
     // Py_ssize_t arg;
     // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
-
-    if (name == build_class_ident.object) {
-        emit0(c, LOAD_BUILD_CLASS);
-        return;
-    }
 
     PyObject *mangled;
     /* XXX AugStore isn't used anywhere! */
