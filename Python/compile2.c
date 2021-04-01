@@ -4159,8 +4159,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case With_kind:
         compiler_with(c, s, 0);
         break;
-//     case AsyncFunctionDef_kind:
-//         return compiler_function(c, s, 1);
+    case AsyncFunctionDef_kind:
+        compiler_function(c, s, 1);
+        break;
 //     case AsyncWith_kind:
 //         return compiler_async_with(c, s, 0);
 //     case AsyncFor_kind:
@@ -4232,11 +4233,8 @@ inplace_binop(struct compiler *c, operator_ty op)
     case BitXor:    return INPLACE_XOR;
     case BitAnd:    return INPLACE_AND;
     case FloorDiv:  return INPLACE_FLOOR_DIVIDE;
-    default:
-        PyErr_Format(PyExc_SystemError,
-            "inplace binary op %d should not be possible", op);
-        COMPILER_ERROR(c);
     }
+    Py_UNREACHABLE();
 }
 
 static int
@@ -4412,40 +4410,6 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
     }
 //     return 1;
 }
-
-static void
-compiler_list(struct compiler *c, expr_ty e)
-{
-    assert(e->v.List.ctx == Load);
-    starunpack_helper(c, e->v.List.elts, e->kind);
-    // asdl_seq *elts = e->v.List.elts;
-    // if (e->v.List.ctx == Store) {
-    //     return assignment_helper(c, elts);
-    // }
-    // else if (e->v.List.ctx == Load) {
-    //     return starunpack_helper(c, elts, 0, BUILD_LIST,
-    //                              LIST_APPEND, LIST_EXTEND, 0);
-    // }
-    // else
-    //     VISIT_SEQ(c, expr, elts);
-    // return 1;
-}
-
-// static int
-// compiler_tuple(struct compiler *c, expr_ty e)
-// {
-//     asdl_seq *elts = e->v.Tuple.elts;
-//     if (e->v.Tuple.ctx == Store) {
-//         return assignment_helper(c, elts);
-//     }
-//     else if (e->v.Tuple.ctx == Load) {
-//         return starunpack_helper(c, elts, 0, BUILD_LIST,
-//                                  LIST_APPEND, LIST_EXTEND, 1);
-//     }
-//     else
-//         VISIT_SEQ(c, expr, elts);
-//     return 1;
-// }
 
 // static int
 // compiler_set(struct compiler *c, expr_ty e)
@@ -5595,7 +5559,6 @@ static void
 compiler_with(struct compiler *c, stmt_ty s, int pos)
 {
     Py_ssize_t with_reg, link_reg;
-    uint32_t start_offset;
     ExceptionHandler *h;
     struct fblock *block;
     withitem_ty item = asdl_seq_GET(s->v.With.items, pos);
@@ -5746,31 +5709,6 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         clear_reg(c, reg);
         break;
     }
-//         if (e->v.Attribute.ctx != AugStore)
-//             VISIT(c, expr, e->v.Attribute.value);
-//         switch (e->v.Attribute.ctx) {
-//         case AugLoad:
-//             ADDOP(c, DUP_TOP);
-//             /* Fall through */
-//         case Load:
-//             ADDOP_NAME(c, LOAD_ATTR, e->v.Attribute.attr, names);
-//             break;
-//         case AugStore:
-//             ADDOP(c, ROT_TWO);
-//             /* Fall through */
-//         case Store:
-//             ADDOP_NAME(c, STORE_ATTR, e->v.Attribute.attr, names);
-//             break;
-//         case Del:
-//             ADDOP_NAME(c, DELETE_ATTR, e->v.Attribute.attr, names);
-//             break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                             "param invalid in attribute expression");
-//             return 0;
-//         }
-//         break;
     case Subscript_kind: {
         assert(e->v.Subscript.ctx == Load);
         Py_ssize_t reg = expr_to_any_reg(c, e->v.Subscript.value);
@@ -5779,62 +5717,20 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         clear_reg(c, reg);
         break;
     }
-//         switch (e->v.Subscript.ctx) {
-//         case AugLoad:
-//             VISIT(c, expr, e->v.Subscript.value);
-//             VISIT_SLICE(c, e->v.Subscript.slice, AugLoad);
-//             break;
-//         case Load:
-//             if (!check_subscripter(c, e->v.Subscript.value)) {
-//                 return 0;
-//             }
-//             if (!check_index(c, e->v.Subscript.value, e->v.Subscript.slice)) {
-//                 return 0;
-//             }
-//             VISIT(c, expr, e->v.Subscript.value);
-//             VISIT_SLICE(c, e->v.Subscript.slice, Load);
-//             break;
-//         case AugStore:
-//             VISIT_SLICE(c, e->v.Subscript.slice, AugStore);
-//             break;
-//         case Store:
-//             VISIT(c, expr, e->v.Subscript.value);
-//             VISIT_SLICE(c, e->v.Subscript.slice, Store);
-//             break;
-//         case Del:
-//             VISIT(c, expr, e->v.Subscript.value);
-//             VISIT_SLICE(c, e->v.Subscript.slice, Del);
-//             break;
-//         case Param:
-//         default:
-//             PyErr_SetString(PyExc_SystemError,
-//                 "param invalid in subscript expression");
-//             return 0;
-//         }
-//         break;
-//     case Starred_kind:
-//         switch (e->v.Starred.ctx) {
-//         case Store:
-//             /* In all legitimate cases, the Starred node was already replaced
-//              * by compiler_list/compiler_tuple. XXX: is that okay? */
-//             return compiler_error(c,
-//                 "starred assignment target must be in a list or tuple");
-//         default:
-//             return compiler_error(c,
-//                 "can't use starred expression here");
-//         }
     case Name_kind:
         compiler_nameop(c, e->v.Name.id, e->v.Name.ctx);
         break;
-//     /* child nodes of List and Tuple will have expr_context set */
     case List_kind:
-        compiler_list(c, e);
+        assert(e->v.Tuple.ctx == Load);
+        starunpack_helper(c, e->v.List.elts, e->kind);
         break;
-//     case Tuple_kind:
-//         return compiler_tuple(c, e);
-        default:
-            PyErr_Format(PyExc_RuntimeError, "unhandled expr %d", e->kind);
-            COMPILER_ERROR(c);
+    case Tuple_kind:
+        assert(e->v.Tuple.ctx == Load);
+        starunpack_helper(c, e->v.Tuple.elts, e->kind);
+        break;
+    default:
+        PyErr_Format(PyExc_RuntimeError, "unhandled expr %d", e->kind);
+        COMPILER_ERROR(c);
     }
 }
 
