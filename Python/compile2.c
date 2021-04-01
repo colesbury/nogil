@@ -290,7 +290,7 @@ static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
 static int expr_constant(expr_ty);
 
 static void compiler_with(struct compiler *, stmt_ty, int);
-// static int compiler_async_with(struct compiler *, stmt_ty, int);
+static void compiler_async_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_for(struct compiler *, stmt_ty);
 // static void compiler_call_helper(struct compiler *c, int n,
 //                                  asdl_seq *args,
@@ -4215,8 +4215,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case AsyncFunctionDef_kind:
         compiler_function(c, s, 1);
         break;
-//     case AsyncWith_kind:
-//         return compiler_async_with(c, s, 0);
+    case AsyncWith_kind:
+        compiler_async_with(c, s, 0);
+        break;
 //     case AsyncFor_kind:
 //         return compiler_async_for(c, s);
         default:
@@ -5460,110 +5461,87 @@ expr_constant(expr_ty e)
 //     return 1;
 // }
 
-// /*
-//    Implements the async with statement.
+/*
+   Implements the async with statement.
 
-//    The semantics outlined in that PEP are as follows:
+   The semantics outlined in that PEP are as follows:
 
-//    async with EXPR as VAR:
-//        BLOCK
+   async with EXPR as VAR:
+       BLOCK
 
-//    It is implemented roughly as:
+   It is implemented roughly as:
 
-//    context = EXPR
-//    exit = context.__aexit__  # not calling it
-//    value = await context.__aenter__()
-//    try:
-//        VAR = value  # if VAR present in the syntax
-//        BLOCK
-//    finally:
-//        if an exception was raised:
-//            exc = copy of (exception, instance, traceback)
-//        else:
-//            exc = (None, None, None)
-//        if not (await exit(*exc)):
-//            raise
-//  */
-// static int
-// compiler_async_with(struct compiler *c, stmt_ty s, int pos)
-// {
-//     basicblock *block, *final, *exit;
-//     withitem_ty item = asdl_seq_GET(s->v.AsyncWith.items, pos);
+   context = EXPR
+   exit = context.__aexit__  # not calling it
+   value = await context.__aenter__()
+   try:
+       VAR = value  # if VAR present in the syntax
+       BLOCK
+   finally:
+       if an exception was raised:
+           exc = copy of (exception, instance, traceback)
+       else:
+           exc = (None, None, None)
+       if not (await exit(*exc)):
+           raise
+ */
+static void
+compiler_async_with(struct compiler *c, stmt_ty s, int pos)
+{
+    Py_ssize_t with_reg, link_reg;
+    ExceptionHandler *h;
+    struct fblock *block;
+    withitem_ty item = asdl_seq_GET(s->v.AsyncWith.items, pos);
 
-//     assert(s->kind == AsyncWith_kind);
-//     if (c->c_flags->cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT){
-//         c->u->u_ste->ste_coroutine = 1;
-//     } else if (c->u->u_scope_type != COMPILER_SCOPE_ASYNC_FUNCTION){
-//         return compiler_error(c, "'async with' outside async function");
-//     }
+    assert(s->kind == AsyncWith_kind);
+    if (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) {
+        c->unit->ste->ste_coroutine = 1; // ?????
+    }
+    else if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION){
+        compiler_error(c, "'async with' outside async function");
+    }
 
-//     block = compiler_new_block(c);
-//     final = compiler_new_block(c);
-//     exit = compiler_new_block(c);
-//     if (!block || !final || !exit)
-//         return 0;
+    // [ mgr, __exit__, awaitable ]
+    //   ^with_reg
+    compiler_visit_expr(c, item->context_expr);
+    with_reg = reserve_regs(c, 3);
+    emit1(c, SETUP_ASYNC_WITH, with_reg);
+    emit1(c, GET_AWAITABLE, with_reg + 2);
+    emit1(c, LOAD_CONST, const_none(c));
+    emit1(c, YIELD_FROM, with_reg + 2);
+    clear_reg(c, with_reg + 2);
 
-//     /* Evaluate EXPR */
-//     VISIT(c, expr, item->context_expr);
+    block = compiler_push_loop(c, ASYNC_WITH);
+    block->AsyncWith.reg = with_reg;
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = c->unit->instr.offset;
 
-//     ADDOP(c, BEFORE_ASYNC_WITH);
-//     ADDOP(c, GET_AWAITABLE);
-//     ADDOP_LOAD_CONST(c, Py_None);
-//     ADDOP(c, YIELD_FROM);
+    if (item->optional_vars) {
+        compiler_assign_reg(c, item->optional_vars, REG_ACCUMULATOR);
+    }
+    else {
+        emit0(c, CLEAR_ACC);
+    }
+    if (pos + 1 == asdl_seq_LEN(s->v.With.items)) {
+        /* BLOCK code */
+        compiler_visit_stmts(c, s->v.With.body);
+    }
+    else {
+        compiler_with(c, s, pos + 1);
+    }
+    compiler_pop_loop(c, block);
 
-//     ADDOP_JREL(c, SETUP_ASYNC_WITH, final);
+    // [ mgr, __exit__, <link>, <exc> ]
+    //   ^with_reg      ^link_reg
+    h->reg = link_reg = reserve_regs(c, 2);
+    h->handler = c->unit->instr.offset;
+    assert(link_reg == with_reg + 2);
 
-//     /* SETUP_ASYNC_WITH pushes a finally block. */
-//     compiler_use_next_block(c, block);
-//     if (!compiler_push_fblock(c, ASYNC_WITH, block, final, NULL)) {
-//         return 0;
-//     }
+    emit1(c, END_ASYNC_WITH, with_reg);
 
-//     if (item->optional_vars) {
-//         VISIT(c, expr, item->optional_vars);
-//     }
-//     else {
-//     /* Discard result from context.__aenter__() */
-//         ADDOP(c, POP_TOP);
-//     }
-
-//     pos++;
-//     if (pos == asdl_seq_LEN(s->v.AsyncWith.items))
-//         /* BLOCK code */
-//         VISIT_SEQ(c, stmt, s->v.AsyncWith.body)
-//     else if (!compiler_async_with(c, s, pos))
-//             return 0;
-
-//     compiler_pop_fblock(c, ASYNC_WITH, block);
-//     ADDOP(c, POP_BLOCK);
-//     /* End of body; start the cleanup */
-
-//     /* For successful outcome:
-//      * call __exit__(None, None, None)
-//      */
-//     if(!compiler_call_exit_with_nones(c))
-//         return 0;
-//     ADDOP(c, GET_AWAITABLE);
-//     ADDOP_O(c, LOAD_CONST, Py_None, consts);
-//     ADDOP(c, YIELD_FROM);
-
-//     ADDOP(c, POP_TOP);
-
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, exit);
-
-//     /* For exceptional outcome: */
-//     compiler_use_next_block(c, final);
-
-//     ADDOP(c, WITH_EXCEPT_START);
-//     ADDOP(c, GET_AWAITABLE);
-//     ADDOP_LOAD_CONST(c, Py_None);
-//     ADDOP(c, YIELD_FROM);
-//     compiler_with_except_finish(c);
-
-// compiler_use_next_block(c, exit);
-//     return 1;
-// }
-
+    h->handler_end = c->unit->instr.offset;
+    free_regs_above(c, with_reg);
+}
 
 /*
    Implements the with statement from PEP 343.
@@ -5583,7 +5561,6 @@ expr_constant(expr_ty e)
           ^$with_reg      ^$link_reg
 
  */
-
 static void
 compiler_with(struct compiler *c, stmt_ty s, int pos)
 {
@@ -5616,14 +5593,14 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
         emit0(c, CLEAR_ACC);
     }
 
-    pos++;
-    if (pos == asdl_seq_LEN(s->v.With.items)) {
+    if (pos + 1 == asdl_seq_LEN(s->v.With.items)) {
         /* BLOCK code */
         compiler_visit_stmts(c, s->v.With.body);
     }
     else {
-        compiler_with(c, s, pos);
+        compiler_with(c, s, pos + 1);
     }
+    compiler_pop_loop(c, block);
 
     // The $link_reg indicates whether an exception occured. A zero
     // value indicates normal exit (no exception). A -1 value
