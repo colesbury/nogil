@@ -4449,13 +4449,6 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
 //     return 1;
 }
 
-// static int
-// compiler_set(struct compiler *c, expr_ty e)
-// {
-//     return starunpack_helper(c, e->v.Set.elts, 0, BUILD_SET,
-//                              SET_ADD, SET_UPDATE, 0);
-// }
-
 static int
 are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
 {
@@ -5622,8 +5615,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Dict_kind:
         compiler_dict(c, e);
         break;
-//     case Set_kind:
-//         return compiler_set(c, e);
+    case Set_kind:
+        starunpack_helper(c, e->v.Set.elts, e->kind);
+        break;
 //     case GeneratorExp_kind:
 //         return compiler_genexp(c, e);
 //     case ListComp_kind:
