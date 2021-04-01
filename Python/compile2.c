@@ -692,6 +692,9 @@ compiler_unit_free(struct compiler_unit *u)
     PyObject_Free(u);
 }
 
+static void
+emit1(struct compiler *c, int opcode, int imm0);
+
 static int
 compiler_enter_scope(struct compiler *c, PyObject *name,
                      int scope_type, void *key, int lineno)
@@ -785,6 +788,16 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
     c->unit = u;
     c->nestlevel++;
+
+    if (u->ste->ste_generator && u->ste->ste_coroutine) {
+        emit1(c, COROGEN_HEADER, CORO_HEADER_ASYNC_GENERATOR);
+    }
+    else if (u->ste->ste_generator) {
+        emit1(c, COROGEN_HEADER, CORO_HEADER_GENERATOR);
+    }
+    else if (u->ste->ste_coroutine) {
+        emit1(c, COROGEN_HEADER, CORO_HEADER_COROUTINE);
+    }
 
     //     if (!compiler_set_qualname(c))
     //         return 0;
@@ -5340,6 +5353,39 @@ compiler_dictcomp(struct compiler *c, expr_ty e)
                            e->v.DictComp.key, e->v.DictComp.value);
 }
 
+static void
+compiler_yield(struct compiler *c, expr_ty e)
+{
+    if (c->unit->ste->ste_type != FunctionBlock) {
+        compiler_error(c, "'yield' outside function");
+    }
+    if (e->v.Yield.value) {
+        compiler_visit_expr(c, e->v.Yield.value);
+    }
+    else {
+        emit1(c, LOAD_CONST, const_none(c));
+    }
+    emit0(c, YIELD_VALUE);
+}
+
+static void
+compiler_yieldfrom(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t reg;
+
+    if (c->unit->ste->ste_type != FunctionBlock)
+        compiler_error(c, "'yield from' outside function");
+
+    if (c->unit->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION)
+        compiler_error(c, "'yield from' inside async function");
+
+    compiler_visit_expr(c, e->v.YieldFrom.value);
+    reg = reserve_regs(c, 1);
+    emit1(c, GET_YIELD_FROM_ITER, reg);
+    emit1(c, LOAD_CONST, const_none(c));
+    emit1(c, YIELD_FROM, reg);
+    clear_reg(c, reg);
+}
 
 // static int
 // compiler_visit_keyword(struct compiler *c, keyword_ty k)
@@ -5605,29 +5651,12 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case DictComp_kind:
         compiler_dictcomp(c, e);
         break;
-//     case Yield_kind:
-//         if (c->u->u_ste->ste_type != FunctionBlock)
-//             return compiler_error(c, "'yield' outside function");
-//         if (e->v.Yield.value) {
-//             VISIT(c, expr, e->v.Yield.value);
-//         }
-//         else {
-//             ADDOP_LOAD_CONST(c, Py_None);
-//         }
-//         ADDOP(c, YIELD_VALUE);
-//         break;
-//     case YieldFrom_kind:
-//         if (c->u->u_ste->ste_type != FunctionBlock)
-//             return compiler_error(c, "'yield' outside function");
-
-//         if (c->u->u_scope_type == COMPILER_SCOPE_ASYNC_FUNCTION)
-//             return compiler_error(c, "'yield from' inside async function");
-
-//         VISIT(c, expr, e->v.YieldFrom.value);
-//         ADDOP(c, GET_YIELD_FROM_ITER);
-//         ADDOP_LOAD_CONST(c, Py_None);
-//         ADDOP(c, YIELD_FROM);
-//         break;
+    case Yield_kind:
+        compiler_yield(c, e);
+        break;
+    case YieldFrom_kind:
+        compiler_yieldfrom(c, e);
+        break;
 //     case Await_kind:
 //         if (!(c->c_flags->cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT)){
 //             if (c->u->u_ste->ste_type != FunctionBlock){

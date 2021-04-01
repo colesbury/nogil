@@ -58,6 +58,12 @@ enum {
     ACC_FLAG_VARKEYWORDS    = 0x020000,  // bit  17
 };
 
+enum {
+    CORO_HEADER_GENERATOR = 1,
+    CORO_HEADER_COROUTINE = 2,
+    CORO_HEADER_ASYNC_GENERATOR = 3
+};;
+
 #define ACC_KWCOUNT(acc) (((acc.as_int64) & ACC_MASK_KWARGS) >> ACC_SHIFT_KWARGS)
 #define ACC_ARGCOUNT(acc) ((acc.as_int64) & ACC_MASK_ARGS)
 

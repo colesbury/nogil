@@ -9,10 +9,9 @@
 #include "code2.h" // remove ?
 
 static PyTypeObject *coro_types[] = {
-    NULL,
-    &PyGen2_Type,
-    &PyCoro2_Type,
-    &PyAsyncGen2_Type,
+    [CORO_HEADER_GENERATOR]       = &PyGen2_Type,
+    [CORO_HEADER_COROUTINE]       = &PyCoro2_Type,
+    [CORO_HEADER_ASYNC_GENERATOR] = &PyAsyncGen2_Type
 };
 
 static PyObject *async_gen_asend_new(PyAsyncGenObject2 *, PyObject *);
@@ -62,7 +61,7 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 PyGenObject2 *
 PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx)
 {
-    assert(typeidx >= 1 && typeidx <= 3);
+    assert(typeidx > 0 && typeidx < (sizeof(coro_types)/sizeof(*coro_types)));
     PyTypeObject *type = coro_types[typeidx];
     return gen_new_with_qualname(type, ts);
 }
