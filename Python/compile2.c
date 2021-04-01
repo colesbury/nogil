@@ -52,10 +52,12 @@ enum {
 // #define DEFAULT_CODE_SIZE 128
 // #define DEFAULT_LNOTAB_SIZE 16
 
-// #define COMP_GENEXP   0
-// #define COMP_LISTCOMP 1
-// #define COMP_SETCOMP  2
-// #define COMP_DICTCOMP 3
+enum {
+    COMP_GENEXP   = 0,
+    COMP_LISTCOMP = 1,
+    COMP_SETCOMP  = 2,
+    COMP_DICTCOMP = 3
+};
 
 enum {
     COMPILER_SCOPE_MODULE,
@@ -300,10 +302,10 @@ static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
 static void *
 table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
 
-// static int compiler_sync_comprehension_generator(
-//                                       struct compiler *c,
-//                                       asdl_seq *generators, int gen_index,
-//                                       expr_ty elt, expr_ty val, int type);
+static void compiler_sync_comprehension_generator(
+                                      struct compiler *c,
+                                      asdl_seq *generators, int gen_index,
+                                      expr_ty elt, expr_ty val, int type);
 
 // static int compiler_async_comprehension_generator(
 //                                       struct compiler *c,
@@ -5011,125 +5013,143 @@ compiler_formatted_value(struct compiler *c, expr_ty e)
 // }
 
 
-// /* List and set comprehensions and generator expressions work by creating a
-//   nested function to perform the actual iteration. This means that the
-//   iteration variables don't leak into the current scope.
-//   The defined function is called immediately following its definition, with the
-//   result of that call being the result of the expression.
-//   The LC/SC version returns the populated container, while the GE version is
-//   flagged in symtable.c as a generator, so it returns the generator object
-//   when the function is called.
+/* List and set comprehensions and generator expressions work by creating a
+  nested function to perform the actual iteration. This means that the
+  iteration variables don't leak into the current scope.
+  The defined function is called immediately following its definition, with the
+  result of that call being the result of the expression.
+  The LC/SC version returns the populated container, while the GE version is
+  flagged in symtable.c as a generator, so it returns the generator object
+  when the function is called.
 
-//   Possible cleanups:
-//     - iterate over the generator sequence instead of using recursion
-// */
+  Possible cleanups:
+    - iterate over the generator sequence instead of using recursion
+*/
 
 
-// static int
-// compiler_comprehension_generator(struct compiler *c,
-//                                  asdl_seq *generators, int gen_index,
-//                                  expr_ty elt, expr_ty val, int type)
-// {
-//     comprehension_ty gen;
-//     gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
-//     if (gen->is_async) {
-//         return compiler_async_comprehension_generator(
-//             c, generators, gen_index, elt, val, type);
-//     } else {
-//         return compiler_sync_comprehension_generator(
-//             c, generators, gen_index, elt, val, type);
-//     }
-// }
+static void
+compiler_comprehension_generator(struct compiler *c,
+                                 asdl_seq *generators, int gen_index,
+                                 expr_ty elt, expr_ty val, int type)
+{
+    comprehension_ty gen;
+    gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
+    // if (gen->is_async) {
+    //     compiler_async_comprehension_generator(
+    //         c, generators, gen_index, elt, val, type);
+    // } else {
+        compiler_sync_comprehension_generator(
+            c, generators, gen_index, elt, val, type);
+    // }
+}
 
-// static int
-// compiler_sync_comprehension_generator(struct compiler *c,
-//                                       asdl_seq *generators, int gen_index,
-//                                       expr_ty elt, expr_ty val, int type)
-// {
-//     /* generate code for the iterator, then each of the ifs,
-//        and then write to the element */
+static Py_ssize_t
+compiler_comprehension_output(struct compiler *c, int type)
+{
+    if (type == COMP_GENEXP) {
+        return -1;
+    }
+    if (type == COMP_LISTCOMP) {
+        emit2(c, BUILD_LIST, 0, 0);
+    }
+    else if (type == COMP_SETCOMP) {
+        emit2(c, BUILD_SET, 0, 0);
+    }
+    else if (type == COMP_DICTCOMP) {
+        emit1(c, BUILD_MAP, 0);
+    }
+    else {
+        PyErr_Format(PyExc_SystemError,
+                     "unknown comprehension type %d", type);
+        COMPILER_ERROR(c);
+    }
 
-//     comprehension_ty gen;
-//     basicblock *start, *anchor, *skip, *if_cleanup;
-//     Py_ssize_t i, n;
+    Py_ssize_t reg = reserve_regs(c, 1);
+    emit1(c, STORE_FAST, reg);
+    return reg;
+}
 
-//     start = compiler_new_block(c);
-//     skip = compiler_new_block(c);
-//     if_cleanup = compiler_new_block(c);
-//     anchor = compiler_new_block(c);
+static void
+compiler_sync_comprehension_generator(struct compiler *c,
+                                      asdl_seq *generators, int gen_index,
+                                      expr_ty elt, expr_ty val, int type)
+{
+    /* generate code for the iterator, then each of the ifs,
+       and then write to the element */
 
-//     if (start == NULL || skip == NULL || if_cleanup == NULL ||
-//         anchor == NULL)
-//         return 0;
+    comprehension_ty gen;
+    Py_ssize_t i, n;
+    uint32_t top_offset;
+    Py_ssize_t res_reg, iter_reg, key_reg;
+    struct multi_label continue_label = MULTI_LABEL_INIT;
 
-//     gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
+    gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
 
-//     if (gen_index == 0) {
-//         /* Receive outermost iter as an implicit argument */
-//         c->u->u_argcount = 1;
-//         ADDOP_I(c, LOAD_FAST, 0);
-//     }
-//     else {
-//         /* Sub-iter - calculate on the fly */
-//         VISIT(c, expr, gen->iter);
-//         ADDOP(c, GET_ITER);
-//     }
-//     compiler_use_next_block(c, start);
-//     ADDOP_JREL(c, FOR_ITER, anchor);
-//     NEXT_BLOCK(c);
-//     VISIT(c, expr, gen->target);
+    if (gen_index == 0) {
+        /* Receive outermost iter as an implicit argument */
+        c->unit->argcount = 1;
+        iter_reg = 0;
+        res_reg = compiler_comprehension_output(c, type);
+    }
+    else {
+        /* Sub-iter - calculate on the fly */
+        compiler_visit_expr(c, gen->iter);
+        iter_reg = reserve_regs(c, 1);
+        emit1(c, GET_ITER, iter_reg);
+        res_reg = -1;
+    }
 
-//     /* XXX this needs to be cleaned up...a lot! */
-//     n = asdl_seq_LEN(gen->ifs);
-//     for (i = 0; i < n; i++) {
-//         expr_ty e = (expr_ty)asdl_seq_GET(gen->ifs, i);
-//         if (!compiler_jump_if(c, e, if_cleanup, 0))
-//             return 0;
-//         NEXT_BLOCK(c);
-//     }
+    emit_jump(c, JUMP, multi_label_next(c, &continue_label));
+    top_offset = c->unit->instr.offset;
+    compiler_assign_reg(c, gen->target, REG_ACCUMULATOR);
 
-//     if (++gen_index < asdl_seq_LEN(generators))
-//         if (!compiler_comprehension_generator(c,
-//                                               generators, gen_index,
-//                                               elt, val, type))
-//         return 0;
+    n = asdl_seq_LEN(gen->ifs);
+    for (i = 0; i < n; i++) {
+        expr_ty e = (expr_ty)asdl_seq_GET(gen->ifs, i);
+        compiler_visit_expr(c, e);
+        emit_jump(c, POP_JUMP_IF_FALSE, multi_label_next(c, &continue_label));
+    }
 
-//     /* only append after the last for generator */
-//     if (gen_index >= asdl_seq_LEN(generators)) {
-//         /* comprehension specific code */
-//         switch (type) {
-//         case COMP_GENEXP:
-//             VISIT(c, expr, elt);
-//             ADDOP(c, YIELD_VALUE);
-//             ADDOP(c, POP_TOP);
-//             break;
-//         case COMP_LISTCOMP:
-//             VISIT(c, expr, elt);
-//             ADDOP_I(c, LIST_APPEND, gen_index + 1);
-//             break;
-//         case COMP_SETCOMP:
-//             VISIT(c, expr, elt);
-//             ADDOP_I(c, SET_ADD, gen_index + 1);
-//             break;
-//         case COMP_DICTCOMP:
-//             /* With '{k: v}', k is evaluated before v, so we do
-//                the same. */
-//             VISIT(c, expr, elt);
-//             VISIT(c, expr, val);
-//             ADDOP_I(c, MAP_ADD, gen_index + 1);
-//             break;
-//         default:
-//             return 0;
-//         }
+    if (gen_index < asdl_seq_LEN(generators) - 1) {
+        compiler_comprehension_generator(c, generators, gen_index + 1,
+                                         elt, val, type);
+    }
 
-//         compiler_use_next_block(c, skip);
-//     }
-//     compiler_use_next_block(c, if_cleanup);
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, start);
-//     compiler_use_next_block(c, anchor);
+    if (gen_index == 0) {
+        /* only append in the outer-most generator */
+        switch (type) {
+        case COMP_GENEXP:
+            compiler_visit_expr(c, elt);
+            emit0(c, YIELD_VALUE);
+            emit0(c, CLEAR_ACC);
+            break;
+        case COMP_LISTCOMP:
+            compiler_visit_expr(c, elt);
+            emit1(c, LIST_APPEND, res_reg);
+            break;
+        case COMP_SETCOMP:
+            compiler_visit_expr(c, elt);
+            emit1(c, SET_ADD, res_reg);
+            break;
+        case COMP_DICTCOMP:
+            key_reg = expr_to_any_reg(c, elt);
+            compiler_visit_expr(c, val);
+            emit2(c, STORE_SUBSCR, res_reg, key_reg);
+            clear_reg(c, key_reg);
+            break;
+        }
+    }
 
-//     return 1;
-// }
+    emit_multi_label(c, &continue_label);
+    emit_for(c, iter_reg, top_offset);
+    free_reg(c, iter_reg);
+
+    if (gen_index == 0 && type != COMP_GENEXP) {
+        emit1(c, LOAD_FAST, res_reg);
+        // TODO: do we need to clear res_reg ??
+        emit0(c, RETURN_VALUE);
+    }
+}
 
 // static int
 // compiler_async_comprehension_generator(struct compiler *c,
@@ -5220,161 +5240,105 @@ compiler_formatted_value(struct compiler *c, expr_ty e)
 //     return 1;
 // }
 
-// static int
-// compiler_comprehension(struct compiler *c, expr_ty e, int type,
-//                        identifier name, asdl_seq *generators, expr_ty elt,
-//                        expr_ty val)
-// {
-//     PyCodeObject *co = NULL;
-//     comprehension_ty outermost;
-//     PyObject *qualname = NULL;
-//     int is_async_function = c->u->u_ste->ste_coroutine;
-//     int is_async_generator = 0;
+static void
+compiler_comprehension(struct compiler *c, expr_ty e, int type,
+                       identifier name, asdl_seq *generators, expr_ty elt,
+                       expr_ty val)
+{
+    comprehension_ty outermost;
+    PyObject *qualname = NULL;
+    int is_async_function = c->unit->ste->ste_coroutine;
+    int is_async_generator = 0;
 
-//     outermost = (comprehension_ty) asdl_seq_GET(generators, 0);
+    outermost = (comprehension_ty) asdl_seq_GET(generators, 0);
 
-//     if (!compiler_enter_scope(c, name, COMPILER_SCOPE_COMPREHENSION,
-//                               (void *)e, e->lineno))
-//     {
-//         goto error;
-//     }
+    compiler_enter_scope(c, name, COMPILER_SCOPE_COMPREHENSION,
+                         (void *)e, e->lineno);
 
-//     is_async_generator = c->u->u_ste->ste_coroutine;
+    is_async_generator = c->unit->ste->ste_coroutine;
 
-//     if (is_async_generator && !is_async_function && type != COMP_GENEXP) {
-//         compiler_error(c, "asynchronous comprehension outside of "
-//                           "an asynchronous function");
-//         goto error_in_scope;
-//     }
+    if (is_async_generator && !is_async_function && type != COMP_GENEXP) {
+        compiler_error(c, "asynchronous comprehension outside of "
+                          "an asynchronous function");
+    }
 
-//     if (type != COMP_GENEXP) {
-//         int op;
-//         switch (type) {
-//         case COMP_LISTCOMP:
-//             op = BUILD_LIST;
-//             break;
-//         case COMP_SETCOMP:
-//             op = BUILD_SET;
-//             break;
-//         case COMP_DICTCOMP:
-//             op = BUILD_MAP;
-//             break;
-//         default:
-//             PyErr_Format(PyExc_SystemError,
-//                          "unknown comprehension type %d", type);
-//             goto error_in_scope;
-//         }
+    compiler_comprehension_generator(c, generators, 0, elt, val, type);
 
-//         ADDOP_I(c, op, 0);
-//     }
+    assemble(c, 1);
+    compiler_exit_scope(c);
 
-//     if (!compiler_comprehension_generator(c, generators, 0, elt,
-//                                           val, type))
-//         goto error_in_scope;
+    // call the comprehension function
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
+    reserve_regs(c, FRAME_EXTRA);
+    emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
+    emit1(c, STORE_FAST, base - 1);
 
-//     if (type != COMP_GENEXP) {
-//         ADDOP(c, RETURN_VALUE);
-//     }
+    compiler_visit_expr(c, outermost->iter);
+    reserve_regs(c, 1);
+    if (outermost->is_async) {
+        emit1(c, GET_AITER, base);
+    } else {
+        emit1(c, GET_ITER, base);
+    }
+    emit_call(c, CALL_FUNCTION, base, 1);
+    free_regs_above(c, base - FRAME_EXTRA);
 
-//     co = assemble(c, 1);
-//     qualname = c->u->u_qualname;
-//     Py_INCREF(qualname);
-//     compiler_exit_scope(c);
-//     if (co == NULL)
-//         goto error;
+    if (is_async_generator && type != COMP_GENEXP) {
+        Py_ssize_t reg = reserve_regs(c, 1);
+        emit1(c, GET_AWAITABLE, reg);
+        emit1(c, LOAD_CONST, const_none(c));
+        emit1(c, YIELD_FROM, reg);
+        clear_reg(c, reg);
+    }
+}
 
-//     if (!compiler_make_closure(c, co, 0, qualname))
-//         goto error;
+static void
+compiler_genexp(struct compiler *c, expr_ty e)
+{
+    _Py_static_string(PyId_genexpr, "<genexpr>");
+    assert(e->kind == GeneratorExp_kind);
 
-//     ADDOP(c, DEFER_REFCOUNT);
-//     Py_DECREF(qualname);
-//     Py_DECREF(co);
+    PyObject *name = unicode_from_id(c, &PyId_genexpr);
+    return compiler_comprehension(c, e, COMP_GENEXP, name,
+                                  e->v.GeneratorExp.generators,
+                                  e->v.GeneratorExp.elt, NULL);
+}
 
-//     VISIT(c, expr, outermost->iter);
+static void
+compiler_listcomp(struct compiler *c, expr_ty e)
+{
+    _Py_static_string(PyId_listcomp, "<listcomp>");
+    assert(e->kind == ListComp_kind);
 
-//     if (outermost->is_async) {
-//         ADDOP(c, GET_AITER);
-//     } else {
-//         ADDOP(c, GET_ITER);
-//     }
+    PyObject *name = unicode_from_id(c, &PyId_listcomp);
+    compiler_comprehension(c, e, COMP_LISTCOMP, name,
+                           e->v.ListComp.generators,
+                           e->v.ListComp.elt, NULL);
+}
 
-//     ADDOP_I(c, CALL_FUNCTION, 1);
+static void
+compiler_setcomp(struct compiler *c, expr_ty e)
+{
+    _Py_static_string(PyId_setcomp, "<setcomp>");
+    assert(e->kind == SetComp_kind);
 
-//     if (is_async_generator && type != COMP_GENEXP) {
-//         ADDOP(c, GET_AWAITABLE);
-//         ADDOP_LOAD_CONST(c, Py_None);
-//         ADDOP(c, YIELD_FROM);
-//     }
+    PyObject *name = unicode_from_id(c, &PyId_setcomp);
+    compiler_comprehension(c, e, COMP_SETCOMP, name,
+                           e->v.SetComp.generators,
+                           e->v.SetComp.elt, NULL);
+}
 
-//     return 1;
-// error_in_scope:
-//     compiler_exit_scope(c);
-// error:
-//     Py_XDECREF(qualname);
-//     Py_XDECREF(co);
-//     return 0;
-// }
+static void
+compiler_dictcomp(struct compiler *c, expr_ty e)
+{
+    _Py_static_string(PyId_dictcomp, "<dictcomp>");
+    assert(e->kind == DictComp_kind);
 
-// static int
-// compiler_genexp(struct compiler *c, expr_ty e)
-// {
-//     static identifier name;
-//     if (!name) {
-//         name = PyUnicode_InternFromString("<genexpr>");
-//         if (!name)
-//             return 0;
-//     }
-//     assert(e->kind == GeneratorExp_kind);
-//     return compiler_comprehension(c, e, COMP_GENEXP, name,
-//                                   e->v.GeneratorExp.generators,
-//                                   e->v.GeneratorExp.elt, NULL);
-// }
-
-// static int
-// compiler_listcomp(struct compiler *c, expr_ty e)
-// {
-//     static identifier name;
-//     if (!name) {
-//         name = PyUnicode_InternFromString("<listcomp>");
-//         if (!name)
-//             return 0;
-//     }
-//     assert(e->kind == ListComp_kind);
-//     return compiler_comprehension(c, e, COMP_LISTCOMP, name,
-//                                   e->v.ListComp.generators,
-//                                   e->v.ListComp.elt, NULL);
-// }
-
-// static int
-// compiler_setcomp(struct compiler *c, expr_ty e)
-// {
-//     static identifier name;
-//     if (!name) {
-//         name = PyUnicode_InternFromString("<setcomp>");
-//         if (!name)
-//             return 0;
-//     }
-//     assert(e->kind == SetComp_kind);
-//     return compiler_comprehension(c, e, COMP_SETCOMP, name,
-//                                   e->v.SetComp.generators,
-//                                   e->v.SetComp.elt, NULL);
-// }
-
-
-// static int
-// compiler_dictcomp(struct compiler *c, expr_ty e)
-// {
-//     static identifier name;
-//     if (!name) {
-//         name = PyUnicode_InternFromString("<dictcomp>");
-//         if (!name)
-//             return 0;
-//     }
-//     assert(e->kind == DictComp_kind);
-//     return compiler_comprehension(c, e, COMP_DICTCOMP, name,
-//                                   e->v.DictComp.generators,
-//                                   e->v.DictComp.key, e->v.DictComp.value);
-// }
+    PyObject *name = unicode_from_id(c, &PyId_dictcomp);
+    compiler_comprehension(c, e, COMP_DICTCOMP, name,
+                           e->v.DictComp.generators,
+                           e->v.DictComp.key, e->v.DictComp.value);
+}
 
 
 // static int
@@ -5629,14 +5593,18 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Set_kind:
         starunpack_helper(c, e->v.Set.elts, e->kind);
         break;
-//     case GeneratorExp_kind:
-//         return compiler_genexp(c, e);
-//     case ListComp_kind:
-//         return compiler_listcomp(c, e);
-//     case SetComp_kind:
-//         return compiler_setcomp(c, e);
-//     case DictComp_kind:
-//         return compiler_dictcomp(c, e);
+    case GeneratorExp_kind:
+        compiler_genexp(c, e);
+        break;
+    case ListComp_kind:
+        compiler_listcomp(c, e);
+        break;
+    case SetComp_kind:
+        compiler_setcomp(c, e);
+        break;
+    case DictComp_kind:
+        compiler_dictcomp(c, e);
+        break;
 //     case Yield_kind:
 //         if (c->u->u_ste->ste_type != FunctionBlock)
 //             return compiler_error(c, "'yield' outside function");
