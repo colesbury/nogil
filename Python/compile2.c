@@ -269,7 +269,7 @@ static int inplace_binop(struct compiler *, operator_ty);
 static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
 static int expr_constant(expr_ty);
 
-// static int compiler_with(struct compiler *, stmt_ty, int);
+static void compiler_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_with(struct compiler *, stmt_ty, int);
 // static int compiler_async_for(struct compiler *, stmt_ty);
 // static void compiler_call_helper(struct compiler *c, int n,
@@ -4089,7 +4089,6 @@ compiler_visit_stmt_expr(struct compiler *c, expr_ty value)
 static void
 compiler_visit_stmt(struct compiler *c, stmt_ty s)
 {
-//     Py_ssize_t i, n;
     Py_ssize_t next_register = c->unit->next_register;
 
     /* Always assign a lineno to the next instruction for a stmt. */
@@ -4157,8 +4156,9 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case Continue_kind:
         compiler_continue(c);
         break;
-//     case With_kind:
-//         return compiler_with(c, s, 0);
+    case With_kind:
+        compiler_with(c, s, 0);
+        break;
 //     case AsyncFunctionDef_kind:
 //         return compiler_function(c, s, 1);
 //     case AsyncWith_kind:
@@ -5572,89 +5572,79 @@ expr_constant(expr_ty e)
 // }
 
 
-// /*
-//    Implements the with statement from PEP 343.
-//    with EXPR as VAR:
-//        BLOCK
-//    is implemented as:
-//         <code for EXPR>
-//         SETUP_WITH  E
-//         <code to store to VAR> or POP_TOP
-//         <code for BLOCK>
-//         LOAD_CONST (None, None, None)
-//         CALL_FUNCTION_EX 0
-//         JUMP_FORWARD  EXIT
-//     E:  WITH_EXCEPT_START (calls EXPR.__exit__)
-//         POP_JUMP_IF_TRUE T:
-//         RERAISE
-//     T:  POP_TOP * 3 (remove exception from stack)
-//         POP_EXCEPT
-//         POP_TOP
-//     EXIT:
-//  */
+/*
+   Implements the with statement from PEP 343.
+   with EXPR as VAR:
+       BLOCK
+   is implemented as:
+        <code for EXPR>
+        SETUP_WITH  $with_reg
+        try:
+            <code to store to VAR> or CLEAR_ACC
+            <code for BLOCK>
+        finally:
+            END_WITH  $with_reg
 
-// static int
-// compiler_with(struct compiler *c, stmt_ty s, int pos)
-// {
-//     basicblock *block, *final, *exit;
-//     withitem_ty item = asdl_seq_GET(s->v.With.items, pos);
+    The register usage is:
+        [ mgr, __exit__, <link>, <exc> ]
+          ^$with_reg      ^$link_reg
 
-//     assert(s->kind == With_kind);
+ */
 
-//     block = compiler_new_block(c);
-//     final = compiler_new_block(c);
-//     exit = compiler_new_block(c);
-//     if (!block || !final || !exit)
-//         return 0;
+static void
+compiler_with(struct compiler *c, stmt_ty s, int pos)
+{
+    Py_ssize_t with_reg, link_reg;
+    uint32_t start_offset;
+    ExceptionHandler *h;
+    struct fblock *block;
+    withitem_ty item = asdl_seq_GET(s->v.With.items, pos);
 
-//     /* Evaluate EXPR */
-//     VISIT(c, expr, item->context_expr);
-//     /* Will push bound __exit__ */
-//     ADDOP_JREL(c, SETUP_WITH, final);
+    assert(s->kind == With_kind);
 
-//     /* SETUP_WITH pushes a finally block. */
-//     compiler_use_next_block(c, block);
-//     if (!compiler_push_fblock(c, WITH, block, final, NULL)) {
-//         return 0;
-//     }
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
 
-//     if (item->optional_vars) {
-//         VISIT(c, expr, item->optional_vars);
-//     }
-//     else {
-//     /* Discard result from context.__enter__() */
-//         ADDOP(c, POP_TOP);
-//     }
+    // <code for EXPR>
+    compiler_visit_expr(c, item->context_expr);
 
-//     pos++;
-//     if (pos == asdl_seq_LEN(s->v.With.items))
-//         /* BLOCK code */
-//         VISIT_SEQ(c, stmt, s->v.With.body)
-//     else if (!compiler_with(c, s, pos))
-//             return 0;
+    // SETUP_WITH stores the context manager in $with_reg and the
+    // mgr.__exit__ in $with_reg + 1
+    with_reg = reserve_regs(c, 2);
+    emit1(c, SETUP_WITH, with_reg);
 
-//     ADDOP(c, POP_BLOCK);
-//     compiler_pop_fblock(c, WITH, block);
+    block = compiler_push_loop(c, WITH);
+    block->With.reg = with_reg;
+    h->start = c->unit->instr.offset;
 
-//     /* End of body; start the cleanup. */
+    // Assign to VAR
+    if (item->optional_vars) {
+        compiler_assign_reg(c, item->optional_vars, REG_ACCUMULATOR);
+    }
+    else {
+        emit0(c, CLEAR_ACC);
+    }
 
-//     /* For successful outcome:
-//      * call __exit__(None, None, None)
-//      */
-//     if (!compiler_call_exit_with_nones(c))
-//         return 0;
-//     ADDOP(c, POP_TOP);
-//     ADDOP_JREL(c, JUMP_FORWARD, exit);
+    pos++;
+    if (pos == asdl_seq_LEN(s->v.With.items)) {
+        /* BLOCK code */
+        compiler_visit_stmts(c, s->v.With.body);
+    }
+    else {
+        compiler_with(c, s, pos);
+    }
 
-//     /* For exceptional outcome: */
-//     compiler_use_next_block(c, final);
+    // The $link_reg indicates whether an exception occured. A zero
+    // value indicates normal exit (no exception). A -1 value
+    // indicates an exception. The exception (if it exists) is stored
+    // in $link_reg + 1.
+    h->reg = link_reg = reserve_regs(c, 2);
+    h->handler = c->unit->instr.offset;
+    assert(link_reg == with_reg + 2);
 
-//     ADDOP(c, WITH_EXCEPT_START);
-//     compiler_with_except_finish(c);
-
-//     compiler_use_next_block(c, exit);
-//     return 1;
-// }
+    emit1(c, END_WITH, with_reg);
+    h->handler_end = c->unit->instr.offset;
+    free_regs_above(c, with_reg);
+}
 
 static void
 compiler_visit_expr1(struct compiler *c, expr_ty e)
