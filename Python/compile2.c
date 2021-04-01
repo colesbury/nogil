@@ -4368,6 +4368,16 @@ load_name_id(struct compiler *c, _Py_Identifier *id)
 }
 
 static void
+compiler_namedexpr(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t reg;
+    reg = expr_to_any_reg(c, e->v.NamedExpr.value);
+    compiler_assign_reg(c, e->v.NamedExpr.target, reg); // FIXME: do not consume
+    emit1(c, LOAD_FAST, reg);
+    clear_reg(c, reg);
+}
+
+static void
 compiler_boolop(struct compiler *c, expr_ty e)
 {
     int jump_opcode;
@@ -5387,6 +5397,30 @@ compiler_yieldfrom(struct compiler *c, expr_ty e)
     clear_reg(c, reg);
 }
 
+static void
+compiler_await(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t reg;
+
+    if (!(c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT)) {
+        if (c->unit->ste->ste_type != FunctionBlock){
+            compiler_error(c, "'await' outside function");
+        }
+
+        if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION &&
+                c->unit->scope_type != COMPILER_SCOPE_COMPREHENSION) {
+            compiler_error(c, "'await' outside async function");
+        }
+    }
+
+    compiler_visit_expr(c, e->v.Await.value);
+    reg = reserve_regs(c, 1);
+    emit1(c, GET_AWAITABLE, reg);
+    emit1(c, LOAD_CONST, const_none(c));
+    emit1(c, YIELD_FROM, reg);
+    clear_reg(c, reg);
+}
+
 // static int
 // compiler_visit_keyword(struct compiler *c, keyword_ty k)
 // {
@@ -5609,11 +5643,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
 {
     Py_ssize_t reg;
     switch (e->kind) {
-//     case NamedExpr_kind:
-//         VISIT(c, expr, e->v.NamedExpr.value);
-//         ADDOP(c, DUP_TOP);
-//         VISIT(c, expr, e->v.NamedExpr.target);
-//         break;
+    case NamedExpr_kind:
+        compiler_namedexpr(c, e);
+        break;
     case BoolOp_kind:
         compiler_boolop(c, e);
         break;
@@ -5657,23 +5689,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case YieldFrom_kind:
         compiler_yieldfrom(c, e);
         break;
-//     case Await_kind:
-//         if (!(c->c_flags->cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT)){
-//             if (c->u->u_ste->ste_type != FunctionBlock){
-//                 return compiler_error(c, "'await' outside function");
-//             }
-
-//             if (c->u->u_scope_type != COMPILER_SCOPE_ASYNC_FUNCTION &&
-//                     c->u->u_scope_type != COMPILER_SCOPE_COMPREHENSION){
-//                 return compiler_error(c, "'await' outside async function");
-//             }
-//         }
-
-//         VISIT(c, expr, e->v.Await.value);
-//         ADDOP(c, GET_AWAITABLE);
-//         ADDOP_LOAD_CONST(c, Py_None);
-//         ADDOP(c, YIELD_FROM);
-//         break;
+    case Await_kind:
+        compiler_await(c, e);
+        break;
     case Compare_kind:
         compiler_compare(c, e); break;
     case Call_kind:
