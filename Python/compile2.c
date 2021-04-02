@@ -2366,6 +2366,170 @@ const_none(struct compiler *c)
 //     return 1;
 // }
 
+static int
+compiler_access(struct compiler *c, PyObject *mangled_name)
+{
+    int scope = PyST_GetScope(c->unit->ste, mangled_name);
+    PySTEntryObject *ste = c->unit->ste;
+    switch (scope) {
+    case FREE:
+    case CELL:
+        return ste->ste_type == ClassBlock ? ACCESS_CLASSDEREF : ACCESS_DEREF;
+    case LOCAL:
+        return ste->ste_type == FunctionBlock ? ACCESS_FAST : ACCESS_NAME;
+    case GLOBAL_IMPLICIT:
+        return ste->ste_type == FunctionBlock ? ACCESS_GLOBAL : ACCESS_NAME;
+    case GLOBAL_EXPLICIT:
+        return ACCESS_GLOBAL;
+    default:
+        return ACCESS_NAME;
+    }
+}
+
+struct var_info {
+    int access;
+    Py_ssize_t slot;
+};
+
+static struct var_info
+resolve(struct compiler *c, PyObject *name)
+{
+    struct var_info r;
+    PyObject *mangled = mangle(c, name);
+    r.access = compiler_access(c, mangled);
+    if (r.access == ACCESS_FAST || r.access == ACCESS_DEREF) {
+        r.slot = compiler_varname(c, mangled);
+    }
+    else {
+        r.slot = compiler_const(c, mangled);
+    }
+    return r;
+}
+
+static void
+compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
+{
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
+    // int op, scope;
+    // Py_ssize_t arg;
+    // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
+
+    PyObject *mangled;
+    /* XXX AugStore isn't used anywhere! */
+
+    assert(!_PyUnicode_EqualToASCIIString(name, "None") &&
+           !_PyUnicode_EqualToASCIIString(name, "True") &&
+           !_PyUnicode_EqualToASCIIString(name, "False"));
+
+    mangled = mangle(c, name);
+    int access = compiler_access(c, mangled);
+    switch (access) {
+    case ACCESS_FAST:
+        emit1(c, LOAD_FAST, compiler_varname(c, mangled));
+        break;
+    case ACCESS_DEREF:
+        emit1(c, LOAD_DEREF, compiler_varname(c, mangled));
+        break;
+    case ACCESS_CLASSDEREF:
+        emit2(c,
+              LOAD_CLASSDEREF,
+              compiler_varname(c, mangled),
+              compiler_const(c, mangled));
+        break;
+    case ACCESS_NAME:
+        emit2(c,
+              LOAD_NAME,
+              compiler_const(c, mangled),
+              compiler_metaslot(c, mangled));
+        break;
+    case ACCESS_GLOBAL:
+        emit2(c,
+              LOAD_GLOBAL,
+              compiler_const(c, mangled),
+              compiler_metaslot(c, mangled));
+        break;
+    }
+}
+
+static void
+load_name_id(struct compiler *c, _Py_Identifier *id)
+{
+    PyObject *name = _PyUnicode_FromId(id);
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
+    compiler_nameop(c, name, Load);
+}
+
+static void
+assign_name(struct compiler *c, PyObject *name, Py_ssize_t src)
+{
+    struct var_info a = resolve(c, name);
+    int opcodes[] = {
+        [ACCESS_FAST]   = STORE_FAST,
+        [ACCESS_DEREF]  = STORE_DEREF,
+        [ACCESS_NAME]   = STORE_NAME,
+        [ACCESS_GLOBAL] = STORE_GLOBAL,
+    };
+
+    assert(a.access != ACCESS_CLASSDEREF);
+    if (a.access == ACCESS_FAST &&
+        src != REG_ACCUMULATOR &&
+        is_temporary(c, src))
+    {
+        emit2(c, MOVE, a.slot, src);
+        return;
+    }
+
+    to_accumulator(c, src);
+    emit1(c, opcodes[a.access], a.slot);
+}
+
+static void
+assign_name_id(struct compiler *c, _Py_Identifier *id)
+{
+    PyObject *name = unicode_from_id(c, id);
+    return assign_name(c, name, REG_ACCUMULATOR);
+}
+
+static void
+compiler_store(struct compiler *c, PyObject *name)
+{
+    // FIXME: just merge with assign_name ?
+    assign_name(c, name, REG_ACCUMULATOR);
+}
+
+static void
+delete_name(struct compiler *c, PyObject *name)
+{
+    static int opcodes[] = {
+        [ACCESS_FAST]   = DELETE_FAST,
+        [ACCESS_DEREF]  = DELETE_DEREF,
+        [ACCESS_NAME]   = DELETE_NAME,
+        [ACCESS_GLOBAL] = DELETE_GLOBAL,
+    };
+
+    struct var_info a = resolve(c, name);
+    assert(a.access != ACCESS_CLASSDEREF);
+    emit1(c, opcodes[a.access], a.slot);
+}
+
+static void
+clear_name(struct compiler *c, PyObject *name)
+{
+    struct var_info a = resolve(c, name);
+    if (a.access == ACCESS_FAST) {
+        emit1(c, CLEAR_FAST, a.slot);
+    }
+    else {
+        emit1(c, LOAD_FAST, const_none(c));
+        compiler_store(c, name);
+        delete_name(c, name);
+    }
+}
+
 /* Unwind a frame block.  If preserve_tos is true, the TOS before
  * popping the blocks will be restored afterwards, unless another
  * return, break or continue is found. In which case, the TOS will
@@ -2913,7 +3077,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     for (i = 0; i < asdl_seq_LEN(decos); i++) {
         emit1(c, STORE_FAST, deco_base);
         emit_call(c, CALL_FUNCTION, deco_base, 1);
-        deco_base -= FRAME_EXTRA - 1;
+        deco_base -= FRAME_EXTRA;
     }
 
     compiler_store(c, name);
@@ -2955,13 +3119,13 @@ compiler_class(struct compiler *c, stmt_ty s)
         Py_INCREF(s->v.ClassDef.name);
         Py_XSETREF(c->unit->private, s->v.ClassDef.name);
         /* load (global) __name__ ... */
-        compiler_nameop(c, _PyUnicode_FromId(&PyId___name__), Load);
+        load_name_id(c, &PyId___name__);
         /* ... and store it as __module__ */
-        compiler_nameop(c, _PyUnicode_FromId(&PyId___module__), Store);
+        assign_name_id(c, &PyId___module__);
         assert(c->unit->qualname);
         /* store the qualified name */
         emit1(c, LOAD_CONST, compiler_const(c, c->unit->qualname));
-        compiler_nameop(c, _PyUnicode_FromId(&PyId___qualname__), Store);
+        assign_name_id(c, &PyId___qualname__);
 
         /* compile the body proper */
         compiler_body(c, s->v.ClassDef.body);
@@ -3023,32 +3187,18 @@ compiler_class(struct compiler *c, stmt_ty s)
 
     assert(asdl_seq_LEN(s->v.ClassDef.keywords) == 0);
     emit_call(c, CALL_FUNCTION, base, n + 2);
-    c->unit->next_register = base - FRAME_EXTRA;
+    free_regs_above(c, base - FRAME_EXTRA);
 
-//     /* 6. apply decorators */
-//     for (i = 0; i < asdl_seq_LEN(decos); i++) {
-//         ADDOP_I(c, CALL_FUNCTION, 1);
-//     }
+    /* apply decorators */
+    for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
+        emit1(c, STORE_FAST, deco_base);
+        emit_call(c, CALL_FUNCTION, deco_base, 1);
+        deco_base -= FRAME_EXTRA;
+        free_regs_above(c, deco_base);
+    }
 
-
-//     /* 3. load a function (or closure) made from the code object */
-//     compiler_make_closure(c, co, 0, NULL);
-//     Py_DECREF(co);
-
-//     /* 4. load class name */
-//     ADDOP_LOAD_CONST(c, s->v.ClassDef.name);
-
-//     /* 5. generate the rest of the code for the call */
-//     if (!compiler_call_helper(c, 2,
-//                               s->v.ClassDef.bases,
-//                               s->v.ClassDef.keywords))
-//         return 0;
-
-
-//     /* 7. store into <name> */
-//     if (!compiler_nameop(c, s->v.ClassDef.name, Store))
-//         return 0;
-//     return 1;
+    /* 7. store into <name> */
+    assign_name(c, s->v.ClassDef.name, REG_ACCUMULATOR);
 }
 
 /* Return 0 if the expression is a constant value except named singletons.
@@ -3091,105 +3241,6 @@ check_compare(struct compiler *c, expr_ty e)
         left = right;
     }
 }
-
-
-
-// static int
-// compiler_jump_if(struct compiler *c, expr_ty e, basicblock *next, int cond)
-// {
-//     switch (e->kind) {
-//     case UnaryOp_kind:
-//         if (e->v.UnaryOp.op == Not)
-//             return compiler_jump_if(c, e->v.UnaryOp.operand, next, !cond);
-//         /* fallback to general implementation */
-//         break;
-//     case BoolOp_kind: {
-//         asdl_seq *s = e->v.BoolOp.values;
-//         Py_ssize_t i, n = asdl_seq_LEN(s) - 1;
-//         assert(n >= 0);
-//         int cond2 = e->v.BoolOp.op == Or;
-//         basicblock *next2 = next;
-//         if (!cond2 != !cond) {
-//             next2 = compiler_new_block(c);
-//             if (next2 == NULL)
-//                 return 0;
-//         }
-//         for (i = 0; i < n; ++i) {
-//             if (!compiler_jump_if(c, (expr_ty)asdl_seq_GET(s, i), next2, cond2))
-//                 return 0;
-//         }
-//         if (!compiler_jump_if(c, (expr_ty)asdl_seq_GET(s, n), next, cond))
-//             return 0;
-//         if (next2 != next)
-//             compiler_use_next_block(c, next2);
-//         return 1;
-//     }
-//     case IfExp_kind: {
-//         basicblock *end, *next2;
-//         end = compiler_new_block(c);
-//         if (end == NULL)
-//             return 0;
-//         next2 = compiler_new_block(c);
-//         if (next2 == NULL)
-//             return 0;
-//         if (!compiler_jump_if(c, e->v.IfExp.test, next2, 0))
-//             return 0;
-//         if (!compiler_jump_if(c, e->v.IfExp.body, next, cond))
-//             return 0;
-//         ADDOP_JREL(c, JUMP_FORWARD, end);
-//         compiler_use_next_block(c, next2);
-//         if (!compiler_jump_if(c, e->v.IfExp.orelse, next, cond))
-//             return 0;
-//         compiler_use_next_block(c, end);
-//         return 1;
-//     }
-//     case Compare_kind: {
-//         Py_ssize_t i, n = asdl_seq_LEN(e->v.Compare.ops) - 1;
-//         if (n > 0) {
-//             if (!check_compare(c, e)) {
-//                 return 0;
-//             }
-//             basicblock *cleanup = compiler_new_block(c);
-//             if (cleanup == NULL)
-//                 return 0;
-//             VISIT(c, expr, e->v.Compare.left);
-//             for (i = 0; i < n; i++) {
-//                 VISIT(c, expr,
-//                     (expr_ty)asdl_seq_GET(e->v.Compare.comparators, i));
-//                 ADDOP(c, DUP_TOP);
-//                 ADDOP(c, ROT_THREE);
-//                 ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, i));
-//                 ADDOP_JABS(c, POP_JUMP_IF_FALSE, cleanup);
-//                 NEXT_BLOCK(c);
-//             }
-//             VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Compare.comparators, n));
-//             ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, n));
-//             ADDOP_JABS(c, cond ? POP_JUMP_IF_TRUE : POP_JUMP_IF_FALSE, next);
-//             basicblock *end = compiler_new_block(c);
-//             if (end == NULL)
-//                 return 0;
-//             ADDOP_JREL(c, JUMP_FORWARD, end);
-//             compiler_use_next_block(c, cleanup);
-//             ADDOP(c, POP_TOP);
-//             if (!cond) {
-//                 ADDOP_JREL(c, JUMP_FORWARD, next);
-//             }
-//             compiler_use_next_block(c, end);
-//             return 1;
-//         }
-//         /* fallback to general implementation */
-//         break;
-//     }
-//     default:
-//         /* fallback to general implementation */
-//         break;
-//     }
-
-//     /* general implementation */
-//     VISIT(c, expr, e);
-//     ADDOP_JABS(c, cond ? POP_JUMP_IF_TRUE : POP_JUMP_IF_FALSE, next);
-//     return 1;
-// }
 
 static void
 compiler_ifexp(struct compiler *c, expr_ty e)
@@ -3915,57 +3966,6 @@ compiler_from_import(struct compiler *c, stmt_ty s)
     clear_reg(c, reg);
 }
 
-struct var_info {
-    int access;
-    Py_ssize_t slot;
-};
-
-static struct var_info
-resolve(struct compiler *c, PyObject *name)
-{
-    struct var_info r;
-    PyObject *mangled = mangle(c, name);
-    r.access = compiler_access(c, mangled);
-    if (r.access == ACCESS_FAST || r.access == ACCESS_DEREF) {
-        r.slot = compiler_varname(c, mangled);
-    }
-    else {
-        r.slot = compiler_const(c, mangled);
-    }
-    return r;
-}
-
-static void
-assign_name(struct compiler *c, PyObject *name, Py_ssize_t src)
-{
-    struct var_info a = resolve(c, name);
-    int opcodes[] = {
-        [ACCESS_FAST]   = STORE_FAST,
-        [ACCESS_DEREF]  = STORE_DEREF,
-        [ACCESS_NAME]   = STORE_NAME,
-        [ACCESS_GLOBAL] = STORE_GLOBAL,
-    };
-
-    assert(a.access != ACCESS_CLASSDEREF);
-    if (a.access == ACCESS_FAST &&
-        src != REG_ACCUMULATOR &&
-        is_temporary(c, src))
-    {
-        emit2(c, MOVE, a.slot, src);
-        return;
-    }
-
-    to_accumulator(c, src);
-    emit1(c, opcodes[a.access], a.slot);
-}
-
-static void
-compiler_store(struct compiler *c, PyObject *name)
-{
-    // FIXME: just merge with assign_name ?
-    assign_name(c, name, REG_ACCUMULATOR);
-}
-
 static void
 assignment_helper(struct compiler *c, asdl_seq *elts)
 {
@@ -4095,21 +4095,6 @@ compiler_assign(struct compiler *c, stmt_ty s)
 }
 
 static void
-delete_name(struct compiler *c, PyObject *name)
-{
-    static int opcodes[] = {
-        [ACCESS_FAST]   = DELETE_FAST,
-        [ACCESS_DEREF]  = DELETE_DEREF,
-        [ACCESS_NAME]   = DELETE_NAME,
-        [ACCESS_GLOBAL] = DELETE_GLOBAL,
-    };
-
-    struct var_info a = resolve(c, name);
-    assert(a.access != ACCESS_CLASSDEREF);
-    emit1(c, opcodes[a.access], a.slot);
-}
-
-static void
 compiler_delete_expr(struct compiler *c, expr_ty t)
 {
     switch (t->kind) {
@@ -4140,20 +4125,6 @@ compiler_delete(struct compiler *c, stmt_ty s)
     for (Py_ssize_t i = 0; i < n; i++) {
         expr_ty target = asdl_seq_GET(targets, i);
         compiler_delete_expr(c, target);
-    }
-}
-
-static void
-clear_name(struct compiler *c, PyObject *name)
-{
-    struct var_info a = resolve(c, name);
-    if (a.access == ACCESS_FAST) {
-        emit1(c, CLEAR_FAST, a.slot);
-    }
-    else {
-        emit1(c, LOAD_FAST, const_none(c));
-        compiler_store(c, name);
-        delete_name(c, name);
     }
 }
 
@@ -4350,83 +4321,6 @@ inplace_binop(struct compiler *c, operator_ty op)
     case FloorDiv:  return INPLACE_FLOOR_DIVIDE;
     }
     Py_UNREACHABLE();
-}
-
-static int
-compiler_access(struct compiler *c, PyObject *mangled_name)
-{
-    int scope = PyST_GetScope(c->unit->ste, mangled_name);
-    PySTEntryObject *ste = c->unit->ste;
-    switch (scope) {
-    case FREE:
-    case CELL:
-        return ste->ste_type == ClassBlock ? ACCESS_CLASSDEREF : ACCESS_DEREF;
-    case LOCAL:
-        return ste->ste_type == FunctionBlock ? ACCESS_FAST : ACCESS_NAME;
-    case GLOBAL_IMPLICIT:
-        return ste->ste_type == FunctionBlock ? ACCESS_GLOBAL : ACCESS_NAME;
-    case GLOBAL_EXPLICIT:
-        return ACCESS_GLOBAL;
-    default:
-        return ACCESS_NAME;
-    }
-}
-
-static void
-compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
-{
-    if (name == NULL) {
-        COMPILER_ERROR(c);
-    }
-    // int op, scope;
-    // Py_ssize_t arg;
-    // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
-
-    PyObject *mangled;
-    /* XXX AugStore isn't used anywhere! */
-
-    assert(!_PyUnicode_EqualToASCIIString(name, "None") &&
-           !_PyUnicode_EqualToASCIIString(name, "True") &&
-           !_PyUnicode_EqualToASCIIString(name, "False"));
-
-    mangled = mangle(c, name);
-    int access = compiler_access(c, mangled);
-    switch (access) {
-    case ACCESS_FAST:
-        emit1(c, LOAD_FAST, compiler_varname(c, mangled));
-        break;
-    case ACCESS_DEREF:
-        emit1(c, LOAD_DEREF, compiler_varname(c, mangled));
-        break;
-    case ACCESS_CLASSDEREF:
-        emit2(c,
-              LOAD_CLASSDEREF,
-              compiler_varname(c, mangled),
-              compiler_const(c, mangled));
-        break;
-    case ACCESS_NAME:
-        emit2(c, 
-              LOAD_NAME,
-              compiler_const(c, mangled),
-              compiler_metaslot(c, mangled));
-        break;
-    case ACCESS_GLOBAL:
-        emit2(c,
-              LOAD_GLOBAL,
-              compiler_const(c, mangled),
-              compiler_metaslot(c, mangled));
-        break;
-    }
-}
-
-static void
-load_name_id(struct compiler *c, _Py_Identifier *id)
-{
-    PyObject *name = _PyUnicode_FromId(id);
-    if (name == NULL) {
-        COMPILER_ERROR(c);
-    }
-    compiler_nameop(c, name, Load);
 }
 
 static void
