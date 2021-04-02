@@ -2122,6 +2122,24 @@ const_none(struct compiler *c)
     return compiler_const(c, Py_None);
 }
 
+static void
+const_to_reg(struct compiler *c, PyObject *name, Py_ssize_t reg)
+{
+    emit1(c, LOAD_CONST, compiler_const(c, name));
+    emit1(c, STORE_FAST, reg);
+    if (reg >= c->unit->next_register) {
+        reserve_regs(c, reg - c->unit->next_register + 1);
+    }
+}
+
+static Py_ssize_t
+const_to_any_reg(struct compiler *c, PyObject *name)
+{
+    Py_ssize_t reg = reserve_regs(c, 1);
+    const_to_reg(c, name, reg);
+    return reg;
+}
+
 // static int
 // compiler_addop_load_const(struct compiler *c, PyObject *o)
 // {
@@ -4681,21 +4699,74 @@ maybe_optimize_method_call(struct compiler *c, expr_ty e)
 }
 
 static void
+varargs_to_reg(struct compiler *c, asdl_seq *args, Py_ssize_t reg)
+{
+    if (asdl_seq_LEN(args) == 1) {
+        expr_ty e = asdl_seq_GET(args, 0);
+        if (e->kind == Starred_kind) {
+            expr_to_reg(c, e, reg);
+            return;
+        }
+    }
+
+    starunpack_helper(c, args, Tuple_kind);
+    emit1(c, STORE_FAST, reg);
+}
+
+static void
+kwdargs_to_reg(struct compiler *c, asdl_seq *kwds, Py_ssize_t reg)
+{
+    Py_ssize_t i, n;
+
+    n = asdl_seq_LEN(kwds);
+    if (n == 1) {
+        keyword_ty kwd = asdl_seq_GET(kwds, 0);
+        if (kwd->arg == NULL) {
+            expr_to_reg(c, kwd->value, reg);
+            return;
+        }
+    }
+
+    emit1(c, BUILD_MAP, n);
+    emit1(c, STORE_FAST, reg);
+    if (n == 0) {
+        return;
+    }
+
+    for (i = 0; i < n; i++) {
+        keyword_ty kwd = asdl_seq_GET(kwds, i);
+        PyObject *key = kwd->arg;
+        expr_ty value = kwd->value;
+        if (key != NULL) {
+            // FIXME: this does not properly handle duplicate keys:
+            // foo(*({'a': 'a'}), a=2)
+            Py_ssize_t reg_key = const_to_any_reg(c, key);
+            compiler_visit_expr(c, value);
+            emit2(c, STORE_SUBSCR, reg, reg_key);
+            clear_reg(c, reg_key);
+        }
+        else {
+            compiler_visit_expr(c, value);
+            emit1(c, DICT_MERGE, reg);
+        }
+    }
+}
+
+static void
 compiler_call_ex(struct compiler *c, expr_ty e)
 {
     expr_ty func = e->v.Call.func;
 
     asdl_seq *args = e->v.Call.args;
-    asdl_seq *keywords = e->v.Call.keywords;
-    Py_ssize_t nargs = asdl_seq_LEN(args);
-    Py_ssize_t nkwds = asdl_seq_LEN(keywords);
+    asdl_seq *kwds = e->v.Call.keywords;
 
-    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA + 2;
+    Py_ssize_t reg = reserve_regs(c, FRAME_EXTRA + 2);
+    Py_ssize_t base = reg + FRAME_EXTRA + 2;
     expr_to_reg(c, func, base - 1);
-    if (nargs == 1 && ((expr_ty)asdl_seq_GET(args, 0))->kind == Starred_kind) {
-        expr_to_reg(c, asdl_seq_GET(args, 0), base - FRAME_EXTRA - 2);
-    }
-    assert(false && "NYI");
+    varargs_to_reg(c, args, reg);
+    kwdargs_to_reg(c, kwds, reg + 1);
+    emit1(c, CALL_FUNCTION_EX, base);
+    free_regs_above(c, reg);
 }
 
 static bool
@@ -6635,13 +6706,12 @@ makecode(struct compiler *c)
 static void
 assemble(struct compiler *c, int addNone)
 {
-    PyCodeObject2 *co;
     if (c->unit->reachable) {
         emit1(c, LOAD_CONST, const_none(c));
         emit0(c, RETURN_VALUE);
     }
 
-    co = makecode(c);
+    makecode(c);
 }
 
 // #undef PyAST_Compile
