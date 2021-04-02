@@ -144,7 +144,7 @@ struct fblock {
         struct {
             Py_ssize_t reg;
         } AsyncWith;
-    };
+    } v;
 };
 
 struct growable_table {
@@ -2329,7 +2329,7 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
         return;
 
     case FOR_LOOP:
-        emit1(c, CLEAR_FAST, block->ForLoop.reg);
+        emit1(c, CLEAR_FAST, block->v.ForLoop.reg);
         return;
 
     case TRY_FINALLY:
@@ -2337,23 +2337,23 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
         break;
 
     case EXCEPT:
-        emit1(c, END_EXCEPT, block->Except.reg);
+        emit1(c, END_EXCEPT, block->v.Except.reg);
         return;
 
     case EXCEPT_HANDLER:
-        clear_name(c, block->ExceptHandler.name);
+        clear_name(c, block->v.ExceptHandler.name);
         return;
 
     case FINALLY:
-        emit1(c, END_FINALLY, block->Finally.reg);
+        emit1(c, END_FINALLY, block->v.Finally.reg);
         return;
 
     case WITH:
-        emit1(c, END_WITH, block->With.reg);
+        emit1(c, END_WITH, block->v.With.reg);
         return;
 
     case ASYNC_WITH:
-        emit1(c, END_ASYNC_WITH, block->AsyncWith.reg);
+        emit1(c, END_ASYNC_WITH, block->v.AsyncWith.reg);
         return;
     }
     Py_UNREACHABLE();
@@ -3237,7 +3237,7 @@ compiler_if(struct compiler *c, stmt_ty s)
 }
 
 static struct fblock *
-compiler_push_loop(struct compiler *c, int loop_type)
+compiler_push_block(struct compiler *c, int loop_type)
 {
     struct fblock *block = TABLE_NEXT(c, &c->unit->blocks);
     block->type = loop_type;
@@ -3245,7 +3245,7 @@ compiler_push_loop(struct compiler *c, int loop_type)
 }
 
 static void
-compiler_pop_loop(struct compiler *c, struct fblock *loop)
+compiler_pop_block(struct compiler *c, struct fblock *loop)
 {
     struct growable_table *blocks = &c->unit->blocks;
     assert(loop == TABLE_ENTRY(blocks, blocks->offset - 1));
@@ -3258,7 +3258,7 @@ compiler_for(struct compiler *c, stmt_ty s)
 {
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
-    struct fblock *loop;
+    struct fblock *block;
     Py_ssize_t reg;
     uint32_t top_offset;
 
@@ -3269,10 +3269,10 @@ compiler_for(struct compiler *c, stmt_ty s)
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
     top_offset = c->unit->instr.offset;
 
-    loop = compiler_push_loop(c, FOR_LOOP);
-    loop->ForLoop.reg = reg;
-    loop->ForLoop.break_label = &break_label;
-    loop->ForLoop.continue_label = &continue_label;
+    block = compiler_push_block(c, FOR_LOOP);
+    block->v.ForLoop.reg = reg;
+    block->v.ForLoop.break_label = &break_label;
+    block->v.ForLoop.continue_label = &continue_label;
 
     compiler_assign_reg(c, s->v.For.target, REG_ACCUMULATOR);
     compiler_visit_stmts(c, s->v.For.body);
@@ -3280,7 +3280,7 @@ compiler_for(struct compiler *c, stmt_ty s)
     emit_for(c, reg, top_offset);
     free_reg(c, reg);
 
-    compiler_pop_loop(c, loop);
+    compiler_pop_block(c, block);
 
     if (s->v.For.orelse) {
         compiler_visit_stmts(c, s->v.For.orelse);
@@ -3288,7 +3288,6 @@ compiler_for(struct compiler *c, stmt_ty s)
 
     emit_multi_label(c, &break_label);
 }
-
 
 static void
 compiler_async_for(struct compiler *c, stmt_ty s)
@@ -3313,10 +3312,10 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     emit1(c, GET_AITER, reg);
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
 
-    block = compiler_push_loop(c, FOR_LOOP);
-    block->ForLoop.reg = reg;
-    block->ForLoop.break_label = &break_label;
-    block->ForLoop.continue_label = &continue_label;
+    block = compiler_push_block(c, FOR_LOOP);
+    block->v.ForLoop.reg = reg;
+    block->v.ForLoop.break_label = &break_label;
+    block->v.ForLoop.continue_label = &continue_label;
     h = TABLE_NEXT(c, &c->unit->except_handlers);
     h->start = top_offset = c->unit->instr.offset;
 
@@ -3337,7 +3336,7 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     h->handler_end = c->unit->instr.offset;
     free_regs_above(c, reg);
 
-    compiler_pop_loop(c, block);
+    compiler_pop_block(c, block);
 
     if (s->v.For.orelse) {
         compiler_visit_stmts(c, s->v.For.orelse);
@@ -3374,22 +3373,22 @@ compiler_while(struct compiler *c, stmt_ty s)
 
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
-    struct fblock *loop;
+    struct fblock *block;
     uint32_t top_offset;
     
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
     top_offset = c->unit->instr.offset;
 
-    loop = compiler_push_loop(c, WHILE_LOOP);
-    loop->WhileLoop.break_label = &break_label;
-    loop->WhileLoop.continue_label = &continue_label;
+    block = compiler_push_block(c, WHILE_LOOP);
+    block->v.WhileLoop.break_label = &break_label;
+    block->v.WhileLoop.continue_label = &continue_label;
 
     compiler_visit_stmts(c, s->v.While.body);
     emit_multi_label(c, &continue_label);
     compiler_visit_expr(c, s->v.While.test);
     emit_bwd_jump(c, POP_JUMP_IF_TRUE, top_offset);
 
-    compiler_pop_loop(c, loop);
+    compiler_pop_block(c, block);
 
     if (s->v.While.orelse) {
         compiler_visit_stmts(c, s->v.While.orelse);
@@ -3454,7 +3453,7 @@ compiler_return(struct compiler *c, stmt_ty s)
     for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
         struct fblock *block = TABLE_ENTRY(blocks, i);
         if (block->type == TRY_FINALLY) {
-            emit1(c, STORE_FAST, block->TryFinally.reg + 1);
+            emit1(c, STORE_FAST, block->v.TryFinally.reg + 1);
         }
         compiler_unwind_block(c, block);
     }
@@ -3470,11 +3469,11 @@ compiler_break(struct compiler *c)
         struct fblock *block = TABLE_ENTRY(blocks, i);
         compiler_unwind_block(c, block);
         if (block->type == FOR_LOOP) {
-            emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.break_label));
+            emit_jump(c, JUMP, multi_label_next(c, block->v.ForLoop.break_label));
             return;
         }
         if (block->type == WHILE_LOOP) {
-            emit_jump(c, JUMP, multi_label_next(c, block->WhileLoop.break_label));
+            emit_jump(c, JUMP, multi_label_next(c, block->v.WhileLoop.break_label));
             return;
         }
     }
@@ -3489,11 +3488,11 @@ compiler_continue(struct compiler *c)
         struct fblock *block = TABLE_ENTRY(blocks, i);
         compiler_unwind_block(c, block);
         if (block->type == FOR_LOOP) {
-            emit_jump(c, JUMP, multi_label_next(c, block->ForLoop.continue_label));
+            emit_jump(c, JUMP, multi_label_next(c, block->v.ForLoop.continue_label));
             return;
         }
         if (block->type == WHILE_LOOP) {
-            emit_jump(c, JUMP, multi_label_next(c, block->WhileLoop.continue_label));
+            emit_jump(c, JUMP, multi_label_next(c, block->v.WhileLoop.continue_label));
             return;
         }
     }
@@ -3553,30 +3552,30 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     handler->start = c->unit->instr.offset;
 
     // Try body
-    block = compiler_push_loop(c, TRY_FINALLY);
-    block->TryFinally.label = &finally_label;
-    block->TryFinally.reg = c->unit->next_register;
+    block = compiler_push_block(c, TRY_FINALLY);
+    block->v.TryFinally.label = &finally_label;
+    block->v.TryFinally.reg = c->unit->next_register;
     if (s->v.Try.handlers && asdl_seq_LEN(s->v.Try.handlers)) {
         compiler_try_except(c, s);
     }
     else {
         compiler_visit_stmts(c, s->v.Try.body);
     }
-    assert(c->unit->next_register == block->TryFinally.reg);
-    compiler_pop_loop(c, block);
+    assert(c->unit->next_register == block->v.TryFinally.reg);
+    compiler_pop_block(c, block);
 
     // Finally body
-    block = compiler_push_loop(c, FINALLY);
-    block->Finally.reg = reserve_regs(c, 2);
+    block = compiler_push_block(c, FINALLY);
+    block->v.Finally.reg = reserve_regs(c, 2);
     handler->handler = c->unit->instr.offset;
-    handler->reg = block->Finally.reg;
+    handler->reg = block->v.Finally.reg;
 
     emit_multi_label(c, &finally_label);
     compiler_visit_stmts(c, s->v.Try.finalbody);
-    emit1(c, END_FINALLY, block->Finally.reg);
+    emit1(c, END_FINALLY, block->v.Finally.reg);
     handler->handler_end = c->unit->instr.offset;
-    free_regs_above(c, block->Finally.reg);
-    compiler_pop_loop(c, block);
+    free_regs_above(c, block->v.Finally.reg);
+    compiler_pop_block(c, block);
 }
 
 /*
@@ -3606,12 +3605,12 @@ compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
     // start an inner exception handler around the handler body
     h = TABLE_NEXT(c, &c->unit->except_handlers);
     h->start = c->unit->instr.offset;
-    block = compiler_push_loop(c, EXCEPT_HANDLER);
-    block->ExceptHandler.name = name;
+    block = compiler_push_block(c, EXCEPT_HANDLER);
+    block->v.ExceptHandler.name = name;
 
     compiler_visit_stmts(c, handler->v.ExceptHandler.body);
 
-    compiler_pop_loop(c, block);
+    compiler_pop_block(c, block);
     h->handler = c->unit->instr.offset;
     h->reg = reserve_regs(c, 2);
 
@@ -3669,8 +3668,8 @@ compiler_try_except(struct compiler *c, stmt_ty s)
     emit_jump(c, JUMP, &orelse);
 
     // Handler bodies
-    block = compiler_push_loop(c, EXCEPT);
-    block->Except.reg = h->reg = reserve_regs(c, 2);
+    block = compiler_push_block(c, EXCEPT);
+    block->v.Except.reg = h->reg = reserve_regs(c, 2);
     h->handler = c->unit->instr.offset;
 
     Py_ssize_t n = asdl_seq_LEN(s->v.Try.handlers);
@@ -5518,8 +5517,8 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     emit1(c, YIELD_FROM, with_reg + 2);
     clear_reg(c, with_reg + 2);
 
-    block = compiler_push_loop(c, ASYNC_WITH);
-    block->AsyncWith.reg = with_reg;
+    block = compiler_push_block(c, ASYNC_WITH);
+    block->v.AsyncWith.reg = with_reg;
     h = TABLE_NEXT(c, &c->unit->except_handlers);
     h->start = c->unit->instr.offset;
 
@@ -5536,7 +5535,7 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     else {
         compiler_with(c, s, pos + 1);
     }
-    compiler_pop_loop(c, block);
+    compiler_pop_block(c, block);
 
     // [ mgr, __exit__, <link>, <exc> ]
     //   ^with_reg      ^link_reg
@@ -5588,8 +5587,8 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
     with_reg = reserve_regs(c, 2);
     emit1(c, SETUP_WITH, with_reg);
 
-    block = compiler_push_loop(c, WITH);
-    block->With.reg = with_reg;
+    block = compiler_push_block(c, WITH);
+    block->v.With.reg = with_reg;
     h->start = c->unit->instr.offset;
 
     // Assign to VAR
@@ -5607,7 +5606,7 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
     else {
         compiler_with(c, s, pos + 1);
     }
-    compiler_pop_loop(c, block);
+    compiler_pop_block(c, block);
 
     // The $link_reg indicates whether an exception occured. A zero
     // value indicates normal exit (no exception). A -1 value
