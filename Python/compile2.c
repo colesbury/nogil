@@ -178,13 +178,11 @@ struct compiler_unit {
     struct compiler_unit *prev;
 
     struct instr_array instr;
-
-    struct lineno_table {
-        uint8_t *arr;
-        uint32_t offset;
-        uint32_t allocated;
-    } lineno_table;
-
+    struct line_number_table {
+        struct growable_table table;
+        int prev_lineno;
+        uint32_t prev_pc;
+    } linenos;
     struct growable_table blocks;
     struct growable_table except_handlers;
     struct growable_table freevarz;
@@ -718,6 +716,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
     c->unit = u;
 
+    u->linenos.table.unit_size = 2 * sizeof(char);
     u->blocks.unit_size = sizeof(struct fblock);
     u->except_handlers.unit_size = sizeof(ExceptionHandler);
     u->freevarz.unit_size = sizeof(struct freevar);
@@ -776,6 +775,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
 
     u->firstlineno = lineno;
+    u->linenos.prev_lineno = lineno;
     u->lineno = 0;
     u->col_offset = 0;
     u->lineno_set = 0;
@@ -789,6 +789,9 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     }
     c->unit = u;
     c->nestlevel++;
+
+    // leave space for FUNC_HEADER in lineno table
+    TABLE_NEXT(c, &c->unit->linenos.table);
 
     if (u->ste->ste_generator && u->ste->ste_coroutine) {
         emit1(c, COROGEN_HEADER, CORO_HEADER_ASYNC_GENERATOR);
@@ -1484,10 +1487,41 @@ table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n)
     return ptr;
 }
 
+static void
+emit_lineno_table_entry(struct compiler *c, int delta_pc, int delta_lineno)
+{
+    assert(delta_pc >= 0 && delta_pc <= 255);
+    assert(delta_lineno >= -128 && delta_lineno <= 127);
+
+    char *entry = TABLE_NEXT(c, &c->unit->linenos.table);
+    entry[0] = delta_pc;
+    entry[1] = delta_lineno;
+
+    c->unit->linenos.prev_pc += delta_pc;
+    c->unit->linenos.prev_lineno += delta_lineno;
+}
+
+static void
+update_lineno(struct compiler *c, uint32_t pc)
+{
+    struct line_number_table *t = &c->unit->linenos;
+    if (pc > (t->prev_pc + 255)) {
+        emit_lineno_table_entry(c, 255, 0);
+    }
+
+    while (c->unit->lineno != t->prev_lineno) {
+        int delta_pc = pc - t->prev_pc;
+        int delta_lineno = c->unit->lineno - t->prev_lineno;
+        if (delta_lineno < -128) delta_lineno = -128;
+        if (delta_lineno > 127) delta_lineno = 127;
+
+        emit_lineno_table_entry(c, delta_pc, delta_lineno);
+    }
+}
+
 /* Add an opcode with no argument.
    Returns 0 on failure, 1 on success.
 */
-
 static uint8_t *
 next_instr(struct compiler *c, int size)
 {
@@ -1500,6 +1534,7 @@ next_instr(struct compiler *c, int size)
             DEFAULT_INSTR_SIZE,
             sizeof(*instr->arr));
     }
+    update_lineno(c, instr->offset);
     uint8_t *ptr = &instr->arr[instr->offset];
     instr->offset += size;
     return ptr;
@@ -6681,6 +6716,11 @@ makecode(struct compiler *c)
     struct growable_table *eh = &c->unit->except_handlers;
     ExceptionHandler *dst = co->co_exc_handlers->entries;
     memcpy(dst, eh->arr, eh->offset * sizeof(ExceptionHandler));
+    for (Py_ssize_t i = 0; i < co->co_exc_handlers->size; i++) {
+        co->co_exc_handlers->entries[i].start += header_size;
+        co->co_exc_handlers->entries[i].handler += header_size;
+        co->co_exc_handlers->entries[i].handler_end += header_size;
+    }
 
     // cell variables
     co->co_cellvars = PyTuple_New(ncells);
@@ -6706,6 +6746,17 @@ makecode(struct compiler *c)
         Py_INCREF(fv->name);
         PyTuple_SET_ITEM(co->co_freevars, i, fv->name);
     }
+
+    char *lnotab = TABLE_ENTRY(&c->unit->linenos.table, 0);
+    lnotab[0] = header_size;
+    lnotab[1] = 0;
+    PyObject *linenos = PyBytes_FromStringAndSize(
+        c->unit->linenos.table.arr,
+        c->unit->linenos.table.offset * 2);
+    if (linenos == NULL) {
+        COMPILER_ERROR(c);
+    }
+    co->co_lnotab = linenos;
 
     PyCode2_UpdateFlags(co);
     return co;
