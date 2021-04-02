@@ -318,6 +318,7 @@ _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__module__);
 _Py_IDENTIFIER(__qualname__);
 _Py_IDENTIFIER(__class__);
+_Py_IDENTIFIER(__classcell__);
 _Py_IDENTIFIER(__annotations__);
 
 // TODO: copy _Py_Mangle from compile.c
@@ -570,31 +571,59 @@ dictbytype(PyObject *src, int scope_type, int flag, Py_ssize_t offset)
 }
 
 static Py_ssize_t
-add_variable(PyObject *varnames, PyObject *name)
+add_variable(struct compiler *c, PyObject *name)
 {
+    PyObject *varnames = c->unit->varnames;
     PyObject *idx = PyDict_GetItemWithError2(varnames, name);
     if (idx != NULL) {
         return PyLong_AsSize_t(idx);
     }
     else if (PyErr_Occurred()) {
-        return -1;
+        COMPILER_ERROR(c);
     }
 
     Py_ssize_t reg = PyDict_GET_SIZE(varnames);
     idx = PyLong_FromSsize_t(reg);
     if (idx == NULL) {
-        return -1;
+        COMPILER_ERROR(c);
     }
     if (PyDict_SetItem(varnames, name, idx) < 0) {
         Py_DECREF(idx);
-        return -1;
+        COMPILER_ERROR(c);
     }
     Py_DECREF(idx);
     return reg;
 }
 
 static void
-add_local_variables(struct compiler *c, PyObject *varnames, PyObject *symbols)
+add_cellvar(struct compiler *c, PyObject *name)
+{
+    Py_ssize_t reg = add_variable(c, name);
+    if (strcmp(PyUnicode_AsUTF8(name), "__class__") == 0) {
+        printf("%s -> %zd\n", PyUnicode_AsUTF8(name), reg);
+    }
+    struct cellvar *cv = TABLE_NEXT(c, &c->unit->cellvarz);
+    cv->name = name;
+    cv->reg = reg;
+}
+
+static void
+add_freevar(struct compiler *c, PyObject *name)
+{
+    PyObject *p = PyDict_GetItemWithError2(c->unit->prev->varnames, name);
+    if (p == NULL) {
+        PyErr_Format(PyExc_SystemError, "missing name %U in %U", name, c->unit->name);
+        COMPILER_ERROR(c);
+    }
+    Py_ssize_t reg = add_variable(c, name);
+    struct freevar *fv = TABLE_NEXT(c, &c->unit->freevarz);
+    fv->name = name;
+    fv->reg = reg;
+    fv->parent_reg = PyLong_AS_LONG(p);
+}
+
+static void
+add_symbols(struct compiler *c, PyObject *symbols)
 {
     Py_ssize_t pos = 0;
     PyObject *key, *value;
@@ -602,46 +631,21 @@ add_local_variables(struct compiler *c, PyObject *varnames, PyObject *symbols)
         long vi = PyLong_AS_LONG(value);
         Py_ssize_t scope = (vi >> SCOPE_OFFSET) & SCOPE_MASK;
         printf("symbol %s scope %zd vi=0x%lx free=%d\n", PyUnicode_AsUTF8(key), scope, vi, (int)(scope & DEF_FREE));
-        if (scope != FREE && scope != LOCAL && scope != CELL) {
-            printf(" skipping %s\n", PyUnicode_AsUTF8(key));
-            continue;
-        }
-
-        Py_ssize_t reg = add_variable(varnames, key);
-        if (reg == -1) {
-            COMPILER_ERROR(c);
-        }
         if (scope == CELL) {
-            struct cellvar *cv = TABLE_NEXT(c, &c->unit->cellvarz);
-            cv->name = key;
-            cv->reg = reg;
-            printf("adding cellvar %s\n", PyUnicode_AsUTF8(key));
+            add_cellvar(c, key);
         }
-        if (scope == FREE || (vi & DEF_FREE_CLASS)) {
-            PyObject *p = PyDict_GetItemWithError2(c->unit->prev->varnames, key);
-            assert(p);
-            struct freevar *fv = TABLE_NEXT(c, &c->unit->freevarz);
-            fv->name = key;
-            fv->reg = reg;
-            fv->parent_reg = PyLong_AS_LONG(p);
+        else if (scope == FREE || (vi & DEF_FREE_CLASS)) {
+            add_freevar(c, key);
         }
-        // c->unit->free2reg
+        else if (scope == LOCAL && c->unit->scope_type != FunctionBlock) {
+            add_variable(c, key);
+        }
     }
 }
 
 static void
 add_locals_psuedovar(struct compiler *c, PyObject *varnames)
 {
-    _Py_static_string(PyId_locals, "<locals>");
-    PyObject *idx = PyLong_FromLong(PyDict_GET_SIZE(varnames));
-    assert(PyDict_GET_SIZE(varnames) == 0);
-    if (idx == NULL) {
-        COMPILER_ERROR(c);
-    }
-    if (_PyDict_SetItemId(varnames, &PyId_locals, idx) < 0) {
-        Py_DECREF(idx);
-        COMPILER_ERROR(c);
-    }
 }
 
 // static void
@@ -697,6 +701,7 @@ static int
 compiler_enter_scope(struct compiler *c, PyObject *name,
                      int scope_type, void *key, int lineno)
 {
+    _Py_static_string(PyId_locals, "<locals>");
     struct compiler_unit *u;
 
     u = PyObject_Malloc(sizeof(struct compiler_unit));
@@ -735,32 +740,34 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     if (u->varnames == NULL) {
         COMPILER_ERROR(c);
     }
-    if (u->ste->ste_type == FunctionBlock) {
-        add_local_variables(c, u->varnames, u->ste->ste_symbols);
+    if (u->ste->ste_type != FunctionBlock) {
+        assert(PyDict_GET_SIZE(u->varnames) == 0 && "<locals> must be first var");
+        if (_PyDict_SetItemId(u->varnames, &PyId_locals, _PyLong_Zero) < 0) {
+            COMPILER_ERROR(c);
+        }
     }
-    else {
-        add_locals_psuedovar(c, u->varnames);
+    add_symbols(c, u->ste->ste_symbols);
+    if (u->ste->ste_needs_class_closure) {
+        /* Cook up an implicit __class__ cell. */
+        add_cellvar(c, unicode_from_id(c, &PyId___class__));
+        // PyObject *name;
+        // int res;
+        // assert(u->scope_type == COMPILER_SCOPE_CLASS);
+        // assert(PyDict_GET_SIZE(u->cellvars) == 0);
+        // name = _PyUnicode_FromId(&PyId___class__);
+        // if (!name) {
+        //     COMPILER_ERROR(c);
+        // }
+        // res = PyDict_SetItem(u->cellvars, name, _PyLong_Zero);
+        // if (res < 0) {
+        //     COMPILER_ERROR(c);
+        // }
     }
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
     u->cellvars = dictbytype(u->ste->ste_symbols, CELL, 0, 0);
     if (u->cellvars == NULL) {
         COMPILER_ERROR(c);
-    }
-    if (u->ste->ste_needs_class_closure) {
-        /* Cook up an implicit __class__ cell. */
-        PyObject *name;
-        int res;
-        assert(u->scope_type == COMPILER_SCOPE_CLASS);
-        assert(PyDict_GET_SIZE(u->cellvars) == 0);
-        name = _PyUnicode_FromId(&PyId___class__);
-        if (!name) {
-            COMPILER_ERROR(c);
-        }
-        res = PyDict_SetItem(u->cellvars, name, _PyLong_Zero);
-        if (res < 0) {
-            COMPILER_ERROR(c);
-        }
     }
 
     u->freevars = dictbytype(u->ste->ste_symbols, FREE, DEF_FREE_CLASS,
@@ -2597,10 +2604,6 @@ static void
 compiler_body(struct compiler *c, asdl_seq *stmts)
 {
     compiler_visit_stmts(c, stmts);
-    if (c->unit->reachable) {
-        emit1(c, LOAD_CONST, const_none(c));
-        emit0(c, RETURN_VALUE);
-    }
     // int i = 0;
     // stmt_ty st;
     // PyObject *docstring;
@@ -3118,31 +3121,14 @@ compiler_class(struct compiler *c, stmt_ty s)
         /* compile the body proper */
         compiler_body(c, s->v.ClassDef.body);
         /* Return __classcell__ if it is referenced, otherwise return None */
+        printf("c->unit->ste->ste_needs_class_closure = %d\n", c->unit->ste->ste_needs_class_closure);
         if (c->unit->ste->ste_needs_class_closure) {
-            assert(false && "ste_needs_class_closure NYI");
-            // /* Store __classcell__ into class namespace & return it */
-            // str = PyUnicode_InternFromString("__class__");
-            // if (str == NULL) {
-            //     compiler_exit_scope(c);
-            //     return 0;
-            // }
-            // i = compiler_lookup_arg(c->unit->cellvars, str);
-            // Py_DECREF(str);
-            // if (i < 0) {
-            //     compiler_exit_scope(c);
-            //     return 0;
-            // }
-            // assert(i == 0);
-
-            // ADDOP_I(c, LOAD_CLOSURE, i);
-            // ADDOP(c, DUP_TOP);
-            // str = PyUnicode_InternFromString("__classcell__");
-            // if (!str || !load_name(c, str, Store)) {
-            //     Py_XDECREF(str);
-            //     compiler_exit_scope(c);
-            //     return 0;
-            // }
-            // Py_DECREF(str);
+            /* Store __classcell__ into class namespace & return it */
+            PyObject *name = unicode_from_id(c, &PyId___class__);
+            Py_ssize_t reg = compiler_varname(c, name);
+            emit1(c, LOAD_FAST, reg);
+            assign_name_id(c, &PyId___classcell__);
+            emit1(c, LOAD_FAST, reg);
         }
         else {
             /* No methods referenced __class__, so just return None */
