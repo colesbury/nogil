@@ -6412,38 +6412,38 @@ unpack_const_key(PyObject *key)
 //     return consts;
 // }
 
-// static int
-// compute_code_flags(struct compiler *c)
-// {
-//     PySTEntryObject *ste = c->u->u_ste;
-//     int flags = 0;
-//     if (ste->ste_type == FunctionBlock) {
-//         flags |= CO_NEWLOCALS | CO_OPTIMIZED;
-//         if (ste->ste_nested)
-//             flags |= CO_NESTED;
-//         if (ste->ste_generator && !ste->ste_coroutine)
-//             flags |= CO_GENERATOR;
-//         if (!ste->ste_generator && ste->ste_coroutine)
-//             flags |= CO_COROUTINE;
-//         if (ste->ste_generator && ste->ste_coroutine)
-//             flags |= CO_ASYNC_GENERATOR;
-//         if (ste->ste_varargs)
-//             flags |= CO_VARARGS;
-//         if (ste->ste_varkeywords)
-//             flags |= CO_VARKEYWORDS;
-//     }
+static int
+compute_code_flags(struct compiler *c)
+{
+    PySTEntryObject *ste = c->unit->ste;
+    int flags = 0;
+    if (ste->ste_type == FunctionBlock) {
+        flags |= CO_NEWLOCALS | CO_OPTIMIZED;
+        if (ste->ste_nested)
+            flags |= CO_NESTED;
+        if (ste->ste_generator && !ste->ste_coroutine)
+            flags |= CO_GENERATOR;
+        if (!ste->ste_generator && ste->ste_coroutine)
+            flags |= CO_COROUTINE;
+        if (ste->ste_generator && ste->ste_coroutine)
+            flags |= CO_ASYNC_GENERATOR;
+        if (ste->ste_varargs)
+            flags |= CO_VARARGS;
+        if (ste->ste_varkeywords)
+            flags |= CO_VARKEYWORDS;
+    }
 
-//     /* (Only) inherit compilerflags in PyCF_MASK */
-//     flags |= (c->c_flags->cf_flags & PyCF_MASK);
+    /* (Only) inherit compilerflags in PyCF_MASK */
+    flags |= (c->flags.cf_flags & PyCF_MASK);
 
-//     if ((c->c_flags->cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) &&
-//          ste->ste_coroutine &&
-//          !ste->ste_generator) {
-//         flags |= CO_COROUTINE;
-//     }
+    if ((c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) &&
+         ste->ste_coroutine &&
+         !ste->ste_generator) {
+        flags |= CO_COROUTINE;
+    }
 
-//     return flags;
-// }
+    return flags;
+}
 
 // // Merge *tuple* with constant cache.
 // // Unlike merge_consts_recursive(), this function doesn't work recursively.
@@ -6495,6 +6495,7 @@ dict_keys_as_tuple(struct compiler *c, PyObject *dict)
 static PyCodeObject2 *
 makecode(struct compiler *c)
 {
+    PyCodeObject2 *co;
     Py_ssize_t instr_size = c->unit->instr.offset;
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
     Py_ssize_t niconsts = 0;
@@ -6508,18 +6509,19 @@ makecode(struct compiler *c)
     header_size = write_func_header(header, c->unit->max_registers);
     instr_size += header_size;
 
-    PyCodeObject2 *co = PyCode2_New(instr_size, nconsts, niconsts, nmeta, ncells, ncaptures, nexc_handlers);
+    co = PyCode2_New(
+        instr_size, nconsts, niconsts, nmeta,
+        ncells, ncaptures, nexc_handlers);
     if (co == NULL) {
         COMPILER_ERROR(c);
     }
-    // FIXME: co leaked on error
-
+    c->code = co;
     co->co_argcount = c->unit->argcount;
     co->co_posonlyargcount = c->unit->posonlyargcount;
     co->co_totalargcount = c->unit->kwonlyargcount + c->unit->argcount;
     co->co_nlocals = c->unit->nlocals;
     // co->co_ndefaultargs = ndefaultargs;
-    // co->co_flags = flags;
+    co->co_flags = compute_code_flags(c);
     co->co_framesize = c->unit->max_registers;
     co->co_varnames = dict_keys_as_tuple(c, c->unit->varnames);
     co->co_filename = c->filename;
@@ -6598,40 +6600,6 @@ makecode(struct compiler *c)
     return co;
 }
 
-// /* For debugging purposes only */
-// #if 0
-// static void
-// dump_instr(const struct instr *i)
-// {
-//     const char *jrel = i->i_jrel ? "jrel " : "";
-//     const char *jabs = i->i_jabs ? "jabs " : "";
-//     char arg[128];
-
-//     *arg = '\0';
-//     if (HAS_ARG(i->i_opcode)) {
-//         sprintf(arg, "arg: %d ", i->i_oparg);
-//     }
-//     fprintf(stderr, "line: %d, opcode: %d %s%s%s\n",
-//                     i->i_lineno, i->i_opcode, arg, jabs, jrel);
-// }
-
-// static void
-// dump_basicblock(const basicblock *b)
-// {
-//     const char *seen = b->b_seen ? "seen " : "";
-//     const char *b_return = b->b_return ? "return " : "";
-//     fprintf(stderr, "used: %d, depth: %d, offset: %d %s%s\n",
-//         b->b_iused, b->b_startdepth, b->b_offset, seen, b_return);
-//     if (b->b_instr) {
-//         int i;
-//         for (i = 0; i < b->b_iused; i++) {
-//             fprintf(stderr, "  [%02d] ", i);
-//             dump_instr(b->b_instr + i);
-//         }
-//     }
-// }
-// #endif
-
 static void
 assemble(struct compiler *c, int addNone)
 {
@@ -6643,67 +6611,7 @@ assemble(struct compiler *c, int addNone)
 
     co = makecode(c);
     Py_XSETREF(c->code, co);
-    // assemble_free(&a);
 }
-
-// static PyCodeObject *
-// assemble(struct compiler *c, int addNone)
-// {
-//     basicblock *b, *entryblock;
-//     struct assembler a;
-//     int i, j, nblocks;
-//     PyCodeObject *co = NULL;
-
-//     /* Make sure every block that falls off the end returns None.
-//        XXX NEXT_BLOCK() isn't quite right, because if the last
-//        block ends with a jump or return b_next shouldn't set.
-//      */
-//     if (!c->u->u_curblock->b_return) {
-//         NEXT_BLOCK(c);
-//         if (addNone)
-//             ADDOP_LOAD_CONST(c, Py_None);
-//         ADDOP(c, RETURN_VALUE);
-//     }
-
-//     nblocks = 0;
-//     entryblock = NULL;
-//     for (b = c->u->u_blocks; b != NULL; b = b->b_list) {
-//         nblocks++;
-//         entryblock = b;
-//     }
-
-//     /* Set firstlineno if it wasn't explicitly set. */
-//     if (!c->u->u_firstlineno) {
-//         if (entryblock && entryblock->b_instr && entryblock->b_instr->i_lineno)
-//             c->u->u_firstlineno = entryblock->b_instr->i_lineno;
-//         else
-//             c->u->u_firstlineno = 1;
-//     }
-//     if (!assemble_init(&a, nblocks, c->u->u_firstlineno))
-//         goto error;
-//     dfs(c, entryblock, &a, nblocks);
-
-//     /* Can't modify the bytecode after computing jump offsets. */
-//     assemble_jump_offsets(&a, c);
-
-//     /* Emit code in reverse postorder from dfs. */
-//     for (i = a.a_nblocks - 1; i >= 0; i--) {
-//         b = a.a_postorder[i];
-//         for (j = 0; j < b->b_iused; j++)
-//             if (!assemble_emit(&a, &b->b_instr[j]))
-//                 goto error;
-//     }
-
-//     if (_PyBytes_Resize(&a.a_lnotab, a.a_lnotab_off) < 0)
-//         goto error;
-//     if (_PyBytes_Resize(&a.a_bytecode, a.a_offset * sizeof(_Py_CODEUNIT)) < 0)
-//         goto error;
-
-//     co = makecode(c, &a);
-//  error:
-//     assemble_free(&a);
-//     return co;
-// }
 
 // #undef PyAST_Compile
 // PyCodeObject *
