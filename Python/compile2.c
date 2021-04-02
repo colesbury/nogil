@@ -4333,30 +4333,34 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
 //         }
 //         return 1;
 //     }
+    int build_op  = (kind == Set_kind) ? BUILD_SET  : BUILD_LIST;
+    int extend_op = (kind == Set_kind) ? SET_UPDATE : LIST_EXTEND;
+    int append_op = (kind == Set_kind) ? SET_ADD    : LIST_APPEND;
+
     Py_ssize_t base = c->unit->next_register;
     for (i = 0; i < n; i++) {
         expr_ty elt = asdl_seq_GET(elts, i);
         if (elt->kind == Starred_kind) {
             if (seen_star == 0) {
-                emit2(c, Set_kind ? BUILD_SET : BUILD_LIST, base, i);
+                emit2(c, build_op, base, i);
                 emit1(c, STORE_FAST, base);
                 c->unit->next_register = base + 1;
                 seen_star = 1;
             }
             compiler_visit_expr(c, elt->v.Starred.value);
-            emit1(c, Set_kind ? SET_UPDATE : LIST_EXTEND, base);
+            emit1(c, extend_op, base);
         }
         else if (seen_star) {
             compiler_visit_expr(c, elt);
-            emit1(c, Set_kind ? SET_ADD : LIST_APPEND, base);
+            emit1(c, append_op, base);
         }
         else {
             expr_to_reg(c, elt, base + i);
         }
     }
     if (!seen_star) {
-        int opcode = (kind == Set_kind ? BUILD_SET :
-                      kind == List_kind ? BUILD_LIST :
+        int opcode = (kind == Set_kind     ? BUILD_SET :
+                      kind == List_kind    ? BUILD_LIST :
                       /*kind == Tuple_kind*/ BUILD_TUPLE);
         emit2(c, opcode, base, n);
         c->unit->next_register = base;
@@ -4366,10 +4370,9 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
         emit1(c, CLEAR_FAST, base);
         free_reg(c, base);
         if (kind == Tuple_kind) {
-            // FIXME
+            emit1(c, CALL_INTRINSIC_1, Intrinsic_PyList_AsTuple);
         }
     }
-//     return 1;
 }
 
 static int
@@ -4517,57 +4520,57 @@ compiler_compare(struct compiler *c, expr_ty e)
 //     return 1;
 }
 
-// static PyTypeObject *
-// infer_type(expr_ty e)
-// {
-//     switch (e->kind) {
-//     case Tuple_kind:
-//         return &PyTuple_Type;
-//     case List_kind:
-//     case ListComp_kind:
-//         return &PyList_Type;
-//     case Dict_kind:
-//     case DictComp_kind:
-//         return &PyDict_Type;
-//     case Set_kind:
-//     case SetComp_kind:
-//         return &PySet_Type;
-//     case GeneratorExp_kind:
-//         return &PyGen_Type;
-//     case Lambda_kind:
-//         return &PyFunction_Type;
-//     case JoinedStr_kind:
-//     case FormattedValue_kind:
-//         return &PyUnicode_Type;
-//     case Constant_kind:
-//         return Py_TYPE(e->v.Constant.value);
-//     default:
-//         return NULL;
-//     }
-// }
+static PyTypeObject *
+infer_type(expr_ty e)
+{
+    switch (e->kind) {
+    case Tuple_kind:
+        return &PyTuple_Type;
+    case List_kind:
+    case ListComp_kind:
+        return &PyList_Type;
+    case Dict_kind:
+    case DictComp_kind:
+        return &PyDict_Type;
+    case Set_kind:
+    case SetComp_kind:
+        return &PySet_Type;
+    case GeneratorExp_kind:
+        return &PyGen_Type;
+    case Lambda_kind:
+        return &PyFunction_Type;
+    case JoinedStr_kind:
+    case FormattedValue_kind:
+        return &PyUnicode_Type;
+    case Constant_kind:
+        return Py_TYPE(e->v.Constant.value);
+    default:
+        return NULL;
+    }
+}
 
-// static int
-// check_caller(struct compiler *c, expr_ty e)
-// {
-//     switch (e->kind) {
-//     case Constant_kind:
-//     case Tuple_kind:
-//     case List_kind:
-//     case ListComp_kind:
-//     case Dict_kind:
-//     case DictComp_kind:
-//     case Set_kind:
-//     case SetComp_kind:
-//     case GeneratorExp_kind:
-//     case JoinedStr_kind:
-//     case FormattedValue_kind:
-//         return compiler_warn(c, "'%.200s' object is not callable; "
-//                                 "perhaps you missed a comma?",
-//                                 infer_type(e)->tp_name);
-//     default:
-//         return 1;
-//     }
-// }
+static void
+check_caller(struct compiler *c, expr_ty e)
+{
+    switch (e->kind) {
+    case Constant_kind:
+    case Tuple_kind:
+    case List_kind:
+    case ListComp_kind:
+    case Dict_kind:
+    case DictComp_kind:
+    case Set_kind:
+    case SetComp_kind:
+    case GeneratorExp_kind:
+    case JoinedStr_kind:
+    case FormattedValue_kind:
+        compiler_warn(c, "'%.200s' object is not callable; "
+                      "perhaps you missed a comma?",
+                      infer_type(e)->tp_name);
+        break;
+    default: break;
+    }
+}
 
 // static int
 // check_subscripter(struct compiler *c, expr_ty e)
@@ -4633,36 +4636,67 @@ compiler_compare(struct compiler *c, expr_ty e)
 //     }
 // }
 
-// // Return 1 if the method call was optimized, -1 if not, and 0 on error.
-// static int
-// maybe_optimize_method_call(struct compiler *c, expr_ty e)
-// {
-//     Py_ssize_t argsl, i;
-//     expr_ty meth = e->v.Call.func;
-//     asdl_seq *args = e->v.Call.args;
+/* Return 1 if the method call was optimized, 0 if not. */
+static int
+maybe_optimize_method_call(struct compiler *c, expr_ty e)
+{
+    Py_ssize_t argsl, i, base;
+    expr_ty meth = e->v.Call.func;
+    asdl_seq *args = e->v.Call.args;
 
-//     /* Check that the call node is an attribute access, and that
-//        the call doesn't have keyword parameters. */
-//     if (meth->kind != Attribute_kind || meth->v.Attribute.ctx != Load ||
-//             asdl_seq_LEN(e->v.Call.keywords))
-//         return -1;
+    /* Check that the call node is an attribute access, and that
+       the call doesn't have keyword parameters. */
+    if (meth->kind != Attribute_kind ||
+        meth->v.Attribute.ctx != Load ||
+        asdl_seq_LEN(e->v.Call.keywords))
+    {
+        return 0;
+    }
 
-//     /* Check that there are no *varargs types of arguments. */
-//     argsl = asdl_seq_LEN(args);
-//     for (i = 0; i < argsl; i++) {
-//         expr_ty elt = asdl_seq_GET(args, i);
-//         if (elt->kind == Starred_kind) {
-//             return -1;
-//         }
-//     }
+    argsl = asdl_seq_LEN(args);
+    /* CALL_METHOD can only support up to 254 arguments. */
+    if (argsl > 254) {
+        return 0;
+    }
 
-//     /* Alright, we can optimize the code. */
-//     VISIT(c, expr, meth->v.Attribute.value);
-//     ADDOP_NAME(c, LOAD_METHOD, meth->v.Attribute.attr, names);
-//     VISIT_SEQ(c, expr, e->v.Call.args);
-//     ADDOP_I(c, CALL_METHOD, asdl_seq_LEN(e->v.Call.args));
-//     return 1;
-// }
+    /* Check that there are no *varargs types of arguments. */
+    for (i = 0; i < argsl; i++) {
+        expr_ty elt = asdl_seq_GET(args, i);
+        if (elt->kind == Starred_kind) {
+            return 0;
+        }
+    }
+
+    /* Alright, we can optimize the code. */
+    compiler_visit_expr(c, meth->v.Attribute.value);
+    base = reserve_regs(c, FRAME_EXTRA + 1) + FRAME_EXTRA;
+    emit2(c, LOAD_METHOD, base - 1, compiler_const(c, meth->v.Attribute.attr));
+    for (i = 0; i < argsl; i++) {
+        expr_ty elt = asdl_seq_GET(args, i);
+        expr_to_reg(c, elt, base + i + 1);
+    }
+    emit_call(c, CALL_METHOD, base, argsl + 1);
+    free_regs_above(c, base - FRAME_EXTRA);
+    return 1;
+}
+
+static void
+compiler_call_ex(struct compiler *c, expr_ty e)
+{
+    expr_ty func = e->v.Call.func;
+
+    asdl_seq *args = e->v.Call.args;
+    asdl_seq *keywords = e->v.Call.keywords;
+    Py_ssize_t nargs = asdl_seq_LEN(args);
+    Py_ssize_t nkwds = asdl_seq_LEN(keywords);
+
+    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA + 2;
+    expr_to_reg(c, func, base - 1);
+    if (nargs == 1 && ((expr_ty)asdl_seq_GET(args, 0))->kind == Starred_kind) {
+        expr_to_reg(c, asdl_seq_GET(args, 0), base - FRAME_EXTRA - 2);
+    }
+    assert(false && "NYI");
+}
 
 static bool
 has_starred(asdl_seq *seq)
@@ -4691,14 +4725,10 @@ has_varkeywords(asdl_seq *keywords)
 static void
 compiler_call(struct compiler *c, expr_ty e)
 {
-    // if (maybe_optimize_method_call(c, e)) {
-    //     return;
-    // }
-
     expr_ty func = e->v.Call.func;
-    // if (!check_caller(c, func)) {
-    //     return;
-    // }
+
+    /* warn if "func" isn't callable */
+    check_caller(c, func);
 
     asdl_seq *args = e->v.Call.args;
     asdl_seq *keywords = e->v.Call.keywords;
@@ -4706,11 +4736,13 @@ compiler_call(struct compiler *c, expr_ty e)
     Py_ssize_t nkwds = asdl_seq_LEN(keywords);
     if (nargs > 255 || nkwds > 255 ||
         has_starred(args) ||
-        has_varkeywords(keywords))
-    {
-            // oops
-        PyErr_Format(PyExc_RuntimeError, "unsupported call");
-        COMPILER_ERROR(c);
+        has_varkeywords(keywords)) {
+
+        compiler_call_ex(c, e);
+        return;
+    }
+    else if (maybe_optimize_method_call(c, e)) {
+        return;
     }
 
     int flags = nargs | (nkwds << 8);
@@ -6515,7 +6547,7 @@ makecode(struct compiler *c)
     if (co == NULL) {
         COMPILER_ERROR(c);
     }
-    c->code = co;
+    Py_XSETREF(c->code, co);
     co->co_argcount = c->unit->argcount;
     co->co_posonlyargcount = c->unit->posonlyargcount;
     co->co_totalargcount = c->unit->kwonlyargcount + c->unit->argcount;
@@ -6610,7 +6642,6 @@ assemble(struct compiler *c, int addNone)
     }
 
     co = makecode(c);
-    Py_XSETREF(c->code, co);
 }
 
 // #undef PyAST_Compile
