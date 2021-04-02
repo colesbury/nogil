@@ -267,7 +267,6 @@ static void compiler_unit_free(struct compiler_unit *u);
 // static int compiler_addop_j(struct compiler *, int, basicblock *, int);
 static void compiler_error(struct compiler *, const char *);
 static void compiler_warn(struct compiler *, const char *, ...);
-static void compiler_nameop(struct compiler *, identifier, expr_context_ty);
 static void compiler_store(struct compiler *, identifier);
 static int compiler_access(struct compiler *c, PyObject *mangled_name);
 static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
@@ -2388,7 +2387,7 @@ compiler_access(struct compiler *c, PyObject *mangled_name)
 
 struct var_info {
     int access;
-    Py_ssize_t slot;
+    int slot;
 };
 
 static struct var_info
@@ -2407,23 +2406,14 @@ resolve(struct compiler *c, PyObject *name)
 }
 
 static void
-compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
+load_name(struct compiler *c, PyObject *name)
 {
-    if (name == NULL) {
-        COMPILER_ERROR(c);
-    }
-    // int op, scope;
-    // Py_ssize_t arg;
-    // enum { OP_FAST, OP_GLOBAL, OP_DEREF, OP_NAME } optype;
-
-    PyObject *mangled;
-    /* XXX AugStore isn't used anywhere! */
-
-    assert(!_PyUnicode_EqualToASCIIString(name, "None") &&
+    assert(name != NULL &&
+           !_PyUnicode_EqualToASCIIString(name, "None") &&
            !_PyUnicode_EqualToASCIIString(name, "True") &&
            !_PyUnicode_EqualToASCIIString(name, "False"));
 
-    mangled = mangle(c, name);
+    PyObject *mangled = mangle(c, name);
     int access = compiler_access(c, mangled);
     switch (access) {
     case ACCESS_FAST:
@@ -2456,11 +2446,7 @@ compiler_nameop(struct compiler *c, PyObject *name, expr_context_ty ctx)
 static void
 load_name_id(struct compiler *c, _Py_Identifier *id)
 {
-    PyObject *name = _PyUnicode_FromId(id);
-    if (name == NULL) {
-        COMPILER_ERROR(c);
-    }
-    compiler_nameop(c, name, Load);
+    load_name(c, unicode_from_id(c, id));
 }
 
 static void
@@ -2516,6 +2502,8 @@ delete_name(struct compiler *c, PyObject *name)
     emit1(c, opcodes[a.access], a.slot);
 }
 
+/* clear_name is like delete_name but won't raise
+ * an exception if the name isnt't defined. */
 static void
 clear_name(struct compiler *c, PyObject *name)
 {
@@ -2640,7 +2628,7 @@ compiler_body(struct compiler *c, asdl_seq *stmts)
     //         st = (stmt_ty)asdl_seq_GET(stmts, 0);
     //         assert(st->kind == Expr_kind);
     //         VISIT(c, expr, st->v.Expr.value);
-    //         if (!compiler_nameop(c, __doc__, Store))
+    //         if (!load_name(c, __doc__, Store))
     //             return 0;
     //     }
     // }
@@ -3081,7 +3069,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     }
 
     compiler_store(c, name);
-    // return compiler_nameop(c, name, Store);
+    // return load_name(c, name, Store);
 }
 
 static void
@@ -3149,7 +3137,7 @@ compiler_class(struct compiler *c, stmt_ty s)
             // ADDOP_I(c, LOAD_CLOSURE, i);
             // ADDOP(c, DUP_TOP);
             // str = PyUnicode_InternFromString("__classcell__");
-            // if (!str || !compiler_nameop(c, str, Store)) {
+            // if (!str || !load_name(c, str, Store)) {
             //     Py_XDECREF(str);
             //     compiler_exit_scope(c);
             //     return 0;
@@ -3173,7 +3161,7 @@ compiler_class(struct compiler *c, stmt_ty s)
     reserve_regs(c, FRAME_EXTRA + 2);
     emit0(c, LOAD_BUILD_CLASS);
     emit1(c, STORE_FAST, base - 1);
-    emit1(c, LOAD_CONST, compiler_const(c, (PyObject *)c->code));
+    emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
     emit1(c, STORE_FAST, base);
     emit1(c, LOAD_CONST, compiler_const(c, s->v.ClassDef.name));
     emit1(c, STORE_FAST, base + 1);
@@ -5654,7 +5642,8 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         break;
     }
     case Name_kind:
-        compiler_nameop(c, e->v.Name.id, e->v.Name.ctx);
+        assert(e->v.Name.ctx == Load);
+        load_name(c, e->v.Name.id);
         break;
     case List_kind:
         assert(e->v.Tuple.ctx == Load);
