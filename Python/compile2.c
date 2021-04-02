@@ -291,7 +291,7 @@ static int expr_constant(expr_ty);
 
 static void compiler_with(struct compiler *, stmt_ty, int);
 static void compiler_async_with(struct compiler *, stmt_ty, int);
-// static int compiler_async_for(struct compiler *, stmt_ty);
+static void compiler_async_for(struct compiler *, stmt_ty);
 // static void compiler_call_helper(struct compiler *c, int n,
 //                                  asdl_seq *args,
 //                                  asdl_seq *keywords);
@@ -3290,55 +3290,61 @@ compiler_for(struct compiler *c, stmt_ty s)
 }
 
 
-// static int
-// compiler_async_for(struct compiler *c, stmt_ty s)
-// {
-//     basicblock *start, *except, *end;
-//     if (c->c_flags->cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT){
-//         c->u->u_ste->ste_coroutine = 1;
-//     } else if (c->u->u_scope_type != COMPILER_SCOPE_ASYNC_FUNCTION) {
-//         return compiler_error(c, "'async for' outside async function");
-//     }
+static void
+compiler_async_for(struct compiler *c, stmt_ty s)
+{
+    struct multi_label break_label = MULTI_LABEL_INIT;
+    struct multi_label continue_label = MULTI_LABEL_INIT;
+    struct fblock *block;
+    Py_ssize_t reg, awaitable;
+    uint32_t top_offset;
+    ExceptionHandler *h;
 
-//     start = compiler_new_block(c);
-//     except = compiler_new_block(c);
-//     end = compiler_new_block(c);
+    assert(s->kind == AsyncFor_kind);
+    if (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) {
+        c->unit->ste->ste_coroutine = 1; // ?????
+    }
+    else if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION){
+        compiler_error(c, "'async for' outside async function");
+    }
 
-//     if (start == NULL || except == NULL || end == NULL) {
-//         return 0;
-//     }
-//     VISIT(c, expr, s->v.AsyncFor.iter);
-//     ADDOP(c, GET_AITER);
+    compiler_visit_expr(c, s->v.AsyncFor.iter);
+    reg = reserve_regs(c, 1);
+    emit1(c, GET_AITER, reg);
+    emit_jump(c, JUMP, multi_label_next(c, &continue_label));
 
-//     compiler_use_next_block(c, start);
-//     if (!compiler_push_fblock(c, FOR_LOOP, start, end, NULL)) {
-//         return 0;
-//     }
-//     /* SETUP_FINALLY to guard the __anext__ call */
-//     ADDOP_JREL(c, SETUP_FINALLY, except);
-//     ADDOP(c, GET_ANEXT);
-//     ADDOP_LOAD_CONST(c, Py_None);
-//     ADDOP(c, YIELD_FROM);
-//     ADDOP(c, POP_BLOCK);  /* for SETUP_FINALLY */
+    block = compiler_push_loop(c, FOR_LOOP);
+    block->ForLoop.reg = reg;
+    block->ForLoop.break_label = &break_label;
+    block->ForLoop.continue_label = &continue_label;
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = top_offset = c->unit->instr.offset;
 
-//     /* Success block for __anext__ */
-//     VISIT(c, expr, s->v.AsyncFor.target);
-//     VISIT_SEQ(c, stmt, s->v.AsyncFor.body);
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, start);
+    compiler_assign_reg(c, s->v.AsyncFor.target, REG_ACCUMULATOR);
+    compiler_visit_stmts(c, s->v.AsyncFor.body);
+    emit_multi_label(c, &continue_label);
 
-//     compiler_pop_fblock(c, FOR_LOOP, start);
+    reserve_regs(c, 1);  // GET_ANEXT uses two adjacent registers
+    emit1(c, GET_ANEXT, reg);
+    emit1(c, LOAD_CONST, const_none(c));
+    emit1(c, YIELD_FROM, reg + 1);
+    clear_reg(c, reg + 1);
+    emit_bwd_jump(c, JUMP, top_offset);
 
-//     /* Except block for __anext__ */
-//     compiler_use_next_block(c, except);
-//     ADDOP(c, END_ASYNC_FOR);
+    h->reg = reserve_regs(c, 2);
+    h->handler = c->unit->instr.offset;
+    emit1(c, END_ASYNC_FOR, reg);
+    h->handler_end = c->unit->instr.offset;
+    free_regs_above(c, reg);
 
-//     /* `else` block */
-//     VISIT_SEQ(c, stmt, s->v.For.orelse);
+    compiler_pop_loop(c, block);
 
-//     compiler_use_next_block(c, end);
+    if (s->v.For.orelse) {
+        compiler_visit_stmts(c, s->v.For.orelse);
+    }
 
-//     return 1;
-// }
+    emit_multi_label(c, &break_label);
+}
 
 static void
 compiler_while(struct compiler *c, stmt_ty s)
@@ -4218,11 +4224,12 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     case AsyncWith_kind:
         compiler_async_with(c, s, 0);
         break;
-//     case AsyncFor_kind:
-//         return compiler_async_for(c, s);
-        default:
-            PyErr_Format(PyExc_RuntimeError, "unhandled stmt %d", s->kind);
-            COMPILER_ERROR(c);
+    case AsyncFor_kind:
+        compiler_async_for(c, s);
+        break;
+    default:
+        PyErr_Format(PyExc_RuntimeError, "unhandled stmt %d", s->kind);
+        COMPILER_ERROR(c);
     }
 
     assert(next_register == c->unit->next_register);
