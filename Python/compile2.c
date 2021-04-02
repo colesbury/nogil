@@ -83,8 +83,9 @@ struct instr_array {
 };
 
 struct bc_label {
-    int bound;
     uint32_t offset;
+    int bound : 1;
+    int has_reg : 1;
 };
 
 struct multi_label {
@@ -1632,8 +1633,35 @@ emit_jump(struct compiler *c, int opcode, struct bc_label *label)
     uint8_t *pc = next_instr(c, 3);
     pc[0] = opcode;
     write_uint16(&pc[1], 0);
-    label->bound = 0;
     label->offset = pc - c->unit->instr.arr;
+    label->bound = 0;
+    label->has_reg = 0;
+}
+
+static void
+emit_jump2(struct compiler *c, int opcode, int imm0, struct bc_label *label)
+{
+    if (c->do_not_emit_bytecode) {
+        return;
+    }
+    uint8_t *pc;
+    int wide = (imm0 > 255);
+    if (wide) {
+        pc = next_instr(c, 10);
+        pc[0] = WIDE;
+        pc[1] = opcode;
+        write_uint32(&pc[2], imm0);
+        write_uint32(&pc[6], 0);
+    }
+    else {
+        pc = next_instr(c, 4);
+        pc[0] = opcode;
+        pc[1] = (uint8_t)imm0;
+        write_uint16(&pc[2], 0);
+    }
+    label->offset = pc - c->unit->instr.arr;
+    label->bound = 0;
+    label->has_reg = 1;
 }
 
 static void
@@ -1681,21 +1709,6 @@ emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 }
 
 static void
-emit_jump_if_not_exc_match(struct compiler *c, Py_ssize_t reg, struct bc_label *label)
-{
-    if (c->do_not_emit_bytecode) {
-        return;
-    }
-    assert(reg <= 255);
-    uint8_t *pc = next_instr(c, 4);
-    pc[0] = JUMP_IF_NOT_EXC_MATCH;
-    pc[1] = (uint8_t)reg;
-    write_uint16(&pc[2], 0);
-    label->bound = 0;
-    label->offset = pc - c->unit->instr.arr;
-}
-
-static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
     if (c->do_not_emit_bytecode) {
@@ -1715,7 +1728,10 @@ emit_label(struct compiler *c, struct bc_label *label)
     }
     assert(delta >= 0);
     uint8_t *jmp =  &c->unit->instr.arr[label->offset];
-    if (jmp[0] == JUMP_IF_NOT_EXC_MATCH) {
+    if (label->has_reg && jmp[0] == WIDE) {
+        write_uint32(&jmp[6], delta);
+    }
+    else if (label->has_reg) {
         write_int16(&jmp[2], delta);
     }
     else {
@@ -2333,8 +2349,12 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
         return;
 
     case TRY_FINALLY:
-        assert(false && "NYI: TryFinally");
-        break;
+        emit_jump2(
+            c,
+            CALL_FINALLY,
+            block->v.TryFinally.reg,
+            multi_label_next(c, block->v.TryFinally.label));
+        return;
 
     case EXCEPT:
         emit1(c, END_EXCEPT, block->v.Except.reg);
@@ -3687,7 +3707,7 @@ compiler_try_except(struct compiler *c, stmt_ty s)
 
         if (handler->v.ExceptHandler.type) {
             compiler_visit_expr(c, handler->v.ExceptHandler.type);
-            emit_jump_if_not_exc_match(c, h->reg, &label);
+            emit_jump2(c, JUMP_IF_NOT_EXC_MATCH, h->reg, &label);
         }
         if (handler->v.ExceptHandler.name) {
             emit1(c, LOAD_FAST, h->reg + 1);
