@@ -1643,7 +1643,6 @@ TARGET(BUILD_TUPLE) {
     if (UNLIKELY(obj == NULL)) {
         goto error;
     }
-    if (_PyObject_IS_IMMORTAL(obj)) abort();
     assert(!_PyObject_IS_IMMORTAL(obj));
     acc = PACK(obj, REFCOUNT_TAG);
     Py_ssize_t base = UImm(0);

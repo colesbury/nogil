@@ -318,6 +318,7 @@ _Py_IDENTIFIER(__qualname__);
 _Py_IDENTIFIER(__class__);
 _Py_IDENTIFIER(__classcell__);
 _Py_IDENTIFIER(__annotations__);
+_Py_static_string(PyId_build_class_instr, "$__build_class__");
 
 // TODO: copy _Py_Mangle from compile.c
 PyAPI_FUNC(PyObject*) _Py_Mangle(PyObject *p, PyObject *name);
@@ -3062,6 +3063,26 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     // return load_name(c, name, Store);
 }
 
+static expr_ty
+ast_Constant(struct compiler *c, PyObject *value)
+{
+    expr_ty e = Constant(value, NULL, c->unit->lineno, 0, 0, 0, c->arena);
+    if (e == NULL) {
+        COMPILER_ERROR(c);
+    }
+    return e;
+}
+
+static expr_ty
+ast_Name(struct compiler *c, PyObject *name)
+{
+    expr_ty e = Name(name, Load, c->unit->lineno, 0, 0, 0, c->arena);
+    if (e == NULL) {
+        COMPILER_ERROR(c);
+    }
+    return e;
+}
+
 static void
 compiler_class(struct compiler *c, stmt_ty s)
 {
@@ -3108,7 +3129,6 @@ compiler_class(struct compiler *c, stmt_ty s)
         /* compile the body proper */
         compiler_body(c, s->v.ClassDef.body);
         /* Return __classcell__ if it is referenced, otherwise return None */
-        printf("c->unit->ste->ste_needs_class_closure = %d\n", c->unit->ste->ste_needs_class_closure);
         if (c->unit->ste->ste_needs_class_closure) {
             /* Store __classcell__ into class namespace & return it */
             PyObject *name = unicode_from_id(c, &PyId___class__);
@@ -3129,33 +3149,26 @@ compiler_class(struct compiler *c, stmt_ty s)
     /* leave the new scope */
     compiler_exit_scope(c);
 
-    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
-    reserve_regs(c, FRAME_EXTRA + 2);
-    emit0(c, LOAD_BUILD_CLASS);
-    emit1(c, STORE_FAST, base - 1);
-    emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
-    emit1(c, STORE_FAST, base);
-    emit1(c, LOAD_CONST, compiler_const(c, s->v.ClassDef.name));
-    emit1(c, STORE_FAST, base + 1);
+    expr_ty func = ast_Name(c, unicode_from_id(c, &PyId_build_class_instr));
 
-    Py_ssize_t n = asdl_seq_LEN(s->v.ClassDef.bases);
-    assert(n <= 253);
-    for (Py_ssize_t i = 0; i < n; i++) {
-        expr_ty b = asdl_seq_GET(s->v.ClassDef.bases, i);
-        expr_to_reg(c, b, base + i + 2);
+    Py_ssize_t num_bases = asdl_seq_LEN(s->v.ClassDef.bases);
+    asdl_seq *args = _Py_asdl_seq_new(2 + num_bases, c->arena);
+    if (args == NULL) {
+        COMPILER_ERROR(c);
     }
 
-    assert(asdl_seq_LEN(s->v.ClassDef.keywords) == 0);
-    emit_call(c, CALL_FUNCTION, base, n + 2);
-    free_regs_above(c, base - FRAME_EXTRA);
+    asdl_seq_SET(args, 0, ast_Constant(c, (PyObject*)c->code));
+    asdl_seq_SET(args, 1, ast_Constant(c, s->v.ClassDef.name));
+    memcpy(&args->elements[2], &s->v.ClassDef.bases->elements[0], num_bases * sizeof(void*));
 
-    /* apply decorators */
-    for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
-        emit1(c, STORE_FAST, deco_base);
-        emit_call(c, CALL_FUNCTION, deco_base, 1);
-        deco_base -= FRAME_EXTRA;
-        free_regs_above(c, deco_base);
+    expr_ty call = Call(func, args, s->v.ClassDef.keywords,
+                        s->lineno, s->col_offset, s->end_lineno,
+                        s->end_col_offset, c->arena);
+    if (call == NULL) {
+        COMPILER_ERROR(c);
     }
+
+    compiler_call(c, call);
 
     /* 7. store into <name> */
     assign_name(c, s->v.ClassDef.name, REG_ACCUMULATOR);
@@ -3414,7 +3427,6 @@ compiler_async_for(struct compiler *c, stmt_ty s)
 static void
 compiler_while(struct compiler *c, stmt_ty s)
 {
-//     basicblock *loop, *orelse, *end, *anchor = NULL;
     int constant = expr_constant(s->v.While.test);
 
     if (constant == 0) {
@@ -3461,41 +3473,6 @@ compiler_while(struct compiler *c, stmt_ty s)
     }
 
     emit_multi_label(c, &break_label);
-
-
-//     if (loop == NULL || end == NULL)
-//         return 0;
-//     if (s->v.While.orelse) {
-//         orelse = compiler_new_block(c);
-//         if (orelse == NULL)
-//             return 0;
-//     }
-//     else
-//         orelse = NULL;
-
-//     compiler_use_next_block(c, loop);
-//     if (!compiler_push_fblock(c, WHILE_LOOP, loop, end, NULL))
-//         return 0;
-//     if (constant == -1) {
-//         if (!compiler_jump_if(c, s->v.While.test, anchor, 0))
-//             return 0;
-//     }
-//     VISIT_SEQ(c, stmt, s->v.While.body);
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, loop);
-
-//     /* XXX should the two POP instructions be in a separate block
-//        if there is no else clause ?
-//     */
-
-//     if (constant == -1)
-//         compiler_use_next_block(c, anchor);
-//     compiler_pop_fblock(c, WHILE_LOOP, loop);
-
-//     if (orelse != NULL) /* what if orelse is just pass? */
-//         VISIT_SEQ(c, stmt, s->v.While.orelse);
-//     compiler_use_next_block(c, end);
-
-//     return 1;
 }
 
 static void
@@ -4351,6 +4328,12 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
 //         }
 //         return 1;
 //     }
+    if (kind == Tuple_kind && n == 0) {
+        PyObject *empty = PyTuple_New(0);
+        emit1(c, LOAD_CONST, compiler_new_const(c, empty));
+        return;
+    }
+
     int build_op  = (kind == Set_kind) ? BUILD_SET  : BUILD_LIST;
     int extend_op = (kind == Set_kind) ? SET_UPDATE : LIST_EXTEND;
     int append_op = (kind == Set_kind) ? SET_ADD    : LIST_APPEND;
@@ -4817,15 +4800,46 @@ compiler_call(struct compiler *c, expr_ty e)
     }
 
     int flags = nargs | (nkwds << 8);
-    Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
+    Py_ssize_t r = c->unit->next_register;
+    Py_ssize_t base = r + FRAME_EXTRA;
+    if (nkwds > 0) {
+        base += nkwds + 1;
+    }
+
+    // store the function
     expr_to_reg(c, func, base - 1);
+
+    // store the positional arguments
     for (Py_ssize_t i = 0; i < nargs; i++) {
         expr_ty elt = asdl_seq_GET(args, i);
         assert(elt->kind != Starred_kind);
         expr_to_reg(c, elt, base + i);
     }
+
+    // store the keyword arguments
+    for (Py_ssize_t i = 0; i < nkwds; i++) {
+        keyword_ty kwd = asdl_seq_GET(keywords, i);
+        expr_to_reg(c, kwd->value, r + i);
+    }
+
+    if (nkwds > 0) {
+        PyObject *kwnames = PyTuple_New(nkwds);
+        if (kwnames == NULL) {
+            COMPILER_ERROR(c);
+        }
+        for (Py_ssize_t i = 0; i < nkwds; i++) {
+            keyword_ty kwd = asdl_seq_GET(keywords, i);
+            PyObject *name = kwd->arg;
+            Py_INCREF(name);
+            PyTuple_SET_ITEM(kwnames, i, name);
+        }
+        int32_t const_slot = compiler_new_const(c, kwnames);
+        emit1(c, LOAD_CONST, const_slot);
+        emit1(c, STORE_FAST, r + nkwds);
+    }
+
     emit_call(c, CALL_FUNCTION, base, flags);
-    c->unit->next_register = base - FRAME_EXTRA;
+    free_regs_above(c, r);
 }
 
 static void
@@ -4927,112 +4941,6 @@ compiler_formatted_value(struct compiler *c, expr_ty e)
 //         }
 //         ADDOP_I(c, BUILD_MAP, n);
 //     }
-//     return 1;
-// }
-
-// /* shared code between compiler_call and compiler_class */
-// static int
-// compiler_call_helper(struct compiler *c,
-//                      int n, /* Args already pushed */
-//                      asdl_seq *args,
-//                      asdl_seq *keywords)
-// {
-//     Py_ssize_t i, nseen, nelts, nkwelts;
-
-//     nelts = asdl_seq_LEN(args);
-//     nkwelts = asdl_seq_LEN(keywords);
-
-//     for (i = 0; i < nelts; i++) {
-//         expr_ty elt = asdl_seq_GET(args, i);
-//         if (elt->kind == Starred_kind) {
-//             goto ex_call;
-//         }
-//     }
-//     for (i = 0; i < nkwelts; i++) {
-//         keyword_ty kw = asdl_seq_GET(keywords, i);
-//         if (kw->arg == NULL) {
-//             goto ex_call;
-//         }
-//     }
-
-//     /* No * or ** args, so can use faster calling sequence */
-//     for (i = 0; i < nelts; i++) {
-//         expr_ty elt = asdl_seq_GET(args, i);
-//         assert(elt->kind != Starred_kind);
-//         VISIT(c, expr, elt);
-//     }
-//     if (nkwelts) {
-//         PyObject *names;
-//         VISIT_SEQ(c, keyword, keywords);
-//         names = PyTuple_New(nkwelts);
-//         if (names == NULL) {
-//             return 0;
-//         }
-//         for (i = 0; i < nkwelts; i++) {
-//             keyword_ty kw = asdl_seq_GET(keywords, i);
-//             Py_INCREF(kw->arg);
-//             PyTuple_SET_ITEM(names, i, kw->arg);
-//         }
-//         ADDOP_LOAD_CONST_NEW(c, names);
-//         ADDOP_I(c, CALL_FUNCTION_KW, n + nelts + nkwelts);
-//         return 1;
-//     }
-//     else {
-//         ADDOP_I(c, CALL_FUNCTION, n + nelts);
-//         return 1;
-//     }
-
-// ex_call:
-
-//     /* Do positional arguments. */
-//     if (n ==0 && nelts == 1 && ((expr_ty)asdl_seq_GET(args, 0))->kind == Starred_kind) {
-//         VISIT(c, expr, ((expr_ty)asdl_seq_GET(args, 0))->v.Starred.value);
-//     }
-//     else if (starunpack_helper(c, args, n, BUILD_LIST,
-//                                  LIST_APPEND, LIST_EXTEND, 1) == 0) {
-//         return 0;
-//     }
-//     /* Then keyword arguments */
-//     if (nkwelts) {
-//         /* Has a new dict been pushed */
-//         int have_dict = 0;
-
-//         nseen = 0;  /* the number of keyword arguments on the stack following */
-//         for (i = 0; i < nkwelts; i++) {
-//             keyword_ty kw = asdl_seq_GET(keywords, i);
-//             if (kw->arg == NULL) {
-//                 /* A keyword argument unpacking. */
-//                 if (nseen) {
-//                     if (!compiler_subkwargs(c, keywords, i - nseen, i)) {
-//                         return 0;
-//                     }
-//                     have_dict = 1;
-//                     nseen = 0;
-//                 }
-//                 if (!have_dict) {
-//                     ADDOP_I(c, BUILD_MAP, 0);
-//                     have_dict = 1;
-//                 }
-//                 VISIT(c, expr, kw->value);
-//                 ADDOP_I(c, DICT_MERGE, 1);
-//             }
-//             else {
-//                 nseen++;
-//             }
-//         }
-//         if (nseen) {
-//             /* Pack up any trailing keyword arguments. */
-//             if (!compiler_subkwargs(c, keywords, nkwelts - nseen, nkwelts)) {
-//                 return 0;
-//             }
-//             if (have_dict) {
-//                 ADDOP_I(c, DICT_MERGE, 1);
-//             }
-//             have_dict = 1;
-//         }
-//         assert(have_dict);
-//     }
-//     ADDOP_I(c, CALL_FUNCTION_EX, nkwelts > 0);
 //     return 1;
 // }
 
@@ -5675,6 +5583,11 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
         compiler_call(c, e);
         break;
     case Constant_kind:
+        if (PyCode2_Check(e->v.Constant.value)) {
+            // hack to support class
+            emit1(c, MAKE_FUNCTION, compiler_const(c, e->v.Constant.value));
+            break;
+        }
         emit1(c, LOAD_CONST, compiler_const(c, e->v.Constant.value));
         break;
     case JoinedStr_kind:
@@ -5700,6 +5613,11 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     }
     case Name_kind:
         assert(e->v.Name.ctx == Load);
+        if (e->v.Name.id == PyId_build_class_instr.object) {
+            // hack to support class
+            emit0(c, LOAD_BUILD_CLASS);
+            break;
+        }
         load_name(c, e->v.Name.id);
         break;
     case List_kind:
@@ -6062,6 +5980,7 @@ compiler_slice(struct compiler *c, slice_ty s)
             compiler_slice(c, sub);
             emit1(c, STORE_FAST, reserve_regs(c, 1));
         }
+        assert(n > 0);
         emit2(c, BUILD_TUPLE, base, n);
         c->unit->next_register = base;
         return;
