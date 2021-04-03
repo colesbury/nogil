@@ -274,7 +274,6 @@ static void clear_name(struct compiler *c, PyObject *name);
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
 static void compiler_visit_stmt(struct compiler *, stmt_ty);
-// static int compiler_visit_keyword(struct compiler *, keyword_ty);
 static void compiler_visit_expr(struct compiler *, expr_ty);
 static void compiler_augassign(struct compiler *, stmt_ty);
 static void compiler_annassign(struct compiler *, stmt_ty);
@@ -5330,13 +5329,6 @@ compiler_await(struct compiler *c, expr_ty e)
     clear_reg(c, reg);
 }
 
-// static int
-// compiler_visit_keyword(struct compiler *c, keyword_ty k)
-// {
-//     VISIT(c, expr, k->value);
-//     return 1;
-// }
-
 /* Test whether expression is constant.  For constants, report
    whether they are true or false.
 
@@ -5351,23 +5343,6 @@ expr_constant(expr_ty e)
     }
     return -1;
 }
-
-// static int
-// compiler_with_except_finish(struct compiler *c) {
-//     basicblock *exit;
-//     exit = compiler_new_block(c);
-//     if (exit == NULL)
-//         return 0;
-//     ADDOP_JABS(c, POP_JUMP_IF_TRUE, exit);
-//     ADDOP(c, RERAISE);
-//     compiler_use_next_block(c, exit);
-//     ADDOP(c, POP_TOP);
-//     ADDOP(c, POP_TOP);
-//     ADDOP(c, POP_TOP);
-//     ADDOP(c, POP_EXCEPT);
-//     ADDOP(c, POP_TOP);
-//     return 1;
-// }
 
 /*
    Implements the async with statement.
