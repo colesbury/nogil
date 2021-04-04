@@ -200,6 +200,7 @@ struct compiler_unit {
     PyObject *varnames;  /* local variables */
     struct growable_table cellvars;
     struct growable_table freevars;
+    struct growable_table defaults;
     PyObject *metadata;  /* hints for global loads */
 
     PyObject *private;        /* for private name mangling */
@@ -293,6 +294,7 @@ static void compiler_async_for(struct compiler *, stmt_ty);
 static void compiler_call(struct compiler *c, expr_ty e);
 static void compiler_try_except(struct compiler *, stmt_ty);
 static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
+static void compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_t base);
 
 static void *
 table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
@@ -597,9 +599,6 @@ static void
 add_cellvar(struct compiler *c, PyObject *name)
 {
     Py_ssize_t reg = add_variable(c, name);
-    if (strcmp(PyUnicode_AsUTF8(name), "__class__") == 0) {
-        printf("%s -> %zd\n", PyUnicode_AsUTF8(name), reg);
-    }
     struct cellvar *cv = TABLE_NEXT(c, &c->unit->cellvars);
     cv->name = name;
     cv->reg = reg;
@@ -715,6 +714,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->blocks.unit_size = sizeof(struct fblock);
     u->except_handlers.unit_size = sizeof(ExceptionHandler);
     u->freevars.unit_size = sizeof(struct freevar);
+    u->defaults.unit_size = sizeof(struct freevar);
     u->cellvars.unit_size = sizeof(struct cellvar);
     u->reachable = true;
     u->scope_type = scope_type;
@@ -2946,25 +2946,60 @@ compiler_visit_annexpr(struct compiler *c, expr_ty annotation)
 // }
 
 static Py_ssize_t
-compiler_default_arguments(struct compiler *c, arguments_ty args)
+defaults_to_regs(struct compiler *c, arguments_ty args)
 {
-    Py_ssize_t funcflags = 0;
-    if (args->defaults && asdl_seq_LEN(args->defaults) > 0) {
-        PyErr_Format(PyExc_RuntimeError, "compiler_visit_defaults NYI");
-        COMPILER_ERROR(c);
-        // compiler_visit_defaults(c, args);
-        // funcflags |= 0x01;
+    asdl_seq *defaults = args->defaults;
+    asdl_seq *kw_defaults = args->kw_defaults;
+
+    Py_ssize_t base = c->unit->next_register;
+    for (Py_ssize_t i = 0, n = asdl_seq_LEN(defaults); i < n; i++) {
+        expr_ty e = asdl_seq_GET(defaults, i);
+        expr_to_reg(c, e, base + i);
     }
-    if (args->kwonlyargs) {
-        PyErr_Format(PyExc_RuntimeError, "compiler_visit_kwonlydefaults NYI");
-        COMPILER_ERROR(c);
-        // int res = compiler_visit_kwonlydefaults(c, args->kwonlyargs,
-        //                                         args->kw_defaults);
-        // if (res > 0) {
-        //     funcflags |= 0x02;
-        // }
+
+    Py_ssize_t kw_base = base + asdl_seq_LEN(defaults);
+    for (Py_ssize_t i = 0, n = asdl_seq_LEN(kw_defaults); i < n; i++) {
+        expr_ty e = asdl_seq_GET(kw_defaults, i);
+        expr_to_reg(c, e, kw_base + i);
     }
-    return funcflags;
+
+    return base;
+}
+
+static void
+compiler_bind_defaults_ex(struct compiler *c, asdl_seq *args,
+                          Py_ssize_t base, Py_ssize_t n)
+{
+    Py_ssize_t offset = asdl_seq_LEN(args) - n;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        arg_ty arg = asdl_seq_GET(args, i + offset);
+        PyObject *name = mangle(c, arg->arg);
+
+        struct freevar *fv = TABLE_NEXT(c, &c->unit->defaults);
+        fv->name = arg->arg;
+        fv->reg = compiler_varname(c, name);
+        fv->parent_reg = base + i;
+    }
+}
+
+static void
+compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_t base)
+{
+    Py_ssize_t ndefaults = asdl_seq_LEN(a->defaults);
+    Py_ssize_t nargs = asdl_seq_LEN(a->args);
+    Py_ssize_t nkwddefaults = asdl_seq_LEN(a->kw_defaults);
+
+    if (ndefaults > nargs) {
+        Py_ssize_t n = ndefaults - nargs;
+        compiler_bind_defaults_ex(c, a->posonlyargs, base, n);
+        base += n;
+        ndefaults -= n;
+    }
+
+    compiler_bind_defaults_ex(c, a->args, base, ndefaults);
+    base += ndefaults;
+
+    compiler_bind_defaults_ex(c, a->kwonlyargs, base, nkwddefaults);
 }
 
 static void
@@ -2976,7 +3011,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     identifier name;
     asdl_seq* decos;
     asdl_seq *body;
-    Py_ssize_t i, funcflags, deco_base;
+    Py_ssize_t i, funcflags, deco_base, defaults_base;
     // int annotations;
     int scope_type;
     int firstlineno;
@@ -3010,17 +3045,12 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
         firstlineno = ((expr_ty)asdl_seq_GET(decos, 0))->lineno;
     }
 
-    funcflags = compiler_default_arguments(c, args); // FIXME
-    (void)funcflags; (void)qualname; (void)returns;
-    // annotations = compiler_visit_annotations(c, args, returns);
-    // if (annotations == 0) {
-    //     return 0;
-    // }
-    // else if (annotations > 0) {
-    //     funcflags |= 0x04;
-    // }
+    // discharge default values to registers in parent scope
+    defaults_base = defaults_to_regs(c, args);
 
     compiler_enter_scope(c, name, scope_type, (void *)s, firstlineno);
+
+    compiler_bind_defaults(c, args, defaults_base);
 
     /* if not -OO mode, add docstring */
     if (c->optimize < 2) {
@@ -3037,6 +3067,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     compiler_exit_scope(c);
 
     emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
+    free_regs_above(c, defaults_base);
 
     qualname = c->unit->qualname;
     // Py_INCREF(qualname);
@@ -3235,16 +3266,20 @@ compiler_lambda(struct compiler *c, expr_ty e)
     PyObject *qualname;
     _Py_static_string(PyId_lambda, "<lambda>");
     PyObject *name;
-    Py_ssize_t funcflags;
+    Py_ssize_t defaults_base;
     arguments_ty args = e->v.Lambda.args;
     int is_generator;
     assert(e->kind == Lambda_kind);
 
-    funcflags = compiler_default_arguments(c, args);
+    // discharge default values to registers in parent scope
+    defaults_base = defaults_to_regs(c, args);
 
     name = unicode_from_id(c, &PyId_lambda);
     compiler_enter_scope(c, name, COMPILER_SCOPE_LAMBDA,
                          (void *)e, e->lineno);
+
+    // default values are treated as freevars in the function scope
+    compiler_bind_defaults(c, args, defaults_base);
 
     /* Make None the first constant, so the lambda can't have a
        docstring. */
@@ -6498,7 +6533,7 @@ makecode(struct compiler *c)
     Py_ssize_t niconsts = 0;
     Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
     Py_ssize_t ncells = c->unit->cellvars.offset;
-    Py_ssize_t ncaptures = c->unit->freevars.offset;;
+    Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
     Py_ssize_t header_size;
     uint8_t header[OP_SIZE_WIDE_FUNC_HEADER];
@@ -6517,7 +6552,7 @@ makecode(struct compiler *c)
     co->co_posonlyargcount = c->unit->posonlyargcount;
     co->co_totalargcount = c->unit->kwonlyargcount + c->unit->argcount;
     co->co_nlocals = c->unit->nlocals;
-    // co->co_ndefaultargs = ndefaultargs;
+    co->co_ndefaultargs = c->unit->defaults.offset;
     co->co_flags = compute_code_flags(c);
     co->co_framesize = c->unit->max_registers;
     co->co_varnames = dict_keys_as_tuple(c, c->unit->varnames);
@@ -6574,17 +6609,23 @@ makecode(struct compiler *c)
     if (co->co_freevars == NULL) {
         COMPILER_ERROR(c);
     }
+    Py_ssize_t ndefaults = c->unit->defaults.offset;
     for (Py_ssize_t i = 0; i < ncaptures; i++) {
-        struct freevar *fv = TABLE_ENTRY(&c->unit->freevars, i);
+        struct freevar *fv = (
+            i < ndefaults
+            ? TABLE_ENTRY(&c->unit->defaults, i)
+            : TABLE_ENTRY(&c->unit->freevars, i - ndefaults));
         co->co_free2reg[i*2+0] = fv->parent_reg;
         co->co_free2reg[i*2+1] = fv->reg;
         Py_INCREF(fv->name);
         PyTuple_SET_ITEM(co->co_freevars, i, fv->name);
     }
 
+    // Insert line number table entry for FUNC_HEADER prefix
     char *lnotab = TABLE_ENTRY(&c->unit->linenos.table, 0);
     lnotab[0] = header_size;
     lnotab[1] = 0;
+
     PyObject *linenos = PyBytes_FromStringAndSize(
         c->unit->linenos.table.arr,
         c->unit->linenos.table.offset * 2);
