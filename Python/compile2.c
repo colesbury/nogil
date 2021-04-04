@@ -1866,7 +1866,6 @@ expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
         reserve_regs(c, reg - c->unit->next_register + 1);
     }
 }
-
 static Py_ssize_t
 expr_discharge(struct compiler *c, expr_ty e)
 {
@@ -1892,6 +1891,18 @@ expr_to_any_reg(struct compiler *c, expr_ty e)
     }
     return reg;
 }
+
+static Py_ssize_t
+slice_to_any_reg(struct compiler *c, slice_ty s)
+{
+    if (s->kind == Index_kind) {
+        return expr_to_any_reg(c, s->v.Index.value);
+    }
+    compiler_slice(c, s);
+    Py_ssize_t reg = reserve_regs(c, 1);
+    emit1(c, STORE_FAST, reg);
+}
+
 
 static void
 to_accumulator(struct compiler *c, Py_ssize_t reg)
@@ -3005,13 +3016,13 @@ compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_t base)
 static void
 compiler_function(struct compiler *c, stmt_ty s, int is_async)
 {
-    PyObject *qualname, *docstring = NULL;
+    PyObject *docstring = NULL;
     arguments_ty args;
     expr_ty returns;
     identifier name;
     asdl_seq* decos;
     asdl_seq *body;
-    Py_ssize_t i, funcflags, deco_base, defaults_base;
+    Py_ssize_t i, deco_base, defaults_base;
     // int annotations;
     int scope_type;
     int firstlineno;
@@ -3069,7 +3080,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
     free_regs_above(c, defaults_base);
 
-    qualname = c->unit->qualname;
+    // FIXME: annotations
     // Py_INCREF(qualname);
     // compiler_exit_scope(c);
     // if (co == NULL) {
@@ -3199,6 +3210,8 @@ compiler_class(struct compiler *c, stmt_ty s)
     }
 
     compiler_call(c, call);
+
+    // fixme: decorators
 
     /* 7. store into <name> */
     assign_name(c, s->v.ClassDef.name, REG_ACCUMULATOR);
@@ -3986,8 +3999,7 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg)
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = PY_SSIZE_T_MAX; // FIXME: need slice to reg
-        // Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
+        Py_ssize_t sub = slice_to_any_reg(c, t->v.Subscript.slice);
         to_accumulator(c, reg);
         emit2(c, STORE_SUBSCR, container, sub);
         clear_reg(c, sub);
@@ -4023,8 +4035,7 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = PY_SSIZE_T_MAX; // FIXME: need slice to reg
-        // Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
+        Py_ssize_t sub = slice_to_any_reg(c, t->v.Subscript.slice);
         compiler_visit_expr(c, value);
         emit2(c, STORE_SUBSCR, container, sub);
         clear_reg(c, sub);
