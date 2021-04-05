@@ -3211,7 +3211,13 @@ compiler_class(struct compiler *c, stmt_ty s)
 
     compiler_call(c, call);
 
-    // fixme: decorators
+    /* decorators */
+    for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
+        emit1(c, STORE_FAST, deco_base);
+        emit_call(c, CALL_FUNCTION, deco_base, 1);
+        deco_base -= FRAME_EXTRA;
+        free_regs_above(c, deco_base);
+    }
 
     /* 7. store into <name> */
     assign_name(c, s->v.ClassDef.name, REG_ACCUMULATOR);
@@ -4080,6 +4086,9 @@ compiler_assign(struct compiler *c, stmt_ty s)
 }
 
 static void
+compiler_delete_seq(struct compiler *c, asdl_seq *seq);
+
+static void
 compiler_delete_expr(struct compiler *c, expr_ty t)
 {
     switch (t->kind) {
@@ -4098,7 +4107,23 @@ compiler_delete_expr(struct compiler *c, expr_ty t)
         clear_reg(c, container);
         break;
     }
+    case Tuple_kind:
+        compiler_delete_seq(c, t->v.Tuple.elts);
+        break;
+    case List_kind:
+        compiler_delete_seq(c, t->v.List.elts);
+        break;
     default: Py_UNREACHABLE();
+    }
+}
+
+static void
+compiler_delete_seq(struct compiler *c, asdl_seq *seq)
+{
+    Py_ssize_t n = asdl_seq_LEN(seq);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        expr_ty e = asdl_seq_GET(seq, i);
+        compiler_delete_expr(c, e);
     }
 }
 
@@ -5687,49 +5712,49 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
 static void
 compiler_augassign(struct compiler *c, stmt_ty s)
 {
-    Py_ssize_t reg1, reg2, reg3, const_slot;
     expr_ty e = s->v.AugAssign.target;
-    expr_ty name;
 
     assert(s->kind == AugAssign_kind);
 
     switch (e->kind) {
-    case Attribute_kind:
-        reg1 = expr_to_any_reg(c, e->v.Attribute.value);
-        const_slot = compiler_const(c, e->v.Attribute.attr);
-        emit2(c, LOAD_ATTR, reg1, const_slot);
-        reg2 = reserve_regs(c, 1);
-        emit1(c, STORE_FAST, reg2);
+    case Attribute_kind: {
+        Py_ssize_t owner = expr_to_any_reg(c, e->v.Attribute.value);
+        Py_ssize_t name_slot = compiler_const(c, e->v.Attribute.attr);
+        emit2(c, LOAD_ATTR, owner, name_slot);
+        Py_ssize_t tmp = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, tmp);
         compiler_visit_expr(c, s->v.AugAssign.value);
-        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg2);
-        emit2(c, STORE_ATTR, reg1, const_slot);
-        clear_reg(c, reg2);
-        clear_reg(c, reg1);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), tmp);
+        emit2(c, STORE_ATTR, owner, name_slot);
+        clear_reg(c, tmp);
+        clear_reg(c, owner);
         break;
-    case Subscript_kind:
-        reg1 = expr_to_any_reg(c, e->v.Subscript.value);
-        assert(false && "NYI slice");
-        // reg2 = expr_to_any_reg(c, e->v.Subscript.slice);
-        emit1(c, LOAD_FAST, reg2);
-        emit1(c, BINARY_SUBSCR, reg1);
-        reg3 = reserve_regs(c, 1);
-        emit1(c, STORE_FAST, reg3);
+    }
+    case Subscript_kind: {
+        Py_ssize_t container = expr_to_any_reg(c, e->v.Subscript.value);
+        Py_ssize_t sub = slice_to_any_reg(c, e->v.Subscript.slice);
+        emit1(c, LOAD_FAST, sub);
+        emit1(c, BINARY_SUBSCR, container);
+        Py_ssize_t tmp = reserve_regs(c, 1);
+        emit1(c, STORE_FAST, tmp);
         compiler_visit_expr(c, s->v.AugAssign.value);
-        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg3);
-        emit2(c, STORE_SUBSCR, reg1, reg2);
-        clear_reg(c, reg3);
-        clear_reg(c, reg2);
-        clear_reg(c, reg1);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), tmp);
+        clear_reg(c, tmp);
+        emit2(c, STORE_SUBSCR, container, sub);
+        clear_reg(c, sub);
+        clear_reg(c, container);
         break;
-    case Name_kind:
-        name = Name(e->v.Name.id, Load, e->lineno, e->col_offset,
-                    e->end_lineno, e->end_col_offset, c->arena);
-        reg1 = expr_to_any_reg(c, name);
+    }
+    case Name_kind: {
+        expr_ty name = Name(e->v.Name.id, Load, e->lineno, e->col_offset,
+                            e->end_lineno, e->end_col_offset, c->arena);
+        Py_ssize_t val = expr_to_any_reg(c, name);
         compiler_visit_expr(c, s->v.AugAssign.value);
-        emit1(c, inplace_binop(c, s->v.AugAssign.op), reg1);
+        emit1(c, inplace_binop(c, s->v.AugAssign.op), val);
         compiler_store(c, e->v.Name.id);
-        clear_reg(c, reg1);
+        clear_reg(c, val);
         break;
+    }
     default:
         PyErr_Format(PyExc_SystemError,
             "invalid node type (%d) for augmented assignment",
