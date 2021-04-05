@@ -1748,31 +1748,31 @@ TARGET(SET_UPDATE) {
 }
 
 TARGET(UNPACK) {
-    // iconstants[UImm(0)] = base, argcnt, argcntafter
+    // UNPACK base, argcnt, argcntafter
     PyObject *seq = AS_OBJ(acc);
-    Py_ssize_t *args = &THIS_CODE()->co_iconstants[UImm(0)];
-    if (LIKELY(args[2] == -1)) {
+    Py_ssize_t argcntafter = UImm(2);
+    if (LIKELY(argcntafter == 0)) {
         if (PyList_CheckExact(seq)) {
-            Py_ssize_t argcnt = args[1];
+            Py_ssize_t argcnt = UImm(1);
             if (LIKELY(PyList_GET_SIZE(seq) == argcnt)) {
                 for (Py_ssize_t i = 0; i != argcnt; i++) {
-                    regs[args[0] + i] = PACK_INCREF(PyList_GET_ITEM(seq, i));
+                    regs[UImm(0) + i] = PACK_INCREF(PyList_GET_ITEM(seq, i));
                 }
                 goto LABEL(unpack_done);
             }
         }
         else if (PyTuple_CheckExact(seq)) {
-            Py_ssize_t argcnt = args[1];
+            Py_ssize_t argcnt = UImm(1);
             if (LIKELY(PyTuple_GET_SIZE(seq) == argcnt)) {
                 for (Py_ssize_t i = 0; i != argcnt; i++) {
-                    regs[args[0] + i] = PACK_INCREF(PyTuple_GET_ITEM(seq, i));
+                    regs[UImm(0) + i] = PACK_INCREF(PyTuple_GET_ITEM(seq, i));
                 }
                 goto LABEL(unpack_done);
             }
         }
     }
     int err;
-    CALL_VM(err = vm_unpack(ts, seq, args[0], args[1], args[2]));
+    CALL_VM(err = vm_unpack(ts, seq, UImm(0), UImm(1), argcntafter - 1));
     if (UNLIKELY(err != 0)) {
         goto error;
     }

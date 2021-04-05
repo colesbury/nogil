@@ -3963,7 +3963,7 @@ assignment_helper(struct compiler *c, asdl_seq *elts)
     Py_ssize_t n = asdl_seq_LEN(elts);
     Py_ssize_t i;
     Py_ssize_t argcnt = n;
-    Py_ssize_t after = -1; // FIXME: make non-negative
+    Py_ssize_t after = 0;
     int seen_star = 0;
     for (i = 0; i < n; i++) {
         expr_ty elt = asdl_seq_GET(elts, i);
@@ -3976,7 +3976,7 @@ assignment_helper(struct compiler *c, asdl_seq *elts)
         }
         seen_star = 1;
         argcnt = i;
-        after = n - i - 1;
+        after = n - i;
     }
     Py_ssize_t base = reserve_regs(c, n);
     emit3(c, UNPACK, base, argcnt, after);
@@ -4015,11 +4015,11 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg)
         break;
     }
     case List_kind:
-        emit1(c, LOAD_FAST, reg);
+        to_accumulator(c, reg);
         assignment_helper(c, t->v.List.elts);
         break;
     case Tuple_kind:
-        emit1(c, LOAD_FAST, reg);
+        to_accumulator(c, reg);
         assignment_helper(c, t->v.Tuple.elts);
         break;
     default:

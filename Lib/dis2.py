@@ -341,7 +341,7 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
         elif bytecode.name == 'COPY':
             return f"{format_reg(imm[0])} <- {format_reg(imm[1])}"
         elif bytecode.name == 'UNPACK':
-            return f'{format_reg(iconstants[imm[0]])} argcnt={iconstants[imm[0]+1]} after={iconstants[imm[0]+2]}'
+            return f'{format_reg(imm[0])} argcnt={imm[1]} after={imm[2]}'
             # return ', '.join(str(x) for x in iconstants[imm[0]:imm[0]+3])
 
         for arg, fmt in zip(imm, bytecode.imm):

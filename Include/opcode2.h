@@ -108,7 +108,7 @@ extern "C" {
     _(GET_ANEXT,                 97,     2,      6) \
     _(END_ASYNC_WITH,            98,     2,      6) \
     _(END_ASYNC_FOR,             99,     2,      6) \
-    _(UNPACK,                   100,     2,      6) \
+    _(UNPACK,                   100,     4,     14) \
     _(MAKE_FUNCTION,            101,     2,      6) \
     _(SETUP_WITH,               102,     2,      6) \
     _(END_WITH,                 103,     2,      6) \

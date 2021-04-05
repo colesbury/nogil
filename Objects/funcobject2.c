@@ -180,8 +180,6 @@ func_descr_get(PyObject *func, PyObject *obj, PyObject *type)
 #define OFF(x) offsetof(PyFunc, x)
 
 static PyMemberDef func_memberlist[] = {
-    // {"__closure__",   T_OBJECT,     OFF(func_closure),
-    //  RESTRICTED|READONLY},
     {"__doc__",       T_OBJECT,     OFF(func_doc), PY_WRITE_RESTRICTED},
     {"__globals__",   T_OBJECT,     OFF(globals),
      RESTRICTED|READONLY},
@@ -395,6 +393,27 @@ func_set_kwdefaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
     // return 0;
 }
 
+
+static PyObject *
+func_get_closure(PyFunc *op, void *Py_UNUSED(ignored))
+{
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_ssize_t n = co->co_nfreevars - co->co_ndefaultargs;
+    if (n <= 0) {
+        Py_RETURN_NONE;
+    }
+    PyObject *closure = PyTuple_New(n);
+    if (closure == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *value = op->freevars[i + co->co_ndefaultargs];
+        Py_INCREF(value);
+        PyTuple_SET_ITEM(closure, i, value);
+    }
+    return closure;
+}
+
 static PyObject *
 func_get_annotations(PyFunc *op, void *Py_UNUSED(ignored))
 {
@@ -431,6 +450,7 @@ static PyGetSetDef func_getsetlist[] = {
      (setter)func_set_defaults},
     {"__kwdefaults__", (getter)func_get_kwdefaults,
      (setter)func_set_kwdefaults},
+    {"__closure__", (getter)func_get_closure, NULL},
     {"__annotations__", (getter)func_get_annotations,
      (setter)func_set_annotations},
     {"__dict__", PyObject_GenericGetDict, PyObject_GenericSetDict},
