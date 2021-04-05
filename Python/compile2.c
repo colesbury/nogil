@@ -373,6 +373,7 @@ compile_object(struct compiler *c, mod_ty mod, PyObject *filename,
         COMPILER_ERROR(c);
     }
     Py_INCREF(filename);
+    printf("compiling %s\n", PyUnicode_AsUTF8(filename));
     c->heap = mi_heap_new();
     c->filename = filename;
     c->arena = arena;
@@ -503,7 +504,7 @@ unicode_from_id(struct compiler *c, _Py_Identifier *id)
     PyObject *s = _PyUnicode_FromId(id);
     if (s == NULL) {
         COMPILER_ERROR(c);
-    } 
+    }
     return s;
 }
 
@@ -762,7 +763,6 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     if (u->scope_type != COMPILER_SCOPE_MODULE) {
         compiler_set_qualname(c, u);
     }
-    c->unit = u;
     c->nestlevel++;
 
     // leave space for FUNC_HEADER in lineno table
@@ -799,59 +799,58 @@ compiler_set_qualname(struct compiler *c, struct compiler_unit *u)
 {
     _Py_static_string(dot, ".");
     _Py_static_string(dot_locals, ".<locals>");
-    PyObject *dot_str, *dot_locals_str;
 
-    dot_str = unicode_from_id(c, &dot);
-    dot_locals_str = unicode_from_id(c, &dot_locals);
+    assert(u->name);
 
-    Py_INCREF(u->name);    
-    u->qualname = u->name;
-
-    if (c->unit != NULL) {
-        int scope;
-        struct compiler_unit *parent = c->unit;
-        PyObject *mangled;
-
-        assert(parent);
-
-        if (u->scope_type == COMPILER_SCOPE_FUNCTION
-            || u->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
-            || u->scope_type == COMPILER_SCOPE_CLASS) {
-            assert(u->name);
-            mangled = mangle(c, u->name);
-            scope = PyST_GetScope(parent->ste, mangled);
-            assert(scope != GLOBAL_IMPLICIT);
-            if (scope == GLOBAL_EXPLICIT) {
-                return;
-            }
-        }
-
-        PyObject *base;
-        if (parent->scope_type == COMPILER_SCOPE_FUNCTION
-            || parent->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
-            || parent->scope_type == COMPILER_SCOPE_LAMBDA) {
-            base = PyUnicode_Concat(parent->qualname, dot_locals_str);
-            if (base == NULL) {
-                COMPILER_ERROR(c);
-            }
-        }
-        else {
-             base = parent->qualname;
-             Py_INCREF(base);
-        }
-
-        PyObject *name = PyUnicode_Concat(base, dot_str);
-        Py_DECREF(base);
-        if (name == NULL) {
-            COMPILER_ERROR(c);
-        }
-
-        PyUnicode_Append(&name, u->name);
-        if (name == NULL) {
-            COMPILER_ERROR(c);
-        }
-        Py_SETREF(u->qualname, name);
+    struct compiler_unit *parent = u->prev;
+    if (parent == NULL || parent->prev == NULL) {
+        // The qualified name is just the name for top-level functions
+        // and classes.
+        Py_INCREF(u->name);
+        u->qualname = u->name;
+        return;
     }
+
+    if (u->scope_type == COMPILER_SCOPE_FUNCTION
+        || u->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
+        || u->scope_type == COMPILER_SCOPE_CLASS) {
+        PyObject *mangled = mangle(c, u->name);
+        int scope = PyST_GetScope(parent->ste, mangled);
+
+        assert(scope != GLOBAL_IMPLICIT);
+        if (scope == GLOBAL_EXPLICIT) {
+            Py_INCREF(u->name);
+            u->qualname = u->name;
+            return;
+        }
+    }
+
+    PyObject *base;
+    if (parent->scope_type == COMPILER_SCOPE_FUNCTION
+        || parent->scope_type == COMPILER_SCOPE_ASYNC_FUNCTION
+        || parent->scope_type == COMPILER_SCOPE_LAMBDA) {
+        PyObject *dot_locals_str = unicode_from_id(c, &dot_locals);
+        base = PyUnicode_Concat(parent->qualname, dot_locals_str);
+        if (base == NULL) {
+            COMPILER_ERROR(c);
+        }
+    }
+    else {
+        base = parent->qualname;
+        Py_INCREF(base);
+    }
+
+    PyObject *name = PyUnicode_Concat(base, unicode_from_id(c, &dot));
+    Py_DECREF(base);
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
+
+    PyUnicode_Append(&name, u->name);
+    if (name == NULL) {
+        COMPILER_ERROR(c);
+    }
+    u->qualname = name;
 }
 
 static bool
@@ -1504,7 +1503,7 @@ next_instr(struct compiler *c, int size)
     if (instr->offset + size >= instr->allocated) {
         resize_array(
             c,
-            (void**)&instr->arr, 
+            (void**)&instr->arr,
             &instr->allocated,
             DEFAULT_INSTR_SIZE,
             sizeof(*instr->arr));
@@ -1780,7 +1779,7 @@ emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
     case GtE:   emit2(c, COMPARE_OP, Py_GE, reg); break;
 
     case Is:    emit1(c, IS_OP, reg); break;
-    case IsNot: emit1(c, IS_OP, reg); 
+    case IsNot: emit1(c, IS_OP, reg);
                 emit0(c, UNARY_NOT_FAST); break;
 
     case In:    emit1(c, CONTAINS_OP, reg); break;
@@ -1901,8 +1900,8 @@ slice_to_any_reg(struct compiler *c, slice_ty s)
     compiler_slice(c, s);
     Py_ssize_t reg = reserve_regs(c, 1);
     emit1(c, STORE_FAST, reg);
+    return reg;
 }
-
 
 static void
 to_accumulator(struct compiler *c, Py_ssize_t reg)
@@ -3098,6 +3097,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
         emit1(c, STORE_FAST, deco_base);
         emit_call(c, CALL_FUNCTION, deco_base, 1);
         deco_base -= FRAME_EXTRA;
+        free_regs_above(c, deco_base);
     }
 
     compiler_store(c, name);
@@ -3500,7 +3500,7 @@ compiler_while(struct compiler *c, stmt_ty s)
     struct multi_label continue_label = MULTI_LABEL_INIT;
     struct fblock *block;
     uint32_t top_offset;
-    
+
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
     top_offset = c->unit->instr.offset;
 
@@ -3793,6 +3793,7 @@ compiler_try_except(struct compiler *c, stmt_ty s)
         }
     }
     emit1(c, END_FINALLY, h->reg);
+    compiler_pop_block(c, block);
     free_regs_above(c, h->reg);
     h->handler_end = c->unit->instr.offset;
     emit_label(c, &orelse);
@@ -3995,6 +3996,7 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg)
         Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
         to_accumulator(c, reg);
         emit2(c, STORE_ATTR, owner, compiler_const(c, t->v.Attribute.attr));
+        clear_reg(c, owner);
         break;
     }
     case Subscript_kind: {
@@ -4031,6 +4033,7 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
         Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
         compiler_visit_expr(c, value);
         emit2(c, STORE_ATTR, owner, compiler_const(c, t->v.Attribute.attr));
+        clear_reg(c, owner);
         break;
     }
     case Subscript_kind: {
@@ -4068,7 +4071,7 @@ compiler_assign(struct compiler *c, stmt_ty s)
         return;
     }
 
-    Py_ssize_t value = expr_to_any_reg(c, s->v.Assign.value); 
+    Py_ssize_t value = expr_to_any_reg(c, s->v.Assign.value);
     for (Py_ssize_t i = 0; i < n; i++) {
         expr_ty target = asdl_seq_GET(targets, i);
         compiler_assign_reg(c, target, value);
@@ -4326,7 +4329,7 @@ compiler_boolop(struct compiler *c, expr_ty e)
         jump_opcode = JUMP_IF_FALSE;
     else
         jump_opcode = JUMP_IF_TRUE;
-    
+
     s = e->v.BoolOp.values;
     n = asdl_seq_LEN(s);
 
@@ -4439,13 +4442,13 @@ compiler_dict(struct compiler *c, expr_ty e)
     Py_ssize_t i, n, reg_dict;
 
     n = asdl_seq_LEN(e->v.Dict.values);
-    reg_dict = reserve_regs(c, 1);
 
     emit1(c, BUILD_MAP, n);
     if (n == 0) {
         return;
     }
 
+    reg_dict = reserve_regs(c, 1);
     emit1(c, STORE_FAST, reg_dict);
 
     for (i = 0; i < n; i++) {
@@ -4497,7 +4500,7 @@ compiler_compare(struct compiler *c, expr_ty e)
     memset(&labels, 0, sizeof(labels));
 
     assert(asdl_seq_LEN(e->v.Compare.ops) > 0);
-    lhs = expr_to_any_reg(c, e->v.Compare.left);    
+    lhs = expr_to_any_reg(c, e->v.Compare.left);
 
     n = asdl_seq_LEN(e->v.Compare.ops);
     for (Py_ssize_t i = 0; i < n; i++) {
@@ -4732,7 +4735,7 @@ varargs_to_reg(struct compiler *c, asdl_seq *args, Py_ssize_t reg)
     if (asdl_seq_LEN(args) == 1) {
         expr_ty e = asdl_seq_GET(args, 0);
         if (e->kind == Starred_kind) {
-            expr_to_reg(c, e, reg);
+            expr_to_reg(c, e->v.Starred.value, reg);
             return;
         }
     }
@@ -4806,7 +4809,7 @@ has_starred(asdl_seq *seq)
             return true;
         }
     }
-    return false; 
+    return false;
 }
 
 static bool
@@ -4818,7 +4821,7 @@ has_varkeywords(asdl_seq *keywords)
             return true;
         }
     }
-    return false; 
+    return false;
 }
 
 static void
@@ -6527,7 +6530,7 @@ dict_keys_as_tuple(struct compiler *c, PyObject *dict)
     tuple = PyTuple_New(PyDict_GET_SIZE(dict));
     if (tuple == NULL) {
         COMPILER_ERROR(c);
-    }  
+    }
     while (PyDict_Next(dict, &pos, &key, &value)) {
         Py_INCREF(key);
         PyTuple_SET_ITEM(tuple, i++, key);

@@ -350,9 +350,12 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
         if (!_PyAST_Optimize(mod, arena, optimize)) {
             return NULL;
         }
-        return (PyCodeObject *)PyAST_CompileObject3(mod, filename, flags, optimize, arena);
+        return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
     }
     else if (flags && (flags->cf_flags & PyCF_NEWER_BYTECODE)) {
+        if (!_PyAST_Optimize(mod, arena, optimize)) {
+            return NULL;
+        }
         return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
     }
     if (!__doc__) {
@@ -738,6 +741,7 @@ compiler_set_qualname(struct compiler *c)
             if (!mangled)
                 return 0;
             scope = PyST_GetScope(parent->u_ste, mangled);
+
             Py_DECREF(mangled);
             assert(scope != GLOBAL_IMPLICIT);
             if (scope == GLOBAL_EXPLICIT)
