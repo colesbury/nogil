@@ -54,6 +54,8 @@
 // - can resize stack (ts->regs)
 // - can raise an exception
 
+static int code_kwonlyargcount(PyCodeObject2 *co);
+
 /*[clinic input]
 module _code2
 class code "PyCodeObject2 *" "&PyCode2_Type"
@@ -71,7 +73,7 @@ align_up(Py_ssize_t size, Py_ssize_t align)
 }
 
 PyCodeObject2 *
-PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
+PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
             Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t nfreevars,
             Py_ssize_t nexc_handlers)
 {
@@ -82,7 +84,6 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
         instr_aligned_size +
         nmeta * sizeof(intptr_t) +
         nconsts * sizeof(PyObject *) +
-        niconsts * sizeof(Py_ssize_t) +
         ncells * sizeof(Py_ssize_t) +
         nfreevars * 2 * sizeof(Py_ssize_t) +
         sizeof(struct _PyHandlerTable) +
@@ -108,10 +109,6 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
     co->co_constants = (PyObject **)ptr;
     ptr += nconsts * sizeof(PyObject *);
     memset(co->co_constants, 0, nconsts * sizeof(PyObject*));
-
-    co->co_niconsts = niconsts;
-    co->co_iconstants = (niconsts == 0 ? NULL : (Py_ssize_t *)ptr);
-    ptr += niconsts * sizeof(Py_ssize_t);
 
     co->co_ncells = ncells;
     co->co_cell2reg = (ncells == 0 ? NULL : (Py_ssize_t *)ptr);
@@ -157,7 +154,6 @@ code.__new__ as code_new
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     free2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
-    iconstants: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
 
 Create a code object.  Not for the faint of heart.
 [clinic start generated code]*/
@@ -169,19 +165,16 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int flags, PyObject *names, PyObject *varnames,
               PyObject *filename, PyObject *name, int firstlineno,
               PyObject *linetable, PyObject *eh_table, PyObject *freevars,
-              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg,
-              PyObject *iconstants)
-/*[clinic end generated code: output=690e6ed609cd33e6 input=68f734207207955d]*/
+              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg)
+/*[clinic end generated code: output=a4f77204e4dcf504 input=a835e37c04c1af73]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
-    Py_ssize_t num_iconstants = iconstants ? PyTuple_GET_SIZE(iconstants) : 0;
 
     PyCodeObject2 *co = PyCode2_New(
         PyBytes_GET_SIZE(bytecode),
         PyTuple_GET_SIZE(consts),
-        num_iconstants,
         nmeta,
         ncells,
         ncaptured,
@@ -230,10 +223,6 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
         PyObject *pair = PyTuple_GET_ITEM(free2reg, i);
         co->co_free2reg[i*2+0] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 0));
         co->co_free2reg[i*2+1] = PyLong_AsSsize_t(PyTuple_GET_ITEM(pair, 1));
-    }
-    co->co_niconsts = num_iconstants;
-    for (Py_ssize_t i = 0; i < num_iconstants; i++) {
-        co->co_iconstants[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(iconstants, i));
     }
 
     struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
@@ -334,11 +323,16 @@ code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
     return PyLong_FromSsize_t(size);
 }
 
+static int
+code_kwonlyargcount(PyCodeObject2 *co)
+{
+    return co->co_totalargcount - co->co_argcount;
+}
+
 static PyObject *
 code_getkwonlyargcount(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
-    Py_ssize_t kwonlyargcount = co->co_totalargcount - co->co_argcount;
-    return PyLong_FromSsize_t(kwonlyargcount);
+    return PyLong_FromLong(code_kwonlyargcount(co));
 }
 
 static PyObject *
@@ -358,24 +352,6 @@ code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
     for (Py_ssize_t i = 0; i != co->co_nconsts; i++) {
         PyObject *c = co->co_constants[i];
         Py_INCREF(c);
-        PyTuple_SET_ITEM(t, i, c);
-    }
-    return t;
-}
-
-static PyObject *
-code_geticonsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
-{
-    PyObject *t = PyTuple_New(co->co_niconsts);
-    if (t == NULL) {
-        return NULL;
-    }
-    for (Py_ssize_t i = 0; i != co->co_niconsts; i++) {
-        PyObject *c = PyLong_FromSsize_t(co->co_iconstants[i]);
-        if (c == NULL) {
-            Py_DECREF(t);
-            return NULL;
-        }
         PyTuple_SET_ITEM(t, i, c);
     }
     return t;
@@ -444,18 +420,101 @@ code_getfree2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
     return t;
 }
 
+/*[clinic input]
+code.replace
+
+    *
+    co_argcount: int(c_default="self->co_argcount") = -1
+    co_posonlyargcount: int(c_default="self->co_posonlyargcount") = -1
+    co_kwonlyargcount: int(c_default="code_kwonlyargcount(self)") = -1
+    co_ndefaultargs: int(c_default="self->co_ndefaultargs") = -1
+    co_nlocals: int(c_default="self->co_nlocals") = -1
+    co_framesize: int(c_default="self->co_framesize") = -1
+    co_nmeta: int(c_default="self->co_nmeta") = -1
+    co_flags: int(c_default="self->co_flags") = -1
+    co_firstlineno: int(c_default="self->co_firstlineno") = -1
+    co_code: object(subclass_of="&PyBytes_Type", c_default="NULL") = None
+    co_consts: object(subclass_of="&PyTuple_Type", c_default="NULL") = None
+    co_varnames: object(subclass_of="&PyTuple_Type", c_default="self->co_varnames") = None
+    co_freevars: object(subclass_of="&PyTuple_Type", c_default="self->co_freevars") = None
+    co_cellvars: object(subclass_of="&PyTuple_Type", c_default="self->co_cellvars") = None
+    co_filename: unicode(c_default="self->co_filename") = None
+    co_name: unicode(c_default="self->co_name") = None
+    co_lnotab: object(subclass_of="&PyBytes_Type", c_default="self->co_lnotab") = None
+
+Return a copy of the code object with new values for the specified fields.
+[clinic start generated code]*/
+
+static PyObject *
+code_replace_impl(PyCodeObject2 *self, int co_argcount,
+                  int co_posonlyargcount, int co_kwonlyargcount,
+                  int co_ndefaultargs, int co_nlocals, int co_framesize,
+                  int co_nmeta, int co_flags, int co_firstlineno,
+                  PyObject *co_code, PyObject *co_consts,
+                  PyObject *co_varnames, PyObject *co_freevars,
+                  PyObject *co_cellvars, PyObject *co_filename,
+                  PyObject *co_name, PyObject *co_lnotab)
+/*[clinic end generated code: output=86146079e706c9f4 input=5cb6d203cfc9397b]*/
+{
+    PyObject *co = NULL;
+    PyObject *eh_table = NULL;
+
+    #define DEFAULT(arg, value) do {                    \
+        arg = (!arg) ? (value) : (Py_INCREF(arg), arg); \
+        if (!arg) goto cleanup;                         \
+    } while (0)
+
+    DEFAULT(co_code, code_getcode(self, NULL));
+    DEFAULT(co_consts, code_getconsts(self, NULL));
+    #undef DEFAULT
+
+    eh_table = code_getexc_handlers(self, NULL);
+    if (eh_table == NULL) goto cleanup;
+
+    PyObject *freevars = NULL, *cellvars = NULL, *cell2reg = NULL, *free2reg = NULL;
+    co = code_new_impl(
+        &PyCode2_Type,
+        co_code,
+        co_consts,
+        co_argcount,
+        co_posonlyargcount,
+        co_kwonlyargcount,
+        co_ndefaultargs,
+        co_nlocals,
+        co_framesize,
+        co_nmeta,
+        co_flags,
+        NULL,
+        co_varnames,
+        co_filename,
+        co_name,
+        co_firstlineno,
+        co_lnotab,
+        eh_table,
+        freevars,
+        cellvars,
+        cell2reg,
+        free2reg);
+
+cleanup:
+    Py_XDECREF(co_code);
+    Py_XDECREF(co_consts);
+    Py_XDECREF(eh_table);
+    return co;
+}
+
 static struct PyMethodDef code_methods[] = {
     {"__sizeof__", (PyCFunction)code_sizeof, METH_NOARGS},
+    CODE_REPLACE_METHODDEF
     {NULL, NULL}                /* sentinel */
 };
 
 #define OFF(x) offsetof(PyCodeObject2, x)
 
 static PyMemberDef code_memberlist[] = {
-    {"co_argcount",     T_PYSSIZET,          OFF(co_argcount),        READONLY},
+    {"co_argcount",             T_PYSSIZET,  OFF(co_argcount),        READONLY},
     {"co_posonlyargcount",      T_PYSSIZET,  OFF(co_posonlyargcount), READONLY},
-    // {"co_kwonlyargcount",       T_INT,  OFF(co_kwonlyargcount),  READONLY},
-    {"co_totalargcount",T_PYSSIZET,     OFF(co_totalargcount),   READONLY},
+    {"co_totalargcount",        T_PYSSIZET,  OFF(co_totalargcount),   READONLY},
     {"co_nlocals",      T_PYSSIZET,     OFF(co_nlocals),         READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_packed_flags", T_INT,          OFF(co_packed_flags),    READONLY},
@@ -464,7 +523,7 @@ static PyMemberDef code_memberlist[] = {
     {"co_cellvars",     T_OBJECT,       OFF(co_cellvars),        READONLY},
     {"co_filename",     T_OBJECT,       OFF(co_filename),        READONLY},
     {"co_name",         T_OBJECT,       OFF(co_name),            READONLY},
-    {"co_firstlineno", T_INT,           OFF(co_firstlineno),     READONLY},
+    {"co_firstlineno",  T_INT,          OFF(co_firstlineno),     READONLY},
     {"co_lnotab",       T_OBJECT,       OFF(co_lnotab),          READONLY},
     {NULL}      /* Sentinel */
 };
@@ -473,7 +532,6 @@ static PyGetSetDef code_getset[] = {
     {"co_kwonlyargcount", (getter)code_getkwonlyargcount, (setter)NULL, NULL, NULL},
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
-    {"co_iconsts", (getter)code_geticonsts, (setter)NULL, "integer constants", NULL},
     {"co_exc_handlers", (getter)code_getexc_handlers, (setter)NULL, "exception handlers", NULL},
     {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "cell variables", NULL},
     {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "free variables", NULL},

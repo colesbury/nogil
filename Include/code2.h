@@ -83,12 +83,10 @@ typedef struct _PyCodeObject2 {
     Py_ssize_t co_framesize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* size of instructions (in bytes) */
     Py_ssize_t co_nconsts;      /* number of constants */
-    Py_ssize_t co_niconsts;     /* number of integer constants */
     Py_ssize_t co_ncells;
     Py_ssize_t co_nfreevars;    /* number of captured free variables (including default args) */
 
     PyObject **co_constants;    /* pointer to constants array */
-    Py_ssize_t *co_iconstants;  /* integer constants */
     Py_ssize_t *co_cell2reg;
     Py_ssize_t *co_free2reg;
 
@@ -108,7 +106,7 @@ typedef struct _PyCodeObject2 {
 
 // PyAPI_FUNC(PyCodeObject2 *) PyCode2_New(PyObject *bytecode, PyObject *consts);
 PyAPI_FUNC(PyCodeObject2 *)
-PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts, Py_ssize_t niconsts,
+PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
             Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t ncaptured,
             Py_ssize_t nexc_handlers);
 

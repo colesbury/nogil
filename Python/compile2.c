@@ -373,9 +373,12 @@ compile_object(struct compiler *c, mod_ty mod, PyObject *filename,
     if (!c->const_cache) {
         COMPILER_ERROR(c);
     }
-    Py_INCREF(filename);
-    printf("compiling %s\n", PyUnicode_AsUTF8(filename));
     c->heap = mi_heap_new();
+    if (!c->heap) {
+        COMPILER_ERROR(c);
+    }
+    printf("compiling %s\n", PyUnicode_AsUTF8(filename));
+    Py_INCREF(filename);
     c->filename = filename;
     c->arena = arena;
     c->optimize = optimize;
@@ -1924,15 +1927,6 @@ slice_to_any_reg(struct compiler *c, slice_ty s)
     Py_ssize_t reg = reserve_regs(c, 1);
     emit1(c, STORE_FAST, reg);
     return reg;
-}
-
-static void
-to_accumulator(struct compiler *c, Py_ssize_t reg)
-{
-    if (reg != REG_ACCUMULATOR) {
-        assert(reg >= 0 && reg < c->unit->max_registers);
-        emit1(c, LOAD_FAST, reg);
-    }
 }
 
 // static int
@@ -3494,8 +3488,7 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     block->v.ForLoop.reg = reg;
     block->v.ForLoop.break_label = &break_label;
     block->v.ForLoop.continue_label = &continue_label;
-    h = TABLE_NEXT(c, &c->unit->except_handlers);
-    h->start = top_offset = c->unit->instr.offset;
+    top_offset = c->unit->instr.offset;
 
     compiler_assign_acc(c, s->v.AsyncFor.target);
     compiler_visit_stmts(c, s->v.AsyncFor.body);
@@ -3508,8 +3501,10 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     clear_reg(c, reg + 1);
     emit_bwd_jump(c, JUMP, top_offset);
 
-    h->reg = reserve_regs(c, 2);
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = top_offset;
     h->handler = c->unit->instr.offset;
+    h->reg = reserve_regs(c, 2);
     emit1(c, END_ASYNC_FOR, reg);
     h->handler_end = c->unit->instr.offset;
     free_regs_above(c, reg);
@@ -3687,11 +3682,10 @@ static void
 compiler_try_finally(struct compiler *c, stmt_ty s)
 {
     struct fblock *block;
-    ExceptionHandler *handler;
+    ExceptionHandler *h;
     struct multi_label finally_label = MULTI_LABEL_INIT;
 
-    handler = TABLE_NEXT(c, &c->unit->except_handlers);
-    handler->start = c->unit->instr.offset;
+    uint32_t start = c->unit->instr.offset;
 
     // Try body
     block = compiler_push_block(c, TRY_FINALLY);
@@ -3709,13 +3703,15 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     // Finally body
     block = compiler_push_block(c, FINALLY);
     block->v.Finally.reg = reserve_regs(c, 2);
-    handler->handler = c->unit->instr.offset;
-    handler->reg = block->v.Finally.reg;
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = start;
+    h->handler = c->unit->instr.offset;
+    h->reg = block->v.Finally.reg;
 
     emit_multi_label(c, &finally_label);
     compiler_visit_stmts(c, s->v.Try.finalbody);
     emit1(c, END_FINALLY, block->v.Finally.reg);
-    handler->handler_end = c->unit->instr.offset;
+    h->handler_end = c->unit->instr.offset;
     free_regs_above(c, block->v.Finally.reg);
     compiler_pop_block(c, block);
 }
@@ -3745,14 +3741,15 @@ compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
     compiler_store(c, name);
 
     // start an inner exception handler around the handler body
-    h = TABLE_NEXT(c, &c->unit->except_handlers);
-    h->start = c->unit->instr.offset;
+    uint32_t start = c->unit->instr.offset;
     block = compiler_push_block(c, EXCEPT_HANDLER);
     block->v.ExceptHandler.name = name;
 
     compiler_visit_stmts(c, handler->v.ExceptHandler.body);
 
     compiler_pop_block(c, block);
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = start;
     h->handler = c->unit->instr.offset;
     h->reg = reserve_regs(c, 2);
 
@@ -3802,8 +3799,7 @@ compiler_try_except(struct compiler *c, stmt_ty s)
     ExceptionHandler *h;
     struct fblock *block;
 
-    h = TABLE_NEXT(c, &c->unit->except_handlers);
-    h->start = c->unit->instr.offset;
+    uint32_t start = c->unit->instr.offset;
 
     // Try body
     compiler_visit_stmts(c, s->v.Try.body);
@@ -3811,8 +3807,11 @@ compiler_try_except(struct compiler *c, stmt_ty s)
 
     // Handler bodies
     block = compiler_push_block(c, EXCEPT);
-    block->v.Except.reg = h->reg = reserve_regs(c, 2);
+    block->v.Except.reg = reserve_regs(c, 2);
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = start;
     h->handler = c->unit->instr.offset;
+    h->reg = block->v.Except.reg;
 
     Py_ssize_t n = asdl_seq_LEN(s->v.Try.handlers);
     for (Py_ssize_t i = 0; i < n; i++) {
@@ -3883,7 +3882,7 @@ compiler_import_as(struct compiler *c, identifier name, identifier asname)
     if (dot != -1) {
         /* Consume the base module name to get the first attribute */
         Py_ssize_t reg = reserve_regs(c, 1);
-        while (1) {
+        while (dot != -1) {
             Py_ssize_t pos = dot + 1;
             PyObject *attr;
             Py_ssize_t const_slot;
@@ -5571,8 +5570,7 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
 
     block = compiler_push_block(c, ASYNC_WITH);
     block->v.AsyncWith.reg = with_reg;
-    h = TABLE_NEXT(c, &c->unit->except_handlers);
-    h->start = c->unit->instr.offset;
+    uint32_t start = c->unit->instr.offset;
 
     if (item->optional_vars) {
         compiler_assign_acc(c, item->optional_vars);
@@ -5591,8 +5589,10 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
 
     // [ mgr, __exit__, <link>, <exc> ]
     //   ^with_reg      ^link_reg
-    h->reg = link_reg = reserve_regs(c, 2);
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = start;
     h->handler = c->unit->instr.offset;
+    h->reg = link_reg = reserve_regs(c, 2);
     assert(link_reg == with_reg + 2);
 
     emit1(c, END_ASYNC_WITH, with_reg);
@@ -5629,8 +5629,6 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
 
     assert(s->kind == With_kind);
 
-    h = TABLE_NEXT(c, &c->unit->except_handlers);
-
     // <code for EXPR>
     compiler_visit_expr(c, item->context_expr);
 
@@ -5641,7 +5639,7 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
 
     block = compiler_push_block(c, WITH);
     block->v.With.reg = with_reg;
-    h->start = c->unit->instr.offset;
+    uint32_t start = c->unit->instr.offset;
 
     // Assign to VAR
     if (item->optional_vars) {
@@ -5664,8 +5662,10 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
     // value indicates normal exit (no exception). A -1 value
     // indicates an exception. The exception (if it exists) is stored
     // in $link_reg + 1.
-    h->reg = link_reg = reserve_regs(c, 2);
+    h = TABLE_NEXT(c, &c->unit->except_handlers);
+    h->start = start;
     h->handler = c->unit->instr.offset;
+    h->reg = link_reg = reserve_regs(c, 2);
     assert(link_reg == with_reg + 2);
 
     emit1(c, END_WITH, with_reg);
@@ -6670,7 +6670,6 @@ makecode(struct compiler *c)
     PyCodeObject2 *co;
     Py_ssize_t instr_size = c->unit->instr.offset;
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
-    Py_ssize_t niconsts = 0;
     Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
     Py_ssize_t ncells = c->unit->cellvars.offset;
     Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
@@ -6682,7 +6681,7 @@ makecode(struct compiler *c)
     instr_size += header_size;
 
     co = PyCode2_New(
-        instr_size, nconsts, niconsts, nmeta,
+        instr_size, nconsts, nmeta,
         ncells, ncaptures, nexc_handlers);
     if (co == NULL) {
         COMPILER_ERROR(c);

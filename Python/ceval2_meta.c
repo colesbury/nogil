@@ -25,6 +25,8 @@
 #include <ctype.h>
 #include <alloca.h>
 
+static struct ThreadState *current_thread_state(void);
+
 static PyObject *
 vm_object_steal(Register* addr) {
     Register reg = *addr;
@@ -172,6 +174,24 @@ vm_stack_walk(struct stack_walk *w)
     w->next_offset = w->offset - frame_delta;
     w->frame_link = frame_link;
     return 1;
+}
+
+void
+vm_dump_stack(void)
+{
+    struct ThreadState *ts = current_thread_state();
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable)) {
+            continue;
+        }
+
+        PyFunc *func = (PyFunc *)callable;
+        fprintf(stderr, "%s\n", PyUnicode_AsUTF8(func->func_name));
+    }
 }
 
 /* returns the currently handled exception or NULL */
@@ -452,8 +472,6 @@ vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
 }
 
 _Py_IDENTIFIER(__builtins__);
-
-static struct ThreadState *current_thread_state(void);
 
 static PyFrameObject *
 new_fake_frame(PyFunc *func, const uint8_t *pc)
@@ -748,14 +766,13 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
         return -1;
     }
 
-    Py_ssize_t top = base + argcnt;
-    if (argcntafter) top += argcntafter + 1;
+    Py_ssize_t top = base + argcnt + argcntafter;
     for (Py_ssize_t i = 0; i < argcnt; i++) {
         w = PyIter_Next(it);
         if (UNLIKELY(w == NULL)) {
             /* Iterator done, via error or exhaustion. */
             if (!_PyErr_Occurred(ts->ts)) {
-                if (argcntafter == -1) {
+                if (argcntafter == 0) {
                     _PyErr_Format(ts->ts, PyExc_ValueError,
                                   "not enough values to unpack "
                                   "(expected %d, got %d)",
@@ -765,7 +782,7 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
                     _PyErr_Format(ts->ts, PyExc_ValueError,
                                   "not enough values to unpack "
                                   "(expected at least %d, got %d)",
-                                  argcnt + argcntafter, i);
+                                  argcnt + argcntafter - 1, i);
                 }
             }
             goto Error;
@@ -773,7 +790,7 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
         ts->regs[--top] = PACK_OBJ(w);
     }
 
-    if (argcntafter == -1) {
+    if (argcntafter == 0) {
         /* We better have exhausted the iterator now. */
         w = PyIter_Next(it);
         if (w == NULL) {
@@ -795,20 +812,21 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
     ts->regs[--top] = PACK_OBJ(l);
 
     ll = PyList_GET_SIZE(l);
-    if (ll < argcntafter) {
+    Py_ssize_t remaining = argcntafter - 1;
+    if (remaining > ll) {
         _PyErr_Format(ts->ts, PyExc_ValueError,
             "not enough values to unpack (expected at least %d, got %zd)",
-            argcnt + argcntafter, argcnt + ll);
+            argcnt + remaining, argcnt + ll);
         goto Error;
     }
 
     /* Pop the "after-variable" args off the list. */
-    for (Py_ssize_t j = argcntafter; j > 0; j--) {
+    for (Py_ssize_t j = remaining; j > 0; j--) {
         ts->regs[--top] = PACK_INCREF(PyList_GET_ITEM(l, ll - j));
     }
     assert(top == base);
     /* Resize the list. */
-    Py_SET_SIZE(l, ll - argcntafter);
+    Py_SET_SIZE(l, ll - remaining);
     Py_DECREF(it);
     return 0;
 

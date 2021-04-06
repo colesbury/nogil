@@ -563,16 +563,12 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_long(co->co_totalargcount, p);
         w_long(co->co_framesize, p);
         w_long(co->co_nconsts, p);
-        w_long(co->co_niconsts, p);
         w_long(co->co_nmeta, p);
         w_long(co->co_ncells, p);
         w_long(co->co_nfreevars, p);
         w_long(co->co_exc_handlers->size, p);
         for (Py_ssize_t i = 0; i < co->co_nconsts; i++) {
             w_object(co->co_constants[i], p);
-        }
-        for (Py_ssize_t i = 0; i < co->co_niconsts; i++) {
-            w_long(co->co_iconstants[i], p);
         }
         for (Py_ssize_t i = 0; i < co->co_ncells; i++) {
             w_long(co->co_cell2reg[i], p);
@@ -1489,7 +1485,6 @@ r_object(RFILE *p)
             int totalargcount;
             int framesize;
             int nconsts;
-            int niconsts;
             int nmeta;
             int ncells;
             int nfreevars;
@@ -1520,8 +1515,6 @@ r_object(RFILE *p)
             if (PyErr_Occurred()) goto code2_error;
             nconsts = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
-            niconsts = (int)r_long(p);
-            if (PyErr_Occurred()) goto code2_error;
             nmeta = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
             ncells = (int)r_long(p);
@@ -1531,7 +1524,7 @@ r_object(RFILE *p)
             nexc_handlers = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
 
-            co = PyCode2_New(size, nconsts, niconsts, nmeta, ncells, nfreevars, nexc_handlers);
+            co = PyCode2_New(size, nconsts, nmeta, ncells, nfreevars, nexc_handlers);
             if (co == NULL)
                 break;
 
@@ -1548,10 +1541,6 @@ r_object(RFILE *p)
                 PyObject *v = r_object(p);
                 if (v == NULL) goto code2_error;
                 co->co_constants[i] = v;
-            }
-            for (Py_ssize_t i = 0; i < niconsts; i++) {
-                co->co_iconstants[i] = r_long(p);
-                if (PyErr_Occurred()) goto code2_error;
             }
             for (Py_ssize_t i = 0; i < ncells; i++) {
                 co->co_cell2reg[i] = r_long(p);

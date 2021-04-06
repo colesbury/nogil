@@ -1777,7 +1777,7 @@ TARGET(UNPACK) {
         }
     }
     int err;
-    CALL_VM(err = vm_unpack(ts, seq, UImm(0), UImm(1), argcntafter - 1));
+    CALL_VM(err = vm_unpack(ts, seq, UImm(0), UImm(1), argcntafter));
     if (UNLIKELY(err != 0)) {
         goto error;
     }
