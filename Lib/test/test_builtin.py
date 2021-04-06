@@ -35,7 +35,6 @@ try:
 except ImportError:
     pty = signal = None
 
-
 class Squares:
 
     def __init__(self, max):

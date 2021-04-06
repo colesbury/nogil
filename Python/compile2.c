@@ -378,7 +378,7 @@ compile_object(struct compiler *c, mod_ty mod, PyObject *filename,
     if (!c->heap) {
         COMPILER_ERROR(c);
     }
-    printf("compiling %s\n", PyUnicode_AsUTF8(filename));
+    // printf("compiling %s\n", PyUnicode_AsUTF8(filename));
     Py_INCREF(filename);
     c->filename = filename;
     c->arena = arena;
@@ -2630,11 +2630,15 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
 static void
 compiler_body(struct compiler *c, asdl_seq *stmts)
 {
+    int scope_type = c->unit->scope_type;
+    assert(scope_type == COMPILER_SCOPE_MODULE ||
+           scope_type == COMPILER_SCOPE_CLASS);
+
     /* Set current line number to the line number of first statement.
        This way line number for SETUP_ANNOTATIONS will always
        coincide with the line number of first "real" statement in module.
        If body is empty, then lineno will be set later in assemble. */
-     if (c->unit->scope_type == COMPILER_SCOPE_MODULE) {
+     if (scope_type == COMPILER_SCOPE_MODULE) {
         if (c->unit->lineno == 0 && asdl_seq_LEN(stmts) != 0) {
             stmt_ty st = (stmt_ty)asdl_seq_GET(stmts, 0);
             c->unit->lineno = st->lineno;
@@ -2684,17 +2688,18 @@ compiler_mod(struct compiler *c, mod_ty mod)
     case Module_kind:
         compiler_body(c, mod->v.Module.body);
         break;
-    // case Interactive_kind:
-    //     if (find_ann(mod->v.Interactive.body)) {
-    //         ADDOP(c, SETUP_ANNOTATIONS);
-    //     }
-    //     c->c_interactive = 1;
-    //     VISIT_SEQ_IN_SCOPE(c, stmt, mod->v.Interactive.body);
-    //     break;
-    // case Expression_kind:
-    //     VISIT_IN_SCOPE(c, expr, mod->v.Expression.body);
-    //     addNone = 0;
-    //     break;
+    case Interactive_kind:
+        if (find_ann(mod->v.Interactive.body)) {
+            emit0(c, SETUP_ANNOTATIONS);
+        }
+        c->interactive = 1;
+        compiler_visit_stmts(c, mod->v.Interactive.body);
+        break;
+    case Expression_kind:
+        compiler_visit_expr(c, mod->v.Expression.body);
+        emit0(c, RETURN_VALUE);
+        // addNone = 0;
+        break;
     // case Suite_kind:
     //     PyErr_SetString(PyExc_SystemError,
     //                     "suite should not be possible");
@@ -3109,7 +3114,10 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     if (c->optimize < 2) {
         docstring = _PyAST_GetDocString(body);
     }
-    compiler_const(c, docstring ? docstring : Py_None); //?????
+
+    /* doc string is always first constant (see funcobject.c) */
+    compiler_const(c, docstring ? docstring : Py_None);
+    assert(PyDict_GET_SIZE(c->unit->consts) == 1);
 
     c->unit->argcount = asdl_seq_LEN(args->args);
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);

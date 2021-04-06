@@ -31,7 +31,14 @@ PyFunc_New(PyObject *co, PyObject *globals)
     func->func_base.first_instr = PyCode2_GET_CODE(code);
     Py_INCREF(globals);
     func->globals = globals;
-    func->func_doc = NULL;
+    if (code->co_nconsts > 0) {
+        func->func_doc = code->co_constants[0];
+        Py_INCREF(func->func_doc);
+        // assert(_PyObject_IS_IMMORTAL(func->func_doc));
+    }
+    else {
+        func->func_doc = NULL;
+    }
     func->func_name = code->co_name;
     Py_INCREF(func->func_name);
     func->func_dict = NULL;
@@ -116,7 +123,7 @@ func_clear(PyFunc *op)
     // Py_CLEAR(op->func_name);
     // Py_CLEAR(op->func_defaults);
     // Py_CLEAR(op->func_kwdefaults);
-    // Py_CLEAR(op->func_doc);
+    Py_CLEAR(op->func_doc);
     // Py_CLEAR(op->func_dict);
     // Py_CLEAR(op->func_closure);
     // Py_CLEAR(op->func_annotations);
