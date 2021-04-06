@@ -4338,7 +4338,7 @@ save(PicklerObject *self, PyObject *obj, int pers_save)
         status = save_type(self, obj);
         goto done;
     }
-    else if (type == &PyFunction_Type) {
+    else if (type == &PyFunction_Type || type == &PyFunc_Type) {
         status = save_global(self, obj, NULL);
         goto done;
     }
