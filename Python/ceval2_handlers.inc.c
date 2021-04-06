@@ -1938,6 +1938,18 @@ TARGET(END_ASYNC_WITH) {
     DISPATCH(END_ASYNC_WITH);
 }
 
+#ifndef WIDE_OP
+TARGET(SETUP_ANNOTATIONS) {
+    PyObject *locals = AS_OBJ(regs[0]);
+    int err;
+    CALL_VM(err = vm_setup_annotations(ts, locals));
+    if (UNLIKELY(err != 0)) {
+        goto error;
+    }
+    DISPATCH(SETUP_ANNOTATIONS);
+}
+#endif
+
 TARGET(CALL_INTRINSIC_1) {
     intrinsic1 fn = intrinsics_table[UImm(0)].intrinsic1;
     PyObject *value = AS_OBJ(acc);

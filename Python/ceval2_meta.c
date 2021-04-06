@@ -1672,6 +1672,53 @@ vm_build_string(PyObject *const*args, Py_ssize_t nargs)
     return _PyUnicode_JoinArray(empty, args, nargs);
 }
 
+int
+vm_setup_annotations(struct ThreadState *ts, PyObject *locals)
+{
+    _Py_IDENTIFIER(__annotations__);
+    PyObject *ann_dict;
+    int err;
+    if (PyDict_CheckExact(locals)) {
+        ann_dict = _PyDict_GetItemIdWithError(locals, &PyId___annotations__);
+        if (ann_dict != NULL) {
+            return 0;
+        }
+        if (_PyErr_Occurred(ts->ts)) {
+            return -1;
+        }
+        ann_dict = PyDict_New();
+        if (UNLIKELY(ann_dict == NULL)) {
+            return -1;
+        }
+        err = _PyDict_SetItemId(locals, &PyId___annotations__, ann_dict);
+        Py_DECREF(ann_dict);
+        return err;
+    }
+    else {
+        /* do the same if locals() is not a dict */
+        PyObject *ann_str = _PyUnicode_FromId(&PyId___annotations__);
+        if (UNLIKELY(ann_str == NULL)) {
+            return -1;
+        }
+        ann_dict = PyObject_GetItem(locals, ann_str);
+        if (ann_dict != NULL) {
+            Py_DECREF(ann_dict);
+            return 0;
+        }
+        if (!_PyErr_ExceptionMatches(ts->ts, PyExc_KeyError)) {
+            return -1;
+        }
+        _PyErr_Clear(ts->ts);
+        ann_dict = PyDict_New();
+        if (ann_dict == NULL) {
+            return -1;
+        }
+        err = PyObject_SetItem(locals, ann_str, ann_dict);
+        Py_DECREF(ann_dict);
+        return err;
+    }
+}
+
 PyObject *
 vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssize_t nargs)
 {

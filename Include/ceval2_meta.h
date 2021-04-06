@@ -239,6 +239,7 @@ int vm_reraise(struct ThreadState *ts, Register exc);
 
 Register vm_setup_with(struct ThreadState *ts, Py_ssize_t opA);
 Register vm_setup_async_with(struct ThreadState *ts, Py_ssize_t opA);
+int vm_setup_annotations(struct ThreadState *ts, PyObject *locals);
 int vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
 int vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA);
 int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res);

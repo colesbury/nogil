@@ -320,6 +320,7 @@ _Py_IDENTIFIER(__qualname__);
 _Py_IDENTIFIER(__class__);
 _Py_IDENTIFIER(__classcell__);
 _Py_IDENTIFIER(__annotations__);
+_Py_IDENTIFIER(__doc__);
 _Py_static_string(PyId_build_class_instr, "$__build_class__");
 
 // TODO: copy _Py_Mangle from compile.c
@@ -2296,60 +2297,60 @@ const_to_any_reg(struct compiler *c, PyObject *name)
 
 // /* Search if variable annotations are present statically in a block. */
 
-// static int
-// find_ann(asdl_seq *stmts)
-// {
-//     int i, j, res = 0;
-//     stmt_ty st;
+static int
+find_ann(asdl_seq *stmts)
+{
+    int i, j, res = 0;
+    stmt_ty st;
 
-//     for (i = 0; i < asdl_seq_LEN(stmts); i++) {
-//         st = (stmt_ty)asdl_seq_GET(stmts, i);
-//         switch (st->kind) {
-//         case AnnAssign_kind:
-//             return 1;
-//         case For_kind:
-//             res = find_ann(st->v.For.body) ||
-//                   find_ann(st->v.For.orelse);
-//             break;
-//         case AsyncFor_kind:
-//             res = find_ann(st->v.AsyncFor.body) ||
-//                   find_ann(st->v.AsyncFor.orelse);
-//             break;
-//         case While_kind:
-//             res = find_ann(st->v.While.body) ||
-//                   find_ann(st->v.While.orelse);
-//             break;
-//         case If_kind:
-//             res = find_ann(st->v.If.body) ||
-//                   find_ann(st->v.If.orelse);
-//             break;
-//         case With_kind:
-//             res = find_ann(st->v.With.body);
-//             break;
-//         case AsyncWith_kind:
-//             res = find_ann(st->v.AsyncWith.body);
-//             break;
-//         case Try_kind:
-//             for (j = 0; j < asdl_seq_LEN(st->v.Try.handlers); j++) {
-//                 excepthandler_ty handler = (excepthandler_ty)asdl_seq_GET(
-//                     st->v.Try.handlers, j);
-//                 if (find_ann(handler->v.ExceptHandler.body)) {
-//                     return 1;
-//                 }
-//             }
-//             res = find_ann(st->v.Try.body) ||
-//                   find_ann(st->v.Try.finalbody) ||
-//                   find_ann(st->v.Try.orelse);
-//             break;
-//         default:
-//             res = 0;
-//         }
-//         if (res) {
-//             break;
-//         }
-//     }
-//     return res;
-// }
+    for (i = 0; i < asdl_seq_LEN(stmts); i++) {
+        st = (stmt_ty)asdl_seq_GET(stmts, i);
+        switch (st->kind) {
+        case AnnAssign_kind:
+            return 1;
+        case For_kind:
+            res = find_ann(st->v.For.body) ||
+                  find_ann(st->v.For.orelse);
+            break;
+        case AsyncFor_kind:
+            res = find_ann(st->v.AsyncFor.body) ||
+                  find_ann(st->v.AsyncFor.orelse);
+            break;
+        case While_kind:
+            res = find_ann(st->v.While.body) ||
+                  find_ann(st->v.While.orelse);
+            break;
+        case If_kind:
+            res = find_ann(st->v.If.body) ||
+                  find_ann(st->v.If.orelse);
+            break;
+        case With_kind:
+            res = find_ann(st->v.With.body);
+            break;
+        case AsyncWith_kind:
+            res = find_ann(st->v.AsyncWith.body);
+            break;
+        case Try_kind:
+            for (j = 0; j < asdl_seq_LEN(st->v.Try.handlers); j++) {
+                excepthandler_ty handler = (excepthandler_ty)asdl_seq_GET(
+                    st->v.Try.handlers, j);
+                if (find_ann(handler->v.ExceptHandler.body)) {
+                    return 1;
+                }
+            }
+            res = find_ann(st->v.Try.body) ||
+                  find_ann(st->v.Try.finalbody) ||
+                  find_ann(st->v.Try.orelse);
+            break;
+        default:
+            res = 0;
+        }
+        if (res) {
+            break;
+        }
+    }
+    return res;
+}
 
 // /*
 //  * Frame block handling functions
@@ -2629,41 +2630,39 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
 static void
 compiler_body(struct compiler *c, asdl_seq *stmts)
 {
-    compiler_visit_stmts(c, stmts);
-    // int i = 0;
-    // stmt_ty st;
-    // PyObject *docstring;
+    /* Set current line number to the line number of first statement.
+       This way line number for SETUP_ANNOTATIONS will always
+       coincide with the line number of first "real" statement in module.
+       If body is empty, then lineno will be set later in assemble. */
+     if (c->unit->scope_type == COMPILER_SCOPE_MODULE) {
+        if (c->unit->lineno == 0 && asdl_seq_LEN(stmts) != 0) {
+            stmt_ty st = (stmt_ty)asdl_seq_GET(stmts, 0);
+            c->unit->lineno = st->lineno;
+        }
+    }
 
-    // /* Set current line number to the line number of first statement.
-    //    This way line number for SETUP_ANNOTATIONS will always
-    //    coincide with the line number of first "real" statement in module.
-    //    If body is empty, then lineno will be set later in assemble. */
-    // if (c->u->u_scope_type == COMPILER_SCOPE_MODULE &&
-    //     !c->u->u_lineno && asdl_seq_LEN(stmts)) {
-    //     st = (stmt_ty)asdl_seq_GET(stmts, 0);
-    //     c->u->u_lineno = st->lineno;
-    // }
-    // /* Every annotated class and module should have __annotations__. */
-    // if (find_ann(stmts)) {
-    //     ADDOP(c, SETUP_ANNOTATIONS);
-    // }
-    // if (!asdl_seq_LEN(stmts))
-    //     return 1;
-    // /* if not -OO mode, set docstring */
-    // if (c->c_optimize < 2) {
-    //     docstring = _PyAST_GetDocString(stmts);
-    //     if (docstring) {
-    //         i = 1;
-    //         st = (stmt_ty)asdl_seq_GET(stmts, 0);
-    //         assert(st->kind == Expr_kind);
-    //         VISIT(c, expr, st->v.Expr.value);
-    //         if (!load_name(c, __doc__, Store))
-    //             return 0;
-    //     }
-    // }
-    // for (; i < asdl_seq_LEN(stmts); i++)
-    //     VISIT(c, stmt, (stmt_ty)asdl_seq_GET(stmts, i));
-    // return 1;
+    /* Every annotated class and module should have __annotations__. */
+    if (find_ann(stmts)) {
+        emit0(c, SETUP_ANNOTATIONS);
+    }
+
+    if (asdl_seq_LEN(stmts) == 0) {
+        return;
+    }
+
+    /* if not -OO mode, set docstring */
+    if (c->optimize < 2) {
+        PyObject *docstring = _PyAST_GetDocString(stmts);
+        if (docstring && 0) {
+            // i = 1;
+            stmt_ty st = (stmt_ty)asdl_seq_GET(stmts, 0);
+            assert(st->kind == Expr_kind);
+            compiler_visit_expr(c, st->v.Expr.value);
+            assign_name_id(c, &PyId___doc__);
+        }
+    }
+
+    compiler_visit_stmts(c, stmts);
 }
 
 static PyCodeObject2 *
@@ -3258,7 +3257,7 @@ compiler_class(struct compiler *c, stmt_ty s)
         free_regs_above(c, deco_base);
     }
 
-    /* 7. store into <name> */
+    /* store into <name> */
     assign_name(c, s->v.ClassDef.name);
 }
 

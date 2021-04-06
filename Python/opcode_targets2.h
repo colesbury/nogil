@@ -111,7 +111,7 @@ static void *opcode_targets_base[256] = {
     &&DICT_MERGE,
     &&DICT_UPDATE,
     &&WIDE,
-    &&_unknown_opcode,
+    &&SETUP_ANNOTATIONS,
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,
