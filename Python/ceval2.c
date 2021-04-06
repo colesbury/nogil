@@ -30,7 +30,7 @@
 #endif
 
 #define DEBUG_REGS 0
-#define DEBUG_FRAME 0
+#define DEBUG_FRAME 1
 
 #if defined(__clang__)
 #define COLD_TARGET(name) name:

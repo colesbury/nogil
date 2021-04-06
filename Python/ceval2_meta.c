@@ -729,7 +729,6 @@ int
 vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
           Py_ssize_t argcnt, Py_ssize_t argcntafter)
 {
-    int i = 0, j = 0;
     Py_ssize_t ll = 0;
     PyObject *it;  /* iter(v) */
     PyObject *w;
@@ -749,7 +748,9 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
         return -1;
     }
 
-    for (; i < argcnt; i++) {
+    Py_ssize_t top = base + argcnt;
+    if (argcntafter) top += argcntafter + 1;
+    for (Py_ssize_t i = 0; i < argcnt; i++) {
         w = PyIter_Next(it);
         if (UNLIKELY(w == NULL)) {
             /* Iterator done, via error or exhaustion. */
@@ -769,7 +770,7 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
             }
             goto Error;
         }
-        ts->regs[base + i] = PACK_OBJ(w);
+        ts->regs[--top] = PACK_OBJ(w);
     }
 
     if (argcntafter == -1) {
@@ -791,8 +792,7 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
     l = PySequence_List(it);
     if (l == NULL)
         goto Error;
-    ts->regs[base + i] = PACK_OBJ(l);
-    i++;
+    ts->regs[--top] = PACK_OBJ(l);
 
     ll = PyList_GET_SIZE(l);
     if (ll < argcntafter) {
@@ -803,9 +803,10 @@ vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
     }
 
     /* Pop the "after-variable" args off the list. */
-    for (j = argcntafter; j > 0; j--, i++) {
-        ts->regs[base + i] = PACK_INCREF(PyList_GET_ITEM(l, ll - j));
+    for (Py_ssize_t j = argcntafter; j > 0; j--) {
+        ts->regs[--top] = PACK_INCREF(PyList_GET_ITEM(l, ll - j));
     }
+    assert(top == base);
     /* Resize the list. */
     Py_SET_SIZE(l, ll - argcntafter);
     Py_DECREF(it);

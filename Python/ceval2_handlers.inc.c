@@ -1752,20 +1752,25 @@ TARGET(UNPACK) {
     PyObject *seq = AS_OBJ(acc);
     Py_ssize_t argcntafter = UImm(2);
     if (LIKELY(argcntafter == 0)) {
+        Py_ssize_t base = UImm(0);
+        Py_ssize_t n = UImm(1);
+        Py_ssize_t i = 0;
         if (PyList_CheckExact(seq)) {
-            Py_ssize_t argcnt = UImm(1);
-            if (LIKELY(PyList_GET_SIZE(seq) == argcnt)) {
-                for (Py_ssize_t i = 0; i != argcnt; i++) {
-                    regs[UImm(0) + i] = PACK_INCREF(PyList_GET_ITEM(seq, i));
+            if (LIKELY(PyList_GET_SIZE(seq) == n)) {
+                while (n > 0) {
+                    n--;
+                    regs[base + i] = PACK_INCREF(PyList_GET_ITEM(seq, n));
+                    i++;
                 }
                 goto LABEL(unpack_done);
             }
         }
         else if (PyTuple_CheckExact(seq)) {
-            Py_ssize_t argcnt = UImm(1);
-            if (LIKELY(PyTuple_GET_SIZE(seq) == argcnt)) {
-                for (Py_ssize_t i = 0; i != argcnt; i++) {
-                    regs[UImm(0) + i] = PACK_INCREF(PyTuple_GET_ITEM(seq, i));
+            if (LIKELY(PyTuple_GET_SIZE(seq) == n)) {
+                while (n > 0) {
+                    n--;
+                    regs[base + i] = PACK_INCREF(PyTuple_GET_ITEM(seq, n));
+                    i++;
                 }
                 goto LABEL(unpack_done);
             }
