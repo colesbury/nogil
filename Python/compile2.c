@@ -2651,10 +2651,11 @@ compiler_body(struct compiler *c, asdl_seq *stmts)
     }
 
     /* if not -OO mode, set docstring */
+    Py_ssize_t i = 0;
     if (c->optimize < 2) {
         PyObject *docstring = _PyAST_GetDocString(stmts);
-        if (docstring && 0) {
-            // i = 1;
+        if (docstring) {
+            i = 1;
             stmt_ty st = (stmt_ty)asdl_seq_GET(stmts, 0);
             assert(st->kind == Expr_kind);
             compiler_visit_expr(c, st->v.Expr.value);
@@ -2662,7 +2663,11 @@ compiler_body(struct compiler *c, asdl_seq *stmts)
         }
     }
 
-    compiler_visit_stmts(c, stmts);
+    Py_ssize_t n = asdl_seq_LEN(stmts);
+    for (; i != n; i++) {
+        stmt_ty elt = asdl_seq_GET(stmts, i);
+        compiler_visit_stmt(c, elt);
+    }
 }
 
 static PyCodeObject2 *
