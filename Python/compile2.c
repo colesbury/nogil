@@ -5467,6 +5467,9 @@ compiler_yield(struct compiler *c, expr_ty e)
     else {
         emit1(c, LOAD_CONST, const_none(c));
     }
+    if (c->unit->ste->ste_coroutine) {
+        emit1(c, CALL_INTRINSIC_1, Intrinsic__PyAsyncGenValueWrapperNew);
+    }
     emit0(c, YIELD_VALUE);
 }
 
