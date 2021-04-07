@@ -352,12 +352,6 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
         }
         return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
     }
-    else if (flags && (flags->cf_flags & PyCF_NEWER_BYTECODE)) {
-        if (!_PyAST_Optimize(mod, arena, optimize)) {
-            return NULL;
-        }
-        return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
-    }
     if (!__doc__) {
         __doc__ = PyUnicode_InternFromString("__doc__");
         if (!__doc__)

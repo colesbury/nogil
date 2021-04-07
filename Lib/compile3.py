@@ -1508,7 +1508,7 @@ def load_file(filename, module_name):
     source = f.read()
     f.close()
     if True:
-        code = compile(source, filename, 'exec', 0x10000)
+        code = compile(source, filename, 'exec', 0x8000)
         print('code', code)
         print(dis.dis(code))
         exec(code, {})
