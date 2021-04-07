@@ -261,14 +261,10 @@ struct compiler {
 static int compiler_enter_scope(struct compiler *, identifier, int, void *, int);
 static void compiler_free(struct compiler *);
 static void compiler_unit_free(struct compiler_unit *u);
-// static basicblock *compiler_new_block(struct compiler *);
-// static int compiler_next_instr(struct compiler *, basicblock *);
-// static int compiler_addop(struct compiler *, int);
-// static int compiler_addop_i(struct compiler *, int, Py_ssize_t);
-// static int compiler_addop_j(struct compiler *, int, basicblock *, int);
+static void add_exception_handler(struct compiler *c, ExceptionHandler *h);
+static void clear_reg(struct compiler *c, Py_ssize_t reg);
 static void compiler_error(struct compiler *, const char *);
 static void compiler_warn(struct compiler *, const char *, ...);
-static void compiler_store(struct compiler *, identifier);
 static int compiler_access(struct compiler *c, PyObject *mangled_name);
 static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
 static int32_t const_none(struct compiler *c);
@@ -291,31 +287,15 @@ static int expr_constant(expr_ty);
 static void compiler_with(struct compiler *, stmt_ty, int);
 static void compiler_async_with(struct compiler *, stmt_ty, int);
 static void compiler_async_for(struct compiler *, stmt_ty);
-// static void compiler_call_helper(struct compiler *c, int n,
-//                                  asdl_seq *args,
-//                                  asdl_seq *keywords);
 static void compiler_call(struct compiler *c, expr_ty e);
 static void compiler_try_except(struct compiler *, stmt_ty);
 static void compiler_set_qualname(struct compiler *, struct compiler_unit *);
 static void compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_t base);
 
-static void *
-table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
-
-static void compiler_sync_comprehension_generator(
-                                      struct compiler *c,
-                                      asdl_seq *generators, int gen_index,
-                                      expr_ty elt, expr_ty val, int type);
-
-// static int compiler_async_comprehension_generator(
-//                                       struct compiler *c,
-//                                       asdl_seq *generators, int gen_index,
-//                                       expr_ty elt, expr_ty val, int type);
+static void *table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
 
 static void assemble(struct compiler *, int addNone);
-// static PyObject *__doc__, *__annotations__;
 
-// #define CAPSULE_NAME "compile.c compiler unit"
 _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__module__);
 _Py_IDENTIFIER(__qualname__);
@@ -1499,6 +1479,34 @@ update_lineno(struct compiler *c, uint32_t pc)
     }
 }
 
+static int
+reserve_regs(struct compiler *c, int n)
+{
+    int r = c->unit->next_register;
+    c->unit->next_register += n;
+    if (c->unit->next_register > c->unit->max_registers) {
+        c->unit->max_registers = c->unit->next_register;
+    }
+    return r;
+}
+
+static void
+free_reg(struct compiler *c, Py_ssize_t reg)
+{
+    if (is_temporary(c, reg)) {
+        c->unit->next_register -= 1;
+        assert(c->unit->next_register == reg);
+    }
+}
+
+static void
+free_regs_above(struct compiler *c, Py_ssize_t base)
+{
+    if (base < c->unit->next_register) {
+        c->unit->next_register = base;
+    }
+}
+
 /* Add an opcode with no argument.
    Returns 0 on failure, 1 on success.
 */
@@ -1724,6 +1732,43 @@ emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 }
 
 static void
+emit_async_for(struct compiler *c, Py_ssize_t reg, Py_ssize_t top_offset)
+{
+    if (is_local(c, reg)) {
+        // The outermost async for comprehensions get the iterator as a local
+        // variable. GET_ANEXT needs two adjacent registers so we need to copy
+        // it to a temporary.
+        Py_ssize_t tmp = reserve_regs(c, 1);
+        emit2(c, COPY, tmp, reg);
+        reg = tmp;
+    }
+
+    ExceptionHandler h;
+    h.start = c->unit->instr.offset;
+
+    // GET_ANEXT uses two adjacent registers
+    int awaitable = reserve_regs(c, 1);
+    assert(awaitable == reg + 1);
+
+    emit1(c, GET_ANEXT, reg);  // writes to `awaitable` reg
+    emit1(c, LOAD_CONST, const_none(c));
+    emit1(c, YIELD_FROM, awaitable);
+    clear_reg(c, awaitable);
+
+    // no exception: jump to top of loop
+    emit_bwd_jump(c, JUMP, top_offset);
+
+    // exception: check that it matches StopAsyncIteration and clear regs
+    h.handler = c->unit->instr.offset;
+    h.reg = reserve_regs(c, 2);
+    assert(h.reg == reg + 1);
+    emit1(c, END_ASYNC_FOR, reg);
+    h.handler_end = c->unit->instr.offset;
+    add_exception_handler(c, &h);
+    free_regs_above(c, reg);
+}
+
+static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
     if (c->do_not_emit_bytecode) {
@@ -1818,34 +1863,6 @@ emit_multi_label(struct compiler *c, struct multi_label *labels)
     }
     mi_free(labels->arr);
     memset(labels, 0, sizeof(*labels));
-}
-
-static int
-reserve_regs(struct compiler *c, int n)
-{
-    int r = c->unit->next_register;
-    c->unit->next_register += n;
-    if (c->unit->next_register > c->unit->max_registers) {
-        c->unit->max_registers = c->unit->next_register;
-    }
-    return r;
-}
-
-static void
-free_reg(struct compiler *c, Py_ssize_t reg)
-{
-    if (is_temporary(c, reg)) {
-        c->unit->next_register -= 1;
-        assert(c->unit->next_register == reg);
-    }
-}
-
-static void
-free_regs_above(struct compiler *c, Py_ssize_t base)
-{
-    if (base < c->unit->next_register) {
-        c->unit->next_register = base;
-    }
 }
 
 static void
@@ -2177,116 +2194,7 @@ const_to_any_reg(struct compiler *c, PyObject *name)
     return reg;
 }
 
-// static int
-// compiler_addop_load_const(struct compiler *c, PyObject *o)
-// {
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-
-//     Py_ssize_t arg = compiler_add_const(c, o);
-//     if (arg < 0)
-//         return 0;
-//     return compiler_addop_i(c, LOAD_CONST, arg);
-// }
-
-// static int
-// compiler_addop_o(struct compiler *c, int opcode, PyObject *dict,
-//                      PyObject *o)
-// {
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-
-//     Py_ssize_t arg = compiler_add_o(c, dict, o);
-//     if (arg < 0)
-//         return 0;
-//     return compiler_addop_i(c, opcode, arg);
-// }
-
-// static int
-// compiler_addop_name(struct compiler *c, int opcode, PyObject *dict,
-//                     PyObject *o)
-// {
-//     Py_ssize_t arg;
-
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-
-//     PyObject *mangled = _Py_Mangle(c->u->u_private, o);
-//     if (!mangled)
-//         return 0;
-//     arg = compiler_add_o(c, dict, mangled);
-//     Py_DECREF(mangled);
-//     if (arg < 0)
-//         return 0;
-//     return compiler_addop_i(c, opcode, arg);
-// }
-
-// /* Add an opcode with an integer argument.
-//    Returns 0 on failure, 1 on success.
-// */
-
-// static int
-// compiler_addop_i(struct compiler *c, int opcode, Py_ssize_t oparg)
-// {
-//     struct instr *i;
-//     int off;
-
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-
-//     /* oparg value is unsigned, but a signed C int is usually used to store
-//        it in the C code (like Python/ceval.c).
-
-//        Limit to 32-bit signed C int (rather than INT_MAX) for portability.
-
-//        The argument of a concrete bytecode instruction is limited to 8-bit.
-//        EXTENDED_ARG is used for 16, 24, and 32-bit arguments. */
-//     assert(HAS_ARG(opcode));
-//     assert(0 <= oparg && oparg <= 2147483647);
-
-//     off = compiler_next_instr(c, c->u->u_curblock);
-//     if (off < 0)
-//         return 0;
-//     i = &c->u->u_curblock->b_instr[off];
-//     i->i_opcode = opcode;
-//     i->i_oparg = Py_SAFE_DOWNCAST(oparg, Py_ssize_t, int);
-//     compiler_set_lineno(c, off);
-//     return 1;
-// }
-
-// static int
-// compiler_addop_j(struct compiler *c, int opcode, basicblock *b, int absolute)
-// {
-//     struct instr *i;
-//     int off;
-
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-
-//     assert(HAS_ARG(opcode));
-//     assert(b != NULL);
-//     off = compiler_next_instr(c, c->u->u_curblock);
-//     if (off < 0)
-//         return 0;
-//     i = &c->u->u_curblock->b_instr[off];
-//     i->i_opcode = opcode;
-//     i->i_target = b;
-//     if (absolute)
-//         i->i_jabs = 1;
-//     else
-//         i->i_jrel = 1;
-//     compiler_set_lineno(c, off);
-//     return 1;
-// }
-
-// MACROS were here
-
-/* These macros allows to check only for errors and not emmit bytecode
+/* These macros allows to check only for errors and not emit bytecode
  * while visiting nodes.
 */
 
@@ -2297,7 +2205,7 @@ const_to_any_reg(struct compiler *c, PyObject *name)
     c->do_not_emit_bytecode--; \
 }
 
-// /* Search if variable annotations are present statically in a block. */
+/* Search if variable annotations are present statically in a block. */
 
 static int
 find_ann(asdl_seq *stmts)
@@ -2353,48 +2261,6 @@ find_ann(asdl_seq *stmts)
     }
     return res;
 }
-
-// /*
-//  * Frame block handling functions
-//  */
-
-// static int
-// compiler_push_fblock(struct compiler *c, enum fblocktype t, basicblock *b,
-//                      basicblock *exit, void *datum)
-// {
-//     struct fblockinfo *f;
-//     if (c->u->u_nfblocks >= CO_MAXBLOCKS) {
-//         PyErr_SetString(PyExc_SyntaxError,
-//                         "too many statically nested blocks");
-//         return 0;
-//     }
-//     f = &c->u->u_fblock[c->u->u_nfblocks++];
-//     f->fb_type = t;
-//     f->fb_block = b;
-//     f->fb_exit = exit;
-//     f->fb_datum = datum;
-//     return 1;
-// }
-
-// static void
-// compiler_pop_fblock(struct compiler *c, enum fblocktype t, basicblock *b)
-// {
-//     struct compiler_unit *u = c->u;
-//     assert(u->u_nfblocks > 0);
-//     u->u_nfblocks--;
-//     assert(u->u_fblock[u->u_nfblocks].fb_type == t);
-//     assert(u->u_fblock[u->u_nfblocks].fb_block == b);
-// }
-
-// static int
-// compiler_call_exit_with_nones(struct compiler *c) {
-//     ADDOP(c, DEFER_REFCOUNT);
-//     ADDOP_O(c, LOAD_CONST, Py_None, consts);
-//     ADDOP(c, DUP_TOP);
-//     ADDOP(c, DUP_TOP);
-//     ADDOP_I(c, CALL_FUNCTION, 3);
-//     return 1;
-// }
 
 static int
 compiler_access(struct compiler *c, PyObject *mangled_name)
@@ -2517,13 +2383,6 @@ assign_name_reg(struct compiler *c, PyObject *name, Py_ssize_t src, bool preserv
 }
 
 static void
-compiler_store(struct compiler *c, PyObject *name)
-{
-    // FIXME: just merge with assign_name ?
-    assign_name(c, name);
-}
-
-static void
 delete_name(struct compiler *c, PyObject *name)
 {
     static int opcodes[] = {
@@ -2549,7 +2408,7 @@ clear_name(struct compiler *c, PyObject *name)
     }
     else {
         emit1(c, LOAD_FAST, const_none(c));
-        compiler_store(c, name);
+        assign_name(c, name);
         delete_name(c, name);
     }
 }
@@ -3137,8 +2996,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
         free_regs_above(c, deco_base);
     }
 
-    compiler_store(c, name);
-    // return load_name(c, name, Store);
+    assign_name(c, name);
 }
 
 static expr_ty
@@ -3472,7 +3330,6 @@ compiler_async_for(struct compiler *c, stmt_ty s)
 {
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
-    ExceptionHandler h;
     Py_ssize_t reg;
     uint32_t top_offset;
 
@@ -3495,26 +3352,13 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     block.v.ForLoop.break_label = &break_label;
     block.v.ForLoop.continue_label = &continue_label;
     compiler_push_block(c, &block);
-    top_offset = h.start = c->unit->instr.offset;
+    top_offset = c->unit->instr.offset;
+    // FIXME: should handler only be around GET_ANEXT/YIELD_FROM???
 
     compiler_assign_acc(c, s->v.AsyncFor.target);
     compiler_visit_stmts(c, s->v.AsyncFor.body);
     emit_multi_label(c, &continue_label);
-
-    reserve_regs(c, 1);  // GET_ANEXT uses two adjacent registers
-    emit1(c, GET_ANEXT, reg);
-    emit1(c, LOAD_CONST, const_none(c));
-    emit1(c, YIELD_FROM, reg + 1);
-    clear_reg(c, reg + 1);
-    emit_bwd_jump(c, JUMP, top_offset);
-
-    h.handler = c->unit->instr.offset;
-    h.reg = reserve_regs(c, 2);
-    emit1(c, END_ASYNC_FOR, reg);
-
-    h.handler_end = c->unit->instr.offset;
-    add_exception_handler(c, &h);
-    free_regs_above(c, reg);
+    emit_async_for(c, reg, top_offset);
     compiler_pop_block(c, &block);
 
     if (s->v.For.orelse) {
@@ -3746,7 +3590,7 @@ compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
 
     // store the active exception in `name`
     PyObject *name = handler->v.ExceptHandler.name;
-    compiler_store(c, name);
+    assign_name(c, name);
 
     // start an inner exception handler around the handler body
     block.type = EXCEPT_HANDLER;
@@ -3806,7 +3650,6 @@ compiler_try_except(struct compiler *c, stmt_ty s)
     struct multi_label end = MULTI_LABEL_INIT;
     ExceptionHandler h;
     struct fblock block;
-    Py_ssize_t reg;
 
     h.start = c->unit->instr.offset;
 
@@ -3911,7 +3754,7 @@ compiler_import_as(struct compiler *c, identifier name, identifier asname)
         }
         clear_reg(c, reg);
     }
-    compiler_store(c, asname);
+    assign_name(c, asname);
 }
 
 static void
@@ -3949,7 +3792,7 @@ compiler_import(struct compiler *c, stmt_ty s)
                 }
                 PyArena_AddPyObject(c->arena, tmp); // FIXME: wrong
             }
-            compiler_store(c, tmp);
+            assign_name(c, tmp);
         }
     }
 }
@@ -4005,7 +3848,7 @@ compiler_from_import(struct compiler *c, stmt_ty s)
             emit2(c, IMPORT_FROM, reg, compiler_const(c, alias->name));
 
             store_name = alias->asname ? alias->asname : alias->name;
-            compiler_store(c, store_name);
+            assign_name(c, store_name);
         }
     }
     /* remove imported module */
@@ -5140,24 +4983,6 @@ compiler_formatted_value(struct compiler *c, expr_ty e)
     - iterate over the generator sequence instead of using recursion
 */
 
-
-static void
-compiler_comprehension_generator(struct compiler *c,
-                                 asdl_seq *generators, int gen_index,
-                                 expr_ty elt, expr_ty val, int type)
-{
-    comprehension_ty gen;
-    gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
-    assert(!gen->is_async && "async comprehension NYI");
-    // if (gen->is_async) {
-    //     compiler_async_comprehension_generator(
-    //         c, generators, gen_index, elt, val, type);
-    // } else {
-        compiler_sync_comprehension_generator(
-            c, generators, gen_index, elt, val, type);
-    // }
-}
-
 static Py_ssize_t
 compiler_comprehension_output(struct compiler *c, int type)
 {
@@ -5185,9 +5010,10 @@ compiler_comprehension_output(struct compiler *c, int type)
 }
 
 static void
-compiler_sync_comprehension_generator(struct compiler *c,
-                                      asdl_seq *generators, int gen_index,
-                                      expr_ty elt, expr_ty val, int type)
+compiler_comprehension_generator(struct compiler *c,
+                                 asdl_seq *generators, int gen_index,
+                                 Py_ssize_t res_reg,
+                                 expr_ty elt, expr_ty val, int type)
 {
     /* generate code for the iterator, then each of the ifs,
        and then write to the element */
@@ -5195,23 +5021,20 @@ compiler_sync_comprehension_generator(struct compiler *c,
     comprehension_ty gen;
     Py_ssize_t i, n;
     uint32_t top_offset;
-    Py_ssize_t res_reg, iter_reg, key_reg;
+    Py_ssize_t iter_reg, key_reg;
     struct multi_label continue_label = MULTI_LABEL_INIT;
 
     gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
 
     if (gen_index == 0) {
         /* Receive outermost iter as an implicit argument */
-        c->unit->argcount = 1;
         iter_reg = 0;
-        res_reg = compiler_comprehension_output(c, type);
     }
     else {
         /* Sub-iter - calculate on the fly */
         compiler_visit_expr(c, gen->iter);
         iter_reg = reserve_regs(c, 1);
-        emit1(c, GET_ITER, iter_reg);
-        res_reg = -1;
+        emit1(c, gen->is_async ? GET_AITER : GET_ITER, iter_reg);
     }
 
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
@@ -5227,11 +5050,10 @@ compiler_sync_comprehension_generator(struct compiler *c,
 
     if (gen_index < asdl_seq_LEN(generators) - 1) {
         compiler_comprehension_generator(c, generators, gen_index + 1,
-                                         elt, val, type);
+                                         res_reg, elt, val, type);
     }
-
-    if (gen_index == 0) {
-        /* only append in the outer-most generator */
+    else {
+        /* only append in the inner-most generator */
         switch (type) {
         case COMP_GENEXP:
             compiler_visit_expr(c, elt);
@@ -5256,13 +5078,19 @@ compiler_sync_comprehension_generator(struct compiler *c,
     }
 
     emit_multi_label(c, &continue_label);
-    emit_for(c, iter_reg, top_offset);
-    free_reg(c, iter_reg);
+    if (gen->is_async) {
+        emit_async_for(c, iter_reg, top_offset);
+    }
+    else {
+        emit_for(c, iter_reg, top_offset);
+        free_reg(c, iter_reg);
+    }
 
     if (gen_index == 0 && type != COMP_GENEXP) {
         emit1(c, LOAD_FAST, res_reg);
         emit1(c, CLEAR_FAST, res_reg);
         emit0(c, RETURN_VALUE);
+        free_reg(c, res_reg);
     }
 }
 
@@ -5364,12 +5192,14 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
     PyObject *qualname = NULL;
     int is_async_function = c->unit->ste->ste_coroutine;
     int is_async_generator = 0;
+    Py_ssize_t res_reg;
 
     outermost = (comprehension_ty) asdl_seq_GET(generators, 0);
 
     compiler_enter_scope(c, name, COMPILER_SCOPE_COMPREHENSION,
                          (void *)e, e->lineno);
 
+    c->unit->argcount = 1;
     is_async_generator = c->unit->ste->ste_coroutine;
 
     if (is_async_generator && !is_async_function && type != COMP_GENEXP) {
@@ -5377,7 +5207,8 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
                           "an asynchronous function");
     }
 
-    compiler_comprehension_generator(c, generators, 0, elt, val, type);
+    res_reg = compiler_comprehension_output(c, type);
+    compiler_comprehension_generator(c, generators, 0, res_reg, elt, val, type);
 
     assemble(c, 1);
     compiler_exit_scope(c);
@@ -5865,7 +5696,7 @@ compiler_augassign(struct compiler *c, stmt_ty s)
         Py_ssize_t val = expr_to_any_reg(c, name);
         compiler_visit_expr(c, s->v.AugAssign.value);
         emit1(c, inplace_binop(c, s->v.AugAssign.op), val);
-        compiler_store(c, e->v.Name.id);
+        assign_name(c, e->v.Name.id);
         clear_reg(c, val);
         break;
     }

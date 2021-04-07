@@ -310,14 +310,15 @@ _PyObject_YieldFrom(PyObject *awaitable, PyObject *arg)
 static int
 gen_is_coroutine(PyObject *o)
 {
-    // TODO
-    // if (PyGen2_CheckExact(o)) {
-    //     PyGenObject2 *gen = (PyGenObject2 *)o;
-    //     PyCodeObject2 *code = (PyCodeObject2 *)PyCode2_FromInstr(gen->
-    //     if (code->co_flags & CO_ITERABLE_COROUTINE) {
-    //         return 1;
-    //     }
-    // }
+    if (PyGen2_CheckExact(o)) {
+        // TODO
+        PyGenObject2 *gen = (PyGenObject2 *)o;
+        fprintf(stderr, "gen_is_coroutine: NYI\n");
+        // PyCodeObject2 *code = (PyCodeObject2 *)((PyGenObject 2*)o)->;
+        // if (code->co_flags & CO_ITERABLE_COROUTINE) {
+        //     return 1;
+        // }
+    }
     return 0;
 }
 
