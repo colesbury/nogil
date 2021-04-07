@@ -4118,8 +4118,8 @@ static void
 compiler_visit_stmt_expr(struct compiler *c, expr_ty value)
 {
     if (c->interactive && c->nestlevel <= 1) {
-        // VISIT(c, expr, value);
-        // ADDOP(c, PRINT_EXPR);
+        compiler_visit_expr(c, value);
+        emit1(c, CALL_INTRINSIC_1, Intrinsic_vm_print);
         return;
     }
 
@@ -5428,7 +5428,7 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
         compiler_visit_stmts(c, s->v.With.body);
     }
     else {
-        compiler_with(c, s, pos + 1);
+        compiler_async_with(c, s, pos + 1);
     }
     compiler_pop_block(c, &block);
 
