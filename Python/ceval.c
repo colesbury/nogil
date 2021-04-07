@@ -22,6 +22,7 @@
 #include "pycore_qsbr.h"
 
 #include "code.h"
+#include "code2.h"
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"
@@ -711,6 +712,9 @@ static int unpack_iterable(PyThreadState *, PyObject *, int, int, PyObject **);
 PyObject *
 PyEval_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
 {
+    if (PyCode2_Check(co)) {
+        return PyEval2_EvalCode(co, globals, locals);
+    }
     return PyEval_EvalCodeEx(co,
                       globals, locals,
                       (PyObject **)NULL, 0,

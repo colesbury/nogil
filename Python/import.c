@@ -1017,7 +1017,7 @@ exec_code_in_module(PyThreadState *tstate, PyObject *name,
 {
     PyObject *v, *m;
 
-    assert(PyCode_Check(code_object));
+    assert(PyCode_Check(code_object) || PyCode2_Check(code_object));
     v = PyEval_EvalCode(code_object, module_dict, module_dict);
     if (v == NULL) {
         remove_module(tstate, name);
@@ -1442,7 +1442,7 @@ PyImport_ImportFrozenModuleObject(PyObject *name)
     co = PyMarshal_ReadObjectFromString((const char *)p->code, size);
     if (co == NULL)
         return -1;
-    if (!PyCode_Check(co)) {
+    if (!PyCode_Check(co) && !PyCode2_Check(co)) {
         _PyErr_Format(tstate, PyExc_TypeError,
                       "frozen object %R is not a code object",
                       name);
