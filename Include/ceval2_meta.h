@@ -159,16 +159,6 @@ STRONG_REF(Register r)
     return r;
 }
 
-static inline PyObject *
-OWNING_REF(Register r)
-{
-    PyObject *value = AS_OBJ(r);
-    if (!IS_RC(r)) {
-        _Py_INCREF(value);
-    }
-    return value;
-}
-
 #define CLEAR(reg) do {     \
     Register _tmp = (reg);  \
     (reg).as_int64 = 0;     \

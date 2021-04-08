@@ -143,6 +143,18 @@
     } \
 } while(0)
 
+#define OWNING_REF(r) _OWNING_REF(r, tid)
+
+static inline PyObject *
+_OWNING_REF(Register r, intptr_t tid)
+{
+    PyObject *value = AS_OBJ(r);
+    if (!IS_RC(r)) {
+        _Py_INCREF(value);
+    }
+    return value;
+}
+
 #define _Py_DECREF(op) do { \
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
     if (!_Py_REF_IS_IMMORTAL(local)) { \
