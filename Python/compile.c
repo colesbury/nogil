@@ -346,7 +346,7 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
         optimize = config->optimization_level;
     }
 
-    if (flags && (flags->cf_flags & PyCF_NEW_BYTECODE)) {
+    if ((flags && (flags->cf_flags & PyCF_NEW_BYTECODE)) || _PyRuntime.preconfig.new_bytecode) {
         if (!_PyAST_Optimize(mod, arena, optimize)) {
             return NULL;
         }

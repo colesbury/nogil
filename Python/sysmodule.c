@@ -16,6 +16,7 @@ Data members:
 
 #include "Python.h"
 #include "code.h"
+#include "code2.h"
 #include "frameobject.h"
 #include "pycore_ceval.h"
 #include "pycore_initconfig.h"
@@ -1803,7 +1804,7 @@ sys__getframe_impl_new(PyObject *module, int depth)
         return NULL;
     }
 
-    return f;
+    return (PyObject *)f;
 }
 
 /*[clinic input]
@@ -2070,11 +2071,24 @@ sys_microbench(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject
 }
 
 static PyObject *
-sys_FunctionType2(PyObject *module)
+sys_FunctionTypes(PyObject *module)
 {
-    PyObject *type = (PyObject *)&PyFunc_Type;
-    Py_INCREF(type);
-    return type;
+    PyObject *types = PyTuple_New(2);
+    if (types == NULL) return NULL;
+    PyTuple_SET_ITEM(types, 0, (PyObject*)&PyFunction_Type);
+    PyTuple_SET_ITEM(types, 1, (PyObject*)&PyFunc_Type);
+    return types;
+}
+
+
+static PyObject *
+sys_CodeTypes(PyObject *module)
+{
+    PyObject *types = PyTuple_New(2);
+    if (types == NULL) return NULL;
+    PyTuple_SET_ITEM(types, 0, (PyObject*)&PyCode_Type);
+    PyTuple_SET_ITEM(types, 1, (PyObject*)&PyCode2_Type);
+    return types;
 }
 
 static PyMethodDef sys_methods[] = {
@@ -2087,8 +2101,8 @@ static PyMethodDef sys_methods[] = {
      METH_FASTCALL | METH_KEYWORDS, NULL},
     {"fib",  (PyCFunction)(void(*)(void))sys_fib,
      METH_FASTCALL | METH_KEYWORDS, NULL},
-    {"FunctionType2",  (PyCFunction)(void(*)(void))sys_FunctionType2,
-     METH_NOARGS, NULL},
+    {"FunctionTypes",  (PyCFunction)(void(*)(void))sys_FunctionTypes, METH_NOARGS, NULL},
+    {"CodeTypes",  (PyCFunction)(void(*)(void))sys_CodeTypes, METH_NOARGS, NULL},
     SYS__CLEAR_TYPE_CACHE_METHODDEF
     SYS__CURRENT_FRAMES_METHODDEF
     SYS_DISPLAYHOOK_METHODDEF

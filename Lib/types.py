@@ -9,16 +9,13 @@ import sys
 # "__iter__" and "__next__" attributes instead.
 
 def _f(): pass
-FunctionType = type(_f)
-LambdaType = type(lambda: None)         # Same as FunctionType
-CodeType = type(_f.__code__)
-CodeType2 = _code2
-CodeTypes = (CodeType, CodeType2)
+FunctionTypes = sys.FunctionTypes()
+FunctionType, FunctionType2 = FunctionTypes
+LambdaType = FunctionType         # Same as FunctionType
+CodeTypes = sys.CodeTypes()
+CodeType, CodeType2 = CodeTypes
 MappingProxyType = type(type.__dict__)
 SimpleNamespace = type(sys.implementation)
-FunctionType2 = sys.FunctionType2()
-LambdaType = FunctionType2
-FunctionTypes = (FunctionType, FunctionType2)
 
 def _cell_factory():
     a = 1
