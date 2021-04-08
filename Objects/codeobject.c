@@ -2,6 +2,7 @@
 
 #include "Python.h"
 #include "code.h"
+#include "code2.h"
 #include "opcode.h"
 #include "structmember.h"
 #include "pycore_code.h"
@@ -754,7 +755,8 @@ _PyCode_ConstantKey(PyObject *op)
        || PyLong_CheckExact(op)
        || PyUnicode_CheckExact(op)
           /* code_richcompare() uses _PyCode_ConstantKey() internally */
-       || PyCode_Check(op))
+       || PyCode_Check(op)
+       || PyCode2_Check(op))
     {
         /* Objects of these types are always different from object of other
          * type and from tuples. */

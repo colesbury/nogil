@@ -305,12 +305,79 @@ static PyObject *
 code_richcompare(PyObject *self, PyObject *other, int op)
 {
     if ((op != Py_EQ && op != Py_NE) ||
-        !PyCode_Check(self) ||
-        !PyCode_Check(other)) {
+        !PyCode2_Check(self) ||
+        !PyCode2_Check(other)) {
         Py_RETURN_NOTIMPLEMENTED;
     }
 
-    return (self == other) ^ (op == Py_NE) ? Py_True : Py_False;
+    PyCodeObject2 *a = (PyCodeObject2 *)self;
+    PyCodeObject2 *b = (PyCodeObject2 *)other;
+
+    int eq = 1;
+
+    #define COMPARE_INT(name) if (a->name != b->name) goto unequal;
+    COMPARE_INT(co_packed_flags);
+    COMPARE_INT(co_flags);
+    COMPARE_INT(co_argcount);
+    COMPARE_INT(co_nlocals);
+    COMPARE_INT(co_ndefaultargs);
+    COMPARE_INT(co_posonlyargcount);
+    COMPARE_INT(co_totalargcount);
+    COMPARE_INT(co_framesize);
+    COMPARE_INT(co_size);
+    COMPARE_INT(co_nconsts);
+    COMPARE_INT(co_ncells);
+    COMPARE_INT(co_nmeta);
+    COMPARE_INT(co_firstlineno);
+    COMPARE_INT(co_exc_handlers->size);
+    #undef COMPARE_INT
+
+    #define RICH_COMPARE(name) do { \
+        eq = PyObject_RichCompareBool(a->name, b->name, Py_EQ); \
+        if (eq <= 0) goto done; \
+    } while (0)
+    RICH_COMPARE(co_name);
+    RICH_COMPARE(co_varnames);
+    RICH_COMPARE(co_freevars);
+    RICH_COMPARE(co_cellvars);
+    RICH_COMPARE(co_filename);
+    #undef RICH_COMPARE
+
+    // compare constants
+    for (int i = 0, n = a->co_nconsts; i < n; i++) {
+        PyObject *const1 = _PyCode_ConstantKey(a->co_constants[i]);
+        if (const1 == NULL) {
+            return NULL;
+        }
+        PyObject *const2 = _PyCode_ConstantKey(b->co_constants[i]);
+        if (const2 == NULL) {
+            Py_DECREF(const1);
+            return NULL;
+        }
+        eq = PyObject_RichCompareBool(const1, const2, Py_EQ);
+        Py_DECREF(const1);
+        Py_DECREF(const2);
+        if (eq <= 0) goto done;
+    }
+
+    // compare bytecode
+    eq = (0 == memcmp(PyCode2_GET_CODE(a),
+                      PyCode2_GET_CODE(b),
+                      a->co_size));
+    if (eq) goto done;
+
+    // compare exception handler entries
+    eq = (0 == memcmp(a->co_exc_handlers->entries,
+                      b->co_exc_handlers->entries,
+                      a->co_exc_handlers->size * sizeof(ExceptionHandler)));
+    goto done;
+
+unequal:
+    eq = 0;
+
+done:
+    if (eq == -1) return NULL;
+    return (eq ^ (op == Py_NE)) ? Py_True : Py_False;
 }
 
 static PyObject *
