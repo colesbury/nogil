@@ -457,7 +457,6 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
 {
     PyObject *co = NULL;
     PyObject *eh_table = NULL;
-    PyObject *freevars = NULL, *cellvars = NULL;
     PyObject *free2reg = NULL, *cell2reg = NULL;
     
     #define DEFAULT(arg, value) do {                    \

@@ -1267,6 +1267,7 @@ too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount)
     return -1;
 }
 
+// Setup up a function frame when invoked like `func(*args, **kwargs)`.
 int
 vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 {
@@ -1363,6 +1364,11 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
             return duplicate_keyword_argument(ts, co, keyword);
         }
         ts->regs[j] = PACK_INCREF(value);
+    }
+
+    /* Check the number of positional arguments */
+    if ((argcount > co->co_argcount) && !(co->co_flags & CO_VARARGS)) {
+        return too_many_positional(ts, argcount);
     }
 
     CLEAR(ts->regs[-FRAME_EXTRA - 2]);
