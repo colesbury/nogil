@@ -52,9 +52,7 @@ PyFunc_New(PyObject *co, PyObject *globals)
     func->func_dict = NULL;
     func->func_weakreflist = NULL;
     func->func_annotations = NULL;
-    func->func_qualname = func->func_name;
     func->vectorcall = _PyFunc_Vectorcall;
-    Py_INCREF(func->func_qualname);
 
     func->func_module = _PyDict_GetItemIdWithError(globals, &PyId___name__);
     if (UNLIKELY(func->func_module == NULL && PyErr_Occurred())) {
