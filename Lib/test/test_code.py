@@ -11,26 +11,24 @@ name: f
 argcount: 1
 posonlyargcount: 0
 kwonlyargcount: 0
-names: ()
 varnames: ('x', 'g')
 cellvars: ('x',)
 freevars: ()
 nlocals: 2
 flags: 3
-consts: ('None', '<code object g>', "'f.<locals>.g'")
+consts: ('None', "'f'", '<code object g>')
 
 >>> dump(f(4).__code__)
 name: g
 argcount: 1
 posonlyargcount: 0
 kwonlyargcount: 0
-names: ()
-varnames: ('y',)
+varnames: ('y', 'x')
 cellvars: ()
 freevars: ('x',)
-nlocals: 1
+nlocals: 2
 flags: 19
-consts: ('None',)
+consts: ('None', "'f.<locals>.g'")
 
 >>> def h(x, y):
 ...     a = x + y
@@ -44,13 +42,12 @@ name: h
 argcount: 2
 posonlyargcount: 0
 kwonlyargcount: 0
-names: ()
 varnames: ('x', 'y', 'a', 'b', 'c')
 cellvars: ()
 freevars: ()
 nlocals: 5
-flags: 67
-consts: ('None',)
+flags: 3
+consts: ('None', "'h'")
 
 >>> def attrs(obj):
 ...     print(obj.attr1)
@@ -62,13 +59,12 @@ name: attrs
 argcount: 1
 posonlyargcount: 0
 kwonlyargcount: 0
-names: ('print', 'attr1', 'attr2', 'attr3')
 varnames: ('obj',)
 cellvars: ()
 freevars: ()
 nlocals: 1
-flags: 67
-consts: ('None',)
+flags: 3
+consts: ('None', "'attrs'", "'print'", "'attr1'", "'attr2'", "'attr3'")
 
 >>> def optimize_away():
 ...     'doc string'
@@ -81,13 +77,12 @@ name: optimize_away
 argcount: 0
 posonlyargcount: 0
 kwonlyargcount: 0
-names: ()
 varnames: ()
 cellvars: ()
 freevars: ()
 nlocals: 0
-flags: 67
-consts: ("'doc string'", 'None')
+flags: 3
+consts: ("'doc string'", "'optimize_away'", 'None')
 
 >>> def keywordonly_args(a,b,*,k1):
 ...     return a,b,k1
@@ -98,13 +93,12 @@ name: keywordonly_args
 argcount: 2
 posonlyargcount: 0
 kwonlyargcount: 1
-names: ()
 varnames: ('a', 'b', 'k1')
 cellvars: ()
-freevars: ()
+freevars: ('k1',)
 nlocals: 3
-flags: 67
-consts: ('None',)
+flags: 3
+consts: ('None', "'keywordonly_args'")
 
 >>> def posonly_args(a,b,/,c):
 ...     return a,b,c
@@ -115,13 +109,12 @@ name: posonly_args
 argcount: 3
 posonlyargcount: 2
 kwonlyargcount: 0
-names: ()
 varnames: ('a', 'b', 'c')
 cellvars: ()
 freevars: ()
 nlocals: 3
-flags: 67
-consts: ('None',)
+flags: 3
+consts: ('None', "'posonly_args'")
 
 """
 
@@ -152,7 +145,7 @@ def consts(t):
 def dump(co):
     """Print out a text representation of a code object."""
     for attr in ["name", "argcount", "posonlyargcount",
-                 "kwonlyargcount", "names", "varnames",
+                 "kwonlyargcount", "varnames",
                  "cellvars", "freevars", "nlocals", "flags"]:
         print("%s: %s" % (attr, getattr(co, "co_" + attr)))
     print("consts:", tuple(consts(co.co_consts)))
