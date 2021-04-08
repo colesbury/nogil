@@ -339,11 +339,23 @@ func_set_defaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
         return -1;
     }
 
-    PyErr_SetString(PyExc_TypeError, "func.__defaults__ assignment NYI");
-    return -1;
-    // Py_XINCREF(value);
-    // Py_XSETREF(op->func_defaults, value);
-    // return 0;
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_ssize_t nkwargs = co->co_totalargcount - co->co_argcount;
+    Py_ssize_t expected = co->co_ndefaultargs - nkwargs;
+    Py_ssize_t n = (value == NULL ? 0 : PyTuple_GET_SIZE(value));
+    if (expected != n) {
+        PyErr_Format(PyExc_TypeError,
+            "__defaults__ size can't change (expected %zd)",
+            expected);
+        return -1;
+    }
+
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *d = PyTuple_GET_ITEM(value, i);
+        Py_XSETREF(op->freevars[i], d);
+    }
+
+    return 0;
 }
 
 static PyObject *
