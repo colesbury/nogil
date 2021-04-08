@@ -2962,7 +2962,9 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 
     /* doc string is always first constant (see funcobject.c) */
     compiler_const(c, docstring ? docstring : Py_None);
-    assert(PyDict_GET_SIZE(c->unit->consts) == 1);
+    /* qualified name is second constant */
+    compiler_const(c, c->unit->qualname);
+    assert(PyDict_GET_SIZE(c->unit->consts) == 2);
 
     c->unit->argcount = asdl_seq_LEN(args->args);
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
@@ -3194,10 +3196,12 @@ compiler_lambda(struct compiler *c, expr_ty e)
     // default values are treated as freevars in the function scope
     compiler_bind_defaults(c, args, defaults_base);
 
+    assert(PyDict_GET_SIZE(c->unit->consts) == 0);
     /* Make None the first constant, so the lambda can't have a
        docstring. */
     const_none(c);
-    assert(PyDict_GET_SIZE(c->unit->consts) == 1);
+    /* qualified name is second constant */
+    compiler_const(c, c->unit->qualname);
 
     c->unit->argcount = asdl_seq_LEN(args->args);
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);

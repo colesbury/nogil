@@ -2141,7 +2141,7 @@ PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;
     PyObject *ret = _PyEval2_EvalFunc((PyObject *)func, locals);
     intptr_t newrc = _PyThreadState_GET()->thread_ref_total;
-    fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
+    // fprintf(stderr, "RC %ld to %ld (%ld)\n", (long)oldrc, (long)newrc, (long)(newrc - oldrc));
     return ret;
 #else
     return _PyEval2_EvalFunc((PyObject *)func, locals);

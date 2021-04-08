@@ -39,6 +39,14 @@ PyFunc_New(PyObject *co, PyObject *globals)
     else {
         func->func_doc = NULL;
     }
+    if (code->co_nconsts > 1) {
+        func->func_qualname = code->co_constants[1];
+        // assert(_PyObject_IS_IMMORTAL(func->func_doc));
+    }
+    else {
+        func->func_qualname = code->co_name;
+    }
+    Py_INCREF(func->func_qualname);
     func->func_name = code->co_name;
     Py_INCREF(func->func_name);
     func->func_dict = NULL;
