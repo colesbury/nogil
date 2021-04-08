@@ -143,7 +143,6 @@ code.__new__ as code_new
     framesize: int = 0
     nmeta: int = 0
     flags: int = 0
-    names: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     varnames: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     filename: unicode = None
     name: unicode = None
@@ -152,8 +151,8 @@ code.__new__ as code_new
     eh_table: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     freevars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
-    cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     free2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
+    cell2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
 
 Create a code object.  Not for the faint of heart.
 [clinic start generated code]*/
@@ -162,11 +161,11 @@ static PyObject *
 code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
               int argcount, int posonlyargcount, int kwonlyargcount,
               int ndefaultargs, int nlocals, int framesize, int nmeta,
-              int flags, PyObject *names, PyObject *varnames,
-              PyObject *filename, PyObject *name, int firstlineno,
-              PyObject *linetable, PyObject *eh_table, PyObject *freevars,
-              PyObject *cellvars, PyObject *cell2reg, PyObject *free2reg)
-/*[clinic end generated code: output=a4f77204e4dcf504 input=a835e37c04c1af73]*/
+              int flags, PyObject *varnames, PyObject *filename,
+              PyObject *name, int firstlineno, PyObject *linetable,
+              PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
+              PyObject *free2reg, PyObject *cell2reg)
+/*[clinic end generated code: output=1479fe53549304cb input=8a495d20172a274b]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
@@ -458,7 +457,9 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
 {
     PyObject *co = NULL;
     PyObject *eh_table = NULL;
-
+    PyObject *freevars = NULL, *cellvars = NULL;
+    PyObject *free2reg = NULL, *cell2reg = NULL;
+    
     #define DEFAULT(arg, value) do {                    \
         arg = (!arg) ? (value) : (Py_INCREF(arg), arg); \
         if (!arg) goto cleanup;                         \
@@ -471,7 +472,12 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
     eh_table = code_getexc_handlers(self, NULL);
     if (eh_table == NULL) goto cleanup;
 
-    PyObject *freevars = NULL, *cellvars = NULL, *cell2reg = NULL, *free2reg = NULL;
+    free2reg = code_getfree2reg(self, NULL);
+    if (free2reg == NULL) goto cleanup;
+
+    cell2reg = code_getcell2reg(self, NULL);
+    if (cell2reg == NULL) goto cleanup;
+
     co = code_new_impl(
         &PyCode2_Type,
         co_code,
@@ -484,19 +490,20 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
         co_framesize,
         co_nmeta,
         co_flags,
-        NULL,
         co_varnames,
         co_filename,
         co_name,
         co_firstlineno,
         co_lnotab,
         eh_table,
-        freevars,
-        cellvars,
-        cell2reg,
-        free2reg);
+        co_freevars,
+        co_cellvars,
+        free2reg,
+        cell2reg);
 
 cleanup:
+    Py_XDECREF(cell2reg);
+    Py_XDECREF(free2reg);
     Py_XDECREF(co_code);
     Py_XDECREF(co_consts);
     Py_XDECREF(eh_table);

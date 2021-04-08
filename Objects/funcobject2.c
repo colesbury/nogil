@@ -216,6 +216,8 @@ func_get_code(PyFunc *op, void *Py_UNUSED(ignored))
 static int
 func_set_code(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
 {
+    Py_ssize_t nfree, nclosure;
+
     /* Not legal to del f.func_code or to set it to anything
      * other than a code object. */
     if (value == NULL || !PyCode2_Check(value)) {
@@ -229,23 +231,24 @@ func_set_code(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
         return -1;
     }
 
-    PyErr_SetString(PyExc_TypeError, "you could, but why would you?");
-    return -1;
+    // TODO: check other attributes
+    PyCodeObject2 *co = ((PyCodeObject2 *)value);
+    nfree = co->co_nfreevars;
+    nclosure = Py_SIZE(op);
+    if (nclosure != nfree) {
+        PyErr_Format(PyExc_ValueError,
+                     "%U() requires a code object with %zd free vars,"
+                     " not %zd",
+                     op->func_name,
+                     nclosure, nfree);
+        return -1;
+    }
 
-    // nfree = PyCode_GetNumFree((PyCodeObject *)value);
-    // nclosure = (op->func_closure == NULL ? 0 :
-    //         PyTuple_GET_SIZE(op->func_closure));
-    // if (nclosure != nfree) {
-    //     PyErr_Format(PyExc_ValueError,
-    //                  "%U() requires a code object with %zd free vars,"
-    //                  " not %zd",
-    //                  op->func_name,
-    //                  nclosure, nfree);
-    //     return -1;
-    // }
-    // Py_INCREF(value);
-    // Py_XSETREF(op->func_code, value);
-    // return 0;
+    PyCodeObject2 *prev = PyCode2_FromFunc(op);
+    Py_INCREF(value);
+    op->func_base.first_instr = PyCode2_Code(co);
+    Py_DECREF(prev);
+    return 0;
 }
 
 static PyObject *
