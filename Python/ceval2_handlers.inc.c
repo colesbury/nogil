@@ -1672,7 +1672,7 @@ TARGET(DICT_UPDATE) {
     int err;
     CALL_VM(err = PyDict_Update(dict, update));
     if (UNLIKELY(err != 0)) {
-        // TODO: update error message
+        CALL_VM(vm_err_dict_update(ts, acc));
         goto error;
     }
     DECREF(acc);

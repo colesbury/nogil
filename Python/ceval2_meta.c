@@ -1953,6 +1953,17 @@ vm_err_async_for_anext(struct ThreadState *ts, PyTypeObject *type)
         type->tp_name);
 }
 
+void
+vm_err_dict_update(struct ThreadState *ts, Register acc)
+{
+    if (_PyErr_ExceptionMatches(ts->ts, PyExc_AttributeError)) {
+        PyObject *obj = AS_OBJ(acc);
+        _PyErr_Format(ts->ts, PyExc_TypeError,
+                      "'%.200s' object is not a mapping",
+                      Py_TYPE(obj)->tp_name);
+    }
+}
+
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 {
