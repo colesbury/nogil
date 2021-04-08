@@ -2073,22 +2073,16 @@ sys_microbench(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject
 static PyObject *
 sys_FunctionTypes(PyObject *module)
 {
-    PyObject *types = PyTuple_New(2);
-    if (types == NULL) return NULL;
-    PyTuple_SET_ITEM(types, 0, (PyObject*)&PyFunction_Type);
-    PyTuple_SET_ITEM(types, 1, (PyObject*)&PyFunc_Type);
-    return types;
+    return Py_BuildValue("(OO)", (PyObject*)&PyFunc_Type,
+                                 (PyObject*)&PyFunction_Type);
 }
 
 
 static PyObject *
 sys_CodeTypes(PyObject *module)
 {
-    PyObject *types = PyTuple_New(2);
-    if (types == NULL) return NULL;
-    PyTuple_SET_ITEM(types, 0, (PyObject*)&PyCode_Type);
-    PyTuple_SET_ITEM(types, 1, (PyObject*)&PyCode2_Type);
-    return types;
+    return Py_BuildValue("(OO)", (PyObject*)&PyCode2_Type,
+                                 (PyObject*)&PyCode_Type);
 }
 
 static PyMethodDef sys_methods[] = {
