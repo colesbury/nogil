@@ -494,6 +494,7 @@ def decode_imm(code, offset, bytecode, wide):
 def _unpack_opargs(code):
     extended_arg = 0
     i = 0
+    WIDE = opmap['WIDE']
     while i < len(code):
         wide = False
         op = code[i]
@@ -501,9 +502,10 @@ def _unpack_opargs(code):
         if bytecode is None:
             raise RuntimeError(f'bad opcode {op}')
 
-        if bytecode.name == 'WIDE':
+        if bytecode == WIDE:
             wide = True
             op = code[i+1]
+            bytecode = opcodes[op]
             size = bytecode.wide_size
         else:
             size = bytecode.size
