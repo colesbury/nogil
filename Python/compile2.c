@@ -2964,7 +2964,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     compiler_const(c, docstring ? docstring : Py_None);
     /* qualified name is second constant */
     compiler_const(c, c->unit->qualname);
-    assert(PyDict_GET_SIZE(c->unit->consts) == 2);
+    assert(c->do_not_emit_bytecode || PyDict_GET_SIZE(c->unit->consts) == 2);
 
     c->unit->argcount = asdl_seq_LEN(args->args);
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
