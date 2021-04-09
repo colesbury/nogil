@@ -606,7 +606,7 @@ pybuilddir.txt: $(BUILDPYTHON)
 		exit 1 ; \
 	fi
 
-Python/ceval2.o: Python/ceval2.c  $(srcdir)/Python/ceval2_handlers.inc.c $(srcdir)/Python/opcode_targets2.h $(srcdir)/Python/unimplemented_opcodes.h
+Python/ceval2.o: Python/ceval2.c $(srcdir)/Python/opcode_targets2.h $(srcdir)/Python/unimplemented_opcodes.h
 	$${CEVAL2CC:-$(CC)} -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o $@ $<
 	$${CEVAL2CC:-$(CC)} -c -S $(PY_CORE_CFLAGS) -g0 -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o Python/ceval2.s $<
 
