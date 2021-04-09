@@ -2053,7 +2053,6 @@ builtins_from_globals2(PyObject *globals)
 {
     PyObject *builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
     if (!builtins) {
-        abort();
         if (PyErr_Occurred()) {
             return NULL;
         }
@@ -2067,14 +2066,15 @@ builtins_from_globals2(PyObject *globals)
             Py_DECREF(builtins);
             return NULL;
         }
-        _PyObject_SET_DEFERRED_RC(builtins);
-        Py_DECREF(builtins);
+        // _PyObject_SET_DEFERRED_RC(builtins);
+        // Py_DECREF(builtins);
         return builtins;
     }
     if (PyModule_Check(builtins)) {
         builtins = PyModule_GetDict(builtins);
     }
-    Py_INCREF_STACK(builtins);
+    // Py_INCREF_STACK(builtins);
+    Py_INCREF(builtins);
     return builtins;
 }
 

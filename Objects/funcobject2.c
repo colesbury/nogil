@@ -112,28 +112,23 @@ func_new_impl(PyTypeObject *type, PyCodeObject2 *code, PyObject *globals,
 static int
 func_clear(PyFunc *op)
 {
-    Py_CLEAR(op->globals);
-    Py_CLEAR(op->builtins);
-    Py_ssize_t nfreevars = Py_SIZE(op);
-    for (Py_ssize_t i = 0; i < nfreevars; i++) {
-        Py_CLEAR(op->freevars[i]);
-    }
     const uint8_t *first_instr = op->func_base.first_instr;
     if (first_instr != NULL) {
         op->func_base.first_instr = NULL;
         Py_DECREF(PyCode2_FromInstr(first_instr));
     }
-    // Py_CLEAR(op->func_code);
-    // Py_CLEAR(op->func_globals);
-    // Py_CLEAR(op->func_module);
-    // Py_CLEAR(op->func_name);
-    // Py_CLEAR(op->func_defaults);
-    // Py_CLEAR(op->func_kwdefaults);
+    Py_CLEAR(op->globals);
+    Py_CLEAR(op->builtins);
     Py_CLEAR(op->func_doc);
-    // Py_CLEAR(op->func_dict);
-    // Py_CLEAR(op->func_closure);
-    // Py_CLEAR(op->func_annotations);
-    // Py_CLEAR(op->func_qualname);
+    Py_CLEAR(op->func_name);
+    Py_CLEAR(op->func_dict);
+    Py_CLEAR(op->func_module);
+    Py_CLEAR(op->func_annotations);
+    Py_CLEAR(op->func_qualname);
+    Py_ssize_t nfreevars = Py_SIZE(op);
+    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+        Py_CLEAR(op->freevars[i]);
+    }
     return 0;
 }
 
@@ -157,23 +152,22 @@ func_repr(PyFunc *op)
 }
 
 static int
-func_traverse(PyFunc *f, visitproc visit, void *arg)
+func_traverse(PyFunc *op, visitproc visit, void *arg)
 {
-    Py_VISIT(f->globals);
-    // Py_VISIT(f->builtins);
-    for (Py_ssize_t i = 0, n = Py_SIZE(f); i < n; i++) {
-        Py_VISIT(f->freevars[i]);
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_VISIT(co);
+    Py_VISIT(op->globals);
+    Py_VISIT(op->builtins);
+    Py_VISIT(op->func_doc);
+    Py_VISIT(op->func_name);
+    Py_VISIT(op->func_dict);
+    Py_VISIT(op->func_module);
+    Py_VISIT(op->func_annotations);
+    Py_VISIT(op->func_qualname);
+    Py_ssize_t nfreevars = Py_SIZE(op);
+    for (Py_ssize_t i = 0; i < nfreevars; i++) {
+        Py_VISIT(op->freevars[i]);
     }
-    // Py_VISIT(f->func_code);
-    // Py_VISIT(f->func_module);
-    // Py_VISIT(f->func_defaults);
-    // Py_VISIT(f->func_kwdefaults);
-    // Py_VISIT(f->func_doc);
-    // Py_VISIT(f->func_name);
-    // Py_VISIT(f->func_dict);
-    // Py_VISIT(f->func_closure);
-    // Py_VISIT(f->func_annotations);
-    // Py_VISIT(f->func_qualname);
     return 0;
 }
 
