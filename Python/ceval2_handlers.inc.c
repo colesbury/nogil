@@ -233,7 +233,7 @@ TARGET(FUNC_HEADER) {
     Py_ssize_t i = acc.as_int64 & ACC_MASK_ARGS;
     for (; i < co_required_args; i++) {
         if (UNLIKELY(regs[i].as_int64 == 0)) {
-            FUNC_CALL_VM(missing_arguments(ts, acc.as_int64));
+            FUNC_CALL_VM(missing_arguments(ts));
             acc.as_int64 = 0;
             goto error;
         }
@@ -247,7 +247,7 @@ TARGET(FUNC_HEADER) {
                 // Required keyword-only arguments can come after optional
                 // arguments. These arguments have NULL default values to
                 // signify that they are required.
-                FUNC_CALL_VM(missing_arguments(ts, acc.as_int64));
+                FUNC_CALL_VM(missing_arguments(ts));
                 acc.as_int64 = 0;
                 goto error;
             }

@@ -1253,10 +1253,125 @@ duplicate_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *
     return -1;
 }
 
-int _Py_NO_INLINE
-missing_arguments(struct ThreadState *ts, Py_ssize_t posargcount)
+static void
+format_missing(struct ThreadState *ts, const char *kind,
+               PyCodeObject2 *co, PyObject *names)
 {
-    PyErr_Format(PyExc_TypeError, "missing_arguments");
+    int err;
+    Py_ssize_t len = PyList_GET_SIZE(names);
+    PyObject *name_str, *comma, *tail, *tmp;
+
+    assert(PyList_CheckExact(names));
+    assert(len >= 1);
+    /* Deal with the joys of natural language. */
+    switch (len) {
+    case 1:
+        name_str = PyList_GET_ITEM(names, 0);
+        Py_INCREF(name_str);
+        break;
+    case 2:
+        name_str = PyUnicode_FromFormat("%U and %U",
+                                        PyList_GET_ITEM(names, len - 2),
+                                        PyList_GET_ITEM(names, len - 1));
+        break;
+    default:
+        tail = PyUnicode_FromFormat(", %U, and %U",
+                                    PyList_GET_ITEM(names, len - 2),
+                                    PyList_GET_ITEM(names, len - 1));
+        if (tail == NULL)
+            return;
+        /* Chop off the last two objects in the list. This shouldn't actually
+           fail, but we can't be too careful. */
+        err = PyList_SetSlice(names, len - 2, len, NULL);
+        if (err == -1) {
+            Py_DECREF(tail);
+            return;
+        }
+        /* Stitch everything up into a nice comma-separated list. */
+        comma = PyUnicode_FromString(", ");
+        if (comma == NULL) {
+            Py_DECREF(tail);
+            return;
+        }
+        tmp = PyUnicode_Join(comma, names);
+        Py_DECREF(comma);
+        if (tmp == NULL) {
+            Py_DECREF(tail);
+            return;
+        }
+        name_str = PyUnicode_Concat(tmp, tail);
+        Py_DECREF(tmp);
+        Py_DECREF(tail);
+        break;
+    }
+    if (name_str == NULL)
+        return;
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+                  "%U() missing %i required %s argument%s: %U",
+                  co->co_name,
+                  len,
+                  kind,
+                  len == 1 ? "" : "s",
+                  name_str);
+    Py_DECREF(name_str);
+}
+
+int _Py_NO_INLINE
+missing_arguments(struct ThreadState *ts)
+{
+    PyObject *positional = NULL;
+    PyObject *kwdonly = NULL;
+    PyObject *name = NULL;
+
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *co = PyCode2_FromFunc(func);
+    Py_ssize_t required_args = co->co_totalargcount - co->co_ndefaultargs;
+
+    // names of missing positional arguments
+    positional = PyList_New(0);
+    if (positional == NULL) {
+        goto cleanup;
+    }
+
+    // names of missing keyword-only arguments
+    kwdonly = PyList_New(0);
+    if (kwdonly == NULL) {
+        goto cleanup;
+    }
+
+    for (Py_ssize_t i = 0; i < co->co_totalargcount; i++) {
+        if (ts->regs[i].as_int64 != 0) {
+            // argument has value
+            continue;
+        }
+        if (i > required_args && func->freevars[i - required_args] != NULL) {
+            // argument has default value
+            continue;
+        }
+        PyObject *raw = PyTuple_GET_ITEM(co->co_varnames, i);
+        name = PyObject_Repr(raw);  // quote the 'name' string
+        if (name == NULL) {
+            goto cleanup;
+        }
+        PyObject *list = (i < co->co_argcount) ? positional : kwdonly;
+        int err = PyList_Append(list, name);
+        if (err < 0) {
+            goto cleanup;
+        }
+        Py_CLEAR(name);
+    }
+    if (PyList_GET_SIZE(positional) > 0) {
+        format_missing(ts, "positional", co, positional);
+    }
+    else {
+        format_missing(ts, "keyword-only", co, kwdonly);
+    }
+    goto cleanup;
+
+cleanup:
+    Py_XDECREF(positional);
+    Py_XDECREF(kwdonly);
+    Py_XDECREF(name);
     return -1;
 }
 
@@ -1375,8 +1490,6 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
     if (kwargs) {
         CLEAR(ts->regs[-FRAME_EXTRA - 1]);
     }
-
-    // FIXME: check for too many positional arguments
     return 0;
 }
 
@@ -1387,7 +1500,7 @@ vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
     Py_ssize_t n = argcount - co->co_argcount;
     Py_ssize_t total_args = co->co_totalargcount;
     if (n <= 0) {
-        PyObject *varargs = PyTuple_New(0); // FIXME: get empty tuple directly?
+        PyObject *varargs = PyTuple_New(0); // TODO: get empty tuple directly?
         assert(varargs != NULL && _PyObject_IS_IMMORTAL(varargs));
         ts->regs[total_args] = PACK(varargs, NO_REFCOUNT_TAG);
     }
@@ -1912,7 +2025,7 @@ void
 vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
 {
     /* Don't stomp existing exception */
-    if (PyErr_Occurred()) {
+    if (_PyErr_Occurred(ts->ts)) {
         return;
     }
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
@@ -1941,7 +2054,6 @@ vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type)
         "'async for' requires an object with "
         "__aiter__ method, got %.100s",
         type->tp_name);
-
 }
 
 void

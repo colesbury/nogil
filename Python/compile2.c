@@ -2861,7 +2861,9 @@ defaults_to_regs(struct compiler *c, arguments_ty args)
     Py_ssize_t kw_base = base + asdl_seq_LEN(defaults);
     for (Py_ssize_t i = 0, n = asdl_seq_LEN(kw_defaults); i < n; i++) {
         expr_ty e = asdl_seq_GET(kw_defaults, i);
-        expr_to_reg(c, e, kw_base + i);
+        if (e != NULL) {
+            expr_to_reg(c, e, kw_base + i);
+        }
     }
 
     return base;
