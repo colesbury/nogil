@@ -2152,11 +2152,14 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     TARGET(END_EXCEPT) {
         // FIXME(sgross): is regs[UImm(0)] always -1 ???
-        if (regs[UImm(0)].as_int64 == -1) {
-            Register r = regs[UImm(0) + 1];
-            regs[UImm(0)].as_int64 = 0;
-            regs[UImm(0) + 1].as_int64 = 0;
-            DECREF(r);
+        Py_ssize_t op = UImm(0);
+        if (regs[op].as_int64 != 0) {
+            Register r = regs[op + 1];
+            regs[op + 0].as_int64 = 0;
+            regs[op + 1].as_int64 = 0;
+            if (r.as_int64 != 0) {
+                DECREF(r);
+            }
         }
         DISPATCH(END_EXCEPT);
     }
