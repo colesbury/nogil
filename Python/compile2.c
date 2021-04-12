@@ -4460,8 +4460,7 @@ shuffle_down(struct compiler *c, Py_ssize_t lhs, Py_ssize_t rhs)
         return rhs;
     }
     else if (is_local(c, rhs)) {
-        emit1(c, CLEAR_FAST, lhs);
-        free_reg(c, lhs);
+        clear_reg(c, lhs);
         return rhs;
     }
     else {
@@ -4474,16 +4473,17 @@ shuffle_down(struct compiler *c, Py_ssize_t lhs, Py_ssize_t rhs)
 static void
 compiler_compare(struct compiler *c, expr_ty e)
 {
-    struct multi_label labels;
+    struct multi_label label = MULTI_LABEL_INIT;
     Py_ssize_t n, lhs, rhs = -1;
+    Py_ssize_t base, top;
 
     // warn for things like "x is 4"
     check_compare(c, e);
 
-    memset(&labels, 0, sizeof(labels));
+    base = c->unit->next_register;
 
     assert(asdl_seq_LEN(e->v.Compare.ops) > 0);
-    lhs = expr_to_any_reg(c, e->v.Compare.left);
+    lhs = top = expr_to_any_reg(c, e->v.Compare.left);
 
     n = asdl_seq_LEN(e->v.Compare.ops);
     for (Py_ssize_t i = 0; i < n; i++) {
@@ -4496,14 +4496,18 @@ compiler_compare(struct compiler *c, expr_ty e)
             // without re-evaluating the expression.
             lhs = shuffle_down(c, lhs, rhs);
             rhs = -1;
+            if (lhs > top) {
+                top = lhs;
+            }
 
-            emit_jump(c, JUMP_IF_FALSE, multi_label_next(c, &labels));
+            emit_jump(c, JUMP_IF_FALSE, multi_label_next(c, &label));
         }
 
         // Load the right-hand-side of the comparison into the accumulator.
         // If this is not the final comparison, also ensure that it's saved
         // in a register.
         if (i < n - 1) {
+            // TODO: improve code generation for constants
             rhs = expr_to_any_reg(c, comparator);
             emit1(c, LOAD_FAST, rhs);
         }
@@ -4516,40 +4520,13 @@ compiler_compare(struct compiler *c, expr_ty e)
         emit_compare(c, lhs, op);
     }
 
-    emit_multi_label(c, &labels);
-    clear_reg(c, lhs);
-
-
-//     VISIT(c, expr, e->v.Compare.left);
-//     if (n == 0) {
-//         VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Compare.comparators, 0));
-//         ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, 0));
-//     }
-//     else {
-//         basicblock *cleanup = compiler_new_block(c);
-//         if (cleanup == NULL)
-//             return 0;
-//         for (i = 0; i < n; i++) {
-//             VISIT(c, expr,
-//                 (expr_ty)asdl_seq_GET(e->v.Compare.comparators, i));
-//             ADDOP(c, DUP_TOP);
-//             ADDOP(c, ROT_THREE);
-//             ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, i));
-//             ADDOP_JABS(c, JUMP_IF_FALSE_OR_POP, cleanup);
-//             NEXT_BLOCK(c);
-//         }
-//         VISIT(c, expr, (expr_ty)asdl_seq_GET(e->v.Compare.comparators, n));
-//         ADDOP_COMPARE(c, asdl_seq_GET(e->v.Compare.ops, n));
-//         basicblock *end = compiler_new_block(c);
-//         if (end == NULL)
-//             return 0;
-//         ADDOP_JREL(c, JUMP_FORWARD, end);
-//         compiler_use_next_block(c, cleanup);
-//         ADDOP(c, ROT_TWO);
-//         ADDOP(c, POP_TOP);
-//         compiler_use_next_block(c, end);
-//     }
-//     return 1;
+    emit_multi_label(c, &label);
+    if (top >= base) {
+        c->unit->next_register = top + 1;
+        for (; top >= base; top--) {
+            clear_reg(c, top);
+        }
+    }
 }
 
 static PyTypeObject *
