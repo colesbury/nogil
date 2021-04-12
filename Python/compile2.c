@@ -4566,76 +4566,77 @@ check_caller(struct compiler *c, expr_ty e)
     case JoinedStr_kind:
     case FormattedValue_kind:
         compiler_warn(c, "'%.200s' object is not callable; "
-                      "perhaps you missed a comma?",
-                      infer_type(e)->tp_name);
+                         "perhaps you missed a comma?",
+                         infer_type(e)->tp_name);
         break;
     default: break;
     }
 }
 
-// static int
-// check_subscripter(struct compiler *c, expr_ty e)
-// {
-//     PyObject *v;
+static void
+check_subscripter(struct compiler *c, expr_ty e)
+{
+    PyObject *v;
 
-//     switch (e->kind) {
-//     case Constant_kind:
-//         v = e->v.Constant.value;
-//         if (!(v == Py_None || v == Py_Ellipsis ||
-//               PyLong_Check(v) || PyFloat_Check(v) || PyComplex_Check(v) ||
-//               PyAnySet_Check(v)))
-//         {
-//             return 1;
-//         }
-//         /* fall through */
-//     case Set_kind:
-//     case SetComp_kind:
-//     case GeneratorExp_kind:
-//     case Lambda_kind:
-//         return compiler_warn(c, "'%.200s' object is not subscriptable; "
-//                                 "perhaps you missed a comma?",
-//                                 infer_type(e)->tp_name);
-//     default:
-//         return 1;
-//     }
-// }
+    switch (e->kind) {
+    case Constant_kind:
+        v = e->v.Constant.value;
+        if (!(v == Py_None || v == Py_Ellipsis ||
+              PyLong_Check(v) || PyFloat_Check(v) || PyComplex_Check(v) ||
+              PyAnySet_Check(v)))
+        {
+            return;
+        }
+        /* fall through */
+    case Set_kind:
+    case SetComp_kind:
+    case GeneratorExp_kind:
+    case Lambda_kind:
+        compiler_warn(c, "'%.200s' object is not subscriptable; "
+                         "perhaps you missed a comma?",
+                         infer_type(e)->tp_name);
+        return;
+    default: return;
+    }
+}
 
-// static int
-// check_index(struct compiler *c, expr_ty e, slice_ty s)
-// {
-//     PyObject *v;
+static void
+check_index(struct compiler *c, expr_ty e, slice_ty s)
+{
+    PyObject *v;
 
-//     if (s->kind != Index_kind) {
-//         return 1;
-//     }
-//     PyTypeObject *index_type = infer_type(s->v.Index.value);
-//     if (index_type == NULL
-//         || PyType_FastSubclass(index_type, Py_TPFLAGS_LONG_SUBCLASS)
-//         || index_type == &PySlice_Type) {
-//         return 1;
-//     }
+    if (s->kind != Index_kind) {
+        return;
+    }
+    PyTypeObject *index_type = infer_type(s->v.Index.value);
+    if (index_type == NULL
+        || PyType_FastSubclass(index_type, Py_TPFLAGS_LONG_SUBCLASS)
+        || index_type == &PySlice_Type) {
+        return;
+    }
 
-//     switch (e->kind) {
-//     case Constant_kind:
-//         v = e->v.Constant.value;
-//         if (!(PyUnicode_Check(v) || PyBytes_Check(v) || PyTuple_Check(v))) {
-//             return 1;
-//         }
-//         /* fall through */
-//     case Tuple_kind:
-//     case List_kind:
-//     case ListComp_kind:
-//     case JoinedStr_kind:
-//     case FormattedValue_kind:
-//         return compiler_warn(c, "%.200s indices must be integers or slices, "
-//                                 "not %.200s; "
-//                                 "perhaps you missed a comma?",
-//                                 infer_type(e)->tp_name,
-//                                 index_type->tp_name);
-//     default:
-//         return 1;
-//     }
-// }
+    switch (e->kind) {
+    case Constant_kind:
+        v = e->v.Constant.value;
+        if (!(PyUnicode_Check(v) || PyBytes_Check(v) || PyTuple_Check(v))) {
+            return;
+        }
+        /* fall through */
+    case Tuple_kind:
+    case List_kind:
+    case ListComp_kind:
+    case JoinedStr_kind:
+    case FormattedValue_kind:
+        compiler_warn(c, "%.200s indices must be integers or slices, "
+                         "not %.200s; "
+                         "perhaps you missed a comma?",
+                         infer_type(e)->tp_name,
+                         index_type->tp_name);
+        return;
+    default:
+        return;
+    }
+}
 
 /* Return 1 if the method call was optimized, 0 if not. */
 static int
@@ -5574,6 +5575,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     }
     case Subscript_kind: {
         assert(e->v.Subscript.ctx == Load);
+        check_subscripter(c, e->v.Subscript.value);
+        check_index(c, e->v.Subscript.value, e->v.Subscript.slice);
+
         Py_ssize_t reg = expr_to_any_reg(c, e->v.Subscript.value);
         compiler_slice(c, e->v.Subscript.slice);
         emit1(c, BINARY_SUBSCR, reg);
