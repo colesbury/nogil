@@ -100,10 +100,9 @@ struct multi_label {
 enum frame_block_type {
     WHILE_LOOP,
     FOR_LOOP,
-    TRY_FINALLY,
-    EXCEPT,
-    EXCEPT_HANDLER,
-    FINALLY,
+    TRY_FINALLY,    // try part of a try/finally
+    HANDLER,        // finally or except block body
+    EXCEPT_AS,      // body of an `except ... as ...` block
     WITH,
     ASYNC_WITH
 };
@@ -129,15 +128,11 @@ struct fblock {
 
         struct {
             Py_ssize_t reg;
-        } Except;
+        } Handler;
 
         struct {
             PyObject *name;
-        } ExceptHandler;
-
-        struct {
-            Py_ssize_t reg;
-        } Finally;
+        } ExceptAs;
 
         struct {
             Py_ssize_t reg;
@@ -2438,16 +2433,13 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
             multi_label_next(c, block->v.TryFinally.label));
         return;
 
-    case EXCEPT:
-        emit1(c, END_EXCEPT, block->v.Except.reg);
+    case HANDLER:
+        // clear the pending exception when early exiting a finally or except body.
+        emit1(c, END_EXCEPT, block->v.Handler.reg);
         return;
 
-    case EXCEPT_HANDLER:
-        clear_name(c, block->v.ExceptHandler.name);
-        return;
-
-    case FINALLY:
-        emit1(c, END_FINALLY, block->v.Finally.reg);
+    case EXCEPT_AS:
+        clear_name(c, block->v.ExceptAs.name);
         return;
 
     case WITH:
@@ -3559,18 +3551,18 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     compiler_pop_block(c, &block);
 
     // Finally body
-    block.type = FINALLY;
-    block.v.Finally.reg = reserve_regs(c, 2);
+    block.type = HANDLER;
+    block.v.Handler.reg = reserve_regs(c, 2);
     compiler_push_block(c, &block);
     h.handler = c->unit->instr.offset;
-    h.reg = block.v.Finally.reg;
+    h.reg = block.v.Handler.reg;
 
     emit_multi_label(c, &finally_label);
     compiler_visit_stmts(c, s->v.Try.finalbody);
-    emit1(c, END_FINALLY, block.v.Finally.reg);
+    emit1(c, END_FINALLY, block.v.Handler.reg);
     h.handler_end = c->unit->instr.offset;
     add_exception_handler(c, &h);
-    free_regs_above(c, block.v.Finally.reg);
+    free_regs_above(c, block.v.Handler.reg);
     compiler_pop_block(c, &block);
 }
 
@@ -3589,7 +3581,7 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
             del name
 */
 static void
-compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
+compiler_except_as(struct compiler *c, excepthandler_ty handler)
 {
     ExceptionHandler h;
     struct fblock block;
@@ -3599,8 +3591,8 @@ compiler_try_except_handler(struct compiler *c, excepthandler_ty handler)
     assign_name(c, name);
 
     // start an inner exception handler around the handler body
-    block.type = EXCEPT_HANDLER;
-    block.v.ExceptHandler.name = name;
+    block.type = EXCEPT_AS;
+    block.v.ExceptAs.name = name;
     compiler_push_block(c, &block);
     h.start = c->unit->instr.offset;
 
@@ -3664,8 +3656,8 @@ compiler_try_except(struct compiler *c, stmt_ty s)
     emit_jump(c, JUMP, &orelse);
 
     // Handler bodies
-    block.type = EXCEPT;
-    block.v.Except.reg = h.reg = reserve_regs(c, 2);
+    block.type = HANDLER;
+    block.v.Handler.reg = h.reg = reserve_regs(c, 2);
     compiler_push_block(c, &block);
     h.handler = c->unit->instr.offset;
 
@@ -3688,7 +3680,7 @@ compiler_try_except(struct compiler *c, stmt_ty s)
         }
         if (handler->v.ExceptHandler.name) {
             emit1(c, LOAD_FAST, h.reg + 1);
-            compiler_try_except_handler(c, handler);
+            compiler_except_as(c, handler);
         }
         else {
             compiler_visit_stmts(c, handler->v.ExceptHandler.body);
