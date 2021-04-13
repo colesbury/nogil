@@ -112,7 +112,7 @@ static const char *opcode_names[256] = {
     "DICT_UPDATE",
     "WIDE",
     "SETUP_ANNOTATIONS",
-    "unknown_opcode",
+    "SET_FUNC_ANNOTATIONS",
     "unknown_opcode",
     "unknown_opcode",
     "unknown_opcode",

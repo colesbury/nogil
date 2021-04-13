@@ -2265,6 +2265,15 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         DISPATCH(END_ASYNC_WITH);
     }
 
+    TARGET(SET_FUNC_ANNOTATIONS) {
+        Py_ssize_t oparg = UImm(0);
+        assert(PyFunc_Check(AS_OBJ(acc)));
+        PyFunc *func = (PyFunc *)AS_OBJ(acc);
+        func->func_annotations = AS_OBJ(regs[oparg]);
+        regs[oparg].as_int64 = 0;
+        DISPATCH(SET_FUNC_ANNOTATIONS);
+    }
+
     #ifndef WIDE_OP
     TARGET(SETUP_ANNOTATIONS) {
         PyObject *locals = AS_OBJ(regs[0]);

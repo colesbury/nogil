@@ -189,6 +189,8 @@ struct compiler_unit {
     PyObject *qualname;  /* dot-separated qualified name (lazy) */
     int scope_type;
 
+    PyObject *annotations; /* annotations (temporary) */
+
     /* The following fields are dicts that map objects to
        the index of them in co_XXX.      The index is used as
        the argument for opcodes that refer to those collections.
@@ -660,6 +662,7 @@ compiler_unit_free(struct compiler_unit *u)
     Py_CLEAR(u->ste);
     Py_CLEAR(u->name);
     Py_CLEAR(u->qualname);
+    Py_CLEAR(u->annotations);
     Py_CLEAR(u->consts);
     Py_CLEAR(u->varnames);
     Py_CLEAR(u->metadata);
@@ -2729,6 +2732,11 @@ compiler_decorators(struct compiler *c, asdl_seq* decos)
 //     return 0;
 // }
 
+struct func_annotation {
+    int dict_reg;   // register for __annotations__ dict
+    int name_reg;
+};
+
 static void
 compiler_visit_annexpr(struct compiler *c, expr_ty annotation)
 {
@@ -2739,104 +2747,84 @@ compiler_visit_annexpr(struct compiler *c, expr_ty annotation)
     emit1(c, LOAD_CONST, compiler_new_const(c, str));
 }
 
-// static int
-// compiler_visit_argannotation(struct compiler *c, identifier id,
-//     expr_ty annotation, PyObject *names)
-// {
-//     if (annotation) {
-//         PyObject *mangled;
-//         if (c->c_future->ff_features & CO_FUTURE_ANNOTATIONS) {
-//             VISIT(c, annexpr, annotation)
-//         }
-//         else {
-//             VISIT(c, expr, annotation);
-//         }
-//         mangled = _Py_Mangle(c->u->u_private, id);
-//         if (!mangled)
-//             return 0;
-//         if (PyList_Append(names, mangled) < 0) {
-//             Py_DECREF(mangled);
-//             return 0;
-//         }
-//         Py_DECREF(mangled);
-//     }
-//     return 1;
-// }
+static void
+compiler_visit_argannotation(struct compiler *c, identifier id,
+                             expr_ty annotation,
+                             struct func_annotation *f)
+{
+    if (!annotation) return;
 
-// static int
-// compiler_visit_argannotations(struct compiler *c, asdl_seq* args,
-//                               PyObject *names)
-// {
-//     int i;
-//     for (i = 0; i < asdl_seq_LEN(args); i++) {
-//         arg_ty arg = (arg_ty)asdl_seq_GET(args, i);
-//         if (!compiler_visit_argannotation(
-//                         c,
-//                         arg->arg,
-//                         arg->annotation,
-//                         names))
-//             return 0;
-//     }
-//     return 1;
-// }
+    // lazily allocate __annotations__ dict
+    if (f->dict_reg == -1) {
+        f->dict_reg = reserve_regs(c, 1);
+        f->name_reg = reserve_regs(c, 1);
+        emit1(c, BUILD_MAP, 0);
+        emit1(c, STORE_FAST, f->dict_reg);
+    }
 
-// static int
-// compiler_visit_annotations(struct compiler *c, arguments_ty args,
-//                            expr_ty returns)
-// {
-//     /* Push arg annotation dict.
-//        The expressions are evaluated out-of-order wrt the source code.
+    emit1(c, LOAD_CONST, compiler_name(c, id));
+    emit1(c, STORE_FAST, f->name_reg);
+    if (c->future->ff_features & CO_FUTURE_ANNOTATIONS) {
+        compiler_visit_annexpr(c, annotation);
+    }
+    else {
+        compiler_visit_expr(c, annotation);
+    }
+    emit2(c, STORE_SUBSCR, f->dict_reg, f->name_reg);
+}
 
-//        Return 0 on error, -1 if no dict pushed, 1 if a dict is pushed.
-//        */
-//     static identifier return_str;
-//     PyObject *names;
-//     Py_ssize_t len;
-//     names = PyList_New(0);
-//     if (!names)
-//         return 0;
+static void
+compiler_visit_argannotations(struct compiler *c, asdl_seq* args,
+                              struct func_annotation *f)
+{
+    int i;
+    for (i = 0; i < asdl_seq_LEN(args); i++) {
+        arg_ty arg = (arg_ty)asdl_seq_GET(args, i);
+        compiler_visit_argannotation(
+            c,
+            arg->arg,
+            arg->annotation,
+            f);
+    }
+}
 
-//     if (!compiler_visit_argannotations(c, args->args, names))
-//         goto error;
-//     if (!compiler_visit_argannotations(c, args->posonlyargs, names))
-//         goto error;
-//     if (args->vararg && args->vararg->annotation &&
-//         !compiler_visit_argannotation(c, args->vararg->arg,
-//                                      args->vararg->annotation, names))
-//         goto error;
-//     if (!compiler_visit_argannotations(c, args->kwonlyargs, names))
-//         goto error;
-//     if (args->kwarg && args->kwarg->annotation &&
-//         !compiler_visit_argannotation(c, args->kwarg->arg,
-//                                      args->kwarg->annotation, names))
-//         goto error;
+// Create arg annotation dict and store in temporary register.
+// Returns the register or -1 if there are no annotations.
+static int
+compiler_visit_annotations(struct compiler *c, arguments_ty args,
+                           expr_ty returns)
+{
+    _Py_static_string(PyId_return, "return");
+    PyObject *return_str;
 
-//     if (!return_str) {
-//         return_str = PyUnicode_InternFromString("return");
-//         if (!return_str)
-//             goto error;
-//     }
-//     if (!compiler_visit_argannotation(c, return_str, returns, names)) {
-//         goto error;
-//     }
+    // We lazily allocate a temporary register for `dict_reg` when
+    // we encounter the first annotation. This avoids unecessarily
+    // building a dict if the function does not have annotations;
+    // if there are no annotations, dict_reg remains -1.
+    struct func_annotation f;
+    f.dict_reg = -1;
+    f.name_reg = -1;
 
-//     len = PyList_GET_SIZE(names);
-//     if (len) {
-//         PyObject *keytuple = PyList_AsTuple(names);
-//         Py_DECREF(names);
-//         ADDOP_LOAD_CONST_NEW(c, keytuple);
-//         ADDOP_I(c, BUILD_CONST_KEY_MAP, len);
-//         return 1;
-//     }
-//     else {
-//         Py_DECREF(names);
-//         return -1;
-//     }
+    compiler_visit_argannotations(c, args->args, &f);
+    compiler_visit_argannotations(c, args->posonlyargs, &f);
+    if (args->vararg && args->vararg->annotation) {
+        compiler_visit_argannotation(c, args->vararg->arg,
+                                     args->vararg->annotation, &f);
+    }
+    compiler_visit_argannotations(c, args->kwonlyargs, &f);
+    if (args->kwarg && args->kwarg->annotation) {
+        compiler_visit_argannotation(c, args->kwarg->arg,
+                                     args->kwarg->annotation, &f);
+    }
+    return_str = unicode_from_id(c, &PyId_return);
+    compiler_visit_argannotation(c, return_str, returns, &f);
 
-// error:
-//     Py_DECREF(names);
-//     return 0;
-// }
+    if (f.name_reg != -1) {
+        clear_reg(c, f.name_reg);
+    }
+
+    return f.dict_reg;
+}
 
 static Py_ssize_t
 defaults_to_regs(struct compiler *c, arguments_ty args)
@@ -2907,7 +2895,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     asdl_seq* decos;
     asdl_seq *body;
     Py_ssize_t i, deco_base, defaults_base;
-    // int annotations;
+    int annotations;
     int scope_type;
     int firstlineno;
 
@@ -2933,8 +2921,6 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
         scope_type = COMPILER_SCOPE_FUNCTION;
     }
 
-    (void)returns; // fixme
-
     deco_base = compiler_decorators(c, decos);
 
     firstlineno = s->lineno;
@@ -2944,6 +2930,8 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 
     // discharge default values to registers in parent scope
     defaults_base = defaults_to_regs(c, args);
+
+    annotations = compiler_visit_annotations(c, args, returns);
 
     compiler_enter_scope(c, name, scope_type, (void *)s, firstlineno);
 
@@ -2969,8 +2957,12 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     compiler_exit_scope(c);
 
     emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
-    clear_regs_above(c, defaults_base);
 
+    if (annotations != -1) {
+        emit1(c, SET_FUNC_ANNOTATIONS, annotations);
+    }
+
+    clear_regs_above(c, defaults_base);
     // FIXME: annotations
     // Py_INCREF(qualname);
     // compiler_exit_scope(c);
