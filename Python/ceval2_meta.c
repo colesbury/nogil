@@ -51,6 +51,16 @@ vm_frame_size(struct ThreadState *ts)
     return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
 }
 
+const uint8_t *
+vm_frame_pop_pc(struct ThreadState *ts)
+{
+    Py_ssize_t frame_size = vm_frame_size(ts);
+    intptr_t pc = ts->regs[frame_size].as_int64;
+    ts->regs[frame_size].as_int64 = 0;
+    return (const uint8_t *)pc;
+}
+
+
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
         _Py_DECREF_TOTAL \
@@ -159,12 +169,32 @@ vm_stack_walk_regs(struct stack_walk *w)
     return &w->ts->regs[w->offset];
 }
 
+static const uint8_t *
+vm_stack_pc(struct ThreadState *ts, Py_ssize_t offset, intptr_t frame_link)
+{
+    if (frame_link > FRAME_C) {
+        return (const uint8_t *)frame_link;
+    }
+    if (ts->regs + offset == ts->stack) {
+        return NULL;
+    }
+    PyObject *func = AS_OBJ(ts->regs[offset-1]);
+    Py_ssize_t frame_size;
+    if (PyFunc_Check(func)) {
+        frame_size = PyCode2_FromFunc((PyFunc *)func)->co_framesize;
+    }
+    else {
+        frame_size = ts->regs[offset-3].as_int64;
+    }
+    return (const uint8_t *)ts->regs[offset+frame_size].as_int64;
+}
+
 static int
 vm_stack_walk(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
     w->offset = w->next_offset;
-    w->pc = vm_frame_pc(w->frame_link);
+    w->pc = vm_stack_pc(ts, w->offset, w->frame_link);
     if (ts->regs + w->offset == ts->stack) {
         return 0;
     }
@@ -386,6 +416,9 @@ vm_pop_frame(struct ThreadState *ts)
     ts->regs[-3].as_int64 = 0;
     ts->regs[-4].as_int64 = 0;
     ts->regs -= frame_delta;
+    if (frame_link <= FRAME_C) {
+        ts->pc = vm_frame_pop_pc(ts);
+    }
     return frame_link;
 }
 
@@ -578,7 +611,7 @@ vm_traceback_here(struct ThreadState *ts)
         Py_XSETREF(tb, newtb);
         Py_DECREF(frame);
 
-        if (vm_frame_pc(w.frame_link) == NULL) {
+        if (w.frame_link <= 0) {
             break;
         }
     }
@@ -2190,11 +2223,27 @@ builtins_from_globals2(PyObject *globals)
     return builtins;
 }
 
+/*
+  idx      Python frame
+        +-------------------+
+-5-ex   |       old pc      |
+        |- - - - - - - - - -|
+  ...   |      [extra]      |
+        |- - - - - - - - - -|
+  -4    |    frame delta    |
+        |- - - - - - - - - -|
+  -3    |     constants     |
+        |- - - - - - - - - -|
+  -2    |  frame link | tag |
+        |- - - - - - - - - -|
+  -1    |      PyFunc       |
+        |- - - - - - - - - -|
+*/
 static int
 setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssize_t nargs)
 {
     assert(PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE));
-    Py_ssize_t frame_delta = vm_frame_size(ts) + CFRAME_EXTRA + extra;
+    Py_ssize_t frame_delta = vm_frame_size(ts) + 1 + CFRAME_EXTRA + extra;
     Py_ssize_t frame_size = frame_delta + nargs;
     if (UNLIKELY(ts->regs + frame_size > ts->maxstack)) {
         if (vm_resize_stack(ts, frame_size) != 0) {
@@ -2203,14 +2252,14 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
     }
 
     ts->regs += frame_delta;
-
     PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
+    ts->regs[-5-extra].as_int64 = (intptr_t)ts->pc;
+    // `extra` empty registers (`extra` may be zero)
     ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2].as_int64 = FRAME_C;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
-
 }
 
 static int

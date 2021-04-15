@@ -910,7 +910,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         regs -= frame_delta;
         ts->regs = regs;
         if (UNLIKELY(frame_link <= FRAME_C)) {
-            ts->pc = NULL;
+            CALL_VM(ts->pc = vm_frame_pop_pc(ts));
             if (frame_link == FRAME_C) {
                 goto return_to_c;
             }
@@ -2360,8 +2360,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     error: {
-        // TODO: normalize exception and create traceback.
-        // CALL_VM(vm_handle_error(ts));
         CALL_VM(vm_traceback_here(ts));
         goto exception_unwind;
     }
