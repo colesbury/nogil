@@ -585,6 +585,11 @@ vm_get_frame(int depth)
             continue;
         }
 
+        if (depth > 0) {
+            depth--;
+            continue;
+        }
+
         PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.pc);
         if (frame == NULL) {
             Py_XDECREF(top);
@@ -597,6 +602,12 @@ vm_get_frame(int depth)
             last->f_back = frame;
         }
         last = frame;
+    }
+
+    if (top == NULL) {
+        _PyErr_SetString(ts->ts, PyExc_ValueError,
+                         "call stack is not deep enough");
+        return NULL;
     }
 
     return (PyObject *)top;
