@@ -338,11 +338,11 @@ def _get_instructions_bytes(code, varnames=None, constants=None,
                 argval, argrepr = _get_const_info(arg, constants)
             elif fmt == 'cell':
                 argval, argrepr = _get_name_info(arg, cells)
-            elif fmt == 'reg':
+            elif fmt == 'reg' or fmt == 'base':
                 argrepr = format_reg(arg)
             elif fmt == 'intrinsic':
                 argrepr = intrinsics[arg].name
-            elif fmt == 'lit' or fmt == 'imm16':
+            else:
                 argrepr = str(argval)
 
             argvals.append(argval)

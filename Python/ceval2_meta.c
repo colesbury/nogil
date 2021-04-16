@@ -443,10 +443,22 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
     return NULL;
 }
 
+static PyFrameObject *
+new_fake_frame(PyFunc *func, const uint8_t *pc);
+
+// Unwinds the stack looking for the nearest exception handler. Returns
+// the program counter (PC) of the exception handler block, or NULL if
+// there are no handlers before the next C frame.
 const uint8_t *
-vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
+vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
 {
     assert(PyErr_Occurred());
+
+    PyObject *exc = NULL, *val = NULL, *tb = NULL;
+    _PyErr_Fetch(ts->ts, &exc, &val, &tb);
+
+    bool skip_frame = skip_first_frame;
+    const uint8_t *pc = ts->pc;
     for (;;) {
         if (pc == NULL) {
             // pc is NULL if we set up the call frame, but haven't
@@ -455,33 +467,51 @@ vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
         }
 
         PyObject *callable = AS_OBJ(ts->regs[-1]);
-        if (PyFunc_Check(callable)) {
-            PyFunc *func = (PyFunc *)callable;
-            PyCodeObject2 *code = PyCode2_FromFunc(func);
-            ExceptionHandler *handler = vm_exception_handler(code, pc);
+        if (!PyFunc_Check(callable)) {
+            goto next;
+        }
 
-            if (handler != NULL) {
-                vm_clear_regs(ts, handler->reg, code->co_framesize);
+        PyFunc *func = (PyFunc *)callable;
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
 
-                PyObject *exc, *val, *tb;
-                _PyErr_Fetch(ts->ts, &exc, &val, &tb);
-                /* Make the raw exception data
-                    available to the handler,
-                    so a program can emulate the
-                    Python main loop. */
-                _PyErr_NormalizeException(ts->ts, &exc, &val, &tb);
-                if (tb != NULL)
-                    PyException_SetTraceback(val, tb);
-                else
-                    PyException_SetTraceback(val, Py_None);
-                Py_ssize_t link_reg = handler->reg;
-                ts->regs[link_reg].as_int64 = -1;
-                assert(!_PyObject_IS_IMMORTAL(val));
-                ts->regs[link_reg + 1] = PACK(val, REFCOUNT_TAG);
-                Py_DECREF(exc);
-                Py_XDECREF(tb);
-                return PyCode2_GET_CODE(code) + handler->handler;
+        if (!skip_frame) {
+            PyFrameObject *frame = new_fake_frame(func, pc);
+            if (frame == NULL) {
+                _PyErr_ChainExceptions(exc, val, tb);
+                assert(false && "NYI");
             }
+
+            PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
+            if (newtb == NULL) {
+                _PyErr_ChainExceptions(exc, val, tb);
+                assert(false && "NYI");
+            }
+
+            Py_XSETREF(tb, newtb);
+            Py_DECREF(frame);
+        }
+        else {
+            skip_frame = false;
+        }
+
+        ExceptionHandler *handler = vm_exception_handler(code, pc);
+        if (handler != NULL) {
+            /* Make the raw exception data
+                available to the handler,
+                so a program can emulate the
+                Python main loop. */
+            _PyErr_NormalizeException(ts->ts, &exc, &val, &tb);
+            PyException_SetTraceback(val, tb ? tb : Py_None);
+
+            vm_clear_regs(ts, handler->reg, code->co_framesize);
+
+            Py_ssize_t link_reg = handler->reg;
+            ts->regs[link_reg].as_int64 = -1;
+            assert(!_PyObject_IS_IMMORTAL(val));
+            ts->regs[link_reg + 1] = PACK(val, REFCOUNT_TAG);
+            Py_DECREF(exc);
+            Py_XDECREF(tb);
+            return PyCode2_GET_CODE(code) + handler->handler;
         }
 
       next: ;
@@ -489,6 +519,7 @@ vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc)
         // unwinds the call stack.
         intptr_t frame_link = vm_pop_frame(ts);
         if (frame_link <= 0) {
+            _PyErr_Restore(ts->ts, exc, val, tb);
             if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
                 assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen) || PyAsyncGen2_CheckExact(gen));
@@ -569,61 +600,6 @@ vm_get_frame(int depth)
     }
 
     return (PyObject *)top;
-}
-
-int
-vm_traceback_here(struct ThreadState *ts)
-{
-    PyObject *globals = NULL;
-
-    PyObject *exc, *val, *tb;
-    PyErr_Fetch(&exc, &val, &tb);
-
-    globals = PyDict_New();
-    if (globals == NULL) {
-        goto error;
-    }
-    PyObject *builtins = PyEval_GetBuiltins();
-    if (builtins == NULL) {
-        goto error;
-    }
-    if (_PyDict_SetItemId(globals, &PyId___builtins__, builtins) < 0) {
-        goto error;
-    }
-
-    struct stack_walk w;
-    vm_stack_walk_init(&w, ts);
-    while (vm_stack_walk(&w)) {
-        Register *regs = vm_stack_walk_regs(&w);
-        PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable) || w.pc == NULL) {
-            continue;
-        }
-
-        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.pc);
-        if (frame == NULL) {
-            goto error;
-        }
-        PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
-        if (newtb == NULL) {
-            goto error;
-        }
-        Py_XSETREF(tb, newtb);
-        Py_DECREF(frame);
-
-        if (w.frame_link <= 0) {
-            break;
-        }
-    }
-
-    PyErr_Restore(exc, val, tb);
-    Py_DECREF(globals);
-    return 0;
-
-  error:
-    Py_XDECREF(globals);
-    _PyErr_ChainExceptions(exc, val, tb);
-    return -1;
 }
 
 static PyObject *

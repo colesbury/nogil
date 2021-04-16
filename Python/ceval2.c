@@ -2360,8 +2360,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     error: {
-        CALL_VM(vm_traceback_here(ts));
-        goto exception_unwind;
+        if (acc.as_int64 != 0) {
+            DECREF(acc);
+            acc.as_int64 = 0;
+        }
+        CALL_VM(pc = vm_exception_unwind(ts, false));
+        goto finish_unwind;
     }
 
     exception_unwind: {
@@ -2369,7 +2373,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
             DECREF(acc);
             acc.as_int64 = 0;
         }
-        CALL_VM(pc = vm_exception_unwind(ts, pc));
+        CALL_VM(pc = vm_exception_unwind(ts, true));
+        goto finish_unwind;
+    }
+
+    finish_unwind: {
         if (pc == 0) {
             ts->ts->use_new_interp -= 1;
             return NULL;

@@ -233,8 +233,8 @@ const uint8_t *vm_frame_pop_pc(struct ThreadState *ts);
 
 PyObject *
 vm_handled_exc(struct ThreadState *ts);
-const uint8_t *
-vm_exception_unwind(struct ThreadState *ts, const uint8_t *pc);
+
+const uint8_t *vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame);
 
 int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
               Py_ssize_t argcnt, Py_ssize_t argcntafter);
@@ -300,8 +300,6 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins);
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
-
-int vm_traceback_here(struct ThreadState *ts);
 
 const uint8_t *
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD);
