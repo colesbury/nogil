@@ -487,7 +487,7 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
             // gen->gi_frame->f_lasti += sizeof(_Py_CODEUNIT);
             if (_PyGen_FetchStopIterationValue(&val) == 0) {
                 // send val to generator... weird TODO: is this even right???
-                ret = gen_send_internal(gen, PACK(val, REFCOUNT_TAG));
+                ret = gen_send_internal(gen, PACK_OBJ(val));
             } else {
                 ret = gen_throw_current(gen);
             }
