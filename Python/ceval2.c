@@ -1785,11 +1785,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         intptr_t dst = UImm(0);
         PyObject *obj = AS_OBJ(acc);
         assert(regs[dst].as_int64 == 0);
-        if (PyGen_CheckExact(obj)) {
+        if (PyGen2_CheckExact(obj)) {
             regs[dst] = acc;
             acc.as_int64 = 0;
         }
-        else if (PyCoro_CheckExact(obj)) {
+        else if (PyCoro2_CheckExact(obj)) {
             int flags = THIS_CODE()->co_flags;
             if (UNLIKELY(!(flags & (CO_COROUTINE | CO_ITERABLE_COROUTINE)))) {
                 CALL_VM(PyErr_SetString(
