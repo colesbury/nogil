@@ -2291,7 +2291,10 @@ resolve(struct compiler *c, PyObject *name)
     struct var_info r;
     PyObject *mangled = mangle(c, name);
     r.access = compiler_access(c, mangled);
-    if (r.access == ACCESS_FAST || r.access == ACCESS_DEREF) {
+    if (r.access == ACCESS_FAST ||
+        r.access == ACCESS_DEREF ||
+        r.access == ACCESS_CLASSDEREF)
+    {
         r.slot = compiler_varname(c, mangled);
     }
     else {
@@ -2347,12 +2350,16 @@ load_name_id(struct compiler *c, _Py_Identifier *id)
 static void
 assign_name(struct compiler *c, PyObject *name)
 {
+    // FIXME: we generally shouldn't have CLASS_DEREF in assignment.
+    // It happens currently because we have a bug with __class__ variables
+    // and nonlocal. See failing test_super.py
     struct var_info a = resolve(c, name);
     int opcodes[] = {
-        [ACCESS_FAST]   = STORE_FAST,
-        [ACCESS_DEREF]  = STORE_DEREF,
-        [ACCESS_NAME]   = STORE_NAME,
-        [ACCESS_GLOBAL] = STORE_GLOBAL,
+        [ACCESS_FAST]        = STORE_FAST,
+        [ACCESS_DEREF]       = STORE_DEREF,
+        [ACCESS_CLASSDEREF]  = STORE_DEREF,
+        [ACCESS_NAME]        = STORE_NAME,
+        [ACCESS_GLOBAL]      = STORE_GLOBAL,
     };
     emit1(c, opcodes[a.access], a.slot);
 }
