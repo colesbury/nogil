@@ -1,5 +1,6 @@
 #include "Python.h"
 #include "structmember.h"
+#include "genobject2.h"
 
 
 /*[clinic input]
@@ -2634,6 +2635,9 @@ task_step_impl(TaskObj *task, PyObject *exc)
     if (exc == NULL) {
         if (PyGen_CheckExact(coro) || PyCoro_CheckExact(coro)) {
             result = _PyGen_Send((PyGenObject*)coro, Py_None);
+        }
+        else if (PyGen2_CheckExact(coro) || PyCoro2_CheckExact(coro)) {
+            result = _PyGen2_Send((PyGenObject2*)coro, Py_None);
         }
         else {
             result = _PyObject_CallMethodIdOneArg(coro, &PyId_send, Py_None);
