@@ -1999,7 +1999,11 @@ vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA)
 static PyObject *
 vm_raise_assertion_error(PyObject *msg)
 {
-    PyErr_SetObject(PyExc_AssertionError, msg);
+    PyObject *err = PyObject_CallOneArg(PyExc_AssertionError, msg);
+    if (err == NULL) {
+        return NULL;
+    }
+    PyErr_SetObject(PyExc_AssertionError, err);
     return NULL;
 }
 
