@@ -106,7 +106,76 @@ func_new_impl(PyTypeObject *type, PyCodeObject2 *code, PyObject *globals,
               PyObject *name, PyObject *defaults, PyObject *closure)
 /*[clinic end generated code: output=f1039a55db32a317 input=55598410a643d7c1]*/
 {
-    return Py_None;
+    PyFunc *newfunc;
+    Py_ssize_t nfree, nclosure;
+
+    if (name != Py_None && !PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "arg 3 (name) must be None or string");
+        return NULL;
+    }
+    if (defaults != Py_None && !PyTuple_Check(defaults)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "arg 4 (defaults) must be None or tuple");
+        return NULL;
+    }
+    nfree = code->co_nfreevars;
+    if (!PyTuple_Check(closure)) {
+        if (nfree && closure == Py_None) {
+            PyErr_SetString(PyExc_TypeError,
+                            "arg 5 (closure) must be tuple");
+            return NULL;
+        }
+        else if (closure != Py_None) {
+            PyErr_SetString(PyExc_TypeError,
+                "arg 5 (closure) must be None or tuple");
+            return NULL;
+        }
+    }
+
+    /* check that the closure is well-formed */
+    nclosure = closure == Py_None ? 0 : PyTuple_GET_SIZE(closure);
+    if (nfree != nclosure)
+        return PyErr_Format(PyExc_ValueError,
+                            "%U requires closure of length %zd, not %zd",
+                            code->co_name, nfree, nclosure);
+    if (nclosure) {
+        Py_ssize_t i;
+        for (i = 0; i < nclosure; i++) {
+            PyObject *o = PyTuple_GET_ITEM(closure, i);
+            if (!PyCell_Check(o)) {
+                return PyErr_Format(PyExc_TypeError,
+                    "arg 5 (closure) expected cell, found %s",
+                                    Py_TYPE(o)->tp_name);
+            }
+        }
+    }
+    if (PySys_Audit("function.__new__", "O", code) < 0) {
+        return NULL;
+    }
+
+    newfunc = (PyFunc *)PyFunc_New((PyObject *)code, globals);
+    if (newfunc == NULL)
+        return NULL;
+
+    if (name != Py_None) {
+        Py_INCREF(name);
+        Py_SETREF(newfunc->func_name, name);
+    }
+    if (defaults != Py_None) {
+        PyErr_Format(PyExc_SystemError, "NYI: function() with defaults");
+        return NULL;
+        // Py_INCREF(defaults);
+        // newfunc->func_defaults  = defaults;
+    }
+    if (closure != Py_None) {
+        PyErr_Format(PyExc_SystemError, "NYI: function() with closure");
+        return NULL;
+        // Py_INCREF(closure);
+        // newfunc->func_closure = closure;
+    }
+
+    return (PyObject *)newfunc;
 }
 
 static int
