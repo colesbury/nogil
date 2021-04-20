@@ -444,8 +444,8 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
     return NULL;
 }
 
-static PyFrameObject *
-new_fake_frame(PyFunc *func, const uint8_t *pc);
+static PyObject *
+traceback_from_pc(PyFunc *func, const uint8_t *pc, PyObject *tb);
 
 // Unwinds the stack looking for the nearest exception handler. Returns
 // the program counter (PC) of the exception handler block, or NULL if
@@ -476,20 +476,14 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
         PyCodeObject2 *code = PyCode2_FromFunc(func);
 
         if (!skip_frame) {
-            PyFrameObject *frame = new_fake_frame(func, pc);
-            if (frame == NULL) {
-                _PyErr_ChainExceptions(exc, val, tb);
-                assert(false && "NYI");
+            PyObject *newtb = traceback_from_pc(func, pc, tb);
+            if (newtb != NULL) {
+                Py_XSETREF(tb, newtb);
             }
-
-            PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
-            if (newtb == NULL) {
+            else {
                 _PyErr_ChainExceptions(exc, val, tb);
-                assert(false && "NYI");
+                PyErr_Fetch(&exc, &val, &tb);
             }
-
-            Py_XSETREF(tb, newtb);
-            Py_DECREF(frame);
         }
         else {
             skip_frame = false;
@@ -568,6 +562,19 @@ new_fake_frame(PyFunc *func, const uint8_t *pc)
     intptr_t addrq = sizeof(*pc) * instr_offset;
     frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
     return frame;
+}
+
+static PyObject *
+traceback_from_pc(PyFunc *func, const uint8_t *pc, PyObject *tb)
+{
+    PyFrameObject *frame = new_fake_frame(func, pc);
+    if (frame == NULL) {
+        return NULL;
+    }
+
+    PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
+    Py_DECREF(frame);
+    return newtb;
 }
 
 PyObject *
