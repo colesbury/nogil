@@ -403,6 +403,7 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
 static intptr_t
 vm_pop_frame(struct ThreadState *ts)
 {
+    assert(ts->regs > ts->stack);
     Py_ssize_t frame_size = vm_frame_size(ts);
     if (ts->regs + frame_size > ts->maxstack) {
         // Ensure we don't exceed maxstack in case we're popping a partially
