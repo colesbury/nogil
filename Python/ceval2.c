@@ -1,3 +1,34 @@
+// Implementation of the Python interpreter.
+//
+// The interpreter is a register machine with a special accumulator register.
+// The use of an accumulator register works well with refcounting: the
+// (virtual) accumulator register typically corresponds to a processor
+// register, which speeds up reference counting operations on the accumulator.
+//
+// The interpreter executes a sequence of bytecode instructions. Bytecodes come
+// in two forms: narrow (the most common) and wide. Narrow opcodes are more
+// efficient to execute and use less memory. Wide opcodes allow the interpreter
+// to support functions with more than 255 variables.
+//
+// Narrow bytecodes consist of a single byte opcode, specifying the operation,
+// optionally followed by single byte immediate operands.
+//
+// <opcode> [<imm0>] [<imm1>] ...
+//
+// Wide bytecodes start with single byte WIDE prefix, a single byte opcode,
+// and one or more four byte immediate operands.
+//
+// <WIDE>   <opcode>  <       imm0      >  [<      imm1      >] ...
+//                    ^^^^^ 4 bytes ^^^^^
+//
+// TODO: Things are currently weirder than above. Jump immediates are two or four
+// bytes. The flags immediate for CALL_FUNCTION is always 2 bytes.
+//
+// Note that bytecodes without any immediate operands only use the narrow form.
+//
+// TODO: register uses tagged pointers.
+//
+// See also: code.h, opcode.h, and opcode.py.
 #ifndef WIDE_OP
 #include "Python.h"
 #include "pycore_call.h"
@@ -41,6 +72,10 @@
 #define COLD_TARGET(name) name:
 #endif
 
+// All calls from the interpreter to external functions need to be wrapped
+// in a CALL_VM or related macro. This restores the registers pointer (regs)
+// after the call, which may have been reallocated. Additionally, this saves
+// the program counter to the thread state.
 #define CALL_VM(call) \
     ts->pc = pc; \
     call; \
@@ -210,7 +245,8 @@ _OWNING_REF(Register r, intptr_t tid)
 #define WIDTH_PREFIX
 #define OP_SIZE(name) CONCAT(OP_SIZE_, WIDTH_PREFIX, name)
 
-// LABEL(ret) -> ret:  or wide_ret:
+// LABEL(ret) expands to either ret:  or wide_ret:
+// Used to prevent duplicate labels for wide and narrow instructions.
 #define LABEL(name) CONCAT(WIDTH_PREFIX, name,)
 
 #define TARGET(name) name: DEBUG_LABEL(name);
@@ -252,6 +288,7 @@ static const Register primitives[3] = {
     {(intptr_t)Py_None + NO_REFCOUNT_TAG},
 };
 
+
 struct probe_result {
     Register acc;
     int found;
@@ -259,30 +296,6 @@ struct probe_result {
 
 static inline struct probe_result
 dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid);
-
-// Frame layout:
-// regs[-3] = constants
-// regs[-2] = <frame_link>
-// regs[-1] = <function>
-// regs[0] = first local | locals dict
-
-// LLINT (JSCORE)
-// Call Frame points to regs
-// regs[0] = caller
-// regs[1] = returnPC
-// regs[2] = code block
-// regs[3] = nargs
-// regs[4] = this
-// regs[5] = arg0
-// ...
-// code block ->
-//   ...
-//   pointer to constants array
-//
-// so loading constant at index N
-// tmp = load regs[2]
-// tmp = load tmp[offsetof constnt]
-// tmp = load tmp[N]
 
 _Py_ALWAYS_INLINE static inline uint16_t
 load_uimm16(const uint8_t *addr)
@@ -412,6 +425,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(JUMP_IF_TRUE) {
+        // JUMP_IF_TRUE <jump_offset>
         PyObject *value = AS_OBJ(acc);
         if (value == Py_True) {
             JUMP_BY(JumpImm(0));
@@ -436,8 +450,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(FUNC_HEADER) {
-        // imm0 contains framesize
-        // acc contains nargs from call
+        // FUNC_HEADER <frame_size>
+        //
+        // This is the first instruction of every Python function. It sets up
+        // the function frame and validates the passed arguments. The
+        // caller passes information about the number of arguments in acc.
         int err;
         assert(ts->regs == regs);
 
@@ -453,10 +470,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
         PyCodeObject2 *this_code = PyCode2_FromInstr(pc);
         assert(Py_TYPE(this_code) == &PyCode2_Type);
+
         regs[-3].as_int64 = (intptr_t)this_code->co_constants;
 
-        // fast path if no keyword arguments, cells, or freevars and number
-        // of positional arguments exactly matches.
+        // Fast path if the number of positional arguments matches exactly and
+        // there are not any keyword arguments, cells, or freevars.
         if (LIKELY((uint32_t)acc.as_int64 == this_code->co_packed_flags)) {
             goto LABEL(dispatch_func_header);
         }
@@ -732,13 +750,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(CALL_FUNCTION) {
-        // opD = (kwargs << 8) | nargs
-        // regs[imm0 - 4] = <empty> (frame delta)
-        // regs[imm0 - 3] = <empty> (constants)
-        // regs[imm0 - 2] = <empty> (frame link)
-        // regs[imm0 - 1] = func
-        // regs[imm0 + 0] = arg0
-        // regs[imm0 + n] = argsN
+        // CALL_FUNCTION <base> <flags>
+        //
         assert(IS_EMPTY(acc));
         acc.as_int64 = UImm16(1);
         goto LABEL(call_function_impl);
@@ -860,8 +873,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     TARGET(YIELD_VALUE) {
         PyGenObject2 *gen = PyGen2_FromThread(ts);
         gen->status = GEN_YIELD;
+        // resume from next instruction
         ts->pc = pc + OP_SIZE(YIELD_VALUE);
-        // assert((regs[-2].as_int64 & FRAME_C) != 0);
         goto return_to_c;
     }
     #endif
@@ -1105,6 +1118,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(MOVE) {
+        // MOVE <dst> <src>
         intptr_t dst = UImm(0);
         intptr_t src = UImm(1);
         Register prev = regs[dst];
@@ -1137,6 +1151,8 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     #ifndef WIDE_OP
     TARGET(CLEAR_ACC) {
+        // CLEAR_ACC
+        // Clears the accumulator.
         Register r = acc;
         acc.as_int64 = 0;
         if (r.as_int64 != 0) {
@@ -1147,6 +1163,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #endif
 
     TARGET(LOAD_DEREF) {
+        // LOAD_DEREF <idx>
+        //
+        // Sets the accumulator to the contents of the cell at regs[idx].
         assert(IS_EMPTY(acc));
         intptr_t idx = UImm(0);
         PyObject *cell = AS_OBJ(regs[idx]);
@@ -1952,7 +1971,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(BUILD_SET) {
-        // imm0 = reg, imm1 = N
+        // BUILD_SET <base> <N>
         CALL_VM(acc = vm_build_set(ts, UImm(0), UImm(1)));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
@@ -2072,7 +2091,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(UNPACK) {
-        // UNPACK base, argcnt, argcntafter
+        // UNPACK <base> <argcnt> <argcntafter>
+        //
+        // Unpacks the sequence in acc to the registers beginning at <base>.
+        // Implements the a, b, *c, d = seq.
         PyObject *seq = AS_OBJ(acc);
         Py_ssize_t argcntafter = UImm(2);
         if (LIKELY(argcntafter == 0)) {
@@ -2122,6 +2144,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     TARGET(RAISE) {
+        // RAISE
+        //
+        // Raises the exception in the accumulator, or re-raises the currently
+        // handled exception if the accumulator is zero.
         int err;
         PyObject *exc = AS_OBJ(acc);  // may be NULL
         CALL_VM(err = vm_raise(ts, exc));
@@ -2326,7 +2352,9 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #define UImm16(idx) (load_uimm16(&pc[2 + 4 * idx]))
     #define JumpImm(idx) ((int32_t)UImm(idx))
 
-    // include target definitions for "wide" operands
+    // Include target definitions for "wide" operands. This includes the
+    // current file, which is a bit weird, but works better with IDEs than
+    // separating the TARGET(...) definitions into a separate file.
     #define WIDE_OP 1
     #include "ceval2.c"
 
@@ -2422,9 +2450,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     }
 
     __builtin_unreachable();
-    // Py_RETURN_NONE;
 }
 
+
+// Search for the key `name` in the dict `op` at the offset `guess`.
 _Py_ALWAYS_INLINE static inline struct probe_result
 dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
 {
@@ -2433,14 +2462,17 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
     PyDictObject *dict = (PyDictObject *)op;
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
     guess = ((uintptr_t)guess) & keys->dk_size;
+
     PyDictKeyEntry *entry = &keys->dk_entries[(guess & keys->dk_size)];
     if (UNLIKELY(_Py_atomic_load_ptr(&entry->me_key) != name)) {
         return result;
     }
+
     PyObject *value = _Py_atomic_load_ptr(&entry->me_value);
     if (UNLIKELY(value == NULL)) {
         return result;
     }
+
     uint32_t refcount = _Py_atomic_load_uint32_relaxed(&value->ob_ref_local);
     if ((refcount & (_Py_REF_IMMORTAL_MASK)) != 0) {
         result.acc = PACK(value, NO_REFCOUNT_TAG);
@@ -2459,6 +2491,7 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
             return result;
         }
     }
+
   check_keys:
     if (UNLIKELY(keys != _Py_atomic_load_ptr(&dict->ma_keys))) {
         result.found = 0;
