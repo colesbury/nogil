@@ -5,7 +5,7 @@
 #include "pycore_pystate.h"
 #include "structmember.h"
 #include "ceval2_meta.h" // remove ?
-#include "genobject2.h"
+#include "pycore_generator.h"
 #include "code2.h" // remove ?
 
 static PyTypeObject *coro_types[] = {

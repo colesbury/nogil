@@ -20,7 +20,7 @@
 #include "opcode2.h"
 #include "ceval2_meta.h"
 #include "opcode_names2.h"
-#include "genobject2.h"
+#include "pycore_generator.h"
 
 #include <ctype.h>
 #include <alloca.h>

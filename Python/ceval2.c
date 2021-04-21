@@ -34,6 +34,7 @@
 #include "pycore_call.h"
 #include "pycore_ceval.h"
 #include "pycore_code.h"
+#include "pycore_generator.h"
 #include "pycore_object.h"
 #include "pycore_refcnt.h"
 #include "pycore_pyerrors.h"
@@ -51,7 +52,6 @@
 #include "structmember.h"
 #include "opcode2.h"
 #include "ceval2_meta.h"
-#include "genobject2.h"
 
 #include <ctype.h>
 

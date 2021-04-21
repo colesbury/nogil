@@ -119,6 +119,7 @@
 #include "cellobject.h"
 #include "iterobject.h"
 #include "genobject.h"
+#include "genobject2.h"
 #include "descrobject.h"
 #include "warnings.h"
 #include "weakrefobject.h"
