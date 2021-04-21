@@ -164,10 +164,10 @@ vm_stack_walk(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
     w->offset = w->next_offset;
-    w->pc = vm_frame_pc(w->frame_link);
     if (ts->regs + w->offset == ts->stack) {
         return 0;
     }
+    w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
 
     intptr_t frame_link = ts->regs[w->offset-2].as_int64;
     intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
@@ -486,12 +486,11 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
                 assert(PyGen2_CheckExact(gen) || PyCoro2_CheckExact(gen) || PyAsyncGen2_CheckExact(gen));
                 gen->status = GEN_ERROR;
-                return NULL;
             }
-            else if (frame_link == FRAME_C) {
-                return NULL;
+            else {
+                ts->pc = (const uint8_t *)(-frame_link);
             }
-            assert(false && "invalid frame link");
+            return NULL;
         }
         ts->pc = pc = (const uint8_t *)frame_link;
     }
@@ -2206,7 +2205,7 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
     PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
     ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
-    ts->regs[-2].as_int64 = FRAME_C;
+    ts->regs[-2].as_int64 = -(intptr_t)ts->pc;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
 

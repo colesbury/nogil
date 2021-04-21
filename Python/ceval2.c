@@ -922,17 +922,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #endif
         regs -= frame_delta;
         ts->regs = regs;
-        if (UNLIKELY(frame_link <= FRAME_C)) {
-            ts->pc = NULL;
-            if (frame_link == FRAME_C) {
-                goto return_to_c;
-            }
-            else if (frame_link == FRAME_GENERATOR) {
+        if (UNLIKELY(frame_link <= 0)) {
+            if (frame_link == FRAME_GENERATOR) {
                 goto generator_return_to_c;
             }
-            else {
-                __builtin_unreachable();
-            }
+            ts->pc = (const uint8_t *)(-frame_link);
+            goto return_to_c;
         }
         // acc might be an unowned alias of some local up the stack. We must
         // convert it to an owning reference before returning.
