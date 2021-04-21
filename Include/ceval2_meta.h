@@ -24,22 +24,27 @@ enum {
 #define FRAME_EXTRA     4
 #define CFRAME_EXTRA    4
 
+static inline const uint8_t *
+vm_frame_pc(intptr_t frame_link)
+{
+    if (frame_link <= FRAME_C) {
+        return NULL;
+    }
+    return (const uint8_t *)frame_link;
+}
+
 
 /*
 
   idx      Python frame
        +-------------------+
- -5-ex |     [old pc]      |  )
-       |- - - - - - - - - -|  ) optional
-  ...  |   [extra regs]    |  )
-       |- - - - - - - - - -|
   -4   |    frame delta    |
        |- - - - - - - - - -|
-  -3   |  constants|size   |
+  -3   |     constants     |
        |- - - - - - - - - -|
-  -2   |    frame link     |
+  -2   |  frame link | tag |
        |- - - - - - - - - -|
-  -1   |     Function      |
+  -1   |      PyFunc       |
   -----+-------------------+---
    0   |     argument 0    | <- regs
   ...  |        ...        |
@@ -229,12 +234,13 @@ int vm_exit_with(struct ThreadState *ts, Py_ssize_t opA);
 int vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA);
 int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res);
 
-const uint8_t *vm_frame_pop_pc(struct ThreadState *ts);
-
 PyObject *
 vm_handled_exc(struct ThreadState *ts);
 
 const uint8_t *vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame);
+
+// decrefs x!
+Register vm_to_bool(Register x);
 
 int vm_unpack(struct ThreadState *ts, PyObject *v, Py_ssize_t base,
               Py_ssize_t argcnt, Py_ssize_t argcntafter);
