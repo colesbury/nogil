@@ -525,14 +525,19 @@ static PyFrameObject *
 new_fake_frame(PyFunc *func, const uint8_t *pc)
 {
     PyCodeObject2 *co2 = PyCode2_FromFunc(func);
-    const char *filename = PyUnicode_AsUTF8(co2->co_filename);
-    const char *funcname = PyUnicode_AsUTF8(co2->co_name);
     int firstlineno = co2->co_firstlineno;
 
-    PyCodeObject *empty_code = PyCode_NewEmpty(filename, funcname, firstlineno);
+    PyCodeObject *empty_code = PyCode_NewEmpty("", "", firstlineno);
     if (empty_code == NULL) {
         return NULL;
     }
+    // NOTE: we copy co_filename here instead of passing the c-string above
+    // so that it's the exact same object. Turns out stack-collapsing code
+    // relies on that.
+    Py_INCREF(co2->co_filename);
+    Py_SETREF(empty_code->co_filename, co2->co_filename);
+    Py_INCREF(co2->co_name);
+    Py_SETREF(empty_code->co_name, co2->co_name);
 
     PyObject *globals = ((PyFunc *)func)->globals;
     PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), empty_code, globals, NULL);
