@@ -3897,6 +3897,7 @@ assignment_helper(struct compiler *c, asdl_seq *elts)
     free_regs_above(c, base);
 }
 
+// TODO(sgross): too many compiler_assign variants
 static void
 compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg, bool preserve)
 {
@@ -3929,6 +3930,10 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg, bool preserve
     case Tuple_kind:
         emit1(c, LOAD_FAST, reg);
         assignment_helper(c, t->v.Tuple.elts);
+        break;
+    case Starred_kind:
+        compiler_error(c,
+            "starred assignment target must be in a list or tuple");
         break;
     default:
         PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", t->kind);
@@ -3972,6 +3977,10 @@ compiler_assign_acc(struct compiler *c, expr_ty t)
     case Tuple_kind:
         assignment_helper(c, t->v.Tuple.elts);
         return;
+    case Starred_kind:
+        compiler_error(c,
+            "starred assignment target must be in a list or tuple");
+        break;
     default:
         PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", t->kind);
         COMPILER_ERROR(c);
@@ -4019,6 +4028,10 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
     case Tuple_kind:
         compiler_visit_expr(c, value);
         assignment_helper(c, t->v.Tuple.elts);
+        break;
+    case Starred_kind:
+        compiler_error(c,
+            "starred assignment target must be in a list or tuple");
         break;
     default:
         PyErr_Format(PyExc_SystemError, "unsupported assignment: %d", t->kind);
@@ -5612,6 +5625,9 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Tuple_kind:
         assert(e->v.Tuple.ctx == Load);
         starunpack_helper(c, e->v.Tuple.elts, e->kind);
+        break;
+    case Starred_kind:
+        compiler_error(c, "can't use starred expression here");
         break;
     default:
         PyErr_Format(PyExc_RuntimeError, "unhandled expr %d", e->kind);
