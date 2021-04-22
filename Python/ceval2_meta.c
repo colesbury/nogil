@@ -200,7 +200,13 @@ vm_dump_stack(void)
         }
 
         PyFunc *func = (PyFunc *)callable;
-        fprintf(stderr, "%s\n", PyUnicode_AsUTF8(func->func_name));
+        PyCodeObject2 *co = PyCode2_FromFunc(func);
+        int line = PyCode2_Addr2Line(co, (int)(w.pc - PyCode2_GET_CODE(co)));
+
+        fprintf(stderr, "File \"%s\", line %d, in %s\n",
+            PyUnicode_AsUTF8(co->co_filename),
+            line,
+            PyUnicode_AsUTF8(func->func_name));
     }
 }
 
