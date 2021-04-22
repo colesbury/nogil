@@ -210,6 +210,18 @@ vm_dump_stack(void)
     }
 }
 
+static Py_ssize_t
+vm_stack_depth(struct ThreadState *ts)
+{
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    Py_ssize_t n = 0;
+    while (vm_stack_walk(&w)) {
+        n++;
+    }
+    return n;
+}
+
 /* returns the currently handled exception or NULL */
 PyObject *
 vm_handled_exc(struct ThreadState *ts)
@@ -1896,10 +1908,12 @@ vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
         newsize *= 2;
     }
 
-    if (newsize > 10 * _Py_CheckRecursionLimit) {
-        PyErr_SetString(PyExc_RecursionError,
-                        "maximum recursion depth exceeded");
-        return -1;
+    if (UNLIKELY(newsize > 4 * _Py_CheckRecursionLimit)) {
+        if (vm_stack_depth(ts) > _Py_CheckRecursionLimit) {
+            PyErr_SetString(PyExc_RecursionError,
+                            "maximum recursion depth exceeded");
+            return -1;
+        }
     }
 
     Py_ssize_t offset = ts->regs - ts->stack;
