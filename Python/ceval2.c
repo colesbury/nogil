@@ -323,10 +323,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         memcpy(ts->ts->opcode_targets + 128, wide_opcode_targets_base, 128 * sizeof(*wide_opcode_targets_base));
     }
 
-    if (UNLIKELY(_Py_EnterRecursiveCall(ts->ts, ""))) {
-        return NULL;
-    }
-
     ts->ts->use_new_interp += 1;
 
     const uint8_t *pc = initial_pc;
@@ -947,7 +943,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 gen->status = GEN_FINISHED;
                 gen->return_value = OWNING_REF(acc);
                 ts->ts->use_new_interp -= 1;
-                _Py_LeaveRecursiveCall(ts->ts);
                 return NULL;
             }
             ts->pc = (const uint8_t *)(-frame_link);
@@ -2387,7 +2382,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     return_to_c: {
         PyObject *obj = OWNING_REF(acc);
         ts->ts->use_new_interp -= 1;
-        _Py_LeaveRecursiveCall(ts->ts);
         return obj;
     }
 
@@ -2412,7 +2406,6 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     finish_unwind: {
         if (pc == 0) {
             ts->ts->use_new_interp -= 1;
-            _Py_LeaveRecursiveCall(ts->ts);
             return NULL;
         }
         NEXT_INSTRUCTION();

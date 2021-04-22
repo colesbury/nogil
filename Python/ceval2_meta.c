@@ -2248,39 +2248,52 @@ current_thread_state(void)
 PyObject *
 PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc)
 {
+    PyThreadState *tstate = PyThreadState_GET();
+    if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
+        return NULL;
+    }
+
     assert(ts->prev == NULL);
 
-    PyThreadState *tstate = PyThreadState_GET();
     ts->ts = tstate;
 
     // push `ts` onto the list of active threads
     ts->prev = tstate->active;
     tstate->active = ts;
 
-    PyObject *res = _PyEval_Fast(ts, nargs, pc);
+    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
 
     // pop `ts` from the list of active threads
     tstate->active = ts->prev;
     ts->prev = NULL;
 
-    return res;
+    _Py_LeaveRecursiveCall(tstate);
+    return ret;
 }
 
 PyObject *
 _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
 {
     assert(PyFunc_Check(func));
-    struct ThreadState *ts = current_thread_state();
+    PyThreadState *tstate = PyThreadState_GET();
+    struct ThreadState *ts = tstate->active;
+    PyObject *ret = NULL;
     int err;
+
+    if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
+        return NULL;
+    }
 
     err = setup_frame(ts, func);
     if (UNLIKELY(err != 0)) {
-        return NULL;
+        goto exit;
     }
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
-    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
-    return _PyEval_Fast(ts, /*acc=*/0, pc);
+    ret = _PyEval_Fast(ts, /*acc=*/0, ((PyFuncBase *)func)->first_instr);
+exit:
+    _Py_LeaveRecursiveCall(tstate);
+    return ret;
 }
 
 PyObject *
@@ -2562,75 +2575,91 @@ vm_import_star(struct ThreadState *ts, PyObject *v, PyObject *locals)
 PyObject *
 _PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds)
 {
-    struct ThreadState *ts = current_thread_state();
-    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
-    int err;
-
-    if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
-        Py_ssize_t acc = 0;
-        err = setup_frame(ts, func);
-        if (UNLIKELY(err != 0)) {
-            return NULL;
-        }
-        return _PyEval_Fast(ts, acc, pc);
-    }
-
-    Py_ssize_t acc = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
-    err = setup_frame_ex(ts, func, /*extra=*/2, /*nargs=*/0);
-    if (UNLIKELY(err != 0)) {
+    PyThreadState *tstate = PyThreadState_GET();
+    if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
         return NULL;
     }
-    ts->regs[-FRAME_EXTRA-2] = PACK(args, NO_REFCOUNT_TAG);
-    if (kwds != NULL) {
-        ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
+
+    struct ThreadState *ts = tstate->active;
+    Py_ssize_t acc;
+    PyObject *ret = NULL;
+
+    if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
+        acc = 0;
+        int err = setup_frame(ts, func);
+        if (UNLIKELY(err != 0)) {
+            goto exit;
+        }
     }
-    return _PyEval_Fast(ts, acc, pc);
+    else {
+        acc = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
+        int err = setup_frame_ex(ts, func, /*extra=*/2, /*nargs=*/0);
+        if (UNLIKELY(err != 0)) {
+            goto exit;
+        }
+        ts->regs[-FRAME_EXTRA-2] = PACK(args, NO_REFCOUNT_TAG);
+        if (kwds != NULL) {
+            ts->regs[-FRAME_EXTRA-1] = PACK(kwds, NO_REFCOUNT_TAG);
+        }
+    }
+
+    ret = _PyEval_Fast(ts, acc, ((PyFuncBase*)func)->first_instr);
+exit:
+    _Py_LeaveRecursiveCall(tstate);
+    return ret;
 }
 
 PyObject *
 _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
                    size_t nargsf, PyObject *kwnames)
 {
-    struct ThreadState *ts = current_thread_state();
-    const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(func));
+    PyThreadState *tstate = PyThreadState_GET();
     Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
-    if (UNLIKELY(nargs >= 255)) {
-        goto slow_call;
+
+    if (UNLIKELY(nargs >= 255 || 
+          (kwnames != NULL && PyTuple_GET_SIZE(kwnames) >= 256))) {
+        return _PyObject_MakeTpCall(tstate, func, stack, nargs, kwnames);
     }
 
+    if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
+        return NULL;
+    }
+
+    struct ThreadState *ts = tstate->active;
+    PyObject *ret = NULL;
+    Py_ssize_t acc;
     int err;
+
     if (LIKELY(kwnames == NULL)) {
-        Py_ssize_t acc = nargs;
+        acc = nargs;
         err = setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/nargs);
         if (UNLIKELY(err != 0)) {
-            return NULL;
+            goto exit;
         }
         for (Py_ssize_t i = 0; i < nargs; i++) {
             ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
         }
-        return _PyEval_Fast(ts, acc, pc);
+    }
+    else {
+        Py_ssize_t nkwargs = PyTuple_GET_SIZE(kwnames);
+        err = setup_frame_ex(ts, func, /*extra=*/nkwargs + 1, /*nargs=*/nargs);
+        if (UNLIKELY(err != 0)) {
+            goto exit;
+        }
+        for (Py_ssize_t i = 0; i < nargs; i++) {
+            ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
+        }
+        for (Py_ssize_t i = 0; i < nkwargs; i++) {
+            ts->regs[-FRAME_EXTRA - 1 - nkwargs + i] = PACK(stack[i + nargs], NO_REFCOUNT_TAG);
+        }
+        ts->regs[-FRAME_EXTRA - 1] = PACK(kwnames, NO_REFCOUNT_TAG);
+        acc = nargs + (nkwargs << 8);
     }
 
-    Py_ssize_t nkwargs = PyTuple_GET_SIZE(kwnames);
-    if (UNLIKELY(nkwargs >= 256)) {
-        goto slow_call;
-    }
-    err = setup_frame_ex(ts, func, /*extra=*/nkwargs + 1, /*nargs=*/nargs);
-    if (UNLIKELY(err != 0)) {
-        return NULL;
-    }
-    for (Py_ssize_t i = 0; i < nargs; i++) {
-        ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
-    }
-    for (Py_ssize_t i = 0; i < nkwargs; i++) {
-        ts->regs[-FRAME_EXTRA - 1 - nkwargs + i] = PACK(stack[i + nargs], NO_REFCOUNT_TAG);
-    }
-    ts->regs[-FRAME_EXTRA - 1] = PACK(kwnames, NO_REFCOUNT_TAG);
-    Py_ssize_t acc = nargs + (nkwargs << 8);
-    return _PyEval_Fast(ts, acc, pc);
-
-  slow_call:
-    return _PyObject_MakeTpCall(ts->ts, func, stack, nargs, kwnames);
+    ret = _PyEval_Fast(ts, acc, ((PyFuncBase*)func)->first_instr);
+exit:
+    _Py_LeaveRecursiveCall(tstate);
+    return ret;
 }
 
 
@@ -2714,22 +2743,35 @@ _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
     if (UNLIKELY(!PyFunc_Check(method->im_func))) {
         return PyVectorcall_Call(obj, args, kwds);
     }
-    if (kwds == NULL && PyTuple_GET_SIZE(args) < 255) {
-        // optimization for positional arguments only
-        struct ThreadState *ts = current_thread_state();
-        const uint8_t *pc = PyCode2_GET_CODE(PyCode2_FROM_FUNC(method->im_func));
-        Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
-        int err = setup_frame_ex(ts, method->im_func, /*extra=*/0, /*nargs=*/nargs);
-        if (UNLIKELY(err != 0)) {
-            return NULL;
-        }
-        ts->regs[0] = PACK(method->im_self, NO_REFCOUNT_TAG);
-        for (Py_ssize_t i = 1; i < nargs; i++) {
-            ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i - 1), NO_REFCOUNT_TAG);
-        }
-        return _PyEval_Fast(ts, nargs, pc);
+    if (kwds != NULL || PyTuple_GET_SIZE(args) >= 255) {
+        return _PyFunc_Call(obj, args, kwds);
     }
-    return _PyFunc_Call(obj, args, kwds);
+
+    // optimization for positional arguments only
+    PyThreadState *tstate = PyThreadState_GET();
+    if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
+        return NULL;
+    }
+
+    struct ThreadState *ts = tstate->active;
+    Py_ssize_t nargs = 1 + PyTuple_GET_SIZE(args);
+    PyObject *ret = NULL;
+    PyObject *func = method->im_func;
+
+    int err = setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/nargs);
+    if (UNLIKELY(err != 0)) {
+        goto exit;
+    }
+
+    ts->regs[0] = PACK(method->im_self, NO_REFCOUNT_TAG);
+    for (Py_ssize_t i = 1; i < nargs; i++) {
+        ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i - 1), NO_REFCOUNT_TAG);
+    }
+
+    ret = _PyEval_Fast(ts, nargs, ((PyFuncBase*)func)->first_instr);
+exit:
+    _Py_LeaveRecursiveCall(tstate);
+    return ret;
 }
 
 #include "ceval_intrinsics.h"
