@@ -322,6 +322,11 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
         memcpy(ts->ts->opcode_targets + 128, wide_opcode_targets_base, 128 * sizeof(*wide_opcode_targets_base));
     }
+
+    if (UNLIKELY(_Py_EnterRecursiveCall(ts->ts, ""))) {
+        return NULL;
+    }
+
     ts->ts->use_new_interp += 1;
 
     const uint8_t *pc = initial_pc;
@@ -924,7 +929,13 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
         ts->regs = regs;
         if (UNLIKELY(frame_link <= 0)) {
             if (frame_link == FRAME_GENERATOR) {
-                goto generator_return_to_c;
+                PyGenObject2 *gen = PyGen2_FromThread(ts);
+                assert(gen != NULL);
+                gen->status = GEN_FINISHED;
+                gen->return_value = OWNING_REF(acc);
+                ts->ts->use_new_interp -= 1;
+                _Py_LeaveRecursiveCall(ts->ts);
+                return NULL;
             }
             ts->pc = (const uint8_t *)(-frame_link);
             goto return_to_c;
@@ -2360,25 +2371,10 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     #undef UImm16
     #undef JumpImm
 
-    generator_return_to_c: {
-        PyObject *obj = AS_OBJ(acc);
-        if (!IS_RC(acc)) {
-            _Py_INCREF(obj);
-        }
-        PyGenObject2 *gen = PyGen2_FromThread(ts);
-        assert(gen != NULL);
-        gen->status = GEN_FINISHED;
-        gen->return_value = obj;
-        ts->ts->use_new_interp -= 1;
-        return NULL;
-    }
-
     return_to_c: {
-        PyObject *obj = AS_OBJ(acc);
-        if (!IS_RC(acc)) {
-            _Py_INCREF(obj);
-        }
+        PyObject *obj = OWNING_REF(acc);
         ts->ts->use_new_interp -= 1;
+        _Py_LeaveRecursiveCall(ts->ts);
         return obj;
     }
 
@@ -2403,6 +2399,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     finish_unwind: {
         if (pc == 0) {
             ts->ts->use_new_interp -= 1;
+            _Py_LeaveRecursiveCall(ts->ts);
             return NULL;
         }
         NEXT_INSTRUCTION();
