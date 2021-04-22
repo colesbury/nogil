@@ -953,6 +953,14 @@ is_temporary(struct compiler *c, Py_ssize_t reg)
 //    - before the "for" and "while" expressions
 // */
 
+static void
+set_lineno(struct compiler *c, stmt_ty s)
+{
+    c->unit->lineno = s->lineno;
+    c->unit->col_offset = s->col_offset;
+    c->unit->lineno_set = 0;
+}
+
 // static void
 // compiler_set_lineno(struct compiler *c, int off)
 // {
@@ -3309,7 +3317,9 @@ compiler_for(struct compiler *c, stmt_ty s)
 
     compiler_assign_acc(c, s->v.For.target);
     compiler_visit_stmts(c, s->v.For.body);
+
     emit_multi_label(c, &continue_label);
+    set_lineno(c, s);  // reset lineno to beginning of stmt for FOR_ITER
     emit_for(c, reg, top_offset);
     free_reg(c, reg);
 
@@ -3354,7 +3364,9 @@ compiler_async_for(struct compiler *c, stmt_ty s)
 
     compiler_assign_acc(c, s->v.AsyncFor.target);
     compiler_visit_stmts(c, s->v.AsyncFor.body);
+
     emit_multi_label(c, &continue_label);
+    set_lineno(c, s);  // reset lineno to beginning of stmt
     emit_async_for(c, reg, top_offset);
     compiler_pop_block(c, &block);
 
@@ -4216,6 +4228,7 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         COMPILER_ERROR(c);
     }
 
+    (void)next_register;
     assert(next_register == c->unit->next_register);
 }
 
@@ -5621,9 +5634,12 @@ compiler_visit_expr(struct compiler *c, expr_ty e)
     /* Updating the column offset is always harmless. */
     c->unit->col_offset = e->col_offset;
 
-    Py_ssize_t base = c->unit->next_register;
+    Py_ssize_t next_register = c->unit->next_register;
+
     compiler_visit_expr1(c, e);
-    assert(c->unit->next_register == base);
+
+    (void)next_register;
+    assert(c->unit->next_register == next_register);
 
     if (old_lineno != c->unit->lineno) {
         c->unit->lineno = old_lineno;
