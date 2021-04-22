@@ -1877,8 +1877,15 @@ vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed)
     while (newsize < oldsize + needed) {
         if (newsize > (Py_ssize_t)MAX_STACK_SIZE) {
             PyErr_SetString(PyExc_MemoryError, "stack overflow");
+            return -1;
         }
         newsize *= 2;
+    }
+
+    if (newsize > 10 * _Py_CheckRecursionLimit) {
+        PyErr_SetString(PyExc_RecursionError,
+                        "maximum recursion depth exceeded");
+        return -1;
     }
 
     Py_ssize_t offset = ts->regs - ts->stack;
