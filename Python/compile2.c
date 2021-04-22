@@ -2420,7 +2420,7 @@ clear_name(struct compiler *c, PyObject *name)
         emit1(c, CLEAR_FAST, a.slot);
     }
     else {
-        emit1(c, LOAD_FAST, const_none(c));
+        emit1(c, LOAD_CONST, const_none(c));
         assign_name(c, name);
         delete_name(c, name);
     }
