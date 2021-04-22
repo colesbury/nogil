@@ -249,6 +249,7 @@ PyCode2_UpdateFlags(PyCodeObject2 *co)
     co->co_packed_flags |= (co->co_flags & CO_VARARGS) ? CODE_FLAG_VARARGS : 0;
     co->co_packed_flags |= (co->co_flags & CO_VARKEYWORDS) ? CODE_FLAG_VARKEYWORDS : 0;
     co->co_packed_flags |= (co->co_totalargcount > co->co_argcount ? CODE_FLAG_KWD_ONLY_ARGS : 0);
+    co->co_packed_flags |= (co->co_flags & CO_NEWLOCALS) ? 0 : CODE_FLAG_LOCALS_DICT;
 }
 
 static void

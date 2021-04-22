@@ -40,6 +40,9 @@ enum {
 
     // set if there more than 255 arguments
     CODE_FLAG_OVERFLOW      = 0x400000, // bit  22
+
+    // set if the function uses a locals dict (in regs[0])
+    CODE_FLAG_LOCALS_DICT   = 0x800000, // bit  23
 };
 
 enum {

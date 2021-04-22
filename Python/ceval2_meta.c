@@ -170,7 +170,7 @@ vm_stack_walk(struct stack_walk *w)
         }
         // switch to calling virtual thread
         w->ts = ts = ts->prev;
-        w->frame_link = w->ts->pc;
+        w->frame_link = (intptr_t)w->ts->pc;
         w->offset = 0;
     }
 
@@ -2131,9 +2131,11 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 
     Py_ssize_t nargs = code->co_totalargcount;
     if (code->co_packed_flags & CODE_FLAG_VARARGS) {
+        // FIXME: I think this is wrong now that varargs are prior to header
         nargs += 1;
     }
     if (code->co_packed_flags & CODE_FLAG_VARKEYWORDS) {
+        // FIXME: I think this is wrong now that varargs are prior to header
         nargs += 1;
     }
     for (Py_ssize_t i = 0; i != nargs; i++) {
@@ -2141,6 +2143,11 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
         // generator may outlive the calling frame.
         ts->regs[i] = STRONG_REF(old->regs[i]);
         old->regs[i].as_int64 = 0;
+    }
+    if (code->co_packed_flags & CODE_FLAG_LOCALS_DICT) {
+        assert(nargs == 0);
+        ts->regs[0] = old->regs[0];
+        old->regs[0].as_int64 = 0;
     }
     for (Py_ssize_t i = code->co_ndefaultargs; i != code->co_nfreevars; i++) {
         Py_ssize_t r = code->co_free2reg[i*2+1];

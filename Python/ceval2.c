@@ -621,6 +621,19 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
                 regs[r] = PACK(cell, NO_REFCOUNT_TAG);
             }
         }
+        if ((this_code->co_packed_flags & CODE_FLAG_LOCALS_DICT) != 0 &&
+            regs[0].as_int64 == 0)
+        {
+            // The locals dict for classes and modules is passed in regs[0].
+            // It may be NULL if the user creates a code object via compile(),
+            // and wraps it in a function via types.FunctionType.
+            PyObject *locals;
+            CALL_VM(locals = PyDict_New());
+            if (UNLIKELY(locals == NULL)) {
+                goto error;
+            }
+            regs[0] = PACK(locals, REFCOUNT_TAG);
+        }
 
     LABEL(dispatch_func_header):
         acc.as_int64 = 0;
