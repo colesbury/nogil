@@ -59,6 +59,8 @@ typedef struct PyThreadStateOS PyThreadStateOS;
 struct Waiter;
 typedef struct _PyEventRC _PyEventRC;
 
+struct ThreadState;
+
 // Forward declared from pycore_qsbr.h
 struct qsbr;
 
@@ -86,6 +88,7 @@ struct _ts {
     mi_heap_t *heaps[Py_NUM_HEAPS];
 
     struct _frame *frame;
+    struct ThreadState *active;
     int recursion_depth;
     int use_new_interp;
     char use_new_bytecode;

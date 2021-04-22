@@ -182,12 +182,11 @@ struct ThreadState {
     // top of stack
     Register *maxstack;
 
-    // current metadata ???
-    uint16_t *metadata;
+    struct _ts *ts;
+
+    struct ThreadState *prev;
 
     char thread_type;
-
-    struct _ts *ts;
 };
 
 struct PyVirtualThread {
@@ -200,6 +199,9 @@ PyObject *_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *
 PyObject *PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc);
 PyObject *PyEval2_GetGlobals(void);
 PyObject *PyEval2_GetLocals(void);
+
+// Used by pstate.c
+struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 
 
 // private
@@ -299,9 +301,6 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 const uint8_t *
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD);
-
-struct ThreadState *
-new_threadstate(void);
 
 void vm_free_threadstate(struct ThreadState *ts);
 int vm_for_iter_exc(struct ThreadState *ts);

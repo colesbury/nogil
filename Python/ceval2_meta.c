@@ -165,8 +165,15 @@ vm_stack_walk(struct stack_walk *w)
     struct ThreadState *ts = w->ts;
     w->offset = w->next_offset;
     if (ts->regs + w->offset == ts->stack) {
-        return 0;
+        if (ts->prev == NULL) {
+            return 0;
+        }
+        // switch to calling virtual thread
+        w->ts = ts = ts->prev;
+        w->frame_link = w->ts->pc;
+        w->offset = 0;
     }
+
     w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
 
     intptr_t frame_link = ts->regs[w->offset-2].as_int64;
@@ -232,6 +239,13 @@ vm_handled_exc(struct ThreadState *ts)
         }
     }
     return NULL;
+}
+
+PyObject *
+vm_cur_handled_exc(void)
+{
+    struct ThreadState *ts = PyThreadState_GET()->active;
+    return vm_handled_exc(ts);
 }
 
 static int
@@ -1885,7 +1899,6 @@ vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
 {
     Register *stack = mi_malloc(stack_size * sizeof(Register));
     if (UNLIKELY(stack == NULL)) {
-        PyErr_SetNone(PyExc_MemoryError);
         return -1;
     }
 
@@ -1897,21 +1910,20 @@ vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
 }
 
 struct ThreadState *
-new_threadstate(void)
+vm_new_threadstate(PyThreadState *tstate)
 {
-    struct ThreadState *ts = malloc(sizeof(struct ThreadState));
+    struct ThreadState *ts = PyMem_RawMalloc(sizeof(struct ThreadState));
     if (ts == NULL) {
-        PyErr_SetNone(PyExc_MemoryError);
         return NULL;
     }
     memset(ts, 0, sizeof(struct ThreadState));
 
     Py_ssize_t stack_size = 256;
     if (UNLIKELY(vm_init_stack(ts, stack_size) != 0)) {
-        free(ts);
+        PyMem_RawFree(ts);
         return NULL;
     }
-    ts->ts = PyThreadState_GET();
+    ts->ts = tstate;
     return ts;
 }
 
@@ -2133,31 +2145,6 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     return 0;
 }
 
-
-// static PyTypeObject PyCFunc_Type;
-
-// static PyCFunc *
-// PyCFunc_New(vectorcallfunc vectorcall)
-// {
-//     PyCFunc *func = PyObject_Malloc(sizeof(PyCFunc));
-//     if (func == NULL) {
-//         return NULL;
-//     }
-//     memset(func, 0, sizeof(PyCFunc));
-//     PyObject_Init((PyObject *)func, &PyFunc_Type);
-//     printf("PyCFunc_New: first_instr=%p\n", &func_vector_call);
-
-//     func->base.globals = NULL;
-//     func->base.first_instr = &func_vector_call;
-//     func->vectorcall = vectorcall;
-//     return func;
-// }
-
-static Py_DECL_THREAD struct ThreadState *gts;
-
-PyObject *
-vm_cur_handled_exc(void) { return vm_handled_exc(gts); }
-
 static PyObject *
 builtins_from_globals2(PyObject *globals)
 {
@@ -2220,22 +2207,28 @@ setup_frame(struct ThreadState *ts, PyObject *func)
 static struct ThreadState *
 current_thread_state(void)
 {
-    if (gts == NULL) {
-        gts = new_threadstate();
-        if (gts == NULL) {
-            return NULL;
-        }
-    }
-    return gts;
+    PyThreadState *tstate = PyThreadState_GET();
+    return tstate->active;
 }
 
 PyObject *
 PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc)
 {
-    struct ThreadState *oldts = gts;
-    gts = ts;
+    assert(ts->prev == NULL);
+
+    PyThreadState *tstate = PyThreadState_GET();
+    ts->ts = tstate;
+
+    // push `ts` onto the list of active threads
+    ts->prev = tstate->active;
+    tstate->active = ts;
+
     PyObject *res = _PyEval_Fast(ts, nargs, pc);
-    gts = oldts;
+
+    // pop `ts` from the list of active threads
+    tstate->active = ts->prev;
+    ts->prev = NULL;
+
     return res;
 }
 

@@ -45,6 +45,10 @@ static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 
 Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 
+// FROM ceval2_meta.h
+// FIXME(sgross): make the includes sane
+struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
+
 
 static PyStatus
 _PyRuntimeState_Init_impl(_PyRuntimeState *runtime)
@@ -939,6 +943,13 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->qsbr = _Py_qsbr_register(&_PyRuntime.qsbr, tstate);
     if (!tstate->qsbr) {
+        PyMem_RawFree(tstate);
+        return NULL;
+    }
+
+    // FIXME: leaks thread-state
+    tstate->active = vm_new_threadstate(tstate);
+    if (tstate->active == NULL) {
         PyMem_RawFree(tstate);
         return NULL;
     }
