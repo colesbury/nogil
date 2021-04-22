@@ -160,6 +160,7 @@ test_listcomps
 test_lltrace
 test_locale
 test_long
+test_longexp
 test_lzma
 test_mailbox
 test_mailcap

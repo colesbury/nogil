@@ -42,7 +42,6 @@ test_json
 test_keywordonlyarg
 test_lib2to3
 test_logging
-test_longexp
 test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
