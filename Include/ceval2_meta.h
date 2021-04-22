@@ -263,7 +263,7 @@ void vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type);
 void vm_err_async_for_anext(struct ThreadState *ts, PyTypeObject *type);
 void vm_err_dict_update(struct ThreadState *ts, Register acc);
 
-Register vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
+PyObject *vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
 int vm_import_star(struct ThreadState *ts, PyObject *module, PyObject *locals);
 

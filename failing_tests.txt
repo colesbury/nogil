@@ -34,7 +34,6 @@ test_gdb
 test_generators
 test_genexps
 test_grammar
-test_import
 test_importlib
 test_inspect
 test_io

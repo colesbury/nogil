@@ -1760,10 +1760,12 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
     TARGET(IMPORT_NAME) {
         PyFunc *this_func = THIS_FUNC();
         PyObject *arg = CONSTANTS()[UImm(0)];
-        CALL_VM(acc = vm_import_name(ts, this_func, arg));
-        if (UNLIKELY(acc.as_int64 == 0)) {
+        PyObject *res;
+        CALL_VM(res = vm_import_name(ts, this_func, arg));
+        if (UNLIKELY(res == 0)) {
             goto error;
         }
+        acc = PACK_OBJ(res);
         DISPATCH(IMPORT_NAME);
     }
 

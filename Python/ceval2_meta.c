@@ -942,29 +942,58 @@ vm_delete_name(struct ThreadState *ts, PyObject *name)
     return 0;
 }
 
-Register
+static PyObject *
+vm_import_name_custom(struct ThreadState *ts, PyFunc *this_func, PyObject *arg,
+                      PyObject *import_func)
+{
+    PyObject *res;
+    PyObject *stack[5];
+
+    Py_INCREF(import_func);  // FIXME: thread-safety if builtins.__import__ changes
+    stack[0] = PyTuple_GET_ITEM(arg, 0);  // name
+    stack[1] = this_func->globals;
+    stack[2] = Py_None;
+    stack[3] = PyTuple_GET_ITEM(arg, 1);  // fromlist
+    stack[4] = PyTuple_GET_ITEM(arg, 2);  // level
+    res = _PyObject_FastCall(import_func, stack, 5);
+    Py_DECREF(import_func);
+    return res;
+}
+
+PyObject *
 vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
 {
+    _Py_IDENTIFIER(__import__);
+    PyObject *import_func, *builtins;
+
+    builtins = this_func->builtins;
+    import_func = _PyDict_GetItemIdWithError(builtins, &PyId___import__);
+    if (import_func == NULL) {
+        if (!_PyErr_Occurred(ts->ts)) {
+            _PyErr_SetString(ts->ts, PyExc_ImportError, "__import__ not found");
+        }
+        return NULL;
+    }
+
+    if (UNLIKELY(import_func != ts->ts->interp->import_func)) {
+        return vm_import_name_custom(ts, this_func, arg, import_func);
+    }
+
     assert(PyTuple_CheckExact(arg) && PyTuple_GET_SIZE(arg) == 3);
     PyObject *name = PyTuple_GET_ITEM(arg, 0);
     PyObject *fromlist = PyTuple_GET_ITEM(arg, 1);
     PyObject *level = PyTuple_GET_ITEM(arg, 2);
-    PyObject *res;
     int ilevel = _PyLong_AsInt(level);
     if (ilevel == -1 && _PyErr_Occurred(ts->ts)) {
-        return (Register){0};
+        return NULL;
     }
     ts->ts->use_new_bytecode = 1;
-    res = PyImport_ImportModuleLevelObject(
+    return PyImport_ImportModuleLevelObject(
         name,
         this_func->globals,
         Py_None,
         fromlist,
         ilevel);
-    if (res == NULL) {
-        return (Register){0};
-    }
-    return PACK_OBJ(res);
 }
 
 Register

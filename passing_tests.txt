@@ -142,6 +142,7 @@ test_idle
 test_imaplib
 test_imghdr
 test_imp
+test_import
 test_index
 test_int
 test_int_literal
