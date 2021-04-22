@@ -163,17 +163,20 @@ static int
 vm_stack_walk(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
-    w->offset = w->next_offset;
-    if (ts->regs + w->offset == ts->stack) {
+    // FIXME(sgross): an if-statement (instead of a loop) should be
+    // sufficient, but we currentl ycan have parent threads with empty stacks
+    // because of the mix of old and new interpreters.
+    while (ts->regs + w->next_offset == ts->stack) {
         if (ts->prev == NULL) {
             return 0;
         }
         // switch to calling virtual thread
         w->ts = ts = ts->prev;
         w->frame_link = (intptr_t)w->ts->pc;
-        w->offset = 0;
+        w->next_offset = 0;
     }
 
+    w->offset = w->next_offset;
     w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
 
     intptr_t frame_link = ts->regs[w->offset-2].as_int64;
