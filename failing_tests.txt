@@ -21,8 +21,6 @@ test_exceptions
 test_extcall
 test_faulthandler
 test_frame
-test_fstring
-test_ftplib
 test_funcattrs
 test_functools
 test_future
@@ -34,7 +32,6 @@ test_grammar
 test_importlib
 test_inspect
 test_io
-test_json
 test_keywordonlyarg
 test_lib2to3
 test_logging
@@ -47,8 +44,6 @@ test_nntplib
 test_opcodes
 test_pdb
 test_peepholer
-test_pickle
-test_pickletools
 test_positional_only_arg
 test_profile
 test_pstats

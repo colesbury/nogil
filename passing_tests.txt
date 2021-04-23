@@ -117,6 +117,8 @@ test_fork1
 test_format
 test_fractions
 test_frozen
+test_fstring
+test_ftplib
 test_future3
 test_future4
 test_future5
@@ -155,6 +157,7 @@ test_isinstance
 test_iter
 test_iterlen
 test_itertools
+test_json
 test_keyword
 test_kqueue
 test_largefile
@@ -193,7 +196,9 @@ test_ossaudiodev
 test_osx_env
 test_parser
 test_pathlib
+test_pickle
 test_picklebuffer
+test_pickletools
 test_pipes
 test_pkg
 test_pkgutil
