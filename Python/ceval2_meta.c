@@ -2733,19 +2733,46 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
         assert(PyMapping_Check(locals));
         return locals;
     }
-    PyObject *locals = PyDict_New();
-    if (locals == NULL) {
+
+    PyObject **vars = PyMem_RawMalloc(code->co_nlocals * sizeof(PyObject*));
+    if (vars == NULL) {
         return NULL;
     }
+
     for (Py_ssize_t i = 0, n = code->co_nlocals; i < n; i++) {
-        PyObject *obj = AS_OBJ(ts->regs[offset+i]);
-        if (obj == NULL) {
+        vars[i] = AS_OBJ(ts->regs[offset+i]);
+    }
+
+    for (Py_ssize_t i = 0, n = code->co_ncells; i < n; i++) {
+        Py_ssize_t reg = code->co_cell2reg[i];
+        assert(PyCell_Check(vars[reg]));
+        vars[reg] = PyCell_GET(vars[reg]);
+    }
+
+    Py_ssize_t ndefaults = code->co_ndefaultargs;
+    for (Py_ssize_t i = ndefaults, n = code->co_nfreevars; i < n; i++) {
+        Py_ssize_t reg = code->co_free2reg[i*2+1];
+        assert(PyCell_Check(vars[reg]));
+        vars[reg] = PyCell_GET(vars[reg]);
+    }
+
+    PyObject *locals = PyDict_New();
+    if (locals == NULL) {
+        PyMem_RawFree(vars);
+        return NULL;
+    }
+
+    for (Py_ssize_t i = 0, n = code->co_nlocals; i < n; i++) {
+        PyObject *value = vars[i];
+        if (value == NULL) {
             continue;
         }
+
         PyObject *name = PyTuple_GET_ITEM(code->co_varnames, i);
-        int err = PyDict_SetItem(locals, name, obj);
-        if (err < 0) {
+        int err = PyDict_SetItem(locals, name, vars[i]);
+        if (err != 0) {
             Py_DECREF(locals);
+            PyMem_RawFree(vars);
             return NULL;
         }
     }
@@ -2753,6 +2780,7 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
     // FIXME: leaks locals
     // need to stash the locals in the frame
 
+    PyMem_RawFree(vars);
     return locals;
 }
 

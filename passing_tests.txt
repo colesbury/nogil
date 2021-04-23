@@ -75,9 +75,11 @@ test_dbm
 test_dbm_dumb
 test_dbm_gnu
 test_dbm_ndbm
+test_decimal
 test_decorators
 test_defaultdict
 test_deque
+test_descr
 test_descrtut
 test_devpoll
 test_dict

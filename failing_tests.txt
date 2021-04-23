@@ -14,8 +14,6 @@ test_concurrent_futures
 test_contextlib_async
 test_coroutines
 test_cprofile
-test_decimal
-test_descr
 test_dis
 test_doctest
 test_embed
