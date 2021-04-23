@@ -2245,6 +2245,12 @@ vm_builtins_from_globals(PyObject *globals)
     if (PyModule_Check(builtins)) {
         builtins = PyModule_GetDict(builtins);
     }
+    if (!PyDict_Check(builtins)) {
+        PyErr_Format(PyExc_TypeError, "__builtins__ must be a dict, not '%.200s'",
+            Py_TYPE(builtins)->tp_name);
+        return NULL;
+    }
+
     // Py_INCREF_STACK(builtins);
     Py_INCREF(builtins);
     return builtins;

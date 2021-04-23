@@ -72,7 +72,7 @@ PyFunc_New(PyObject *co, PyObject *globals, PyObject *builtins)
             return NULL;
         }
     }
-    assert(PyDict_CheckExact(func->builtins));
+    assert(PyDict_Check(func->builtins));
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;
