@@ -278,7 +278,7 @@ static void compiler_assign_reg(struct compiler *c, expr_ty target, Py_ssize_t v
 static void compiler_assign_acc(struct compiler *c, expr_ty target);
 
 static int inplace_binop(struct compiler *, operator_ty);
-static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
+// static int are_all_items_const(asdl_seq *, Py_ssize_t, Py_ssize_t);
 static int expr_constant(expr_ty);
 
 static void compiler_with(struct compiler *, stmt_ty, int);
@@ -751,20 +751,6 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
 
     // leave space for FUNC_HEADER in lineno table
     TABLE_NEXT(c, &c->unit->linenos.table);
-
-    if (u->ste->ste_generator && u->ste->ste_coroutine) {
-        emit1(c, COROGEN_HEADER, CORO_HEADER_ASYNC_GENERATOR);
-    }
-    else if (u->ste->ste_generator) {
-        emit1(c, COROGEN_HEADER, CORO_HEADER_GENERATOR);
-    }
-    else if (u->ste->ste_coroutine) {
-        emit1(c, COROGEN_HEADER, CORO_HEADER_COROUTINE);
-    }
-
-    //     if (!compiler_set_qualname(c))
-    //         return 0;
-    // }
 
     return 1;
 }
@@ -1808,19 +1794,38 @@ emit_label(struct compiler *c, struct bc_label *label)
 }
 
 static Py_ssize_t
-write_func_header(uint8_t *pc, Py_ssize_t max_registers)
+write_func_header(struct compiler *c, uint8_t *pc)
 {
+    Py_ssize_t max_registers = c->unit->max_registers;
+    Py_ssize_t offset;
     if (max_registers > 255) {
         pc[0] = WIDE;
         pc[1] = FUNC_HEADER;
         write_uint32(&pc[2], max_registers);
-        return 6;
+        offset = 6;
     }
     else {
         pc[0] = FUNC_HEADER;
         pc[1] = (uint8_t)max_registers;
-        return 2;
+        offset = 2;
     }
+    PySTEntryObject *ste = c->unit->ste;
+    if (ste->ste_generator || ste->ste_coroutine) {
+        int type;
+        if (ste->ste_generator && ste->ste_coroutine) {
+            type = CORO_HEADER_ASYNC_GENERATOR;
+        }
+        else if (ste->ste_generator) {
+            type = CORO_HEADER_GENERATOR;
+        }
+        else {
+            type = CORO_HEADER_COROUTINE;
+        }
+        pc[offset+0] = COROGEN_HEADER;
+        pc[offset+1] = type;
+        offset += 2;
+    }
+    return offset;
 }
 
 
@@ -3342,7 +3347,9 @@ compiler_async_for(struct compiler *c, stmt_ty s)
 
     assert(s->kind == AsyncFor_kind);
     if (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) {
-        c->unit->ste->ste_coroutine = 1; // ?????
+        // TODO: this is unfortunate. Would be better if the symtable looked
+        // for top-level awaits.
+        c->unit->ste->ste_coroutine = 1;
     }
     else if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION){
         compiler_error(c, "'async for' outside async function");
@@ -4424,17 +4431,17 @@ starunpack_helper(struct compiler *c, asdl_seq *elts, int kind)
     }
 }
 
-static int
-are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
-{
-    Py_ssize_t i;
-    for (i = begin; i < end; i++) {
-        expr_ty key = (expr_ty)asdl_seq_GET(seq, i);
-        if (key == NULL || key->kind != Constant_kind)
-            return 0;
-    }
-    return 1;
-}
+// static int
+// are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
+// {
+//     Py_ssize_t i;
+//     for (i = begin; i < end; i++) {
+//         expr_ty key = (expr_ty)asdl_seq_GET(seq, i);
+//         if (key == NULL || key->kind != Constant_kind)
+//             return 0;
+//     }
+//     return 1;
+// }
 
 static void
 compiler_dict(struct compiler *c, expr_ty e)
@@ -5190,7 +5197,6 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
                        expr_ty val)
 {
     comprehension_ty outermost;
-    PyObject *qualname = NULL;
     int is_async_function = c->unit->ste->ste_coroutine;
     int is_async_generator = 0;
     Py_ssize_t res_reg;
@@ -6537,9 +6543,9 @@ makecode(struct compiler *c)
     Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
     Py_ssize_t header_size;
-    uint8_t header[OP_SIZE_WIDE_FUNC_HEADER];
+    uint8_t header[OP_SIZE_WIDE_FUNC_HEADER + OP_SIZE_COROGEN_HEADER];
 
-    header_size = write_func_header(header, c->unit->max_registers);
+    header_size = write_func_header(c, header);
     instr_size += header_size;
 
     co = PyCode2_New(

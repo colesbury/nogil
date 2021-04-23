@@ -623,12 +623,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             // The locals dict for classes and modules is passed in regs[0].
             // It may be NULL if the user creates a code object via compile(),
             // and wraps it in a function via types.FunctionType.
-            PyObject *locals;
-            CALL_VM(locals = PyDict_New());
-            if (UNLIKELY(locals == NULL)) {
-                goto error;
-            }
-            regs[0] = PACK(locals, REFCOUNT_TAG);
+            PyFunc *this_func = THIS_FUNC();
+            regs[0] = PACK(this_func->globals, NO_REFCOUNT_TAG);
         }
 
     LABEL(dispatch_func_header):

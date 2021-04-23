@@ -3,7 +3,6 @@ test_asyncgen
 test_asyncio
 test_audit
 test_bdb
-test_builtin
 test_capi
 test_cmd_line_script
 test_code

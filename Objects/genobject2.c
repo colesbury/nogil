@@ -311,13 +311,10 @@ static int
 gen_is_coroutine(PyObject *o)
 {
     if (PyGen2_CheckExact(o)) {
-        // TODO
-        PyGenObject2 *gen = (PyGenObject2 *)o;
-        fprintf(stderr, "gen_is_coroutine: NYI\n");
-        // PyCodeObject2 *code = (PyCodeObject2 *)((PyGenObject 2*)o)->;
-        // if (code->co_flags & CO_ITERABLE_COROUTINE) {
-        //     return 1;
-        // }
+        PyCodeObject2 *code = (PyCodeObject2 *)((PyGenObject2 *)o)->code;
+        if (code->co_flags & CO_ITERABLE_COROUTINE) {
+            return 1;
+        }
     }
     return 0;
 }

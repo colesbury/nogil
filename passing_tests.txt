@@ -26,6 +26,7 @@ test_bisect
 test_bool
 test_buffer
 test_bufio
+test_builtin
 test_bytes
 test_bz2
 test_c_locale_coercion
