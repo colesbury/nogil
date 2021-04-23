@@ -161,6 +161,7 @@ test_json
 test_keyword
 test_kqueue
 test_largefile
+test_lib2to3
 test_linecache
 test_list
 test_listcomps

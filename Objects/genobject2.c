@@ -642,7 +642,63 @@ gen_iternext(PyGenObject2 *gen)
 static void
 _PyGen2_Finalize(PyObject *self)
 {
-    // printf("_PyGen2_Finalize NYI\n");
+    PyGenObject2 *gen = (PyGenObject2 *)self;
+    PyObject *res = NULL;
+    PyObject *error_type, *error_value, *error_traceback;
+
+    if (gen->status != GEN_YIELD) {
+        /* Generator isn't paused, so no need to close */
+        return;
+    }
+
+    if (PyAsyncGen2_CheckExact(self)) {
+        PyAsyncGenObject2 *agen = (PyAsyncGenObject2 *)self;
+        PyObject *finalizer = agen->finalizer;
+        if (finalizer && !agen->closed) {
+            /* Save the current exception, if any. */
+            PyErr_Fetch(&error_type, &error_value, &error_traceback);
+
+            res = _PyObject_CallOneArg(finalizer, self);
+
+            if (res == NULL) {
+                PyErr_WriteUnraisable(self);
+            } else {
+                Py_DECREF(res);
+            }
+            /* Restore the saved exception. */
+            PyErr_Restore(error_type, error_value, error_traceback);
+            return;
+        }
+    }
+
+    // FIXME(sgross): can there be an active exception here?
+    /* Save the current exception, if any. */
+    PyErr_Fetch(&error_type, &error_value, &error_traceback);
+
+    // TODO: handle coroutine generators
+    /* If `gen` is a coroutine, and if it was never awaited on,
+       issue a RuntimeWarning. */
+    // if (gen->gi_code != NULL &&
+    //     ((PyCodeObject *)gen->gi_code)->co_flags & CO_COROUTINE &&
+    //     gen->gi_frame->f_lasti == -1)
+    // {
+    //     _PyErr_WarnUnawaitedCoroutine((PyObject *)gen);
+    // }
+    // else {
+        res = gen_close(gen, NULL);
+    // }
+
+    if (res == NULL) {
+        if (PyErr_Occurred()) {
+            PyErr_WriteUnraisable(self);
+        }
+    }
+    else {
+        Py_DECREF(res);
+    }
+
+    /* Restore the saved exception. */
+    PyErr_Restore(error_type, error_value, error_traceback);
 }
 
 static PyObject *

@@ -33,7 +33,6 @@ test_importlib
 test_inspect
 test_io
 test_keywordonlyarg
-test_lib2to3
 test_logging
 test_metaclass
 test_multiprocessing_fork
