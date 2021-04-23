@@ -13,9 +13,6 @@ typedef union _Register {
 #define NO_REFCOUNT_TAG 0x1
 #define REFCOUNT_MASK 0x1
 
-#define PRI_TAG 0x4
-#define PRI_TRUE 0x2
-
 enum {
     FRAME_GENERATOR = -1,
 };
@@ -67,26 +64,6 @@ enum {
 */
 #define UNLIKELY _PY_UNLIKELY
 #define LIKELY _PY_LIKELY
-
-static inline Register
-PACK_BOOL(bool value)
-{
-    Register r;
-    r.as_int64 = PRI_TAG | (((int64_t)value + 1) << 32);
-    return r;
-}
-
-static inline bool
-IS_PRI(Register r)
-{
-    return (r.as_int64 & PRI_TAG) != 0;
-}
-
-static inline int32_t
-AS_PRI(Register r)
-{
-    return (r.as_int64 >> 32);
-}
 
 static inline bool
 IS_OBJ(Register r)
