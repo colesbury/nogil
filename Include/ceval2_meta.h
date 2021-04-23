@@ -203,6 +203,8 @@ PyObject *PyEval2_GetLocals(void);
 // Used by pstate.c
 struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 
+// Used by funcobject2.c.
+PyObject *vm_builtins_from_globals(PyObject *globals);
 
 // private
 PyObject *_PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds);

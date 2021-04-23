@@ -36,6 +36,7 @@ test_cgitb
 test_charmapcodec
 test_check_c_globals
 test_class
+test_clinic
 test_cmath
 test_cmd
 test_cmd_line

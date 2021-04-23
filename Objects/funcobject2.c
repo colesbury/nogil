@@ -14,7 +14,7 @@
 #include "opcode2.h"
 
 PyObject *
-PyFunc_New(PyObject *co, PyObject *globals)
+PyFunc_New(PyObject *co, PyObject *globals, PyObject *builtins)
 {
     _Py_IDENTIFIER(__name__);
 
@@ -31,6 +31,8 @@ PyFunc_New(PyObject *co, PyObject *globals)
     func->func_base.first_instr = PyCode2_GET_CODE(code);
     Py_INCREF(globals);
     func->globals = globals;
+    Py_XINCREF(builtins);   // builtins may be NULL
+    func->builtins = builtins;
     if (code->co_nconsts > 0) {
         func->func_doc = code->co_constants[0];
         Py_INCREF(func->func_doc);
@@ -62,6 +64,15 @@ PyFunc_New(PyObject *co, PyObject *globals)
     else if (func->func_module != NULL) {
         Py_INCREF(func->func_module);
     }
+
+    if (func->builtins == NULL) {
+        func->builtins = vm_builtins_from_globals(globals);
+        if (func->builtins == NULL) {
+            Py_DECREF(func);
+            return NULL;
+        }
+    }
+    assert(PyDict_CheckExact(func->builtins));
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;
@@ -154,9 +165,10 @@ func_new_impl(PyTypeObject *type, PyCodeObject2 *code, PyObject *globals,
         return NULL;
     }
 
-    newfunc = (PyFunc *)PyFunc_New((PyObject *)code, globals);
-    if (newfunc == NULL)
+    newfunc = (PyFunc *)PyFunc_New((PyObject *)code, globals, NULL);
+    if (newfunc == NULL) {
         return NULL;
+    }
 
     if (name != Py_None) {
         Py_INCREF(name);

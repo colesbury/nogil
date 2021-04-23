@@ -1269,13 +1269,11 @@ Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
 {
     PyFunc *this_func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-    PyObject *globals = this_func->globals;
-    PyFunc *func = (PyFunc *)PyFunc_New((PyObject *)code, globals);
+    PyFunc *func = (PyFunc *)PyFunc_New(
+        (PyObject *)code, this_func->globals, this_func->builtins);
     if (func == NULL) {
         return (Register){0};
     }
-    func->builtins = this_func->builtins;
-    Py_INCREF(func->builtins);
 
     assert(Py_SIZE(func) >= code->co_nfreevars);
     for (Py_ssize_t i = 0, n = code->co_nfreevars; i < n; i++) {
@@ -2222,8 +2220,8 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     return 0;
 }
 
-static PyObject *
-builtins_from_globals2(PyObject *globals)
+PyObject *
+vm_builtins_from_globals(PyObject *globals)
 {
     PyObject *builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
     if (!builtins) {
@@ -2342,11 +2340,10 @@ exit:
 PyObject *
 PyEval2_EvalCode(PyObject *co, PyObject *globals, PyObject *locals)
 {
-    PyFunc *func = (PyFunc *)PyFunc_New(co, globals);
+    PyFunc *func = (PyFunc *)PyFunc_New(co, globals, NULL);
     if (func == NULL) {
         return NULL;
     }
-    func->builtins = builtins_from_globals2(globals);
 
 #ifdef Py_REF_DEBUG
     intptr_t oldrc = _PyThreadState_GET()->thread_ref_total;

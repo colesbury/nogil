@@ -5,7 +5,6 @@ test_audit
 test_bdb
 test_builtin
 test_capi
-test_clinic
 test_cmd_line_script
 test_code
 test_collections

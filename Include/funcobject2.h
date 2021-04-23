@@ -38,7 +38,7 @@ PyAPI_DATA(PyTypeObject) PyFunc_Type;
 
 #define PyFunc_Check(op) (Py_TYPE(op) == &PyFunc_Type)
 
-PyAPI_FUNC(PyObject *) PyFunc_New(PyObject *, PyObject *);
+PyAPI_FUNC(PyObject *) PyFunc_New(PyObject *, PyObject *, PyObject *);
 
 #ifdef __cplusplus
 }
