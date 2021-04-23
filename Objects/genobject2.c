@@ -50,9 +50,11 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     // TODO: name should be from func, not code
     gen->name = code->co_name;
     gen->qualname = code->co_name; /// ???
+    gen->code = code;
     gen->status = GEN_STARTED; // fixme enum or something
     Py_INCREF(gen->name);
     Py_INCREF(gen->qualname);
+    Py_INCREF(gen->code); // FIXME: defer rc
 
     _PyObject_GC_TRACK(gen);
     return gen;
@@ -152,6 +154,7 @@ gen_dealloc(PyGenObject2 *gen)
     Py_CLEAR(gen->name);
     Py_CLEAR(gen->qualname);
     Py_CLEAR(gen->return_value);
+    Py_CLEAR(gen->code);
 
     // fixme: delete and clear ts
 
@@ -1303,7 +1306,7 @@ static PyGetSetDef gen_getsetlist[] = {
 static PyMemberDef gen_memberlist[] = {
     // {"gi_frame",     T_OBJECT, offsetof(PyGenObject, gi_frame),    READONLY},
     // {"gi_running",   T_BOOL,   offsetof(PyGenObject, gi_running),  READONLY},
-    // {"gi_code",      T_OBJECT, offsetof(PyGenObject, gi_code),     READONLY},
+    {"gi_code",      T_OBJECT, offsetof(PyGenObject2, code),     READONLY},
     {"gi_yieldfrom", T_OBJECT, offsetof(PyGenObject2, yield_from), 
      READONLY, PyDoc_STR("object being iterated by yield from, or None")},
     {NULL}      /* Sentinel */

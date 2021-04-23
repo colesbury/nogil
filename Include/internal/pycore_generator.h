@@ -27,6 +27,7 @@ typedef struct PyGenObject2 {
     PyObject *qualname;
     PyObject *return_value;
     PyObject *yield_from;  /* object being iterated by yield from, or None */
+    PyObject *code;
     char status;
 } PyGenObject2;
 
