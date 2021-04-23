@@ -201,11 +201,10 @@ static PyObject *
 _PyGen2_SetStopIterationValue(PyGenObject2 *gen);
 
 static PyObject *
-gen_send_internal(PyGenObject2 *gen, Register acc)
+gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
 {
-    struct ThreadState *ts = &gen->base.thread;
-    gen->status = GEN_RUNNING;
-    PyObject *res = PyEval2_Eval(ts, acc.as_int64, ts->pc); // FIXME: pc + 1???
+    PyObject *res = PyEval2_EvalGen(gen, opt_value);
+
     if (LIKELY(res != NULL)) {
         assert(gen->status == GEN_YIELD);
         return res;
@@ -283,9 +282,7 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
         return NULL;
     }
 
-    Register acc = PACK_INCREF(arg);
-    PyObject *res = gen_send_internal(gen, acc);
-    return res;
+    return gen_send_internal(gen, arg);
 }
 
 static PyObject *
@@ -419,8 +416,7 @@ gen_throw_current(PyGenObject2 *gen)
         return NULL;
     }
     ts->pc = pc;
-    Register acc = {0};
-    return gen_send_internal(gen, acc);
+    return gen_send_internal(gen, NULL);
 }
 
 
@@ -487,7 +483,8 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
             // gen->gi_frame->f_lasti += sizeof(_Py_CODEUNIT);
             if (_PyGen_FetchStopIterationValue(&val) == 0) {
                 // send val to generator... weird TODO: is this even right???
-                ret = gen_send_internal(gen, PACK_OBJ(val));
+                ret = gen_send_internal(gen, val);
+                Py_DECREF(val);
             } else {
                 ret = gen_throw_current(gen);
             }
@@ -639,8 +636,7 @@ gen_iternext(PyGenObject2 *gen)
     if (UNLIKELY(gen->status >= GEN_RUNNING)) {
         return gen_status_error(gen, NULL);
     }
-    Register acc = PACK(Py_None, NO_REFCOUNT_TAG);
-    return gen_send_internal(gen, acc);
+    return gen_send_internal(gen, Py_None);
 }
 
 static void

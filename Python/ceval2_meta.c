@@ -2287,13 +2287,17 @@ current_thread_state(void)
 }
 
 PyObject *
-PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc)
+PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
 {
-    PyThreadState *tstate = PyThreadState_GET();
+    PyThreadState *tstate;
+    struct ThreadState *ts;
+
+    tstate = PyThreadState_GET();
     if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
         return NULL;
     }
 
+    ts = &gen->base.thread;
     assert(ts->prev == NULL);
 
     ts->ts = tstate;
@@ -2302,7 +2306,10 @@ PyEval2_Eval(struct ThreadState *ts, Py_ssize_t nargs, const uint8_t *pc)
     ts->prev = tstate->active;
     tstate->active = ts;
 
-    PyObject *ret = _PyEval_Fast(ts, nargs, pc);
+    gen->status = GEN_RUNNING;
+
+    Register acc = opt_value ? PACK_INCREF(opt_value) : (Register){0};
+    PyObject *ret = _PyEval_Fast(ts, acc, ts->pc);
 
     // pop `ts` from the list of active threads
     tstate->active = ts->prev;
@@ -2331,7 +2338,9 @@ _PyEval2_EvalFunc(PyObject *func, PyObject *locals)
     }
     ts->regs[0] = PACK(locals, NO_REFCOUNT_TAG);
 
-    ret = _PyEval_Fast(ts, /*acc=*/0, ((PyFuncBase *)func)->first_instr);
+    Register acc;
+    acc.as_int64 = 0;
+    ret = _PyEval_Fast(ts, acc, ((PyFuncBase *)func)->first_instr);
 exit:
     _Py_LeaveRecursiveCall(tstate);
     return ret;
@@ -2621,18 +2630,18 @@ _PyFunc_Call(PyObject *func, PyObject *args, PyObject *kwds)
     }
 
     struct ThreadState *ts = tstate->active;
-    Py_ssize_t acc;
+    Register acc;
     PyObject *ret = NULL;
 
     if (PyTuple_GET_SIZE(args) == 0 && kwds == NULL) {
-        acc = 0;
+        acc.as_int64 = 0;
         int err = setup_frame(ts, func);
         if (UNLIKELY(err != 0)) {
             goto exit;
         }
     }
     else {
-        acc = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
+        acc.as_int64 = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
         int err = setup_frame_ex(ts, func, /*extra=*/2, /*nargs=*/0);
         if (UNLIKELY(err != 0)) {
             goto exit;
@@ -2667,11 +2676,11 @@ _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
 
     struct ThreadState *ts = tstate->active;
     PyObject *ret = NULL;
-    Py_ssize_t acc;
+    Register acc;
     int err;
 
     if (LIKELY(kwnames == NULL)) {
-        acc = nargs;
+        acc.as_int64 = nargs;
         err = setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/nargs);
         if (UNLIKELY(err != 0)) {
             goto exit;
@@ -2693,7 +2702,7 @@ _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
             ts->regs[-FRAME_EXTRA - 1 - nkwargs + i] = PACK(stack[i + nargs], NO_REFCOUNT_TAG);
         }
         ts->regs[-FRAME_EXTRA - 1] = PACK(kwnames, NO_REFCOUNT_TAG);
-        acc = nargs + (nkwargs << 8);
+        acc.as_int64 = nargs + (nkwargs << 8);
     }
 
     ret = _PyEval_Fast(ts, acc, ((PyFuncBase*)func)->first_instr);
@@ -2836,7 +2845,9 @@ _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
         ts->regs[i] = PACK(PyTuple_GET_ITEM(args, i - 1), NO_REFCOUNT_TAG);
     }
 
-    ret = _PyEval_Fast(ts, nargs, ((PyFuncBase*)func)->first_instr);
+    Register acc;
+    acc.as_int64 = nargs;
+    ret = _PyEval_Fast(ts, acc, ((PyFuncBase*)func)->first_instr);
 exit:
     _Py_LeaveRecursiveCall(tstate);
     return ret;

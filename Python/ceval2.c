@@ -315,7 +315,7 @@ load_uimm32(const uint8_t *addr)
 
 PyObject*
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
-_PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_pc)
+_PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
 {
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
@@ -327,7 +327,7 @@ _PyEval_Fast(struct ThreadState *ts, Py_ssize_t nargs_, const uint8_t *initial_p
 
     const uint8_t *pc = initial_pc;
     intptr_t opcode;
-    Register acc = {nargs_};
+    Register acc = initial_acc;
     Register *regs = ts->regs;
     void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
