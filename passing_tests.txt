@@ -61,6 +61,7 @@ test_compare
 test_compile
 test_compileall
 test_complex
+test_concurrent_futures
 test_configparser
 test_contains
 test_context
