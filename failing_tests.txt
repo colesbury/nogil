@@ -7,7 +7,6 @@ test_capi
 test_cmd_line_script
 test_code
 test_collections
-test_compileall
 test_concurrent_futures
 test_contextlib_async
 test_coroutines

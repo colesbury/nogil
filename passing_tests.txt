@@ -59,6 +59,7 @@ test_codeop
 test_colorsys
 test_compare
 test_compile
+test_compileall
 test_complex
 test_configparser
 test_contains
