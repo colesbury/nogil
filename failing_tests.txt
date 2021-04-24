@@ -27,7 +27,6 @@ test_gdb
 test_generators
 test_genexps
 test_grammar
-test_importlib
 test_inspect
 test_io
 test_keywordonlyarg
@@ -47,7 +46,6 @@ test_pstats
 test_re
 test_regrtest
 test_reprlib
-test_robotparser
 test_runpy
 test_scope
 test_signal

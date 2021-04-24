@@ -150,6 +150,7 @@ test_imaplib
 test_imghdr
 test_imp
 test_import
+test_importlib
 test_index
 test_int
 test_int_literal
@@ -233,6 +234,7 @@ test_repl
 test_resource
 test_richcmp
 test_rlcompleter
+test_robotparser
 test_sax
 test_sched
 test_script_helper
