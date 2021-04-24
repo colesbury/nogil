@@ -85,7 +85,8 @@ struct instr_array {
 
 struct bc_label {
     uint32_t offset;
-    int bound : 1;
+    int emitted : 1;
+    int used : 1;
     int has_reg : 1;
 };
 
@@ -211,7 +212,12 @@ struct compiler_unit {
     Py_ssize_t max_registers;
     Py_ssize_t next_register;
 
-    int reachable;
+    // Set if the last emitted instruction is a JUMP, RAISE, or RETURN_VALUE.
+    // This prevents unreachable bytecode from being emitted to the
+    // instruction stream. This is similar to do_not_emit_bytecode, but code
+    // can become "reachable" again when a jump label is emitted.
+    int unreachable;
+
     int firstlineno;    /* the first lineno of the block */
     int lineno;         /* the lineno for the current stmt */
     int col_offset;     /* the offset of the current stmt */
@@ -245,11 +251,12 @@ struct compiler {
     int optimize;              /* optimization level */
     int interactive;           /* true if in interactive mode */
     int nestlevel;
-    int do_not_emit_bytecode;  /* The compiler won't emit any bytecode
-                                    if this value is different from zero.
-                                    This can be used to temporarily visit
-                                    nodes without emitting bytecode to
-                                    check only errors. */
+
+    // The compiler won't emit any bytecode if do_not_emit_bytecode is
+    // non-zero. This is be used to visit nodes without emitting bytecode
+    // to check for errors. See also compiler_unit.unreachable.
+    int do_not_emit_bytecode;
+
     PyArena *arena;            /* pointer to memory allocation arena */
     mi_heap_t *heap;
     jmp_buf jb;
@@ -702,7 +709,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->freevars.unit_size = sizeof(struct freevar);
     u->defaults.unit_size = sizeof(struct freevar);
     u->cellvars.unit_size = sizeof(struct cellvar);
-    u->reachable = true;
+    u->unreachable = false;
     u->scope_type = scope_type;
     u->argcount = 0;
     u->posonlyargcount = 0;
@@ -1544,17 +1551,20 @@ write_int16(uint8_t *pc, int imm)
 static void
 emit0(struct compiler *c, int opcode)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     uint8_t *pc = next_instr(c, 1);
     pc[0] = opcode;
+    if (opcode == RAISE || opcode == RETURN_VALUE) {
+        c->unit->unreachable = true;
+    }
 }
 
 static void
 emit1(struct compiler *c, int opcode, int imm0)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     int wide = (imm0 > 255);
@@ -1574,7 +1584,7 @@ emit1(struct compiler *c, int opcode, int imm0)
 static void
 emit2(struct compiler *c, int opcode, int imm0, int imm1)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     int wide = (imm0 > 255 || imm1 > 255);
@@ -1596,7 +1606,7 @@ emit2(struct compiler *c, int opcode, int imm0, int imm1)
 static void
 emit3(struct compiler *c, int opcode, int imm0, int imm1, int imm2)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     int wide = (imm0 > 255 || imm1 > 255 || imm2 > 255);
@@ -1620,7 +1630,7 @@ emit3(struct compiler *c, int opcode, int imm0, int imm1, int imm2)
 static void
 emit_call(struct compiler *c, int opcode, int base, int flags)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     int wide = (base > 255);
@@ -1639,24 +1649,38 @@ emit_call(struct compiler *c, int opcode, int base, int flags)
     }
 }
 
+// Emit a jump instruction with no operands
 static void
 emit_jump(struct compiler *c, int opcode, struct bc_label *label)
 {
     if (c->do_not_emit_bytecode) {
         return;
     }
+    if (c->unit->unreachable) {
+        memset(label, 0, sizeof(*label));
+        return;
+    }
     uint8_t *pc = next_instr(c, 3);
     pc[0] = opcode;
     write_uint16(&pc[1], 0);
     label->offset = pc - c->unit->instr.arr;
-    label->bound = 0;
+    label->emitted = 0;
+    label->used = 1;
     label->has_reg = 0;
+    if (opcode == JUMP) {
+        c->unit->unreachable = true;
+    }
 }
 
+// Emit a jump with an immediate operand
 static void
 emit_jump2(struct compiler *c, int opcode, int imm0, struct bc_label *label)
 {
     if (c->do_not_emit_bytecode) {
+        return;
+    }
+    if (c->unit->unreachable) {
+        memset(label, 0, sizeof(*label));
         return;
     }
     uint8_t *pc;
@@ -1675,18 +1699,32 @@ emit_jump2(struct compiler *c, int opcode, int imm0, struct bc_label *label)
         write_uint16(&pc[2], 0);
     }
     label->offset = pc - c->unit->instr.arr;
-    label->bound = 0;
+    label->emitted = 0;
+    label->used = 1;
     label->has_reg = 1;
+}
+
+// Returns the offset of the next instruction as a jump target.
+// This makes subsequent code "reachable" again, as long as
+// do_not_emit_bytecode is not set.
+static uint32_t
+jump_target(struct compiler *c)
+{
+    if (c->do_not_emit_bytecode) {
+        return 0;
+    }
+    c->unit->unreachable = false;
+    return c->unit->instr.offset;
 }
 
 static void
 emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
     Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
-    assert(offset < 0 && offset >= INT32_MIN);
+    assert(offset <= 0 && offset >= INT32_MIN);
     if (offset > INT16_MIN) {
         uint8_t *pc = next_instr(c, 3);
         pc[0] = opcode;
@@ -1697,6 +1735,9 @@ emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
         pc[0] = WIDE;
         pc[1] = opcode;
         write_uint32(&pc[2], (uint32_t)offset);
+    }
+    if (opcode == JUMP) {
+        c->unit->unreachable = true;
     }
 }
 
@@ -1751,7 +1792,7 @@ emit_async_for(struct compiler *c, Py_ssize_t reg, Py_ssize_t top_offset)
     emit_bwd_jump(c, JUMP, top_offset);
 
     // exception: check that it matches StopAsyncIteration and clear regs
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
     h.reg = reserve_regs(c, 2);
     assert(h.reg == reg + 1);
     emit1(c, END_ASYNC_FOR, reg);
@@ -1763,10 +1804,10 @@ emit_async_for(struct compiler *c, Py_ssize_t reg, Py_ssize_t top_offset)
 static void
 emit_label(struct compiler *c, struct bc_label *label)
 {
-    if (c->do_not_emit_bytecode) {
+    if (c->do_not_emit_bytecode || !label->used) {
         return;
     }
-    assert(!label->bound);
+    assert(!label->emitted);
     uint32_t pos = c->unit->instr.offset;
     Py_ssize_t delta = (Py_ssize_t)pos - (Py_ssize_t)label->offset;
     if (delta > INT16_MAX) {
@@ -1789,8 +1830,8 @@ emit_label(struct compiler *c, struct bc_label *label)
     else {
         write_int16(&jmp[1], delta);
     }
-    label->bound = 1;
-    c->unit->reachable = true;
+    label->emitted = 1;
+    c->unit->unreachable = false;
 }
 
 static Py_ssize_t
@@ -1827,7 +1868,6 @@ write_func_header(struct compiler *c, uint8_t *pc)
     }
     return offset;
 }
-
 
 static void
 emit_compare(struct compiler *c, Py_ssize_t reg, cmpop_ty cmp)
@@ -1959,29 +1999,6 @@ slice_to_any_reg(struct compiler *c, slice_ty s)
     emit1(c, STORE_FAST, reg);
     return reg;
 }
-
-// static int
-// compiler_addop(struct compiler *c, int opcode)
-// {
-//     basicblock *b;
-//     struct instr *i;
-//     int off;
-//     assert(!HAS_ARG(opcode));
-//     if (c->c_do_not_emit_bytecode) {
-//         return 1;
-//     }
-//     off = compiler_next_instr(c, c->u->u_curblock);
-//     if (off < 0)
-//         return 0;
-//     b = c->u->u_curblock;
-//     i = &b->b_instr[off];
-//     i->i_opcode = opcode;
-//     i->i_oparg = 0;
-//     if (opcode == RETURN_VALUE)
-//         b->b_return = 1;
-//     compiler_set_lineno(c, off);
-//     return 1;
-// }
 
 static Py_ssize_t
 compiler_add_o(struct compiler *c, PyObject *dict, PyObject *o)
@@ -3311,7 +3328,7 @@ compiler_for(struct compiler *c, stmt_ty s)
 
     emit1(c, GET_ITER, reg);
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
-    top_offset = c->unit->instr.offset;
+    top_offset = jump_target(c);
 
     struct fblock block;
     block.type = FOR_LOOP;
@@ -3366,7 +3383,7 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     block.v.ForLoop.break_label = &break_label;
     block.v.ForLoop.continue_label = &continue_label;
     compiler_push_block(c, &block);
-    top_offset = c->unit->instr.offset;
+    top_offset = jump_target(c);
     // FIXME: should handler only be around GET_ANEXT/YIELD_FROM???
 
     compiler_assign_acc(c, s->v.AsyncFor.target);
@@ -3390,32 +3407,18 @@ compiler_while(struct compiler *c, stmt_ty s)
     int constant = expr_constant(s->v.While.test);
 
     if (constant == 0) {
-//         BEGIN_DO_NOT_EMIT_BYTECODE
-//         // Push a dummy block so the VISIT_SEQ knows that we are
-//         // inside a while loop so it can correctly evaluate syntax
-//         // errors.
-//         if (!compiler_push_fblock(c, WHILE_LOOP, NULL, NULL, NULL)) {
-//             return 0;
-//         }
-//         VISIT_SEQ(c, stmt, s->v.While.body);
-//         // Remove the dummy block now that is not needed.
-//         compiler_pop_fblock(c, WHILE_LOOP, NULL);
-//         END_DO_NOT_EMIT_BYTECODE
-//         if (s->v.While.orelse) {
-//             VISIT_SEQ(c, stmt, s->v.While.orelse);
-//         }
-//         return 1;
+        c->do_not_emit_bytecode++;
     }
-//     loop = compiler_new_block(c);
-//     end = compiler_new_block(c);
 
     struct multi_label break_label = MULTI_LABEL_INIT;
     struct multi_label continue_label = MULTI_LABEL_INIT;
     struct fblock block;
     uint32_t top_offset;
 
-    emit_jump(c, JUMP, multi_label_next(c, &continue_label));
-    top_offset = c->unit->instr.offset;
+    if (constant != 1) {
+        emit_jump(c, JUMP, multi_label_next(c, &continue_label));
+    }
+    top_offset = jump_target(c);
 
     block.type = WHILE_LOOP;
     block.v.WhileLoop.break_label = &break_label;
@@ -3424,10 +3427,20 @@ compiler_while(struct compiler *c, stmt_ty s)
 
     compiler_visit_stmts(c, s->v.While.body);
     emit_multi_label(c, &continue_label);
-    compiler_visit_expr(c, s->v.While.test);
-    emit_bwd_jump(c, POP_JUMP_IF_TRUE, top_offset);
+
+    if (constant == 1) {
+        emit_bwd_jump(c, JUMP, top_offset);
+    }
+    else {
+        compiler_visit_expr(c, s->v.While.test);
+        emit_bwd_jump(c, POP_JUMP_IF_TRUE, top_offset);
+    }
 
     compiler_pop_block(c, &block);
+
+    if (constant == 0) {
+        c->do_not_emit_bytecode--;
+    }
 
     if (s->v.While.orelse) {
         compiler_visit_stmts(c, s->v.While.orelse);
@@ -3462,7 +3475,6 @@ compiler_return(struct compiler *c, stmt_ty s)
         compiler_unwind_block(c, block);
     }
     emit0(c, RETURN_VALUE);
-    c->unit->reachable = false;
 }
 
 static void
@@ -3572,7 +3584,7 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     block.type = HANDLER;
     block.v.Handler.reg = reserve_regs(c, 2);
     compiler_push_block(c, &block);
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
     h.reg = block.v.Handler.reg;
 
     emit_multi_label(c, &finally_label);
@@ -3617,7 +3629,7 @@ compiler_except_as(struct compiler *c, excepthandler_ty handler)
     compiler_visit_stmts(c, handler->v.ExceptHandler.body);
 
     compiler_pop_block(c, &block);
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
     h.reg = reserve_regs(c, 2);
 
     // clear `name`
@@ -3677,7 +3689,7 @@ compiler_try_except(struct compiler *c, stmt_ty s)
     block.type = HANDLER;
     block.v.Handler.reg = h.reg = reserve_regs(c, 2);
     compiler_push_block(c, &block);
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
 
     Py_ssize_t n = asdl_seq_LEN(s->v.Try.handlers);
     for (Py_ssize_t i = 0; i < n; i++) {
@@ -5046,7 +5058,7 @@ compiler_comprehension_generator(struct compiler *c,
     }
 
     emit_jump(c, JUMP, multi_label_next(c, &continue_label));
-    top_offset = c->unit->instr.offset;
+    top_offset = jump_target(c);
     compiler_assign_acc(c, gen->target);
 
     n = asdl_seq_LEN(gen->ifs);
@@ -5441,7 +5453,7 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
 
     // [ mgr, __exit__, <link>, <exc> ]
     //   ^with_reg      ^link_reg
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
     h.reg = link_reg = reserve_regs(c, 2);
     assert(link_reg == with_reg + 2);
 
@@ -5514,7 +5526,7 @@ compiler_with(struct compiler *c, stmt_ty s, int pos)
     // value indicates normal exit (no exception). A -1 value
     // indicates an exception. The exception (if it exists) is stored
     // in $link_reg + 1.
-    h.handler = c->unit->instr.offset;
+    h.handler = jump_target(c);
     h.reg = link_reg = reserve_regs(c, 2);
     assert(link_reg == with_reg + 2);
 
@@ -6651,7 +6663,7 @@ makecode(struct compiler *c)
 static void
 assemble(struct compiler *c, int addNone)
 {
-    if (c->unit->reachable) {
+    if (!c->unit->unreachable) {
         emit1(c, LOAD_CONST, const_none(c));
         emit0(c, RETURN_VALUE);
     }

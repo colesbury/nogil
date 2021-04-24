@@ -341,7 +341,7 @@ code_richcompare(PyObject *self, PyObject *other, int op)
     RICH_COMPARE(co_varnames);
     RICH_COMPARE(co_freevars);
     RICH_COMPARE(co_cellvars);
-    RICH_COMPARE(co_filename);
+    // NOTE: we don't compare co_filename!
     #undef RICH_COMPARE
 
     // compare constants
@@ -590,6 +590,7 @@ static PyMemberDef code_memberlist[] = {
     {"co_posonlyargcount",      T_PYSSIZET,  OFF(co_posonlyargcount), READONLY},
     {"co_totalargcount",        T_PYSSIZET,  OFF(co_totalargcount),   READONLY},
     {"co_nlocals",      T_PYSSIZET,     OFF(co_nlocals),         READONLY},
+    {"co_framesize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_packed_flags", T_INT,          OFF(co_packed_flags),    READONLY},
     {"co_varnames",     T_OBJECT,       OFF(co_varnames),        READONLY},
