@@ -298,7 +298,7 @@ static void compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_
 
 static void *table_reserve(struct compiler *c, struct growable_table *t, Py_ssize_t n);
 
-static void assemble(struct compiler *, int addNone);
+static void assemble(struct compiler *);
 
 _Py_IDENTIFIER(__name__);
 _Py_IDENTIFIER(__module__);
@@ -2567,6 +2567,31 @@ compiler_body(struct compiler *c, asdl_seq *stmts)
     }
 }
 
+static int
+stmts_first_lineno(asdl_seq *stmts)
+{
+    if (asdl_seq_LEN(stmts) == 0) {
+        return 1;
+    }
+    return ((stmt_ty)asdl_seq_GET(stmts, 0))->lineno;
+}
+
+static int
+mod_first_lineno(mod_ty mod)
+{
+    asdl_seq *stmts;
+    switch (mod->kind) {
+    case Module_kind:
+        return stmts_first_lineno(mod->v.Module.body);
+    case Interactive_kind:
+        return stmts_first_lineno(mod->v.Module.body);
+    case Expression_kind:
+        return mod->v.Expression.body->lineno;
+    default:
+        return 1;
+    }
+}
+
 static PyCodeObject2 *
 compiler_mod(struct compiler *c, mod_ty mod)
 {
@@ -2576,7 +2601,9 @@ compiler_mod(struct compiler *c, mod_ty mod)
         COMPILER_ERROR(c);
     }
 
-    compiler_enter_scope(c, module_str, COMPILER_SCOPE_MODULE, mod, /*lineno=*/0);
+    int lineno = mod_first_lineno(mod);
+    compiler_enter_scope(c, module_str, COMPILER_SCOPE_MODULE, mod, lineno);
+
     switch (mod->kind) {
     case Module_kind:
         compiler_body(c, mod->v.Module.body);
@@ -2591,12 +2618,7 @@ compiler_mod(struct compiler *c, mod_ty mod)
     case Expression_kind:
         compiler_visit_expr(c, mod->v.Expression.body);
         emit0(c, RETURN_VALUE);
-        // addNone = 0;
         break;
-    // case Suite_kind:
-    //     PyErr_SetString(PyExc_SystemError,
-    //                     "suite should not be possible");
-    //     COMPILER_ERROR(c);
     default:
         PyErr_Format(PyExc_SystemError,
                      "module kind %d should not be possible",
@@ -2604,7 +2626,7 @@ compiler_mod(struct compiler *c, mod_ty mod)
         COMPILER_ERROR(c);
     }
 
-    assemble(c, /*addNOne???*/0);
+    assemble(c);
     compiler_exit_scope(c);
     PyCodeObject2 *co = c->code;
     c->code = NULL;
@@ -2990,7 +3012,7 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
     compiler_visit_stmts(c, body);
 
-    assemble(c, 1);
+    assemble(c);
     compiler_exit_scope(c);
 
     emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
@@ -3104,7 +3126,7 @@ compiler_class(struct compiler *c, stmt_ty s)
         }
         emit0(c, RETURN_VALUE);
         /* create the code object */
-        assemble(c, 1);
+        assemble(c);
     }
 
     /* leave the new scope */
@@ -3236,7 +3258,7 @@ compiler_lambda(struct compiler *c, expr_ty e)
     if (!is_generator) {
         emit0(c, RETURN_VALUE);
     }
-    assemble(c, !is_generator); // ??? addNone, can always be zero???
+    assemble(c);
 
     // qualname = c->unit->qualname;
     // Py_INCREF(qualname);
@@ -5229,7 +5251,7 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
     res_reg = compiler_comprehension_output(c, type);
     compiler_comprehension_generator(c, generators, 0, res_reg, elt, val, type);
 
-    assemble(c, 1);
+    assemble(c);
     compiler_exit_scope(c);
 
     // call the comprehension function
@@ -6661,13 +6683,12 @@ makecode(struct compiler *c)
 }
 
 static void
-assemble(struct compiler *c, int addNone)
+assemble(struct compiler *c)
 {
     if (!c->unit->unreachable) {
         emit1(c, LOAD_CONST, const_none(c));
         emit0(c, RETURN_VALUE);
     }
-
     makecode(c);
 }
 

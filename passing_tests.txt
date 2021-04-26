@@ -194,6 +194,7 @@ test_netrc
 test_nis
 test_ntpath
 test_numeric_tower
+test_opcodes
 test_openpty
 test_operator
 test_optparse

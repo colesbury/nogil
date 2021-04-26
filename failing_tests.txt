@@ -34,7 +34,6 @@ test_multiprocessing_forkserver
 test_multiprocessing_main_handling
 test_multiprocessing_spawn
 test_nntplib
-test_opcodes
 test_pdb
 test_peepholer
 test_positional_only_arg

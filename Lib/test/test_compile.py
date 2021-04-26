@@ -153,8 +153,8 @@ if 1:
     def test_leading_newlines(self):
         s256 = "".join(["\n"] * 256 + ["spam"])
         co = compile(s256, 'fn', 'exec')
-        self.assertEqual(co.co_firstlineno, 0)
-        self.assertEqual(co.co_lnotab, b'\x02\x00\x00\x7f\x00\x7f\x00\x03')
+        self.assertEqual(co.co_firstlineno, 257)
+        self.assertEqual(co.co_lnotab, b'\x02\x00')
 
     def test_literals_with_leading_zeroes(self):
         for arg in ["077787", "0xj", "0x.", "0e",  "090000000000000",
