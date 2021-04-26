@@ -66,12 +66,6 @@ enum {
 #define LIKELY _PY_LIKELY
 
 static inline bool
-IS_OBJ(Register r)
-{
-    return (r.as_int64 & 0x2) == 0;
-}
-
-static inline bool
 IS_RC(Register r)
 {
     return (r.as_int64 & REFCOUNT_MASK) == REFCOUNT_TAG;

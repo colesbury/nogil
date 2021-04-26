@@ -1376,8 +1376,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #endif
 
     TARGET(BINARY_ADD) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1390,8 +1388,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_SUBTRACT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1404,8 +1400,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_MULTIPLY) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1418,8 +1412,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_MODULO) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1432,8 +1424,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_TRUE_DIVIDE) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1446,8 +1436,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_FLOOR_DIVIDE) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1460,8 +1448,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_POWER) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1474,8 +1460,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_MATRIX_MULTIPLY) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1488,8 +1472,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_LSHIFT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1502,8 +1484,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_RSHIFT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1516,8 +1496,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_AND) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1530,8 +1508,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_XOR) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1544,8 +1520,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_OR) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1558,8 +1532,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_ADD) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1572,8 +1544,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_SUBTRACT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1586,8 +1556,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_MULTIPLY) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1600,8 +1568,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_MODULO) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1614,8 +1580,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_TRUE_DIVIDE) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1628,8 +1592,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_FLOOR_DIVIDE) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1642,8 +1604,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_POWER) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1656,8 +1616,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_MATRIX_MULTIPLY) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1670,8 +1628,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_LSHIFT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1684,8 +1640,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_RSHIFT) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1698,8 +1652,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_AND) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1712,8 +1664,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_XOR) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1726,8 +1676,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(INPLACE_OR) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *left = AS_OBJ(regs[UImm(0)]);
         PyObject *right = AS_OBJ(acc);
         PyObject *res;
@@ -1740,8 +1688,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(BINARY_SUBSCR) {
-        assert(IS_OBJ(regs[UImm(0)]));
-        assert(IS_OBJ(acc));
         PyObject *container = AS_OBJ(regs[UImm(0)]);
         PyObject *sub = AS_OBJ(acc);
         PyObject *res;
@@ -2189,7 +2135,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(END_EXCEPT) {
-        // FIXME(sgross): is regs[UImm(0)] always -1 ???
+        // END_EXCEPT <base>
+        //
+        // Clears the active exception in an 'except' block or the pending
+        // action in a 'finally' block.
         Py_ssize_t op = UImm(0);
         if (regs[op].as_int64 != 0) {
             Register r = regs[op + 1];
