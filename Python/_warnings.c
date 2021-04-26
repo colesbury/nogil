@@ -1,6 +1,8 @@
 #include "Python.h"
+#include "pycore_ceval.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"
+#include "code2.h"
 #include "frameobject.h"
 #include "clinic/_warnings.c.h"
 
@@ -812,11 +814,12 @@ next_external_frame(PyFrameObject *frame)
     return frame;
 }
 
+
 /* filename, module, and registry are new refs, globals is borrowed */
 /* Returns 0 on error (no new refs), 1 on success */
 static int
-setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
-              PyObject **module, PyObject **registry)
+setup_context_old(Py_ssize_t stack_level, PyObject **filename, int *lineno,
+                  PyObject **module, PyObject **registry)
 {
     _Py_IDENTIFIER(__warningregistry__);
     PyObject *globals;
@@ -891,6 +894,87 @@ setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
     /* filename not XDECREF'ed here as there is no way to jump here with a
        dangling reference. */
     Py_XDECREF(*registry);
+    Py_XDECREF(*module);
+    return 0;
+}
+
+/* filename, module, and registry are new refs, globals is borrowed */
+/* Returns 0 on error (no new refs), 1 on success */
+static int
+setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
+              PyObject **module, PyObject **registry)
+{
+    if (!_PyRuntime.preconfig.new_bytecode) {
+        return setup_context_old(stack_level, filename, lineno, module, registry);
+    }
+
+    _Py_IDENTIFIER(__warningregistry__);
+    PyObject *globals;
+
+    /* Setup globals, filename and lineno. */
+    PyFunc *func;
+    int err, addrq;
+
+    err = vm_frame_info(&func, &addrq, stack_level, true);
+    if (err < 0) {
+        return 0;
+    }
+
+    if (func == NULL) {
+        globals = _PyInterpreterState_GET_UNSAFE()->sysdict;
+        *filename = PyUnicode_FromString("sys");
+        *lineno = 1;
+    }
+    else {
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+        globals = ((PyFunc *)func)->globals;
+        *filename = code->co_filename;
+        Py_INCREF(*filename);
+        *lineno = PyCode2_Addr2Line(code, addrq);
+    }
+
+    *module = NULL;
+
+    /* Setup registry. */
+    assert(globals != NULL);
+    assert(PyDict_Check(globals));
+    *registry = _PyDict_GetItemIdWithError(globals, &PyId___warningregistry__);
+    if (*registry == NULL) {
+        int rc;
+
+        if (PyErr_Occurred()) {
+            return 0;
+        }
+        *registry = PyDict_New();
+        if (*registry == NULL)
+            return 0;
+
+         rc = _PyDict_SetItemId(globals, &PyId___warningregistry__, *registry);
+         if (rc < 0)
+            goto handle_error;
+    }
+    else
+        Py_INCREF(*registry);
+
+    /* Setup module. */
+    *module = _PyDict_GetItemIdWithError(globals, &PyId___name__);
+    if (*module == Py_None || (*module != NULL && PyUnicode_Check(*module))) {
+        Py_INCREF(*module);
+    }
+    else if (PyErr_Occurred()) {
+        goto handle_error;
+    }
+    else {
+        *module = PyUnicode_FromString("<string>");
+        if (*module == NULL)
+            goto handle_error;
+    }
+
+    return 1;
+
+ handle_error:
+    Py_XDECREF(*registry);
+    Py_XDECREF(*module);
     Py_XDECREF(*module);
     return 0;
 }

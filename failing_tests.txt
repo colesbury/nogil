@@ -38,9 +38,7 @@ test_peepholer
 test_positional_only_arg
 test_profile
 test_pstats
-test_re
 test_regrtest
-test_reprlib
 test_runpy
 test_scope
 test_signal
@@ -58,7 +56,6 @@ test_typing
 test_unittest
 test_unpack_ex
 test_userlist
-test_warnings
 test_with
 test_xml_etree_c
 test_yield_from

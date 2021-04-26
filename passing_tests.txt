@@ -234,8 +234,10 @@ test_quopri
 test_raise
 test_random
 test_range
+test_re
 test_readline
 test_repl
+test_reprlib
 test_resource
 test_richcmp
 test_rlcompleter
@@ -334,6 +336,7 @@ test_uuid
 test_venv
 test_wait3
 test_wait4
+test_warnings
 test_wave
 test_weakref
 test_weakset

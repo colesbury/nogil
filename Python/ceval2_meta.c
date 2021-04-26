@@ -631,6 +631,82 @@ vm_get_frame(int depth)
     return (PyObject *)top;
 }
 
+static int
+is_importlib_frame(PyFunc *func)
+{
+    _Py_IDENTIFIER(importlib);
+    _Py_IDENTIFIER(_bootstrap);
+
+    PyObject *filename, *importlib_string, *bootstrap_string;
+    int contains;
+
+    filename = PyCode2_FromFunc(func)->co_filename;
+    if (!PyUnicode_Check(filename)) {
+        return 0;
+    }
+
+    importlib_string = _PyUnicode_FromId(&PyId_importlib);
+    if (importlib_string == NULL) {
+        return -1;
+    }
+
+    bootstrap_string = _PyUnicode_FromId(&PyId__bootstrap);
+    if (bootstrap_string == NULL) {
+        return -1;
+    }
+
+    contains = PyUnicode_Contains(filename, importlib_string);
+    if (contains > 0) {
+        contains = PyUnicode_Contains(filename, bootstrap_string);
+        if (contains > 0) {
+            return 1;
+        }
+    }
+    if (contains < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int
+vm_frame_info(PyFunc **out_func, int *out_addrq, int depth,
+              bool skip_importlib_frames)
+{
+    struct ThreadState *ts = _PyThreadState_GET()->active;
+
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable) || w.pc == NULL) {
+            continue;
+        }
+
+        PyFunc *func = (PyFunc *)callable;
+        if (skip_importlib_frames) {
+            int skip = is_importlib_frame(func);
+            if (skip == 1) {
+                continue;
+            }
+            else if (skip < 0) {
+                return -1;
+            }
+        }
+
+        --depth;
+        if (depth == 0) {
+            *out_func = func;
+            *out_addrq = w.pc - func->func_base.first_instr;
+            return 1;
+        }
+    }
+
+    *out_func = NULL;
+    *out_addrq = 0;
+    return 0;
+}
+
 static PyObject *
 normalize_exception(PyObject *exc)
 {
