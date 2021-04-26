@@ -227,9 +227,8 @@ func_dealloc(PyFunc *op)
 static PyObject*
 func_repr(PyFunc *op)
 {
-    PyCodeObject2 *code = PyCode2_FromFunc(op);
     return PyUnicode_FromFormat("<function %U at %p>",
-                               code->co_name, op);
+                               op->func_qualname, op);
 }
 
 static int

@@ -17,7 +17,6 @@ test_extcall
 test_faulthandler
 test_frame
 test_funcattrs
-test_functools
 test_future
 test_gc
 test_gdb
