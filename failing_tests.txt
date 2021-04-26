@@ -63,7 +63,6 @@ test_unittest
 test_unpack_ex
 test_userlist
 test_warnings
-test_weakref
 test_with
 test_xml_etree_c
 test_yield_from
