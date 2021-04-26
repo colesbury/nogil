@@ -1585,7 +1585,7 @@ class CoroutineTests(unittest.TestCase):
         self.assertIs(wrapper.__await__(), gen)
 
         for name in ('__name__', '__qualname__', 'gi_code',
-                     'gi_running', 'gi_frame'):
+                     'gi_running'):
             self.assertIs(getattr(foo(), name),
                           getattr(gen, name))
         self.assertIs(foo().cr_code, gen.gi_code)

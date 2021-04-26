@@ -50,7 +50,7 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     // TODO: name should be from func, not code
     gen->name = code->co_name;
     gen->qualname = code->co_name; /// ???
-    gen->code = code;
+    gen->code = (PyObject *)code;
     gen->status = GEN_STARTED; // fixme enum or something
     Py_INCREF(gen->name);
     Py_INCREF(gen->qualname);
@@ -410,6 +410,9 @@ static PyObject *
 gen_throw_current(PyGenObject2 *gen)
 {
     struct ThreadState *ts = &gen->base.thread;
+    if (gen->status == GEN_ERROR || gen->status == GEN_FINISHED) {
+        return NULL;
+    }
     const uint8_t *pc = vm_exception_unwind(ts, ts->pc);
     if (pc == NULL) {
         assert(gen->status == GEN_ERROR);
@@ -577,9 +580,12 @@ gen_close(PyGenObject2 *gen, PyObject *args)
         err = gen_close_iter(gen->yield_from);
         gen->status = old_status;
     }
-    if (err == 0)
+    if (err == 0) {
         PyErr_SetNone(PyExc_GeneratorExit);
+    }
+
     retval = gen_throw_current(gen);
+
     if (retval) {
         Py_DECREF(retval);
         PyErr_Format(PyExc_RuntimeError,
@@ -706,6 +712,12 @@ gen_repr(PyGenObject2 *gen)
 {
     return PyUnicode_FromFormat("<%s object %S at %p>",
                                 Py_TYPE(gen)->tp_name, gen->qualname, gen);
+}
+
+static PyObject *
+gen_get_running(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    return PyBool_FromLong(op->status == GEN_RUNNING);
 }
 
 static PyObject *
@@ -1293,6 +1305,7 @@ async_gen_athrow_new(PyAsyncGenObject2 *gen, PyObject *args)
 
 
 static PyGetSetDef gen_getsetlist[] = {
+    {"gi_running",   (getter)gen_get_running, NULL, NULL },
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
     {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
@@ -1302,7 +1315,6 @@ static PyGetSetDef gen_getsetlist[] = {
 
 static PyMemberDef gen_memberlist[] = {
     // {"gi_frame",     T_OBJECT, offsetof(PyGenObject, gi_frame),    READONLY},
-    // {"gi_running",   T_BOOL,   offsetof(PyGenObject, gi_running),  READONLY},
     {"gi_code",      T_OBJECT, offsetof(PyGenObject2, code),     READONLY},
     {"gi_yieldfrom", T_OBJECT, offsetof(PyGenObject2, yield_from), 
      READONLY, PyDoc_STR("object being iterated by yield from, or None")},
@@ -1337,6 +1349,11 @@ static PyAsyncMethods coro_as_async = {
     .am_await = (unaryfunc)coro_await
 };
 
+static PyMemberDef coro_memberlist[] = {
+    {"cr_code",      T_OBJECT, offsetof(PyGenObject2, code),     READONLY},
+    {NULL}      /* Sentinel */
+};
+
 PyTypeObject PyCoro2_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = "coroutine",
@@ -1348,7 +1365,7 @@ PyTypeObject PyCoro2_Type = {
     .tp_traverse = (traverseproc)gen_traverse,
     .tp_weaklistoffset = offsetof(PyCoroObject2, base.weakreflist),
     .tp_methods = gen_methods,
-    .tp_members = gen_memberlist,
+    .tp_members = coro_memberlist,
     .tp_getset = gen_getsetlist,
     .tp_finalize = _PyGen2_Finalize
 };

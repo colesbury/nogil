@@ -456,6 +456,7 @@ const uint8_t *
 vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
 {
     assert(PyErr_Occurred());
+    assert(ts->regs > ts->stack);
 
     PyObject *exc = NULL, *val = NULL, *tb = NULL;
     _PyErr_Fetch(ts->ts, &exc, &val, &tb);

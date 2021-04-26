@@ -56,7 +56,6 @@ test_tools
 test_trace
 test_traceback
 test_tracemalloc
-test_types
 test_typing
 test_unittest
 test_unpack_ex

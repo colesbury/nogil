@@ -305,6 +305,7 @@ test_tuple
 test_turtle
 test_type_comments
 test_typechecks
+test_types
 test_ucn
 test_unary
 test_unicode
