@@ -107,6 +107,7 @@ test_epoll
 test_errno
 test_exception_hierarchy
 test_exception_variations
+test_exceptions
 test_fcntl
 test_file
 test_file_eintr

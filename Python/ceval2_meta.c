@@ -476,6 +476,9 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
 
         PyFunc *func = (PyFunc *)callable;
         PyCodeObject2 *code = PyCode2_FromFunc(func);
+        if (pc == func->func_base.first_instr) {
+            goto next;
+        }
 
         if (!skip_frame) {
             PyObject *newtb = traceback_from_pc(func, pc, tb);
