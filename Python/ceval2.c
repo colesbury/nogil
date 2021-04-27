@@ -910,18 +910,24 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
     #endif
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
-        intptr_t frame_link = regs[-2].as_int64;
-        intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
-        regs[-3].as_int64 = 0;
-        regs[-4].as_int64 = 0;
     #if DEBUG_FRAME
         for (Py_ssize_t i = 0; i < frame_size; i++) {
             assert(regs[i].as_int64 == 0);
         }
     #endif
+        intptr_t frame_link = regs[-2].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
+        pc = (const uint8_t *)frame_link; // ugh might be negative
+        goto return_value;
+    }
+
+    return_value: {
+        intptr_t frame_link = (intptr_t)pc;
         if (UNLIKELY(frame_link <= 0)) {
             if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
@@ -939,6 +945,16 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         acc = STRONG_REF(acc);
         pc = (const uint8_t *)frame_link;
         NEXT_INSTRUCTION();
+    }
+
+    TARGET(CLEAR_FRAME_AUX) {
+        // CLEAR_FRAME_AUX
+        //
+        // TODO
+        intptr_t frame_link;
+        CALL_VM(frame_link = vm_frame_clear_aux((intptr_t)pc));
+        pc = (const uint8_t *)frame_link;
+        goto return_value;
     }
     #endif
 

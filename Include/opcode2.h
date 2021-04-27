@@ -121,7 +121,8 @@ extern "C" {
     _(DICT_UPDATE,              110,     2,      6) \
     _(WIDE,                     111,     1,      2) \
     _(SETUP_ANNOTATIONS,        112,     1,      2) \
-    _(SET_FUNC_ANNOTATIONS,     113,     2,      6)
+    _(SET_FUNC_ANNOTATIONS,     113,     2,      6) \
+    _(CLEAR_FRAME_AUX,          114,     1,      2)
 
 #define INTRINSIC_LIST(_) \
     _(PyObject_Str,                   1) \

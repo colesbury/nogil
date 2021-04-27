@@ -1,5 +1,8 @@
 #ifndef Py_INTERNAL_STACKWALK_H
 #define Py_INTERNAL_STACKWALK_H
+
+#include "opcode2.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +19,12 @@ struct stack_walk {
     intptr_t next_offset;
     intptr_t frame_link;
 };
+
+static inline bool
+frame_link_is_aux(intptr_t frame_link)
+{
+    return frame_link > 0 && *(const uint8_t *)frame_link == CLEAR_FRAME_AUX;
+}
 
 static inline void
 vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
@@ -49,6 +58,9 @@ vm_stack_walk(struct stack_walk *w)
     }
 
     w->offset = w->next_offset;
+    if (frame_link_is_aux(w->frame_link)) {
+        w->frame_link = ((struct FrameAux *)w->frame_link)->frame_link;
+    }
     w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
 
     intptr_t frame_link = ts->regs[w->offset-2].as_int64;

@@ -374,6 +374,9 @@ vm_pop_frame(struct ThreadState *ts)
     ts->regs[-3].as_int64 = 0;
     ts->regs[-4].as_int64 = 0;
     ts->regs -= frame_delta;
+    if (frame_link_is_aux(frame_link)) {
+        frame_link = vm_frame_clear_aux(frame_link);
+    }
     return frame_link;
 }
 
@@ -2797,6 +2800,26 @@ PyEval2_GetGlobals(void)
     return NULL;
 }
 
+static struct FrameAux *
+frame_aux_state(struct ThreadState *ts, Py_ssize_t offset)
+{
+    intptr_t frame_link = ts->regs[offset-2].as_int64;
+    if (frame_link_is_aux(frame_link)) {
+        return (struct FrameAux *)frame_link;
+    }
+
+    struct FrameAux *aux = mi_malloc(sizeof(struct FrameAux));
+    if (aux == NULL) {
+        return NULL;
+    }
+    aux->code = CLEAR_FRAME_AUX;
+    aux->frame = NULL;
+    aux->locals = NULL;
+    aux->frame_link = ts->regs[offset-2].as_int64;
+    ts->regs[offset-2].as_int64 = (intptr_t)&aux->code;
+    return aux;
+}
+
 static PyObject *
 frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
 {
@@ -2807,6 +2830,19 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
         PyObject *locals = AS_OBJ(ts->regs[offset]);
         assert(PyMapping_Check(locals));
         return locals;
+    }
+
+    struct FrameAux *aux = frame_aux_state(ts, offset);
+    if (aux == NULL) {
+        return NULL;
+    }
+
+    PyObject *locals = aux->locals;
+    if (locals == NULL) {
+        locals = aux->locals = PyDict_New();
+        if (locals == NULL) {
+            return NULL;
+        }
     }
 
     PyObject **vars = PyMem_RawMalloc(code->co_nlocals * sizeof(PyObject*));
@@ -2831,34 +2867,48 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
         vars[reg] = PyCell_GET(vars[reg]);
     }
 
-    PyObject *locals = PyDict_New();
-    if (locals == NULL) {
-        PyMem_RawFree(vars);
-        return NULL;
-    }
-
     for (Py_ssize_t i = 0, n = code->co_nlocals; i < n; i++) {
-        PyObject *value = vars[i];
-        if (value == NULL) {
-            continue;
-        }
-
         PyObject *name = PyTuple_GET_ITEM(code->co_varnames, i);
-        int err = PyDict_SetItem(locals, name, vars[i]);
+        PyObject *value = vars[i];
+        int err;
+
+        if (value == NULL) {
+            err = PyObject_DelItem(locals, name);
+            if (err != 0 && PyErr_ExceptionMatches(PyExc_KeyError)) {
+                PyErr_Clear();
+                continue;
+            }
+        }
+        else {
+            err = PyDict_SetItem(locals, name, vars[i]);
+        }
         if (err != 0) {
-            Py_DECREF(locals);
             PyMem_RawFree(vars);
             return NULL;
         }
     }
 
-    // FIXME: leaks locals
-    // need to stash the locals in the frame
-
     PyMem_RawFree(vars);
     return locals;
 }
 
+intptr_t
+vm_frame_clear_aux(intptr_t frame_link)
+{
+    struct FrameAux *aux;
+
+    // The frame_link points the aux->code field. This is the
+    assert(frame_link_is_aux(frame_link));
+    aux = (struct FrameAux *)frame_link;
+
+    Py_CLEAR(aux->frame);
+    Py_CLEAR(aux->locals);
+
+    frame_link = aux->frame_link;
+    mi_free(aux);
+
+    return frame_link;
+}
 
 PyObject *
 PyEval2_GetLocals(void)

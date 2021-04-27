@@ -17,6 +17,7 @@ typedef union _Register {
 
 enum {
     FRAME_GENERATOR = -1,
+    FRAME_AUX_STATE = -2,
 };
 
 #define FRAME_EXTRA     4
@@ -174,6 +175,14 @@ struct PyVirtualThread {
     struct ThreadState thread;
 };
 
+// Auxiliary frame data
+struct FrameAux {
+    uint8_t code;
+    PyObject *frame;
+    PyObject *locals;
+    intptr_t frame_link;
+};
+
 // ceval2.c
 PyObject *_PyEval_Fast(struct ThreadState *ts, Register acc, const uint8_t *pc);
 PyObject *PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value);
@@ -260,6 +269,8 @@ int vm_kwargs_to_dict(struct ThreadState *ts);
 PyObject *vm_call_cfunction(struct ThreadState *ts, Register acc);
 PyObject *vm_call_function(struct ThreadState *ts, Register acc);
 PyObject *vm_tpcall_function(struct ThreadState *ts, Register acc);
+
+intptr_t vm_frame_clear_aux(intptr_t frame_link);
 
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);

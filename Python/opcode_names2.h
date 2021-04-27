@@ -113,7 +113,7 @@ static const char *opcode_names[256] = {
     "WIDE",
     "SETUP_ANNOTATIONS",
     "SET_FUNC_ANNOTATIONS",
-    "unknown_opcode",
+    "CLEAR_FRAME_AUX",
     "unknown_opcode",
     "unknown_opcode",
     "unknown_opcode",
