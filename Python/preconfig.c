@@ -284,7 +284,9 @@ _PyPreCmdline_Read(_PyPreCmdline *cmdline, const PyPreConfig *preconfig)
         if (_Py_get_xoption(&cmdline->xoptions, L"newbc")) {
             cmdline->new_bytecode = 1;
         }
-        else if ((env = _Py_GetEnv(cmdline->use_environment, "PYTHONNEWBC"))) {
+        else if ((env = _Py_GetEnv(1, "PYTHONNEWBC"))) {
+            // NOTE: we always use the the environment variable even if
+            // -E is passed because otherwise it's a mess with tests.
             cmdline->new_bytecode = (strcmp(env, "1") == 0);
         }
         else {

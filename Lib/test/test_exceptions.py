@@ -973,36 +973,20 @@ class ExceptionTests(unittest.TestCase):
     @cpython_only
     def test_recursion_normalizing_exception(self):
         # Issue #22898.
-        # Test that a RecursionError is raised when tstate->recursion_depth is
-        # equal to recursion_limit in PyErr_NormalizeException() and check
-        # that a ResourceWarning is printed.
+        # Test that a RecursionError is raised when PyErr_NormalizeException
+        # fails due to exceeding the recursion limit and that the recursion
+        # error doesn't prevent a ResourceWarning from being printed.
         # Prior to #22898, the recursivity of PyErr_NormalizeException() was
         # controlled by tstate->recursion_depth and a PyExc_RecursionErrorInst
         # singleton was being used in that case, that held traceback data and
         # locals indefinitely and would cause a segfault in _PyExc_Fini() upon
         # finalization of these locals.
         code = """if 1:
-            import sys
-            from _testcapi import get_recursion_depth
-
-            class MyException(Exception): pass
-
-            def setrecursionlimit(depth):
-                while 1:
-                    try:
-                        sys.setrecursionlimit(depth)
-                        return depth
-                    except RecursionError:
-                        # sys.setrecursionlimit() raises a RecursionError if
-                        # the new recursion limit is too low (issue #25274).
-                        depth += 1
-
-            def recurse(cnt):
-                cnt -= 1
-                if cnt:
-                    recurse(cnt)
-                else:
-                    generator.throw(MyException)
+            class MyException(Exception):
+                def __init__(self):
+                    # Trigger a RecursionError during error construction
+                    # (called via PyErr_NormalizeException)
+                    MyException()
 
             def gen():
                 f = open(%a, mode='rb', buffering=0)
@@ -1010,16 +994,10 @@ class ExceptionTests(unittest.TestCase):
 
             generator = gen()
             next(generator)
-            recursionlimit = sys.getrecursionlimit()
-            depth = get_recursion_depth()
             try:
-                # Upon the last recursive invocation of recurse(),
-                # tstate->recursion_depth is equal to (recursion_limit - 1)
-                # and is equal to recursion_limit when _gen_throw() calls
-                # PyErr_NormalizeException().
-                recurse(setrecursionlimit(depth + 2) - depth - 1)
+                # Use a type (as opposed to an instance) to test PyErr_NormalizeException
+                generator.throw(MyException)
             finally:
-                sys.setrecursionlimit(recursionlimit)
                 print('Done.')
         """ % __file__
         rc, out, err = script_helper.assert_python_failure("-Wd", "-c", code)

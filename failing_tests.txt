@@ -26,7 +26,6 @@ test_grammar
 test_inspect
 test_io
 test_keywordonlyarg
-test_logging
 test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
