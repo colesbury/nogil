@@ -687,6 +687,7 @@ vm_frame_info(PyFunc **out_func, int *out_addrq, int depth,
         if (skip_importlib_frames) {
             int skip = is_importlib_frame(func);
             if (skip == 1) {
+                --depth;
                 continue;
             }
             else if (skip < 0) {
@@ -695,7 +696,7 @@ vm_frame_info(PyFunc **out_func, int *out_addrq, int depth,
         }
 
         --depth;
-        if (depth == 0) {
+        if (depth <= 0) {
             *out_func = func;
             *out_addrq = w.pc - func->func_base.first_instr;
             return 1;
