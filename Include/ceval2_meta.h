@@ -126,6 +126,13 @@ STRONG_REF(Register r)
     DECREF(_tmp);           \
 } while (0)
 
+#define XCLEAR(reg) do {    \
+    Register _tmp = (reg);  \
+    (reg).as_int64 = 0;     \
+    if (_tmp.as_int64 != 0) \
+        DECREF(_tmp);       \
+} while (0)
+
 struct _ts;
 
 // struct VirtualThread {};
@@ -264,6 +271,7 @@ int vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
 int vm_setup_varargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc);
 int vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObject **kwnames);
 int vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code);
+void vm_setup_err(struct ThreadState *ts, Register acc);
 
 Register
 vm_load_build_class(struct ThreadState *ts, PyObject *builtins);

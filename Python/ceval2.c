@@ -464,8 +464,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             // resize the virtual stack
             CALL_VM(err = vm_resize_stack(ts, frame_size));
             if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
         }
 
@@ -486,8 +485,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             // TODO: update acc to avoid checking all args for defaults
             FUNC_CALL_VM(err = vm_setup_ex(ts, this_code, acc));
             if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
             goto LABEL(setup_default_args);
         }
@@ -495,8 +493,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (UNLIKELY((this_code->co_packed_flags & CODE_FLAG_VARARGS) != 0)) {
             FUNC_CALL_VM(err = vm_setup_varargs(ts, this_code, acc));
             if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
             Py_ssize_t posargs = (acc.as_int64 & ACC_MASK_ARGS);
             if (posargs > this_code->co_argcount) {
@@ -505,8 +502,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         }
         else if ((acc.as_int64 & ACC_MASK_ARGS) > this_code->co_argcount) {
             FUNC_CALL_VM(too_many_positional(ts, acc.as_int64 & ACC_MASK_ARGS));
-            acc.as_int64 = 0;
-            goto error;
+            goto error_func_header;
         }
 
         if (UNLIKELY((this_code->co_packed_flags & CODE_FLAG_VARKEYWORDS) != 0)) {
@@ -514,8 +510,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             PyObject *kwdict;
             FUNC_CALL_VM(kwdict = PyDict_New());
             if (UNLIKELY(kwdict == NULL)) {
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
             Py_ssize_t pos = this_code->co_totalargcount;
             if ((this_code->co_packed_flags & CODE_FLAG_VARARGS) != 0) {
@@ -548,16 +543,14 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 // fall back to slower set-up path.
                 FUNC_CALL_VM(err = vm_setup_kwargs(ts, this_code, acc, kwnames));
                 if (UNLIKELY(err == -1)) {
-                    acc.as_int64 = 0;
-                    goto error;
+                    goto error_func_header;
                 }
                 break;
 
             LABEL(kw_found):
                 if (UNLIKELY(regs[j].as_int64 != 0)) {
                     FUNC_CALL_VM(duplicate_keyword_argument(ts, this_code, keyword));
-                    acc.as_int64 = 0;
-                    goto error;
+                    goto error_func_header;
                 }
 
                 Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
@@ -577,8 +570,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         for (; i < co_required_args; i++) {
             if (UNLIKELY(regs[i].as_int64 == 0)) {
                 FUNC_CALL_VM(missing_arguments(ts));
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
         }
 
@@ -591,8 +583,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                     // arguments. These arguments have NULL default values to
                     // signify that they are required.
                     FUNC_CALL_VM(missing_arguments(ts));
-                    acc.as_int64 = 0;
-                    goto error;
+                    goto error_func_header;
                 }
                 regs[i] = PACK(deflt, NO_REFCOUNT_TAG);
             }
@@ -603,8 +594,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             int err;
             FUNC_CALL_VM(err = vm_setup_cells(ts, this_code));
             if (UNLIKELY(err != 0)) {
-                acc.as_int64 = 0;
-                goto error;
+                goto error_func_header;
             }
         }
         if ((this_code->co_packed_flags & CODE_FLAG_HAS_FREEVARS) != 0) {
@@ -2330,6 +2320,12 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         PyObject *obj = OWNING_REF(acc);
         ts->ts->use_new_interp -= 1;
         return obj;
+    }
+
+    error_func_header: {
+        CALL_VM(vm_setup_err(ts, acc));
+        acc.as_int64 = 0;
+        goto error;
     }
 
     error: {

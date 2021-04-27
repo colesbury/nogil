@@ -1742,6 +1742,33 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
     return 0;
 }
 
+// Clears the arguments to a failed function call. This is necessary
+// if the function is called from C, but for simplicity we clean-up here
+// for functions called from both C and Python.
+void
+vm_setup_err(struct ThreadState *ts, Register acc)
+{
+    if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
+        XCLEAR(ts->regs[-FRAME_EXTRA - 2]);
+        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
+        return;
+    }
+    if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
+    }
+    while ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+        Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
+        XCLEAR(ts->regs[kwdpos]);
+        acc.as_int64 -= (1 << ACC_SHIFT_KWARGS);
+    }
+    assert(acc.as_int64 <= 255);
+    while ((acc.as_int64 & ACC_MASK_ARGS) != 0) {
+        Py_ssize_t pos = acc.as_int64 - 1;
+        XCLEAR(ts->regs[pos]);
+        acc.as_int64 -= 1;
+    }
+}
+
 Register
 vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
