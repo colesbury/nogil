@@ -1,4 +1,5 @@
 #include "Python.h"
+#include "ceval2_meta.h"
 #include "pycore_call.h"
 #include "pycore_ceval.h"
 #include "pycore_code.h"
@@ -7,6 +8,7 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_pystate.h"
+#include "pycore_stackwalk.h"
 #include "pycore_tupleobject.h"
 #include "pycore_qsbr.h"
 #include "pycore_traceback.h"
@@ -18,7 +20,6 @@
 #include "setobject.h"
 #include "structmember.h"
 #include "opcode2.h"
-#include "ceval2_meta.h"
 #include "opcode_names2.h"
 #include "pycore_generator.h"
 
@@ -136,55 +137,6 @@ vm_setup_async_with(struct ThreadState *ts, Py_ssize_t opA)
 
 static void
 vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi);
-
-struct stack_walk {
-    struct ThreadState *ts;
-    const uint8_t *pc;
-    intptr_t offset;
-    intptr_t next_offset;
-    intptr_t frame_link;
-};
-
-static void
-vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
-{
-    memset(w, 0, sizeof(*w));
-    w->ts = ts;
-    w->frame_link = (intptr_t)ts->pc;
-}
-
-static Register *
-vm_stack_walk_regs(struct stack_walk *w)
-{
-    return &w->ts->regs[w->offset];
-}
-
-static int
-vm_stack_walk(struct stack_walk *w)
-{
-    struct ThreadState *ts = w->ts;
-    // FIXME(sgross): an if-statement (instead of a loop) should be
-    // sufficient, but we currentl ycan have parent threads with empty stacks
-    // because of the mix of old and new interpreters.
-    while (ts->regs + w->next_offset == ts->stack) {
-        if (ts->prev == NULL) {
-            return 0;
-        }
-        // switch to calling virtual thread
-        w->ts = ts = ts->prev;
-        w->frame_link = (intptr_t)w->ts->pc;
-        w->next_offset = 0;
-    }
-
-    w->offset = w->next_offset;
-    w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
-
-    intptr_t frame_link = ts->regs[w->offset-2].as_int64;
-    intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
-    w->next_offset = w->offset - frame_delta;
-    w->frame_link = frame_link;
-    return 1;
-}
 
 void
 vm_dump_stack(void)

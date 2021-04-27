@@ -303,6 +303,7 @@ test_timeout
 test_tix
 test_tk
 test_tokenize
+test_tracemalloc
 test_ttk_guionly
 test_ttk_textonly
 test_tuple

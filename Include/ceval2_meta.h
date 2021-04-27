@@ -1,6 +1,8 @@
 #ifndef Py_CEVAL2_META_H
 #define Py_CEVAL2_META_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

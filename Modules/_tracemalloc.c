@@ -1,9 +1,12 @@
 #include "Python.h"
+#include "ceval2_meta.h"
 #include "pycore_pymem.h"
+#include "pycore_stackwalk.h"
 #include "pycore_traceback.h"
 #include "hashtable.h"
 #include "frameobject.h"
 #include "pythread.h"
+#include "code2.h"
 #include "osdefs.h"
 
 #include "clinic/_tracemalloc.c.h"
@@ -405,6 +408,49 @@ tracemalloc_get_frame(PyFrameObject *pyframe, frame_t *frame)
     frame->filename = filename;
 }
 
+static void
+tracemalloc_set_filename(frame_t *frame, PyObject *filename)
+{
+    _Py_hashtable_entry_t *entry;
+
+    frame->filename = unknown_filename;
+    if (!PyUnicode_Check(filename)) {
+#ifdef TRACE_DEBUG
+        tracemalloc_error("filename is not a unicode string");
+#endif
+        return;
+    }
+    if (!PyUnicode_IS_READY(filename)) {
+        /* Don't make a Unicode string ready to avoid reentrant calls
+           to tracemalloc_malloc() or tracemalloc_realloc() */
+#ifdef TRACE_DEBUG
+        tracemalloc_error("filename is not a ready unicode string");
+#endif
+        return;
+    }
+
+    /* intern the filename */
+    entry = _Py_HASHTABLE_GET_ENTRY(tracemalloc_filenames, filename);
+    if (entry != NULL) {
+        _Py_HASHTABLE_ENTRY_READ_KEY(tracemalloc_filenames, entry, filename);
+    }
+    else {
+        /* tracemalloc_filenames is responsible to keep a reference
+           to the filename */
+        Py_INCREF(filename);
+        if (_Py_HASHTABLE_SET_NODATA(tracemalloc_filenames, filename) < 0) {
+            Py_DECREF(filename);
+#ifdef TRACE_DEBUG
+            tracemalloc_error("failed to intern the filename");
+#endif
+            return;
+        }
+    }
+
+    /* the tracemalloc_filenames table keeps a reference to the filename */
+    frame->filename = filename;
+}
+
 
 static Py_uhash_t
 traceback_hash(traceback_t *traceback)
@@ -431,6 +477,46 @@ traceback_hash(traceback_t *traceback)
     return x;
 }
 
+static void
+traceback_get_frames_new(traceback_t *traceback)
+{
+    PyThreadState *tstate;
+
+    tstate = PyGILState_GetThisThreadState();
+    if (tstate == NULL) {
+#ifdef TRACE_DEBUG
+        tracemalloc_error("failed to get the current thread state");
+#endif
+        return;
+    }
+
+    struct stack_walk w;
+    vm_stack_walk_init(&w, tstate->active);
+    while (vm_stack_walk(&w)) {
+        if (traceback->nframe >= _Py_tracemalloc_config.max_nframe) {
+            if (traceback->total_nframe < UINT16_MAX) {
+                traceback->total_nframe++;
+            }
+            continue;
+        }
+
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable)) {
+            continue;
+        }
+        PyFunc *func = (PyFunc *)callable;
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+        frame_t *frame = &traceback->frames[traceback->nframe];
+        frame->lineno = PyCode2_Addr2Line(code, w.pc - func->func_base.first_instr);
+        tracemalloc_set_filename(frame, code->co_filename);
+
+        assert(traceback->frames[traceback->nframe].filename != NULL);
+        traceback->nframe++;
+    }
+}
+
 
 static void
 traceback_get_frames(traceback_t *traceback)
@@ -443,6 +529,10 @@ traceback_get_frames(traceback_t *traceback)
 #ifdef TRACE_DEBUG
         tracemalloc_error("failed to get the current thread state");
 #endif
+        return;
+    }
+    if (tstate->use_new_interp) {
+        traceback_get_frames_new(traceback);
         return;
     }
 
