@@ -4,7 +4,6 @@ test_asyncio
 test_audit
 test_bdb
 test_capi
-test_cmd_line_script
 test_code
 test_collections
 test_contextlib_async
@@ -28,7 +27,6 @@ test_keywordonlyarg
 test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
-test_multiprocessing_main_handling
 test_multiprocessing_spawn
 test_nntplib
 test_pdb
@@ -37,7 +35,6 @@ test_positional_only_arg
 test_profile
 test_pstats
 test_regrtest
-test_runpy
 test_scope
 test_signal
 test_ssl
@@ -56,5 +53,4 @@ test_userlist
 test_with
 test_xml_etree_c
 test_yield_from
-test_zipimport
 test_zipimport_support

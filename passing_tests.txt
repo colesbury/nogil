@@ -41,6 +41,7 @@ test_clinic
 test_cmath
 test_cmd
 test_cmd_line
+test_cmd_line_script
 test_code_module
 test_codeccallbacks
 test_codecencodings_cn
@@ -192,6 +193,7 @@ test_module
 test_modulefinder
 test_msilib
 test_multibytecodec
+test_multiprocessing_main_handling
 test_named_expressions
 test_netrc
 test_nis
@@ -244,6 +246,7 @@ test_resource
 test_richcmp
 test_rlcompleter
 test_robotparser
+test_runpy
 test_sax
 test_sched
 test_script_helper
@@ -357,4 +360,5 @@ test_xxtestfuzz
 test_zipapp
 test_zipfile
 test_zipfile64
+test_zipimport
 test_zlib
