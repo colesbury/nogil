@@ -900,6 +900,59 @@ PyCode2_Addr2Line(PyCodeObject2 *co, int addrq)
     return line;
 }
 
+/* Update *bounds to describe the first and one-past-the-last instructions in
+   the same line as lasti.  Return the number of that line. */
+int
+_PyCode2_CheckLineNumber(PyCodeObject2* co, int lasti, PyAddrPair *bounds)
+{
+    Py_ssize_t size;
+    int addr, line;
+    unsigned char* p;
+
+    p = (unsigned char*)PyBytes_AS_STRING(co->co_lnotab);
+    size = PyBytes_GET_SIZE(co->co_lnotab) / 2;
+
+    addr = 0;
+    line = co->co_firstlineno;
+    assert(line > 0);
+
+    /* possible optimization: if f->f_lasti == instr_ub
+       (likely to be a common case) then we already know
+       instr_lb -- if we stored the matching value of p
+       somewhere we could skip the first while loop. */
+
+    /* See lnotab_notes.txt for the description of
+       co_lnotab.  A point to remember: increments to p
+       come in (addr, line) pairs. */
+
+    bounds->ap_lower = 0;
+    while (size > 0) {
+        if (addr + *p > lasti)
+            break;
+        addr += *p++;
+        if ((signed char)*p)
+            bounds->ap_lower = addr;
+        line += (signed char)*p;
+        p++;
+        --size;
+    }
+
+    if (size > 0) {
+        while (--size >= 0) {
+            addr += *p++;
+            if ((signed char)*p)
+                break;
+            p++;
+        }
+        bounds->ap_upper = addr;
+    }
+    else {
+        bounds->ap_upper = INT_MAX;
+    }
+
+    return line;
+}
+
 int
 _PyCode_GetExtra(PyObject *code, Py_ssize_t index, void **extra)
 {

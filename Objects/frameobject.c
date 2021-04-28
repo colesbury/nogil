@@ -928,6 +928,11 @@ _PyFrame_NewFake(PyCodeObject2 *code, PyObject *globals)
     f->f_trace_opcodes = 0;
     f->f_executing = 0;
     f->f_retains_code = 0;
+    f->instr_lb = 0;
+    f->instr_ub = 0;
+    f->last_line = 0;
+    f->seen_func_header = false;
+    f->traced_func = false;
     for (Py_ssize_t i = 0; i < extras; i++) {
         f->f_localsplus[i] = NULL;
     }

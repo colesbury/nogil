@@ -166,6 +166,8 @@ struct _ts {
 
     uintptr_t eval_breaker;
     void *opcode_targets[256];
+    void *trace_target;
+    void **opcode_targets_base;
 
     /* XXX signal handlers should also be here */
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];

@@ -330,6 +330,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
         memcpy(ts->ts->opcode_targets + 128, wide_opcode_targets_base, 128 * sizeof(*wide_opcode_targets_base));
+        ts->ts->trace_target = &&TRACE;
+        ts->ts->opcode_targets_base = opcode_targets_base;
     }
 
     ts->ts->use_new_interp += 1;
@@ -947,12 +949,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
-        pc = (const uint8_t *)frame_link; // ugh might be negative
-        goto return_value;
-    }
-
-    return_value: {
-        intptr_t frame_link = (intptr_t)pc;
         if (UNLIKELY(frame_link <= 0)) {
             if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
@@ -2440,6 +2436,16 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     #ifndef WIDE_OP
+    TARGET(TRACE) {
+        int err;
+        CALL_VM(err = vm_trace(ts));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        opcode = *pc;
+        goto *opcode_targets_base[opcode];
+    }
+
     TARGET(WIDE) {
         opcode = pc[1];
         goto *opcode_targets[128 + opcode];

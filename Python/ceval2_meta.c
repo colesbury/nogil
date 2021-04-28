@@ -3273,6 +3273,107 @@ PyEval2_GetLocals(void)
     return NULL;
 }
 
+static int
+call_trace(PyThreadState *tstate, PyFrameObject *frame,
+           int what, PyObject *arg)
+{
+    int result;
+    if (tstate->tracing)
+        return 0;
+
+    Py_tracefunc func = tstate->c_tracefunc;
+    PyObject *obj = tstate->c_traceobj;
+
+    tstate->tracing++;
+    tstate->use_tracing = 0;
+    result = func(obj, frame, what, arg);
+    tstate->use_tracing = ((tstate->c_tracefunc != NULL)
+                           || (tstate->c_profilefunc != NULL));
+    tstate->tracing--;
+    return result;
+}
+
+int
+vm_trace(struct ThreadState *ts)
+{
+    PyThreadState *tstate = ts->ts;
+    if (tstate->tracing || tstate->c_tracefunc == NULL) {
+        return 0;
+    }
+    if (ts->regs == ts->stack) {
+        // no stack yet?
+        return 0;
+    }
+
+    PyObject *callable = AS_OBJ(ts->regs[-1]);
+    if (!PyFunc_Check(callable)) {
+        return 0;
+    }
+
+    PyFrameObject *frame = vm_frame(ts);
+    if (frame == NULL) {
+        return -1;
+    }
+
+    PyFunc *func = (PyFunc *)callable;
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+    int addrq = (ts->pc - func->func_base.first_instr);
+    assert(addrq >= 0 && addrq < code->co_size);
+    int line = frame->f_lineno;
+
+    if (addrq < frame->instr_lb || addrq >= frame->instr_ub) {
+        PyAddrPair bounds;
+        line = _PyCode2_CheckLineNumber(code, addrq, &bounds);
+        frame->instr_lb = bounds.ap_lower;
+        frame->instr_ub = bounds.ap_upper;
+    }
+
+    bool trace_line = (addrq == frame->instr_lb && frame->last_line != line);
+    frame->f_lasti = addrq;
+
+    int opcode = vm_opcode(ts);
+    if (opcode == FUNC_HEADER || opcode == COROGEN_HEADER) {
+        frame->seen_func_header = true;
+        trace_line = false;
+        frame->f_lineno = line;
+    }
+    else if (frame->seen_func_header && !frame->traced_func) {
+        frame->traced_func = true;
+        trace_line = true;
+
+        int err = call_trace(tstate, frame, PyTrace_CALL, Py_None);
+        if (err != 0) {
+            return -1;
+        }
+    }
+
+    /* If the last instruction falls at the start of a line or if it
+       represents a jump backwards, update the frame's line number and
+       then call the trace function if we're tracing source lines.
+    */
+    if (trace_line) {
+        frame->f_lineno = line;
+        frame->last_line = line;
+        if (frame->f_trace_lines) {
+            int err = call_trace(tstate, frame, PyTrace_LINE, Py_None);
+            if (err != 0) {
+                return -1;
+            }
+        }
+    }
+
+    /* Always emit an opcode event if we're tracing all opcodes. */
+    if (frame->f_trace_opcodes) {
+        int err = call_trace(tstate, frame, PyTrace_OPCODE, Py_None);
+        if (err != 0) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 PyObject *
 _Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds)
 {

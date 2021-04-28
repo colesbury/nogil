@@ -15,6 +15,7 @@ test_asynchat
 test_asyncore
 test_atexit
 test_audioop
+test_audit
 test_augassign
 test_base64
 test_baseexception
@@ -258,6 +259,7 @@ test_random
 test_range
 test_re
 test_readline
+test_regrtest
 test_repl
 test_reprlib
 test_resource
@@ -330,6 +332,7 @@ test_tix
 test_tk
 test_tokenize
 test_tools
+test_trace
 test_tracemalloc
 test_ttk_guionly
 test_ttk_textonly

@@ -908,8 +908,11 @@ static PyObject *
 call_trampoline(PyObject* callback,
                 PyFrameObject *frame, int what, PyObject *arg)
 {
-    if (PyFrame_FastToLocalsWithError(frame) < 0) {
-        return NULL;
+    PyThreadState *tstate = PyThreadState_GET();
+    if (!tstate->use_new_interp) {
+        if (PyFrame_FastToLocalsWithError(frame) < 0) {
+            return NULL;
+        }
     }
 
     PyObject *stack[3];
@@ -920,7 +923,9 @@ call_trampoline(PyObject* callback,
     /* call the Python-level function */
     PyObject *result = _PyObject_FastCall(callback, stack, 3);
 
-    PyFrame_LocalsToFast(frame, 1);
+    if (!tstate->use_new_interp) {
+       PyFrame_LocalsToFast(frame, 1);
+    }
     if (result == NULL) {
         PyTraceBack_Here(frame);
     }

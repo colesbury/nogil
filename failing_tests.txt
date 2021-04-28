@@ -1,6 +1,5 @@
 test__xxsubinterpreters
 test_asyncio
-test_audit
 test_bdb
 test_capi
 test_cgitb
@@ -16,13 +15,11 @@ test_pdb
 test_peepholer
 test_profile
 test_pstats
-test_regrtest
 test_super
 test_sys
 test_sys_setprofile
 test_sys_settrace
 test_threading
-test_trace
 test_traceback
 test_userlist
 test_zipimport_support

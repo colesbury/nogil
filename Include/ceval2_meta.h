@@ -309,7 +309,7 @@ int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
 
 int vm_eval_breaker(struct ThreadState *ts);
-
+int vm_trace(struct ThreadState *ts);
 
 #ifdef __cplusplus
 }

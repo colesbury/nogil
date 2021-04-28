@@ -53,6 +53,14 @@ typedef struct _frame {
     char f_trace_opcodes;       /* Emit per-opcode trace events? */
     char f_executing;           /* whether the frame is still executing */
     char f_retains_code;        /* Use deferred ref counting for builtins, globals, code */
+
+    /* tracing stuff */
+    int instr_lb;
+    int instr_ub;
+    int last_line;
+    unsigned int seen_func_header : 1;
+    unsigned int traced_func : 1;
+
     PyTryBlock *f_blockstack;
     PyObject *f_localsplus[1];  /* locals+stack, dynamically sized */
 } PyFrameObject;

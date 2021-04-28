@@ -739,7 +739,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
 
     u->firstlineno = lineno;
     u->linenos.prev_lineno = lineno;
-    u->lineno = 0;
+    u->lineno = lineno;
     u->col_offset = 0;
     u->lineno_set = 0;
     u->consts = PyDict_New();
@@ -2707,11 +2707,17 @@ compiler_mod(struct compiler *c, mod_ty mod)
 static Py_ssize_t
 compiler_decorators(struct compiler *c, asdl_seq* decos)
 {
+    int lineno = c->unit->lineno;
+
     Py_ssize_t base = -1;
     for (Py_ssize_t i = 0; i < asdl_seq_LEN(decos); i++) {
         base = c->unit->next_register + FRAME_EXTRA;
-        expr_to_reg(c, asdl_seq_GET(decos, i), base - 1);
+        expr_ty e = asdl_seq_GET(decos, i);
+        c->unit->lineno = e->lineno;
+        expr_to_reg(c, e, base - 1);
     }
+
+    c->unit->lineno = lineno;
     return base;
 }
 

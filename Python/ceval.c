@@ -4688,6 +4688,17 @@ PyEval_SetTrace(Py_tracefunc func, PyObject *arg)
     /* Flag that tracing or profiling is turned on */
     tstate->use_tracing = ((func != NULL)
                            || (tstate->c_profilefunc != NULL));
+
+    if (tstate->use_tracing) {
+        for (int i = 0; i < 128; i++) {
+            tstate->opcode_targets[i] = tstate->trace_target;
+        }
+    }
+    else {
+        for (int i = 0; i < 128; i++) {
+            tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
+        }
+    }
 }
 
 void

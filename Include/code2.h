@@ -122,6 +122,8 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
    in this code object.  If you just need the line number of a frame,
    use PyFrame_GetLineNumber() instead. */
 PyAPI_FUNC(int) PyCode2_Addr2Line(PyCodeObject2 *, int);
+PyAPI_FUNC(int) _PyCode2_CheckLineNumber(PyCodeObject2* co, int lasti, PyAddrPair *bounds);
+
 
 PyAPI_FUNC(void) PyCode2_UpdateFlags(PyCodeObject2 *);
 PyAPI_FUNC(int) _PyCode_InternConstants(PyCodeObject2 *);
