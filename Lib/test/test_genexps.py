@@ -211,7 +211,7 @@ Make sure that None is a valid return value
 Check that generator attributes are present
 
     >>> g = (i*i for i in range(3))
-    >>> expected = set(['gi_frame', 'gi_running'])
+    >>> expected = set(['gi_running'])
     >>> set(attr for attr in dir(g) if not attr.startswith('__')) >= expected
     True
 

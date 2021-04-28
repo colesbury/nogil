@@ -131,6 +131,7 @@ test_future5
 test_generator_stop
 test_genericclass
 test_genericpath
+test_genexps
 test_getargs2
 test_getopt
 test_getpass
