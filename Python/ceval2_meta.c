@@ -231,10 +231,11 @@ vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
     assert(exc != NULL && exc == vm_handled_exc(ts));
     PyObject *type = (PyObject *)Py_TYPE(exc);
     PyObject *tb = ((PyBaseExceptionObject *)exc)->traceback;
+    Py_INCREF(tb);  // keep traceback alive for duration of call
     PyObject *stack[4] = {NULL, type, exc, tb};
     Py_ssize_t nargsf = 3 | PY_VECTORCALL_ARGUMENTS_OFFSET;
-
     res = _PyObject_Vectorcall(exit, stack + 1, nargsf, NULL);
+    Py_DECREF(tb);
     if (UNLIKELY(res == NULL)) {
         return -1;
     }
@@ -309,8 +310,12 @@ vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA)
         stack[2] = Py_None;
         stack[3] = Py_None;
     }
+    // Ensure the traceback is kept alive for duration of call, even if it is
+    // replaced on the exception object.
+    Py_INCREF(stack[3]);
     Py_ssize_t nargsf = 3 | PY_VECTORCALL_ARGUMENTS_OFFSET;
     PyObject *obj = _PyObject_VectorcallTstate(ts->ts, exit, stack + 1, nargsf, NULL);
+    Py_DECREF(stack[3]);
     if (obj == NULL) {
         return -1;
     }
