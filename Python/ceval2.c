@@ -1962,7 +1962,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
         if (UNLIKELY(Py_TYPE(iter)->tp_as_async == NULL ||
                     Py_TYPE(iter)->tp_as_async->am_anext == NULL)) {
-            CALL_VM(vm_err_async_for_anext(ts, Py_TYPE(iter)));
+            CALL_VM(vm_err_async_for_no_anext(ts, Py_TYPE(iter)));
             goto error;
         }
 
@@ -1985,11 +1985,12 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[UImm(0) + 1] = PACK_OBJ(awaitable);
         if (!PyCoro2_CheckExact(awaitable)) {
             CALL_VM(awaitable = _PyCoro2_GetAwaitableIter(awaitable));
+            Register prev = regs[UImm(0) + 1];
             if (UNLIKELY(awaitable == NULL)) {
-                CALL_VM(vm_err_awaitable(ts, acc));
+                // TODO: merge into _PyCoro2_GetAwaitableIter?
+                CALL_VM(vm_err_async_for_anext_invalid(ts, prev));
                 goto error;
             }
-            Register prev = regs[UImm(0) + 1];
             regs[UImm(0) + 1] = PACK_OBJ(awaitable);
             DECREF(prev);
         }

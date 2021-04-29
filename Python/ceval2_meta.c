@@ -2214,12 +2214,21 @@ vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type)
 }
 
 void
-vm_err_async_for_anext(struct ThreadState *ts, PyTypeObject *type)
+vm_err_async_for_no_anext(struct ThreadState *ts, PyTypeObject *type)
 {
     _PyErr_Format(ts->ts, PyExc_TypeError,
         "'async for' received an object from __aiter__ "
         "that does not implement __anext__: %.100s",
         type->tp_name);
+}
+
+void
+vm_err_async_for_anext_invalid(struct ThreadState *ts, Register res)
+{
+    _PyErr_FormatFromCause(PyExc_TypeError,
+        "'async for' received an invalid object "
+        "from __anext__: %.100s",
+        Py_TYPE(AS_OBJ(res))->tp_name);
 }
 
 void
