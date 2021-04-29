@@ -191,7 +191,7 @@ gen_typename(PyGenObject2 *gen)
     if (PyAsyncGen2_CheckExact(gen)) {
         return "async generator";
     }
-    else if (PyCoro_CheckExact(gen)) {
+    else if (PyCoro2_CheckExact(gen)) {
         return "coroutine";
     }
     else {
@@ -435,6 +435,8 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
 
     PyObject *yf = gen->yield_from;
     if (yf != NULL) {
+        Py_INCREF(yf);
+        gen->yield_from = NULL;
         assert(gen->status == GEN_YIELD);
         PyObject *ret;
         int err;
@@ -448,6 +450,7 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
             // gen->gi_running = 1;
             err = gen_close_iter(yf);
             // gen->gi_running = 0;
+            Py_DECREF(yf);
             if (err < 0) {
                 return gen_throw_current(gen);
             }
@@ -465,9 +468,11 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
             /* `yf` is an iterator or a coroutine-like object. */
             PyObject *meth;
             if (_PyObject_LookupAttrId(yf, &PyId_throw, &meth) < 0) {
+                Py_DECREF(yf);
                 return NULL;
             }
             if (meth == NULL) {
+                Py_DECREF(yf);
                 goto throw_here;
             }
             // gen->gi_running = 1;
@@ -492,6 +497,7 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
                 ret = gen_throw_current(gen);
             }
         }
+        Py_DECREF(yf);
         return ret;
     }
 
@@ -574,11 +580,15 @@ gen_close(PyGenObject2 *gen, PyObject *args)
     PyObject *retval;
     int err = 0;
 
-    if (gen->yield_from) {
+    PyObject *yf = gen->yield_from;
+    if (yf) {
+        Py_INCREF(yf);
+        gen->yield_from = NULL;
         char old_status = gen->status;
         gen->status = GEN_RUNNING; // why??
-        err = gen_close_iter(gen->yield_from);
+        err = gen_close_iter(yf);
         gen->status = old_status;
+        Py_DECREF(yf);
     }
     if (err == 0) {
         PyErr_SetNone(PyExc_GeneratorExit);
