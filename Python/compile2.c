@@ -1767,15 +1767,6 @@ emit_for(struct compiler *c, Py_ssize_t reg, uint32_t target)
 static void
 emit_async_for(struct compiler *c, Py_ssize_t reg, Py_ssize_t top_offset)
 {
-    if (is_local(c, reg)) {
-        // The outermost async for comprehensions get the iterator as a local
-        // variable. GET_ANEXT needs two adjacent registers so we need to copy
-        // it to a temporary.
-        Py_ssize_t tmp = reserve_regs(c, 1);
-        emit2(c, COPY, tmp, reg);
-        reg = tmp;
-    }
-
     ExceptionHandler h;
     h.start = c->unit->instr.offset;
 
@@ -5071,6 +5062,12 @@ compiler_comprehension_generator(struct compiler *c,
     if (gen_index == 0) {
         /* Receive outermost iter as an implicit argument */
         iter_reg = 0;
+        if (gen->is_async) {
+            // The GET_ANEXT in emit_async_for needs two adjacent registers
+            // so we copy the received iterator to a temporary register.
+            iter_reg = reserve_regs(c, 1);
+            emit2(c, COPY, iter_reg, 0);
+        }
     }
     else {
         /* Sub-iter - calculate on the fly */
@@ -5135,95 +5132,6 @@ compiler_comprehension_generator(struct compiler *c,
         free_reg(c, res_reg);
     }
 }
-
-// static int
-// compiler_async_comprehension_generator(struct compiler *c,
-//                                       asdl_seq *generators, int gen_index,
-//                                       expr_ty elt, expr_ty val, int type)
-// {
-//     comprehension_ty gen;
-//     basicblock *start, *if_cleanup, *except;
-//     Py_ssize_t i, n;
-//     start = compiler_new_block(c);
-//     except = compiler_new_block(c);
-//     if_cleanup = compiler_new_block(c);
-
-//     if (start == NULL || if_cleanup == NULL || except == NULL) {
-//         return 0;
-//     }
-
-//     gen = (comprehension_ty)asdl_seq_GET(generators, gen_index);
-
-//     if (gen_index == 0) {
-//         /* Receive outermost iter as an implicit argument */
-//         c->u->u_argcount = 1;
-//         ADDOP_I(c, LOAD_FAST, 0);
-//     }
-//     else {
-//         /* Sub-iter - calculate on the fly */
-//         VISIT(c, expr, gen->iter);
-//         ADDOP(c, GET_AITER);
-//     }
-
-//     compiler_use_next_block(c, start);
-
-//     ADDOP_JREL(c, SETUP_FINALLY, except);
-//     ADDOP(c, GET_ANEXT);
-//     ADDOP_LOAD_CONST(c, Py_None);
-//     ADDOP(c, YIELD_FROM);
-//     ADDOP(c, POP_BLOCK);
-//     VISIT(c, expr, gen->target);
-
-//     n = asdl_seq_LEN(gen->ifs);
-//     for (i = 0; i < n; i++) {
-//         expr_ty e = (expr_ty)asdl_seq_GET(gen->ifs, i);
-//         if (!compiler_jump_if(c, e, if_cleanup, 0))
-//             return 0;
-//         NEXT_BLOCK(c);
-//     }
-
-//     if (++gen_index < asdl_seq_LEN(generators))
-//         if (!compiler_comprehension_generator(c,
-//                                               generators, gen_index,
-//                                               elt, val, type))
-//         return 0;
-
-//     /* only append after the last for generator */
-//     if (gen_index >= asdl_seq_LEN(generators)) {
-//         /* comprehension specific code */
-//         switch (type) {
-//         case COMP_GENEXP:
-//             VISIT(c, expr, elt);
-//             ADDOP(c, YIELD_VALUE);
-//             ADDOP(c, POP_TOP);
-//             break;
-//         case COMP_LISTCOMP:
-//             VISIT(c, expr, elt);
-//             ADDOP_I(c, LIST_APPEND, gen_index + 1);
-//             break;
-//         case COMP_SETCOMP:
-//             VISIT(c, expr, elt);
-//             ADDOP_I(c, SET_ADD, gen_index + 1);
-//             break;
-//         case COMP_DICTCOMP:
-//             /* With '{k: v}', k is evaluated before v, so we do
-//                the same. */
-//             VISIT(c, expr, elt);
-//             VISIT(c, expr, val);
-//             ADDOP_I(c, MAP_ADD, gen_index + 1);
-//             break;
-//         default:
-//             return 0;
-//         }
-//     }
-//     compiler_use_next_block(c, if_cleanup);
-//     ADDOP_JABS(c, JUMP_ABSOLUTE, start);
-
-//     compiler_use_next_block(c, except);
-//     ADDOP(c, END_ASYNC_FOR);
-
-//     return 1;
-// }
 
 static void
 compiler_comprehension(struct compiler *c, expr_ty e, int type,
