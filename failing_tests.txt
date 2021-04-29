@@ -20,7 +20,6 @@ test_future
 test_gc
 test_gdb
 test_generators
-test_grammar
 test_inspect
 test_io
 test_keywordonlyarg
@@ -35,7 +34,6 @@ test_positional_only_arg
 test_profile
 test_pstats
 test_regrtest
-test_scope
 test_signal
 test_ssl
 test_super
@@ -43,7 +41,6 @@ test_sys
 test_sys_setprofile
 test_sys_settrace
 test_threading
-test_tools
 test_trace
 test_traceback
 test_typing

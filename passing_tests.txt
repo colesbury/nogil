@@ -139,6 +139,7 @@ test_getpass
 test_gettext
 test_glob
 test_global
+test_grammar
 test_grp
 test_gzip
 test_hash
@@ -249,6 +250,7 @@ test_robotparser
 test_runpy
 test_sax
 test_sched
+test_scope
 test_script_helper
 test_secrets
 test_select
@@ -308,6 +310,7 @@ test_timeout
 test_tix
 test_tk
 test_tokenize
+test_tools
 test_tracemalloc
 test_ttk_guionly
 test_ttk_textonly

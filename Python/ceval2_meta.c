@@ -2167,8 +2167,19 @@ vm_err_coroutine_awaited(struct ThreadState *ts)
                     "coroutine is being awaited already");
 }
 
+static bool
+is_freevar(PyCodeObject2 *co, Py_ssize_t varidx)
+{
+    for (Py_ssize_t i = co->co_ndefaultargs; i < co->co_nfreevars; i++) {
+        if (co->co_free2reg[i*2+1] == varidx) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void
-vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
+vm_err_unbound(struct ThreadState *ts, Py_ssize_t idx)
 {
     /* Don't stomp existing exception */
     if (_PyErr_Occurred(ts->ts)) {
@@ -2176,18 +2187,18 @@ vm_err_unbound(struct ThreadState *ts, Py_ssize_t opA)
     }
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyCodeObject2 *co = PyCode2_FROM_FUNC(func);
-    PyObject *name = PyTuple_GET_ITEM(co->co_varnames, opA);
-    int is_local = 1;   // FIXME(sgross): figure out if variable is local or free
+    PyObject *name = PyTuple_GET_ITEM(co->co_varnames, idx);
+    int is_local = !is_freevar(co, idx);
     if (is_local) {
         PyErr_Format(
             PyExc_UnboundLocalError,
-            "local variable '%.200R' referenced before assignment",
+            "local variable %.200R referenced before assignment",
             name);
     }
     else {
         PyErr_Format(
             PyExc_NameError,
-            "free variable '%.200R' referenced before assignment"
+            "free variable %.200R referenced before assignment"
             " in enclosing scope",
             name);
     }
