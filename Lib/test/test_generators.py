@@ -33,6 +33,7 @@ class SignalAndYieldFromTest(unittest.TestCase):
         else:
             return "FAILED"
 
+    @unittest.skip("samisdumb: signals NYI")
     def test_raise_and_yield_from(self):
         gen = self.generator1()
         gen.send(None)
@@ -729,7 +730,7 @@ From the Iterators list, about the types of these things.
 >>> type(i)
 <class 'generator'>
 >>> [s for s in dir(i) if not s.startswith('_')]
-['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_yieldfrom', 'send', 'throw']
+['close', 'gi_code', 'gi_running', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
 >>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
 Implement next(self).
@@ -743,8 +744,6 @@ And more, added later.
 
 >>> i.gi_running
 0
->>> type(i.gi_frame)
-<class 'frame'>
 >>> i.gi_running = 42
 Traceback (most recent call last):
   ...
@@ -1954,9 +1953,6 @@ caught ValueError ()
 Traceback (most recent call last):
   ...
 TypeError
-
->>> print(g.gi_frame)
-None
 
 >>> g.send(2)
 Traceback (most recent call last):

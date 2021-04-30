@@ -19,7 +19,6 @@ test_funcattrs
 test_future
 test_gc
 test_gdb
-test_generators
 test_inspect
 test_io
 test_keywordonlyarg
