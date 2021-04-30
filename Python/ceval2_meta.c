@@ -601,6 +601,24 @@ traceback_from_pc(PyFunc *func, const uint8_t *pc, PyObject *tb)
 }
 
 PyObject *
+vm_traceback_here(struct ThreadState *ts)
+{
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable) || w.pc == NULL) {
+            continue;
+        }
+
+        return traceback_from_pc((PyFunc *)callable, w.pc, NULL);
+    }
+
+    return NULL;
+}
+
+PyObject *
 vm_get_frame(int depth)
 {
     PyFrameObject *top = NULL, *last = NULL;

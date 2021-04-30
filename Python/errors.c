@@ -6,6 +6,7 @@
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"
 #include "pycore_traceback.h"
+#include "ceval2_meta.h"
 
 #ifndef __STDC__
 #ifndef MS_WINDOWS
@@ -1385,11 +1386,20 @@ _PyErr_WriteUnraisableMsg(const char *err_msg_str, PyObject *obj)
     }
 
     if (exc_tb == NULL) {
-        struct _frame *frame = tstate->frame;
-        if (frame != NULL) {
-            exc_tb = _PyTraceBack_FromFrame(NULL, frame);
+        if (_PyRuntime.preconfig.new_bytecode) {
+            struct ThreadState *ts = tstate->active;
+            exc_tb = vm_traceback_here(ts);
             if (exc_tb == NULL) {
                 _PyErr_Clear(tstate);
+            }
+        }
+        else {
+            struct _frame *frame = tstate->frame;
+            if (frame != NULL) {
+                exc_tb = _PyTraceBack_FromFrame(NULL, frame);
+                if (exc_tb == NULL) {
+                    _PyErr_Clear(tstate);
+                }
             }
         }
     }

@@ -196,6 +196,10 @@ struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 // used by genobject2.c
 int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 
+// used by errors.c
+PyObject *vm_traceback_here(struct ThreadState *ts);
+
+
 // Used by funcobject2.c.
 PyObject *vm_builtins_from_globals(PyObject *globals);
 
