@@ -123,14 +123,13 @@ _PyGen2_FetchStopIterationValue(void)
 static int
 gen_traverse(PyGenObject2 *gen, visitproc visit, void *arg)
 {
-    // Py_VISIT((PyObject *)gen->gi_frame);
-    // Py_VISIT(gen->gi_code);
-    // Py_VISIT(gen->gi_name);
-    // Py_VISIT(gen->gi_qualname);
-    // /* No need to visit cr_origin, because it's just tuples/str/int, so can't
-    //    participate in a reference cycle. */
-    // return exc_state_traverse(&gen->gi_exc_state, visit, arg);
-    return 0;
+    Py_VISIT(gen->code);
+    Py_VISIT(gen->name);
+    Py_VISIT(gen->qualname);
+    Py_VISIT(gen->return_value);
+    Py_VISIT(gen->yield_from);
+
+    return vm_traverse_stack(&gen->base.thread, visit, arg);
 }
 
 static void

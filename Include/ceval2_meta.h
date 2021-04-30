@@ -13,6 +13,7 @@ typedef union _Register {
 
 #define REFCOUNT_TAG 0x0
 #define NO_REFCOUNT_TAG 0x1
+#define NON_OBJECT_TAG 0x3
 #define REFCOUNT_MASK 0x1
 
 enum {
@@ -191,6 +192,9 @@ PyObject *PyEval2_GetLocals(void);
 
 // Used by pstate.c
 struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
+
+// used by genobject2.c
+int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 
 // Used by funcobject2.c.
 PyObject *vm_builtins_from_globals(PyObject *globals);

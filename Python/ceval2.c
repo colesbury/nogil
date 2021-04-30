@@ -2260,8 +2260,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(CALL_FINALLY) {
-        uintptr_t return_addr = (uintptr_t)(pc + OP_SIZE(CALL_FINALLY));
-        regs[UImm(0)] = PACK(return_addr << 1, NO_REFCOUNT_TAG);
+        const uint8_t *first_instr = THIS_FUNC()->func_base.first_instr;
+        ptrdiff_t ret = (pc + OP_SIZE(CALL_FINALLY) - first_instr);
+        regs[UImm(0)] = PACK((uintptr_t)ret << 2, NON_OBJECT_TAG);
         JUMP_BY(JumpImm(1));
     }
 
@@ -2280,7 +2281,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         }
         acc = link_val;
         if (link_addr != 0) {
-            JUMP_TO((const uint8_t *)(link_addr >> 1));
+            const uint8_t *first_instr = THIS_FUNC()->func_base.first_instr;
+            JUMP_TO(first_instr + (link_addr >> 2));
         }
         DISPATCH(END_FINALLY);
     }

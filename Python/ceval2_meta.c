@@ -40,16 +40,22 @@ vm_object_steal(Register* addr) {
 }
 
 static Py_ssize_t
+vm_regs_frame_size(Register *regs)
+{
+    PyObject *this_func = AS_OBJ(regs[-1]);
+    if (!PyFunc_Check(this_func)) {
+        return regs[-3].as_int64;
+    }
+    return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
+}
+
+static Py_ssize_t
 vm_frame_size(struct ThreadState *ts)
 {
     if (ts->regs == ts->stack) {
         return 0;
     }
-    PyObject *this_func = AS_OBJ(ts->regs[-1]);
-    if (!PyFunc_Check(this_func)) {
-        return ts->regs[-3].as_int64;
-    }
-    return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
+    return vm_regs_frame_size(ts->regs);
 }
 
 #define DECREF(reg) do { \
@@ -212,6 +218,44 @@ vm_handled_exc(struct ThreadState *ts)
         }
     }
     return NULL;
+}
+
+#define IS_OBJ(r) (((r).as_int64 & NON_OBJECT_TAG) != NON_OBJECT_TAG)
+
+int
+vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg)
+{
+    if (ts->prev != NULL) {
+        return 0;
+    }
+
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot;
+        for (bot = &regs[-1]; bot != top; bot++) {
+            // TODO: handle deferred refcounting
+            Register r = *bot;
+            if (!IS_OBJ(r) || !IS_RC(r)) {
+                continue;
+            }
+
+            PyObject *obj = AS_OBJ(*bot);
+            Py_VISIT(obj);
+        }
+
+        // don't visit the frame header
+        max = regs - FRAME_EXTRA;
+    }
+
+    return 0;
 }
 
 PyObject *
