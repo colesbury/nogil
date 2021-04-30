@@ -1625,13 +1625,7 @@ def getgeneratorstate(generator):
       GEN_SUSPENDED: Currently suspended at a yield expression.
       GEN_CLOSED: Execution has completed.
     """
-    if generator.gi_running:
-        return GEN_RUNNING
-    if generator.gi_frame is None:
-        return GEN_CLOSED
-    if generator.gi_frame.f_lasti == -1:
-        return GEN_CREATED
-    return GEN_SUSPENDED
+    return generator._state
 
 
 def getgeneratorlocals(generator):

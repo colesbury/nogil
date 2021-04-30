@@ -58,7 +58,7 @@ PyGenObject2 *
 PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx);
 
 PyAPI_FUNC(PyObject *) _PyGen2_FetchStopIterationValue(void);
-PyAPI_FUNC(PyObject *) _PyObject_YieldFrom(PyObject *awaitable, PyObject *arg);
+PyAPI_FUNC(PyObject *) _PyGen_YieldFrom(PyGenObject2 *gen, PyObject *awaitable, PyObject *arg);
 
 PyObject *_PyCoro2_GetAwaitableIter(PyObject *o);
 

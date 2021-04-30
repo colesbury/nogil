@@ -47,9 +47,8 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyCodeObject2 *code = PyCode2_FromFunc(func);
 
-    // TODO: name should be from func, not code
-    gen->name = code->co_name;
-    gen->qualname = code->co_name; /// ???
+    gen->name = func->func_name;
+    gen->qualname = func->func_qualname;
     gen->code = (PyObject *)code;
     gen->status = GEN_STARTED; // fixme enum or something
     Py_INCREF(gen->name);
@@ -154,6 +153,7 @@ gen_dealloc(PyGenObject2 *gen)
     Py_CLEAR(gen->name);
     Py_CLEAR(gen->qualname);
     Py_CLEAR(gen->return_value);
+    Py_CLEAR(gen->yield_from);
     Py_CLEAR(gen->code);
 
     // fixme: delete and clear ts
@@ -277,7 +277,7 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
     if (UNLIKELY(gen->status >= GEN_RUNNING)) {
         return gen_status_error(gen, arg);
     }
-    if (UNLIKELY(gen->status = GEN_STARTED && arg != Py_None)) {
+    if (UNLIKELY(gen->status == GEN_STARTED && arg != Py_None)) {
         PyErr_Format(
             PyExc_TypeError,
             "can't send non-None value to a just-started %s",
@@ -299,12 +299,22 @@ _PyObject_YieldFrom_ex(PyObject *awaitable, PyObject *arg)
 }
 
 PyObject *
-_PyObject_YieldFrom(PyObject *awaitable, PyObject *arg)
+_PyGen_YieldFrom(PyGenObject2 *gen, PyObject *awaitable, PyObject *arg)
 {
+    Py_CLEAR(gen->yield_from);
+    PyObject *res;
     if (LIKELY(PyGen2_CheckExact(awaitable) || PyCoro2_CheckExact(awaitable))) {
-        return _PyGen2_Send((PyGenObject2 *)awaitable, arg);
+        res = _PyGen2_Send((PyGenObject2 *)awaitable, arg);
     }
-    return _PyObject_YieldFrom_ex(awaitable, arg);
+    else {
+        res = _PyObject_YieldFrom_ex(awaitable, arg);
+    }
+    if (res != NULL) {
+        assert(gen->yield_from == NULL);
+        Py_XINCREF(awaitable);
+        gen->yield_from = awaitable;
+    }
+    return res;
 }
 
 static int
@@ -413,7 +423,16 @@ gen_throw_current(PyGenObject2 *gen)
     if (gen->status == GEN_ERROR || gen->status == GEN_FINISHED) {
         return NULL;
     }
-    const uint8_t *pc = vm_exception_unwind(ts, ts->pc);
+    if (gen->status == GEN_STARTED) {
+        // If the generator has just started, the PC points to the *next*
+        // instruction, which may be inside an exception handler. During
+        // normal execution the PC points to the *current* instruction.
+        // Backs up the PC by one byte: this will be in the middle of the
+        // COROGEN_HEADER, but that's OK -- we will not actually execute
+        // from this PC.
+        ts->pc -= 1;
+    }
+    const uint8_t *pc = vm_exception_unwind(ts, false);
     if (pc == NULL) {
         assert(gen->status == GEN_ERROR);
         return NULL;
@@ -435,7 +454,6 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
 
     PyObject *yf = gen->yield_from;
     if (yf != NULL) {
-        Py_INCREF(yf);
         gen->yield_from = NULL;
         assert(gen->status == GEN_YIELD);
         PyObject *ret;
@@ -582,7 +600,6 @@ gen_close(PyGenObject2 *gen, PyObject *args)
 
     PyObject *yf = gen->yield_from;
     if (yf) {
-        Py_INCREF(yf);
         gen->yield_from = NULL;
         char old_status = gen->status;
         gen->status = GEN_RUNNING; // why??
@@ -728,6 +745,19 @@ static PyObject *
 gen_get_running(PyGenObject2 *op, void *Py_UNUSED(ignored))
 {
     return PyBool_FromLong(op->status == GEN_RUNNING);
+}
+
+static PyObject *
+gen_get_state(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    static const char *states[] = {
+        [GEN_STARTED]  = "GEN_CREATED",
+        [GEN_YIELD]    = "GEN_SUSPENDED",
+        [GEN_RUNNING]  = "GEN_RUNNING",
+        [GEN_ERROR]    = "GEN_CLOSED",
+        [GEN_FINISHED] = "GEN_CLOSED"
+    };
+    return PyUnicode_FromString(states[(int)op->status]);
 }
 
 static PyObject *
@@ -1327,6 +1357,7 @@ async_gen_athrow_new(PyAsyncGenObject2 *gen, PyObject *args)
 
 static PyGetSetDef gen_getsetlist[] = {
     {"gi_running",   (getter)gen_get_running, NULL, NULL },
+    {"_state",   (getter)gen_get_state, NULL, NULL },
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
     {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,

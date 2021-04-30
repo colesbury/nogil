@@ -3209,7 +3209,6 @@ compiler_lambda(struct compiler *c, expr_ty e)
     PyObject *name;
     Py_ssize_t defaults_base;
     arguments_ty args = e->v.Lambda.args;
-    int is_generator;
     assert(e->kind == Lambda_kind);
 
     // discharge default values to registers in parent scope
@@ -3233,23 +3232,14 @@ compiler_lambda(struct compiler *c, expr_ty e)
     c->unit->posonlyargcount = asdl_seq_LEN(args->posonlyargs);
     c->unit->kwonlyargcount = asdl_seq_LEN(args->kwonlyargs);
 
-    is_generator = c->unit->ste->ste_generator;
-
     compiler_visit_expr(c, e->v.Lambda.body);
-    if (!is_generator) {
-        emit0(c, RETURN_VALUE);
-    }
+    emit0(c, RETURN_VALUE);
     assemble(c);
-
-    // qualname = c->unit->qualname;
-    // Py_INCREF(qualname);
 
     compiler_exit_scope(c);
 
     emit1(c, MAKE_FUNCTION, compiler_const(c, (PyObject *)c->code));
     clear_regs_above(c, defaults_base);
-
-    // Py_DECREF(qualname);    // FIXME: leak
 }
 
 static void
@@ -5137,6 +5127,12 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
 
     compiler_enter_scope(c, name, COMPILER_SCOPE_COMPREHENSION,
                          (void *)e, e->lineno);
+
+    /* Make None the first constant, so the lambda can't have a
+       docstring. */
+    const_none(c);
+    /* qualified name is second constant */
+    compiler_const(c, c->unit->qualname);
 
     c->unit->argcount = 1;
     is_async_generator = c->unit->ste->ste_coroutine;

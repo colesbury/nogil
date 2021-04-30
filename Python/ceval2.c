@@ -880,8 +880,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #endif
 
     #define IMPL_YIELD_FROM(awaitable, res) do {                                \
-        PyGen2_FromThread(ts)->yield_from = awaitable;                          \
-        CALL_VM(res = _PyObject_YieldFrom(awaitable, AS_OBJ(acc)));             \
+        CALL_VM(res = _PyGen_YieldFrom(                                         \
+            PyGen2_FromThread(ts), awaitable, AS_OBJ(acc)));                    \
         if (res != NULL) {                                                      \
             SET_ACC(PACK_OBJ(res));                                             \
             PyGenObject2 *gen = PyGen2_FromThread(ts);                          \
@@ -889,7 +889,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             ts->pc = pc;  /* will resume with YIELD_FROM */                     \
             goto return_to_c;                                                   \
         }                                                                       \
-        PyGen2_FromThread(ts)->yield_from = NULL;                               \
         CALL_VM(res = _PyGen2_FetchStopIterationValue());                       \
         if (UNLIKELY(res == NULL)) {                                            \
             goto error;                                                         \

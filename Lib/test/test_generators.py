@@ -724,7 +724,7 @@ From the Iterators list, about the types of these things.
 ...     yield 1
 ...
 >>> type(g)
-<class 'function'>
+<class 'PyFunc'>
 >>> i = g()
 >>> type(i)
 <class 'generator'>
@@ -748,7 +748,7 @@ And more, added later.
 >>> i.gi_running = 42
 Traceback (most recent call last):
   ...
-AttributeError: readonly attribute
+AttributeError: attribute 'gi_running' of 'generator' objects is not writable
 >>> def g():
 ...     yield me.gi_running
 >>> me = g()
