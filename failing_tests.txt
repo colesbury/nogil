@@ -34,7 +34,6 @@ test_profile
 test_pstats
 test_regrtest
 test_signal
-test_ssl
 test_super
 test_sys
 test_sys_setprofile

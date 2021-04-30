@@ -273,6 +273,7 @@ test_sort
 test_source_encoding
 test_spwd
 test_sqlite
+test_ssl
 test_startfile
 test_stat
 test_statistics
