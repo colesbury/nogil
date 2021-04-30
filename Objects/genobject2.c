@@ -893,6 +893,17 @@ coro_await(PyCoroObject2 *coro)
     return (PyObject *)cw;
 }
 
+static PyObject *
+coro_get_cr_await(PyCoroObject2 *coro, void *Py_UNUSED(ignored))
+{
+    PyObject *yf = coro->base.yield_from;
+    if (yf == NULL) {
+        Py_RETURN_NONE;
+    }
+    Py_INCREF(yf);
+    return yf;
+}
+
 static void
 coro_wrapper_dealloc(PyCoroWrapper *cw)
 {
@@ -1364,6 +1375,17 @@ static PyMemberDef coro_memberlist[] = {
     {NULL}      /* Sentinel */
 };
 
+static PyGetSetDef coro_getsetlist[] = {
+    {"cr_running",   (getter)gen_get_running, NULL, NULL },
+    {"__name__", (getter)gen_get_name, (setter)gen_set_name,
+     PyDoc_STR("name of the coroutine")},
+    {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
+     PyDoc_STR("qualified name of the coroutine")},
+    {"cr_await", (getter)coro_get_cr_await, NULL,
+     PyDoc_STR("object being awaited on, or None")},
+    {NULL} /* Sentinel */
+};
+
 PyTypeObject PyCoro2_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = "coroutine",
@@ -1376,7 +1398,7 @@ PyTypeObject PyCoro2_Type = {
     .tp_weaklistoffset = offsetof(PyCoroObject2, base.weakreflist),
     .tp_methods = gen_methods,
     .tp_members = coro_memberlist,
-    .tp_getset = gen_getsetlist,
+    .tp_getset = coro_getsetlist,
     .tp_finalize = _PyGen2_Finalize
 };
 

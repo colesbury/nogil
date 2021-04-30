@@ -1235,7 +1235,7 @@ class CoroutineTest(unittest.TestCase):
             async with CM():
                 body_executed = True
 
-        with self.assertRaisesRegex(AttributeError, '__aenter__'):
+        with self.assertRaisesRegex(AttributeError, '__aexit__'):
             run_async(foo())
         self.assertFalse(body_executed)
 
