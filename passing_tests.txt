@@ -353,6 +353,7 @@ test_webbrowser
 test_winconsoleio
 test_winreg
 test_winsound
+test_with
 test_wsgiref
 test_xdrlib
 test_xml_dom_minicompat

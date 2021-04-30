@@ -47,7 +47,6 @@ test_typing
 test_unittest
 test_unpack_ex
 test_userlist
-test_with
 test_xml_etree_c
 test_yield_from
 test_zipimport_support

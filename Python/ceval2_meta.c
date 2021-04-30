@@ -224,6 +224,13 @@ vm_cur_handled_exc(void)
 static int
 vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
 {
+    if (ts->regs[opA].as_int64 == 0) {
+        // immediately re-raise
+        Register reg = ts->regs[opA + 3];
+        ts->regs[opA + 3].as_int64 = 0;
+        return vm_reraise(ts, reg);
+    }
+
     PyObject *exit = AS_OBJ(ts->regs[opA + 1]);
     PyObject *res;
 
@@ -272,6 +279,10 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
         return vm_exit_with_exc(ts, opA);
     }
 
+    assert(ts->regs[opA].as_int64 != 0);
+    assert(ts->regs[opA + 2].as_int64 == 0);
+    assert(ts->regs[opA + 3].as_int64 == 0);
+
     PyObject *res;
     // PyObject *mgr = AS_OBJ(ts->regs[opA]);
     PyObject *exit = AS_OBJ(ts->regs[opA + 1]);
@@ -279,14 +290,12 @@ vm_exit_with(struct ThreadState *ts, Py_ssize_t opA)
     PyObject *stack[4] = {NULL, Py_None, Py_None, Py_None};
     Py_ssize_t nargsf = 3 | PY_VECTORCALL_ARGUMENTS_OFFSET;
     res = _PyObject_VectorcallTstate(ts->ts, exit, stack + 1, nargsf, NULL);
+    CLEAR(ts->regs[opA]);
+    CLEAR(ts->regs[opA + 1]);
     if (UNLIKELY(res == NULL)) {
         return -1;
     }
     Py_DECREF(res);
-    assert(ts->regs[opA + 3].as_int64 == 0);
-    assert(ts->regs[opA + 2].as_int64 == 0);
-    CLEAR(ts->regs[opA + 1]);
-    CLEAR(ts->regs[opA]);
     return 0;
 }
 
@@ -301,8 +310,8 @@ vm_exit_async_with(struct ThreadState *ts, Py_ssize_t opA)
     if (link == -1) {
         PyObject *exc = AS_OBJ(ts->regs[opA + 3]);
         assert(exc != NULL && exc == vm_handled_exc(ts));
-        stack[1] = exc;
-        stack[2] = (PyObject *)Py_TYPE(exc);
+        stack[1] = (PyObject *)Py_TYPE(exc);
+        stack[2] = exc;
         stack[3] = ((PyBaseExceptionObject *)exc)->traceback;
     }
     else {

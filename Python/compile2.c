@@ -101,11 +101,10 @@ struct multi_label {
 enum frame_block_type {
     WHILE_LOOP,
     FOR_LOOP,
-    TRY_FINALLY,    // try part of a try/finally
+    FINALLY,    // try part of a try/finally
     HANDLER,        // finally or except block body
     EXCEPT_AS,      // body of an `except ... as ...` block
-    WITH,
-    ASYNC_WITH
+    WITH
 };
 
 struct fblock {
@@ -125,7 +124,7 @@ struct fblock {
         struct {
             struct multi_label *label;
             Py_ssize_t reg;
-        } TryFinally;
+        } Finally;
 
         struct {
             Py_ssize_t reg;
@@ -138,10 +137,6 @@ struct fblock {
         struct {
             Py_ssize_t reg;
         } With;
-
-        struct {
-            Py_ssize_t reg;
-        } AsyncWith;
     } v;
 };
 
@@ -2456,12 +2451,12 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
         emit1(c, CLEAR_FAST, block->v.ForLoop.reg);
         return;
 
-    case TRY_FINALLY:
+    case FINALLY:
         emit_jump2(
             c,
             CALL_FINALLY,
-            block->v.TryFinally.reg,
-            multi_label_next(c, block->v.TryFinally.label));
+            block->v.Finally.reg,
+            multi_label_next(c, block->v.Finally.label));
         return;
 
     case HANDLER:
@@ -2475,10 +2470,6 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
 
     case WITH:
         emit1(c, END_WITH, block->v.With.reg);
-        return;
-
-    case ASYNC_WITH:
-        emit1(c, END_ASYNC_WITH, block->v.AsyncWith.reg);
         return;
     }
     Py_UNREACHABLE();
@@ -2570,7 +2561,6 @@ stmts_first_lineno(asdl_seq *stmts)
 static int
 mod_first_lineno(mod_ty mod)
 {
-    asdl_seq *stmts;
     switch (mod->kind) {
     case Module_kind:
         return stmts_first_lineno(mod->v.Module.body);
@@ -3482,8 +3472,8 @@ compiler_return(struct compiler *c, stmt_ty s)
     struct growable_table *blocks = &c->unit->blocks;
     for (Py_ssize_t i = blocks->offset - 1; i >= 0; i--) {
         struct fblock *block = *(struct fblock **)TABLE_ENTRY(blocks, i);
-        if (block->type == TRY_FINALLY) {
-            emit1(c, STORE_FAST, block->v.TryFinally.reg + 1);
+        if (block->type == FINALLY) {
+            emit1(c, STORE_FAST, block->v.Finally.reg + 1);
         }
         compiler_unwind_block(c, block);
     }
@@ -3578,9 +3568,9 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     struct multi_label finally_label = MULTI_LABEL_INIT;
 
     // Try body
-    block.type = TRY_FINALLY;
-    block.v.TryFinally.label = &finally_label;
-    block.v.TryFinally.reg = c->unit->next_register;
+    block.type = FINALLY;
+    block.v.Finally.label = &finally_label;
+    block.v.Finally.reg = c->unit->next_register;
     compiler_push_block(c, &block);
     h.start = c->unit->instr.offset;
 
@@ -3590,7 +3580,7 @@ compiler_try_finally(struct compiler *c, stmt_ty s)
     else {
         compiler_visit_stmts(c, s->v.Try.body);
     }
-    assert(c->unit->next_register == block.v.TryFinally.reg);
+    assert(c->unit->next_register == block.v.Finally.reg);
     compiler_pop_block(c, &block);
 
     // Finally body
@@ -5351,6 +5341,8 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
         compiler_error(c, "'async with' outside async function");
     }
 
+    struct multi_label finally_label = MULTI_LABEL_INIT;
+
     // [ mgr, __exit__, awaitable ]
     //   ^with_reg
     compiler_visit_expr(c, item->context_expr);
@@ -5361,8 +5353,9 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     emit1(c, YIELD_FROM, with_reg + 2);
     clear_reg(c, with_reg + 2);
 
-    block.type = ASYNC_WITH;
-    block.v.AsyncWith.reg = with_reg;
+    block.type = FINALLY;
+    block.v.Finally.label = &finally_label;
+    block.v.Finally.reg = with_reg + 2;
     compiler_push_block(c, &block);
     h.start = c->unit->instr.offset;
 
@@ -5387,7 +5380,10 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     h.reg = link_reg = reserve_regs(c, 2);
     assert(link_reg == with_reg + 2);
 
+    c->unit->lineno = s->lineno;
+    emit_multi_label(c, &finally_label);
     emit1(c, END_ASYNC_WITH, with_reg);
+    emit1(c, END_FINALLY, link_reg);
 
     h.handler_end = c->unit->instr.offset;
     add_exception_handler(c, &h);

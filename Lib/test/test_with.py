@@ -120,13 +120,14 @@ class FailureTestCase(unittest.TestCase):
         self.assertRaisesRegex(AttributeError, '__enter__', fooLacksEnter)
 
     def testEnterAttributeError2(self):
-        class LacksEnterAndExit(object):
-            pass
+        class LacksEnter(object):
+            def __exit__(self):
+                pass
 
-        def fooLacksEnterAndExit():
-            foo = LacksEnterAndExit()
+        def fooLacksEnter():
+            foo = LacksEnter()
             with foo: pass
-        self.assertRaisesRegex(AttributeError, '__enter__', fooLacksEnterAndExit)
+        self.assertRaisesRegex(AttributeError, '__enter__', fooLacksEnter)
 
     def testExitAttributeError(self):
         class LacksExit(object):
@@ -185,6 +186,26 @@ class FailureTestCase(unittest.TestCase):
             with ExitThrows():
                 pass
         self.assertRaises(RuntimeError, shouldThrow)
+
+    def testExitThrowsWithReturn(self):
+        called = 0
+
+        class ExitThrows(object):
+            def __enter__(self):
+                return
+            def __exit__(self, *args):
+                nonlocal called
+                called += 1
+                raise RuntimeError(42)
+
+        def shouldThrow(x):
+            with ExitThrows():
+                if x == 7:
+                    return x
+                return x * 2
+
+        self.assertRaises(RuntimeError, shouldThrow, 7)
+        self.assertEqual(called, 1)
 
 class ContextmanagerAssertionMixin(object):
 

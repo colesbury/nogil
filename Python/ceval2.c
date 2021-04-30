@@ -2322,15 +2322,15 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         // acc = NULL
         // imm0 + 0 = <mgr>
         // imm0 + 1 = __exit__
-        // imm0 + 2 = 0 or -1 (on error)
-        // imm0 + 3 = 0 or <error> (on error)
+        // imm0 + 2 = 0 or jump target or -1 (on error)
+        // imm0 + 3 = 0 or return val or <error>
         //
         // on resumptions:
         // acc = <value to send to coroutine>
         // imm0 + 0 = <awaitable>
         // imm0 + 1 = 0
-        // imm0 + 2 = 0 or -1 (on error)
-        // imm0 + 3 = 0 or <error> (on error)
+        // imm0 + 2 = 0 or jump target or -1 (on error)
+        // imm0 + 3 = 0 or return val or <error>
         int err;
         if (acc.as_int64 == 0) {
             // first time
@@ -2343,8 +2343,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         PyObject *res;
         PyObject *awaitable = AS_OBJ(regs[UImm(0)]);
         IMPL_YIELD_FROM(awaitable, res);
-        if (regs[UImm(0) + 2].as_int64 != 0) {
-            CALL_VM(err = vm_exit_with_res(ts, UImm(0), res));
+        intptr_t with_reg = UImm(0);
+        if (regs[with_reg + 2].as_int64 == -1) {
+            CALL_VM(err = vm_exit_with_res(ts, with_reg, res));
             if (err != 0) {
                 if (err == -1) {
                     goto error;
