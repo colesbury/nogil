@@ -877,7 +877,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         ts->pc = pc + OP_SIZE(YIELD_VALUE);
         goto return_to_c;
     }
-    #endif
 
     #define IMPL_YIELD_FROM(awaitable, res) do {                                \
         CALL_VM(res = _PyGen_YieldFrom(                                         \
@@ -894,6 +893,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;                                                         \
         }                                                                       \
     } while (0)
+    #endif
 
     TARGET(YIELD_FROM) {
         PyObject *awaitable = AS_OBJ(regs[UImm(0)]);

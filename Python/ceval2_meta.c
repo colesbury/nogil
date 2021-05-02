@@ -405,6 +405,7 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
     // clear regs in range [lo, hi)
     assert(lo <= hi);
     Py_ssize_t n = hi;
+    Py_ssize_t depth = ts->regs - ts->stack;
     while (n != lo) {
         n--;
         Register tmp = ts->regs[n];
@@ -413,6 +414,11 @@ vm_clear_regs(struct ThreadState *ts, Py_ssize_t lo, Py_ssize_t hi)
             DECREF(tmp);
         }
     }
+
+    // Asserts that the DECREF() calls did not re-entrantly pop this frame
+    // from underneath us.
+    assert((ts->regs - ts->stack) == depth && "frame moved underneath");
+    (void)depth;
 }
 
 static intptr_t
@@ -438,9 +444,8 @@ vm_pop_frame(struct ThreadState *ts)
     return frame_link;
 }
 
-/* Finds the inner most exception handler for the current instruction.
-   Exception handlers are stored in inner-most to outer-most order.
-*/
+// Finds the inner most exception handler for the current instruction.
+// Exception handlers are stored in inner-most to outer-most order.
 static ExceptionHandler *
 vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
 {

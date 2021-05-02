@@ -331,6 +331,22 @@ class ExceptionTest(unittest.TestCase):
         self.assertEqual(val, 1)
         self.assertEqual(gen.send(4 + val), 10)
 
+    def test_reentrant_throw(self):
+        def foo():
+            gen = yield
+            try:
+                yield
+            except RuntimeError:
+                gen.throw(RuntimeError, 'second')
+
+        gen = foo()
+        gen.send(None)
+        gen.send(gen)
+        with self.assertRaises(ValueError) as cm:
+            gen.throw(RuntimeError, 'first')
+        self.assertIn('generator already executing', repr(cm.exception))
+        self.assertIsInstance(cm.exception.__context__, RuntimeError)
+
 
 class YieldFromTests(unittest.TestCase):
     def test_generator_gi_yieldfrom(self):

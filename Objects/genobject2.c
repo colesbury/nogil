@@ -7,6 +7,7 @@
 #include "ceval2_meta.h" // remove ?
 #include "pycore_generator.h"
 #include "code2.h" // remove ?
+#include "opcode2.h"
 
 static PyTypeObject *coro_types[] = {
     [CORO_HEADER_GENERATOR]       = &PyGen2_Type,
@@ -422,6 +423,9 @@ gen_throw_current(PyGenObject2 *gen)
     if (gen->status == GEN_ERROR || gen->status == GEN_FINISHED) {
         return NULL;
     }
+    if (gen->status == GEN_RUNNING) {
+        return gen_status_error(gen, NULL);
+    }
     if (gen->status == GEN_STARTED) {
         // If the generator has just started, the PC points to the *next*
         // instruction, which may be inside an exception handler. During
@@ -431,11 +435,13 @@ gen_throw_current(PyGenObject2 *gen)
         // from this PC.
         ts->pc -= 1;
     }
+    gen->status = GEN_RUNNING;
     const uint8_t *pc = vm_exception_unwind(ts, false);
     if (pc == NULL) {
         assert(gen->status == GEN_ERROR);
         return NULL;
     }
+    gen->status = GEN_YIELD;
     ts->pc = pc;
     return gen_send_internal(gen, NULL);
 }
@@ -456,17 +462,16 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
         gen->yield_from = NULL;
         assert(gen->status == GEN_YIELD);
         PyObject *ret;
-        int err;
         if (PyErr_GivenExceptionMatches(typ, PyExc_GeneratorExit) &&
             close_on_genexit
         ) {
-            /* Asynchronous generators *should not* be closed right away.
-               We have to allow some awaits to work it through, hence the
-               `close_on_genexit` parameter here.
-            */
-            // gen->gi_running = 1;
-            err = gen_close_iter(yf);
-            // gen->gi_running = 0;
+            // Asynchronous generators *should not* be closed right away.
+            // We have to allow some awaits to work it through, hence the
+            // `close_on_genexit` parameter here.
+            char old_status = gen->status;
+            gen->status = GEN_RUNNING;
+            int err = gen_close_iter(yf);
+            gen->status = old_status;
             Py_DECREF(yf);
             if (err < 0) {
                 return gen_throw_current(gen);
@@ -475,12 +480,13 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
         }
         if (PyGen2_CheckExact(yf) || PyCoro_CheckExact(yf)) {
             /* `yf` is a generator or a coroutine. */
-            // gen->gi_running = 1;
             /* Close the generator that we are currently iterating with
                'yield from' or awaiting on with 'await'. */
+            char old_status = gen->status;
+            gen->status = GEN_RUNNING;
             ret = _gen_throw((PyGenObject2 *)yf, close_on_genexit,
                              typ, val, tb);
-            // gen->gi_running = 0;
+            gen->status = old_status;
         } else {
             /* `yf` is an iterator or a coroutine-like object. */
             PyObject *meth;
@@ -492,29 +498,41 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
                 Py_DECREF(yf);
                 goto throw_here;
             }
-            // gen->gi_running = 1;
+            char old_status = gen->status;
+            gen->status = GEN_RUNNING;
             ret = PyObject_CallFunctionObjArgs(meth, typ, val, tb, NULL);
-            // gen->gi_running = 0;
+            gen->status = old_status;
             Py_DECREF(meth);
         }
-        if (!ret) {
+        if (ret == NULL) {
+            // Terminate repetition of YIELD_FROM
+            struct ThreadState *ts = &gen->base.thread;
+            if (ts->pc[0] == WIDE) {
+                assert(ts->pc[1] == YIELD_FROM);
+                ts->pc += OP_SIZE_WIDE_YIELD_FROM;
+            }
+            else {
+                assert(ts->pc[0] == YIELD_FROM);
+                ts->pc += OP_SIZE_YIELD_FROM;
+            }
+
             PyObject *val;
-            /* Pop subiterator from stack */
-            // ret = *(--gen->gi_frame->f_stacktop);
-            // assert(ret == yf);
-            // Py_DECREF(ret);
-            // /* Termination repetition of YIELD_FROM */
-            // assert(gen->gi_frame->f_lasti >= 0);
-            // gen->gi_frame->f_lasti += sizeof(_Py_CODEUNIT);
             if (_PyGen_FetchStopIterationValue(&val) == 0) {
-                // send val to generator... weird TODO: is this even right???
+                // If the delegated subgenerator returned a value
+                // (via StopIteration); send it to the calling generator.
                 ret = gen_send_internal(gen, val);
                 Py_DECREF(val);
             } else {
                 ret = gen_throw_current(gen);
             }
+
+            Py_DECREF(yf);
         }
-        Py_DECREF(yf);
+        else {
+            // Restore the `yield_from` if the exception was caught by the
+            // delegated subgenerator.
+            gen->yield_from = yf;
+        }
         return ret;
     }
 
@@ -562,7 +580,7 @@ throw_here:
                      "exceptions must be classes or instances "
                      "deriving from BaseException, not %s",
                      Py_TYPE(typ)->tp_name);
-            goto failed_throw;
+        goto failed_throw;
     }
 
     PyErr_Restore(typ, val, tb);

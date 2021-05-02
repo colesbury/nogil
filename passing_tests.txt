@@ -363,6 +363,7 @@ test_xml_etree
 test_xmlrpc
 test_xmlrpc_net
 test_xxtestfuzz
+test_yield_from
 test_zipapp
 test_zipfile
 test_zipfile64
