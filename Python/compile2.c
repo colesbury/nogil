@@ -5076,6 +5076,9 @@ compiler_comprehension_generator(struct compiler *c,
         switch (type) {
         case COMP_GENEXP:
             compiler_visit_expr(c, elt);
+            if (c->unit->ste->ste_coroutine) {
+                emit1(c, CALL_INTRINSIC_1, Intrinsic__PyAsyncGenValueWrapperNew);
+            }
             emit0(c, YIELD_VALUE);
             emit0(c, CLEAR_ACC);
             break;
