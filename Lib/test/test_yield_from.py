@@ -9,6 +9,7 @@ see <http://www.cosc.canterbury.ac.nz/greg.ewing/python/yield-from/YieldFrom-Pyt
 
 import unittest
 import inspect
+import weakref
 
 from test.support import captured_stderr, disable_gc, gc_collect
 from test import support
@@ -1026,6 +1027,35 @@ class TestPEP380Operation(unittest.TestCase):
             del outer_gen
             del inner_gen
             gc_collect()
+
+    def test_throw_with_cleared_frame(self):
+        # This is similar to test_close_with_cleared_frame above, but does not
+        # depend on allocation order or garbage collection: in this test the
+        # throw() clears the inner_gen frame. In a previous buggy
+        # implementation the throw() would cause outer to print an
+        # unraisable exception "generator already executing".
+        def innermost():
+            yield
+
+        def inner():
+            outer_gen = yield
+            yield from innermost()
+
+        def outer():
+            inner_gen = yield
+            yield from inner_gen
+
+        inner_gen = inner()
+        outer_gen = outer()
+        outer_gen.send(None)
+        outer_gen.send(inner_gen)
+        outer_gen.send(outer_gen)
+        outer_ref = weakref.ref(outer_gen)
+        del outer_gen
+
+        with self.assertRaisesRegex(RuntimeError, 'foo'):
+            inner_gen.throw(RuntimeError, 'foo')
+        self.assertIsNone(outer_ref())
 
     def test_send_tuple_with_custom_generator(self):
         # See issue #21209.

@@ -2,6 +2,7 @@
 #include "pycore_ceval.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"
+#include "pycore_generator.h"
 #include "code2.h"
 #include "frameobject.h"
 #include "clinic/_warnings.c.h"
@@ -1380,9 +1381,11 @@ _PyErr_WarnUnawaitedCoroutine(PyObject *coro)
         PyErr_WriteUnraisable(coro);
     }
     if (!warned) {
+        PyObject *qualname = PyCoro_CheckExact(coro) ? ((PyCoroObject *)coro)->cr_qualname :
+                             PyCoro2_CheckExact(coro) ? ((PyGenObject2 *)coro)->qualname : NULL;
         if (PyErr_WarnFormat(PyExc_RuntimeWarning, 1,
                              "coroutine '%.50S' was never awaited",
-                             ((PyCoroObject *)coro)->cr_qualname) < 0)
+                             qualname) < 0)
         {
             PyErr_WriteUnraisable(coro);
         }

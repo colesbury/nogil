@@ -252,7 +252,13 @@ gen_status_error(PyGenObject2 *gen, PyObject *arg)
     // else if (arg && !exc) {
     /* `gen` is an exhausted generator:
         only set exception if called from send(). */
-    if (PyAsyncGen2_CheckExact(gen)) {
+
+    if (PyCoro2_CheckExact(gen)) {
+        PyErr_SetString(
+            PyExc_RuntimeError,
+            "cannot reuse already awaited coroutine");
+    }
+    else if (PyAsyncGen2_CheckExact(gen)) {
         PyErr_SetNone(PyExc_StopAsyncIteration);
     }
     else {
@@ -416,6 +422,9 @@ gen_throw_current(PyGenObject2 *gen)
 {
     struct ThreadState *ts = &gen->base.thread;
     if (gen->status == GEN_CLOSED) {
+        if (PyCoro2_CheckExact(gen)) {
+            return gen_status_error(gen, NULL);
+        }
         return NULL;
     }
     if (gen->status == GEN_RUNNING) {
@@ -610,6 +619,11 @@ gen_close(PyGenObject2 *gen, PyObject *args)
     PyObject *retval;
     int err = 0;
 
+    if (gen->status == GEN_CLOSED) {
+        assert(gen->yield_from == NULL);
+        Py_RETURN_NONE;
+    }
+
     PyObject *yf = gen->yield_from;
     if (yf) {
         gen->yield_from = NULL;
@@ -619,6 +633,7 @@ gen_close(PyGenObject2 *gen, PyObject *args)
         gen->status = old_status;
         Py_DECREF(yf);
     }
+
     if (err == 0) {
         PyErr_SetNone(PyExc_GeneratorExit);
     }
@@ -690,6 +705,17 @@ _PyGen2_Finalize(PyObject *self)
     PyGenObject2 *gen = (PyGenObject2 *)self;
     PyObject *res = NULL;
     PyObject *error_type, *error_value, *error_traceback;
+
+    if (PyCoro2_CheckExact(gen) && gen->status != GEN_CLOSED) {
+        /* Save the current exception, if any. */
+        PyErr_Fetch(&error_type, &error_value, &error_traceback);
+
+        _PyErr_WarnUnawaitedCoroutine((PyObject *)gen);
+
+        /* Restore the saved exception. */
+        PyErr_Restore(error_type, error_value, error_traceback);
+        return;
+    }
 
     if (gen->status != GEN_SUSPENDED) {
         /* Generator isn't paused, so no need to close */
