@@ -945,6 +945,18 @@ coro_get_cr_await(PyCoroObject2 *coro, void *Py_UNUSED(ignored))
     return yf;
 }
 
+static PyObject *
+coro_get_state(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    static const char *states[] = {
+        [GEN_CREATED]   = "CORO_CREATED",
+        [GEN_SUSPENDED] = "CORO_SUSPENDED",
+        [GEN_RUNNING]   = "CORO_RUNNING",
+        [GEN_CLOSED]    = "CORO_CLOSED"
+    };
+    return PyUnicode_FromString(states[(int)op->status]);
+}
+
 static void
 coro_wrapper_dealloc(PyCoroWrapper *cw)
 {
@@ -1367,7 +1379,7 @@ async_gen_athrow_new(PyAsyncGenObject2 *gen, PyObject *args)
 
 static PyGetSetDef gen_getsetlist[] = {
     {"gi_running",   (getter)gen_get_running, NULL, NULL },
-    {"_state",   (getter)gen_get_state, NULL, NULL },
+    {"_genstate",   (getter)gen_get_state, NULL, NULL },
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
     {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
@@ -1412,12 +1424,14 @@ static PyAsyncMethods coro_as_async = {
 };
 
 static PyMemberDef coro_memberlist[] = {
-    {"cr_code",      T_OBJECT, offsetof(PyGenObject2, code),     READONLY},
+    {"cr_code",      T_OBJECT, offsetof(PyGenObject2,  code),   READONLY},
+    {"cr_origin",    T_OBJECT, offsetof(PyCoroObject2, origin), READONLY},
     {NULL}      /* Sentinel */
 };
 
 static PyGetSetDef coro_getsetlist[] = {
     {"cr_running",   (getter)gen_get_running, NULL, NULL },
+    {"_corostate",   (getter)coro_get_state, NULL, NULL },
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the coroutine")},
     {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
