@@ -3055,6 +3055,12 @@ vm_frame_clear_aux(intptr_t frame_link)
     return frame_link;
 }
 
+int
+vm_eval_breaker(struct ThreadState *ts)
+{
+    return _PyEval_HandleBreaker(ts->ts);
+}
+
 PyObject *
 PyEval2_GetLocals(void)
 {

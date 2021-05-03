@@ -83,8 +83,6 @@ struct _ts {
     int32_t status;
     int use_deferred_rc;
 
-    uintptr_t eval_breaker;
-
     mi_heap_t *heaps[Py_NUM_HEAPS];
 
     struct _frame *frame;
@@ -166,6 +164,7 @@ struct _ts {
 
     struct Waiter *waiter;
 
+    uintptr_t eval_breaker;
     void *opcode_targets[256];
 
     /* XXX signal handlers should also be here */

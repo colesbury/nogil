@@ -56,7 +56,7 @@
 #include <ctype.h>
 
 #if 1
-#define DEBUG_LABEL(name) __asm__ volatile("." #name ":");
+#define DEBUG_LABEL(name) __asm__ volatile("." #name ":")
 #else
 #define DEBUG_LABEL(name)
 #endif
@@ -255,18 +255,28 @@ _OWNING_REF(Register r, intptr_t tid)
 #define UImm16(idx) (load_uimm16(&pc[idx + 1]))
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
+#define EVAL_BREAKER_OFFSET (offsetof(PyThreadState, eval_breaker) - offsetof(PyThreadState, opcode_targets))
+#define EVAL_BREAKER ((uintptr_t *)(((char *)opcode_targets) + EVAL_BREAKER_OFFSET))
+
+#define CHECK_EVAL_BREAKER() do {                                   \
+    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(EVAL_BREAKER))) {      \
+        goto eval_breaker;                                          \
+    }                                                               \
+} while (0)
 
 #define NEXT_INSTRUCTION() \
     opcode = *pc; \
     /* __asm__ volatile("# computed goto " #name); */ \
     goto *opcode_targets[opcode]
 
-#define JUMP_BY(arg) \
-    pc += (arg); \
+#define JUMP_BY(arg)      \
+    pc += (arg);          \
+    CHECK_EVAL_BREAKER(); \
     NEXT_INSTRUCTION()
 
-#define JUMP_TO(arg) \
-    pc = (arg); \
+#define JUMP_TO(arg)      \
+    pc = (arg);           \
+    CHECK_EVAL_BREAKER(); \
     NEXT_INSTRUCTION()
 
 #define DISPATCH(name) \
@@ -332,6 +342,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
 
+    // GCC likes to get too clever
+    BREAK_LIVE_RANGE(opcode_targets);
+
     // Dispatch to the first instruction
     NEXT_INSTRUCTION();
 
@@ -354,6 +367,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         else if (LIKELY(value == Py_False || value == Py_None)) {
             acc.as_int64 = 0;
             JUMP_BY(JumpImm(0));
+            NEXT_INSTRUCTION();
         }
         else {
             int res;
@@ -369,6 +383,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             }
             DECREF(acc);
             acc.as_int64 = 0;
+            CHECK_EVAL_BREAKER();
             NEXT_INSTRUCTION();
         }
     }
@@ -397,6 +412,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             }
             DECREF(acc);
             acc.as_int64 = 0;
+            CHECK_EVAL_BREAKER();
             NEXT_INSTRUCTION();
         }
     }
@@ -421,6 +437,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             else {
                 pc += OP_SIZE(JUMP_IF_FALSE);
             }
+            CHECK_EVAL_BREAKER();
             NEXT_INSTRUCTION();
         }
     }
@@ -446,6 +463,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             else {
                 pc += OP_SIZE(JUMP_IF_TRUE);
             }
+            CHECK_EVAL_BREAKER();
             NEXT_INSTRUCTION();
         }
     }
@@ -679,6 +697,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
+        CHECK_EVAL_BREAKER();
         NEXT_INSTRUCTION();
     }
 
@@ -700,6 +719,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
+        CHECK_EVAL_BREAKER();
         NEXT_INSTRUCTION();
     }
     #endif
@@ -791,6 +811,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
+        CHECK_EVAL_BREAKER();
         NEXT_INSTRUCTION();
     }
     #endif
@@ -865,6 +886,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
+        CHECK_EVAL_BREAKER();
         NEXT_INSTRUCTION();
     }
     #endif
@@ -1939,6 +1961,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         else {
             acc = PACK_OBJ(next);
             pc += JumpImm(1);
+            CHECK_EVAL_BREAKER();
             NEXT_INSTRUCTION();
         }
     }
@@ -2488,6 +2511,15 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         NEXT_INSTRUCTION();
     }
 
+    eval_breaker: {
+        int err;
+        CALL_VM(err = vm_eval_breaker(ts));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        NEXT_INSTRUCTION();
+    }
+
     _unknown_opcode:
     {
         // CALL_VM(acc = vm_unknown_opcode(opcode));
@@ -2504,15 +2536,13 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         __asm__ volatile (
             "# REGISTER ASSIGNMENT \n\t"
             "# opcode = %0 \n\t"
-            "# opcode = %1 \n\t"
-            "# regs = %4 \n\t"
-            "# acc = %2 \n\t"
-            "# pc = %3 \n\t"
-            "# ts = %5 \n\t"
-            "# opcode_targets = %6 \n\t"
-            "# tid = %7 \n\t"
+            "# acc = %1 \n\t"
+            "# pc = %2 \n\t"
+            "# regs = %3 \n\t"
+            "# ts = %4 \n\t"
+            "# opcode_targets = %5 \n\t"
+            "# tid = %6 \n\t"
         ::
-            "r" (opcode),
             "r" (opcode),
             "r" (acc),
             "r" (pc),

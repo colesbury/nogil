@@ -30,8 +30,10 @@ PyAPI_FUNC(void) _PyEval_SetCoroutineOriginTrackingDepth(
     PyThreadState *tstate,
     int new_depth);
 
-/* Private function */
+/* Private functions */
 void _PyEval_Fini(void);
+int _PyEval_HandleBreaker(PyThreadState *tstate);
+
 
 static inline PyObject*
 _PyEval_EvalFrame(PyThreadState *tstate, struct _frame *f, int throwflag)

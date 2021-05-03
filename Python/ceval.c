@@ -631,7 +631,7 @@ _Py_CheckRecursiveCall(PyThreadState *tstate, const char *where)
     return 0;
 }
 
-static int
+int
 _PyEval_HandleBreaker(PyThreadState *tstate)
 {
     int err = 0;

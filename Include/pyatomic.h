@@ -160,6 +160,38 @@ _Py_atomic_store_ptr_release(volatile void *address, void *value);
 static inline void
 _Py_atomic_thread_fence(void);
 
+static inline int
+_Py_atomic_uintptr_is_zero(uintptr_t *address)
+{
+#if (defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__))
+    int out;
+    __asm__ (
+        "cmpq\t$0, %[address]"
+        : "=@ccz" (out)
+        : [address] "m" (*address)
+        : );
+    return out;
+#else
+    return _Py_atomic_load_uintptr_relaxed(address) == 0;
+#endif
+}
+
+static inline int
+_Py_atomic_compare_uintptr_relaxed(uintptr_t *address, uintptr_t value)
+{
+#if (defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__))
+    int out;
+    __asm__ (
+        "cmp    %[value], %[address]"
+        : "=@ccz" (out)
+        : [value] "r"(value), [address] "m" (*address)
+        : );
+    return out;
+#else
+    return _Py_atomic_load_uintptr_relaxed(address) == value;
+#endif
+}
+
 
 #if defined(HAVE_STD_ATOMIC) || defined(HAVE_BUILTIN_ATOMIC)
 #define Py_ATOMIC_STD_H

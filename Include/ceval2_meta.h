@@ -314,6 +314,8 @@ int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
 
+int vm_eval_breaker(struct ThreadState *ts);
+
 
 #ifdef __cplusplus
 }
