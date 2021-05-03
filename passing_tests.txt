@@ -263,6 +263,7 @@ test_setcomps
 test_shelve
 test_shlex
 test_shutil
+test_signal
 test_site
 test_slice
 test_smtpd

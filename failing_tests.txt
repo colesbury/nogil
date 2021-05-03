@@ -31,7 +31,6 @@ test_positional_only_arg
 test_profile
 test_pstats
 test_regrtest
-test_signal
 test_super
 test_sys
 test_sys_setprofile
