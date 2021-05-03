@@ -195,6 +195,7 @@ struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 
 // used by genobject2.c
 int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
+PyObject *vm_compute_cr_origin(struct ThreadState *ts);
 
 // used by errors.c
 PyObject *vm_traceback_here(struct ThreadState *ts);
@@ -312,6 +313,7 @@ int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
 
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
+
 
 #ifdef __cplusplus
 }

@@ -259,6 +259,62 @@ vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg)
 }
 
 PyObject *
+vm_compute_cr_origin(struct ThreadState *ts)
+{
+    int origin_depth = ts->ts->coroutine_origin_tracking_depth;
+    assert(origin_depth > 0);
+
+    // First count how many frames we have
+    int frame_count = 0;
+
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    vm_stack_walk(&w);  // skip the first frame
+    while (vm_stack_walk(&w) && frame_count < origin_depth) {
+        Register *regs = vm_stack_walk_regs(&w);
+        if (!PyFunc_Check(AS_OBJ(regs[-1]))) {
+            continue;
+        }
+        ++frame_count;
+    }
+
+    // Now collect them
+    PyObject *cr_origin = PyTuple_New(frame_count);
+    if (cr_origin == NULL) {
+        return NULL;
+    }
+
+    int i = 0;
+    vm_stack_walk_init(&w, ts);
+    vm_stack_walk(&w);  // skip the first frame
+    while (vm_stack_walk(&w) && i < frame_count) {
+        Register *regs = vm_stack_walk_regs(&w);
+        if (!PyFunc_Check(AS_OBJ(regs[-1]))) {
+            continue;
+        }
+
+        PyFunc *func = (PyFunc *)AS_OBJ(regs[-1]);
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+        int addrq = w.pc - func->func_base.first_instr;
+
+        PyObject *frameinfo = Py_BuildValue(
+            "OiO",
+            code->co_filename,
+            PyCode2_Addr2Line(code, addrq),
+            code->co_name);
+        if (!frameinfo) {
+            Py_DECREF(cr_origin);
+            return NULL;
+        }
+
+        PyTuple_SET_ITEM(cr_origin, i, frameinfo);
+        i++;
+    }
+
+    return cr_origin;
+}
+
+PyObject *
 vm_cur_handled_exc(void)
 {
     struct ThreadState *ts = PyThreadState_GET()->active;

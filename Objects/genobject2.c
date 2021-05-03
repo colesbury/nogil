@@ -55,6 +55,15 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     Py_INCREF(gen->qualname);
     Py_INCREF(gen->code); // FIXME: defer rc
 
+    if (PyCoro2_CheckExact(gen) && ts->ts->coroutine_origin_tracking_depth > 0) {
+        PyCoroObject2 *coro = (PyCoroObject2 *)gen;
+        coro->origin = vm_compute_cr_origin(ts);
+        if (coro->origin == NULL) {
+            Py_DECREF(gen);
+            return NULL;
+        }
+    }
+
     _PyObject_GC_TRACK(gen);
     return gen;
 }
@@ -1449,6 +1458,13 @@ static PyAsyncMethods coro_as_async = {
     .am_await = (unaryfunc)coro_await
 };
 
+static PyMethodDef coro_methods[] = {
+    {"send",(PyCFunction)_PyGen2_Send, METH_O, coro_send_doc},
+    {"throw",(PyCFunction)gen_throw, METH_VARARGS, coro_throw_doc},
+    {"close",(PyCFunction)gen_close, METH_NOARGS, coro_close_doc},
+    {NULL, NULL}        /* Sentinel */
+};
+
 static PyMemberDef coro_memberlist[] = {
     {"cr_code",      T_OBJECT, offsetof(PyGenObject2,  code),   READONLY},
     {"cr_origin",    T_OBJECT, offsetof(PyCoroObject2, origin), READONLY},
@@ -1477,7 +1493,7 @@ PyTypeObject PyCoro2_Type = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)gen_traverse,
     .tp_weaklistoffset = offsetof(PyCoroObject2, base.weakreflist),
-    .tp_methods = gen_methods,
+    .tp_methods = coro_methods,
     .tp_members = coro_memberlist,
     .tp_getset = coro_getsetlist,
     .tp_finalize = _PyGen2_Finalize
