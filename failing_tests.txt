@@ -1,5 +1,4 @@
 test__xxsubinterpreters
-test_asyncgen
 test_asyncio
 test_audit
 test_bdb

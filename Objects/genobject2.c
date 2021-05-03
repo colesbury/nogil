@@ -30,15 +30,13 @@ static char *ASYNC_GEN_IGNORED_EXIT_MSG =
 static PyGenObject2 *
 gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 {
-    int err;
-
     PyGenObject2 *gen = (PyGenObject2 *)_PyObject_GC_Calloc(type->tp_basicsize);
     if (UNLIKELY(gen == NULL)) {
         return NULL;
     }
     PyObject_INIT(gen, type);
 
-    err = vm_init_thread_state(ts, &gen->base.thread);
+    int err = vm_init_thread_state(ts, &gen->base.thread);
     if (UNLIKELY(err != 0)) {
         _Py_DECREF_TOTAL;
         PyObject_GC_Del(gen);
@@ -54,6 +52,7 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     Py_INCREF(gen->name);
     Py_INCREF(gen->qualname);
     Py_INCREF(gen->code); // FIXME: defer rc
+    _PyObject_GC_TRACK(gen);
 
     if (PyCoro2_CheckExact(gen) && ts->ts->coroutine_origin_tracking_depth > 0) {
         PyCoroObject2 *coro = (PyCoroObject2 *)gen;
@@ -64,7 +63,6 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
         }
     }
 
-    _PyObject_GC_TRACK(gen);
     return gen;
 }
 
@@ -163,21 +161,18 @@ gen_dealloc(PyGenObject2 *gen)
     Py_CLEAR(gen->return_value);
     Py_CLEAR(gen->yield_from);
     Py_CLEAR(gen->code);
-
-
-
-    // if (PyAsyncGen2_CheckExact(gen)) {
-    //     /* We have to handle this case for asynchronous generators
-    //        right here, because this code has to be between UNTRACK
-    //        and GC_Del. */
-    //     Py_CLEAR(((PyAsyncGenObject*)gen)->ag_finalizer);
-    // }
+    if (PyAsyncGen2_CheckExact(gen)) {
+        /* We have to handle this case for asynchronous generators
+           right here, because this code has to be between UNTRACK
+           and GC_Del. */
+        Py_CLEAR(((PyAsyncGenObject2 *)gen)->finalizer);
+    }
+    if (PyCoro2_CheckExact(gen)) {
+        Py_CLEAR(((PyCoroObject2 *)gen)->origin);
+    }
     // if (gen->gi_frame != NULL) {
     //     gen->gi_frame->f_gen = NULL;
     //     Py_CLEAR(gen->gi_frame);
-    // }
-    // if (((PyCodeObject *)gen->gi_code)->co_flags & CO_COROUTINE) {
-    //     Py_CLEAR(((PyCoroObject *)gen)->cr_origin);
     // }
     // PyObject *code = gen->gi_code;
     // gen->gi_code = NULL;
@@ -719,7 +714,6 @@ static void
 _PyGen2_Finalize(PyObject *self)
 {
     PyGenObject2 *gen = (PyGenObject2 *)self;
-    PyObject *res = NULL;
     PyObject *error_type, *error_value, *error_traceback;
 
     if (PyCoro2_CheckExact(gen) && gen->status != GEN_CLOSED) {
@@ -745,7 +739,7 @@ _PyGen2_Finalize(PyObject *self)
             /* Save the current exception, if any. */
             PyErr_Fetch(&error_type, &error_value, &error_traceback);
 
-            res = _PyObject_CallOneArg(finalizer, self);
+            PyObject *res = _PyObject_CallOneArg(finalizer, self);
 
             if (res == NULL) {
                 PyErr_WriteUnraisable(self);
@@ -758,23 +752,10 @@ _PyGen2_Finalize(PyObject *self)
         }
     }
 
-    // FIXME(sgross): can there be an active exception here?
     /* Save the current exception, if any. */
     PyErr_Fetch(&error_type, &error_value, &error_traceback);
 
-    // TODO: handle coroutine generators
-    /* If `gen` is a coroutine, and if it was never awaited on,
-       issue a RuntimeWarning. */
-    // if (gen->gi_code != NULL &&
-    //     ((PyCodeObject *)gen->gi_code)->co_flags & CO_COROUTINE &&
-    //     gen->gi_frame->f_lasti == -1)
-    // {
-    //     _PyErr_WarnUnawaitedCoroutine((PyObject *)gen);
-    // }
-    // else {
-        res = gen_close(gen, NULL);
-    // }
-
+    PyObject *res = gen_close(gen, NULL);
     if (res == NULL) {
         if (PyErr_Occurred()) {
             PyErr_WriteUnraisable(self);
@@ -915,7 +896,37 @@ async_gen_traverse(PyAsyncGenObject2 *gen, visitproc visit, void *arg)
 static int
 async_gen_init_hooks(PyAsyncGenObject2 *o)
 {
-    // FIXME: implement async gen hooks
+    PyThreadState *tstate;
+    PyObject *finalizer;
+    PyObject *firstiter;
+
+    if (o->hooks_inited) {
+        return 0;
+    }
+
+    o->hooks_inited = 1;
+
+    tstate = _PyThreadState_GET();
+
+    finalizer = tstate->async_gen_finalizer;
+    if (finalizer) {
+        Py_INCREF(finalizer);
+        o->finalizer = finalizer;
+    }
+
+    firstiter = tstate->async_gen_firstiter;
+    if (firstiter) {
+        PyObject *res;
+
+        Py_INCREF(firstiter);
+        res = _PyObject_CallOneArg(firstiter, (PyObject *)o);
+        Py_DECREF(firstiter);
+        if (res == NULL) {
+            return 1;
+        }
+        Py_DECREF(res);
+    }
+
     return 0;
 }
 
@@ -1529,7 +1540,21 @@ PyTypeObject _PyCoroWrapper2_Type = {
 static PyMemberDef async_gen_memberlist[] = {
     {"ag_running", T_BOOL,   offsetof(PyAsyncGenObject2, running_async),
         READONLY},
+    {"ag_code",    T_OBJECT, offsetof(PyGenObject2,  code),
+        READONLY},
     {NULL}      /* Sentinel */
+};
+
+static PyGetSetDef async_gen_getsetlist[] = {
+    {"ag_running",   (getter)gen_get_running, NULL, NULL },
+    {"ag_await", (getter)coro_get_cr_await, NULL,
+     PyDoc_STR("object being awaited on, or None")},
+    {"_genstate",   (getter)gen_get_state, NULL, NULL },
+    {"__name__", (getter)gen_get_name, (setter)gen_set_name,
+     PyDoc_STR("name of the async generator")},
+    {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
+     PyDoc_STR("qualified name of the async generator")},
+    {NULL} /* Sentinel */
 };
 
 PyDoc_STRVAR(async_aclose_doc,
@@ -1560,13 +1585,13 @@ PyTypeObject PyAsyncGen2_Type = {
     .tp_dealloc = (destructor)gen_dealloc,
     .tp_as_async = &async_gen_as_async,
     .tp_repr = (reprfunc)gen_repr,
-    .tp_getattro = PyObject_GenericGetAttr, // necessary ???
+    .tp_getattro = PyObject_GenericGetAttr,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)async_gen_traverse,
     .tp_weaklistoffset = offsetof(PyAsyncGenObject2, base.weakreflist),
     .tp_methods = async_gen_methods,
     .tp_members = async_gen_memberlist,
-    .tp_getset = gen_getsetlist,
+    .tp_getset = async_gen_getsetlist,
     .tp_finalize = _PyGen2_Finalize
 };
 
@@ -1615,6 +1640,7 @@ static PyTypeObject _PyAsyncGenAThrow2_Type = {
     .tp_basicsize = sizeof(PyAsyncGenAThrow),
     .tp_dealloc = (destructor)async_gen_athrow_dealloc,
     .tp_as_async = &async_gen_athrow_as_async,
+    .tp_getattro = PyObject_GenericGetAttr,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)async_gen_athrow_traverse,
     .tp_iter = PyObject_SelfIter,

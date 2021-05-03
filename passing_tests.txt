@@ -10,6 +10,7 @@ test_argparse
 test_array
 test_asdl_parser
 test_ast
+test_asyncgen
 test_asynchat
 test_asyncore
 test_atexit
