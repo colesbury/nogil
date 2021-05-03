@@ -32,7 +32,6 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 {
     int err;
 
-    // TODO: zero initialize and simplify vm_init_thread_state ?
     PyGenObject2 *gen = (PyGenObject2 *)_PyObject_GC_Calloc(type->tp_basicsize);
     if (UNLIKELY(gen == NULL)) {
         return NULL;
@@ -51,7 +50,7 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
     gen->name = func->func_name;
     gen->qualname = func->func_qualname;
     gen->code = (PyObject *)code;
-    gen->status = GEN_STARTED; // fixme enum or something
+    gen->status = GEN_CREATED;
     Py_INCREF(gen->name);
     Py_INCREF(gen->qualname);
     Py_INCREF(gen->code); // FIXME: defer rc
@@ -156,8 +155,6 @@ gen_dealloc(PyGenObject2 *gen)
     Py_CLEAR(gen->yield_from);
     Py_CLEAR(gen->code);
 
-    // fixme: delete and clear ts
-
 
 
     // if (PyAsyncGen2_CheckExact(gen)) {
@@ -209,31 +206,29 @@ gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
     PyObject *res = PyEval2_EvalGen(gen, opt_value);
 
     if (LIKELY(res != NULL)) {
-        assert(gen->status == GEN_YIELD);
+        assert(gen->status == GEN_SUSPENDED);
         return res;
     }
 
-    if (gen->status == GEN_FINISHED) {
-        assert(gen->return_value != NULL);
-        if (LIKELY(gen->return_value == Py_None)) {
-            gen->return_value = NULL;
-            PyErr_SetNone(PyAsyncGen2_CheckExact(gen)
-                            ? PyExc_StopAsyncIteration
-                            : PyExc_StopIteration);
-            return NULL;
-        }
-        else {
-            return _PyGen2_SetStopIterationValue(gen);
-        }
+    if (LIKELY(gen->return_value == Py_None)) {
+        gen->return_value = NULL;
+        PyErr_SetNone(PyAsyncGen2_CheckExact(gen)
+                        ? PyExc_StopAsyncIteration
+                        : PyExc_StopIteration);
+        return NULL;
     }
-
-    if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
-        _PyErr_FormatFromCause(
-            PyExc_RuntimeError,
-            "%s raised StopIteration",
-            gen_typename(gen));
+    else if (gen->return_value != NULL) {
+        return _PyGen2_SetStopIterationValue(gen);
     }
-    return NULL;
+    else {
+        if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
+            _PyErr_FormatFromCause(
+                PyExc_RuntimeError,
+                "%s raised StopIteration",
+                gen_typename(gen));
+        }
+        return NULL;
+    }
 }
 
 static PyObject *
@@ -245,7 +240,7 @@ gen_status_error(PyGenObject2 *gen, PyObject *arg)
         return NULL;
     }
 
-    assert(gen->status == GEN_FINISHED || gen->status == GEN_ERROR);
+    assert(gen->status == GEN_CLOSED);
     // if (PyCoro_CheckExact(gen) && !closing) {
     //     /* `gen` is an exhausted coroutine: raise an error,
     //        except when called from gen_close(), which should
@@ -277,7 +272,7 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
     if (UNLIKELY(gen->status >= GEN_RUNNING)) {
         return gen_status_error(gen, arg);
     }
-    if (UNLIKELY(gen->status == GEN_STARTED && arg != Py_None)) {
+    if (UNLIKELY(gen->status == GEN_CREATED && arg != Py_None)) {
         PyErr_Format(
             PyExc_TypeError,
             "can't send non-None value to a just-started %s",
@@ -420,13 +415,13 @@ static PyObject *
 gen_throw_current(PyGenObject2 *gen)
 {
     struct ThreadState *ts = &gen->base.thread;
-    if (gen->status == GEN_ERROR || gen->status == GEN_FINISHED) {
+    if (gen->status == GEN_CLOSED) {
         return NULL;
     }
     if (gen->status == GEN_RUNNING) {
         return gen_status_error(gen, NULL);
     }
-    if (gen->status == GEN_STARTED) {
+    if (gen->status == GEN_CREATED) {
         // If the generator has just started, the PC points to the *next*
         // instruction, which may be inside an exception handler. During
         // normal execution the PC points to the *current* instruction.
@@ -435,13 +430,13 @@ gen_throw_current(PyGenObject2 *gen)
         // from this PC.
         ts->pc -= 1;
     }
-    gen->status = GEN_RUNNING;
+    gen->status = GEN_CLOSED;  // TODO: awkward, maybe GEN_RUNNING but set closed in vm_pop_frame?
     const uint8_t *pc = vm_exception_unwind(ts, false);
     if (pc == NULL) {
-        assert(gen->status == GEN_ERROR);
+        assert(gen->status == GEN_CLOSED);
         return NULL;
     }
-    gen->status = GEN_YIELD;
+    gen->status = GEN_SUSPENDED;
     ts->pc = pc;
     return gen_send_internal(gen, NULL);
 }
@@ -460,7 +455,7 @@ _gen_throw(PyGenObject2 *gen, int close_on_genexit,
     PyObject *yf = gen->yield_from;
     if (yf != NULL) {
         gen->yield_from = NULL;
-        assert(gen->status == GEN_YIELD);
+        assert(gen->status == GEN_SUSPENDED);
         PyObject *ret;
         if (PyErr_GivenExceptionMatches(typ, PyExc_GeneratorExit) &&
             close_on_genexit
@@ -619,7 +614,7 @@ gen_close(PyGenObject2 *gen, PyObject *args)
     if (yf) {
         gen->yield_from = NULL;
         char old_status = gen->status;
-        gen->status = GEN_RUNNING; // why??
+        gen->status = GEN_RUNNING;
         err = gen_close_iter(yf);
         gen->status = old_status;
         Py_DECREF(yf);
@@ -696,7 +691,7 @@ _PyGen2_Finalize(PyObject *self)
     PyObject *res = NULL;
     PyObject *error_type, *error_value, *error_traceback;
 
-    if (gen->status != GEN_YIELD) {
+    if (gen->status != GEN_SUSPENDED) {
         /* Generator isn't paused, so no need to close */
         return;
     }
@@ -768,11 +763,10 @@ static PyObject *
 gen_get_state(PyGenObject2 *op, void *Py_UNUSED(ignored))
 {
     static const char *states[] = {
-        [GEN_STARTED]  = "GEN_CREATED",
-        [GEN_YIELD]    = "GEN_SUSPENDED",
-        [GEN_RUNNING]  = "GEN_RUNNING",
-        [GEN_ERROR]    = "GEN_CLOSED",
-        [GEN_FINISHED] = "GEN_CLOSED"
+        [GEN_CREATED]   = "GEN_CREATED",
+        [GEN_SUSPENDED] = "GEN_SUSPENDED",
+        [GEN_RUNNING]   = "GEN_RUNNING",
+        [GEN_CLOSED]    = "GEN_CLOSED"
     };
     return PyUnicode_FromString(states[(int)op->status]);
 }
@@ -1160,8 +1154,7 @@ async_gen_athrow_send(PyAsyncGenAThrow *o, PyObject *arg)
     PyObject *retval;
 
     if (o->agt_state == AWAITABLE_STATE_CLOSED || 
-        gen->status == GEN_ERROR ||
-        gen->status == GEN_FINISHED) {
+        gen->status == GEN_CLOSED) {
         PyErr_SetString(
             PyExc_RuntimeError,
             "cannot reuse already awaited aclose()/athrow()");

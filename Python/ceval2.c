@@ -872,7 +872,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #ifndef WIDE_OP
     TARGET(YIELD_VALUE) {
         PyGenObject2 *gen = PyGen2_FromThread(ts);
-        gen->status = GEN_YIELD;
+        gen->status = GEN_SUSPENDED;
         // resume from next instruction
         ts->pc = pc + OP_SIZE(YIELD_VALUE);
         goto return_to_c;
@@ -884,7 +884,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (res != NULL) {                                                      \
             SET_ACC(PACK_OBJ(res));                                             \
             PyGenObject2 *gen = PyGen2_FromThread(ts);                          \
-            gen->status = GEN_YIELD;                                            \
+            gen->status = GEN_SUSPENDED;                                        \
             ts->pc = pc;  /* will resume with YIELD_FROM */                     \
             goto return_to_c;                                                   \
         }                                                                       \
@@ -931,7 +931,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             if (frame_link == FRAME_GENERATOR) {
                 PyGenObject2 *gen = PyGen2_FromThread(ts);
                 assert(gen != NULL);
-                gen->status = GEN_FINISHED;
+                gen->status = GEN_CLOSED;
                 gen->return_value = OWNING_REF(acc);
                 ts->ts->use_new_interp -= 1;
                 return NULL;

@@ -12,11 +12,10 @@ extern "C" {
 #endif
 
 enum PyGeneratorStatus {
-    GEN_STARTED = 0,
-    GEN_YIELD = 1,
-    GEN_RUNNING = 2,
-    GEN_ERROR = 3,
-    GEN_FINISHED = 4
+    GEN_CREATED   = 0,
+    GEN_SUSPENDED = 1,
+    GEN_RUNNING   = 2,
+    GEN_CLOSED    = 3
 };
 
 /* Generator object interface: move to genobject.h */
