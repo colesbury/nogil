@@ -103,7 +103,7 @@ extern "C" {
     _(CALL_FINALLY,              92,     4,     10) \
     _(END_FINALLY,               93,     2,      6) \
     _(LOAD_BUILD_CLASS,          94,     1,      2) \
-    _(GET_AWAITABLE,             95,     2,      6) \
+    _(GET_AWAITABLE,             95,     3,     10) \
     _(GET_AITER,                 96,     2,      6) \
     _(GET_ANEXT,                 97,     2,      6) \
     _(END_ASYNC_WITH,            98,     2,      6) \

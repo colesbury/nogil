@@ -256,12 +256,12 @@ int vm_delete_name(struct ThreadState *ts, PyObject *name);
 int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
 
 void vm_err_non_iterator(struct ThreadState *ts, PyObject *o);
-void vm_err_awaitable(struct ThreadState *ts, Register acc);
 void vm_err_coroutine_awaited(struct ThreadState *ts);
 void vm_err_unbound(struct ThreadState *ts, Py_ssize_t idx);
 void vm_err_async_for_aiter(struct ThreadState *ts, PyTypeObject *type);
 void vm_err_async_for_no_anext(struct ThreadState *ts, PyTypeObject *type);
 void vm_err_async_for_anext_invalid(struct ThreadState *ts, Register res);
+void vm_err_async_with_aenter(struct ThreadState *ts, Register acc);
 void vm_err_dict_update(struct ThreadState *ts, Register acc);
 
 PyObject *vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);

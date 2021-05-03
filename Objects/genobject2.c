@@ -1589,6 +1589,7 @@ static PyTypeObject _PyAsyncGenASend2_Type = {
     .tp_basicsize = sizeof(PyAsyncGenASend),
     .tp_dealloc = (destructor)async_gen_asend_dealloc,
     .tp_as_async = &async_gen_asend_as_async,
+    .tp_getattro = PyObject_GenericGetAttr,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_traverse = (traverseproc)async_gen_asend_traverse,
     .tp_iter = PyObject_SelfIter,

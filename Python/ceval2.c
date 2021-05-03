@@ -1906,7 +1906,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             PyObject *iter;
             CALL_VM(iter = _PyCoro2_GetAwaitableIter(obj));
             if (UNLIKELY(iter == NULL)) {
-                CALL_VM(vm_err_awaitable(ts, acc));
+                bool is_async_with = (UImm(1) != 0);
+                if (is_async_with) {
+                    CALL_VM(vm_err_async_with_aenter(ts, acc));
+                }
                 goto error;
             }
             regs[UImm(0)] = PACK_OBJ(iter);

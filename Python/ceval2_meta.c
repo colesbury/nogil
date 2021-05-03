@@ -2271,25 +2271,13 @@ vm_err_yield_from_coro(struct ThreadState *ts)
 }
 
 void
-vm_err_awaitable(struct ThreadState *ts, Register acc)
+vm_err_async_with_aenter(struct ThreadState *ts, Register acc)
 {
     PyTypeObject *type = Py_TYPE(AS_OBJ(acc));
-    if (type->tp_as_async == NULL || type->tp_as_async->am_await == NULL) {
-            _PyErr_Format(ts->ts, PyExc_TypeError,
-                          "FIXME(sgross): vm_err_awaitable");
-        // if (prevopcode == BEFORE_ASYNC_WITH) {
-        //     _PyErr_Format(tstate, PyExc_TypeError,
-        //                   "'async with' received an object from __aenter__ "
-        //                   "that does not implement __await__: %.100s",
-        //                   type->tp_name);
-        // }
-        // else if (prevopcode == WITH_EXCEPT_START || (prevopcode == CALL_FUNCTION && prevprevopcode == DUP_TOP)) {
-        //     _PyErr_Format(tstate, PyExc_TypeError,
-        //                   "'async with' received an object from __aexit__ "
-        //                   "that does not implement __await__: %.100s",
-        //                   type->tp_name);
-        // }
-    }
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+                  "'async with' received an object from __aenter__ "
+                  "that does not implement __await__: %.100s",
+                  type->tp_name);
 }
 
 void

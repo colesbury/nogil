@@ -5169,7 +5169,7 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
 
     if (is_async_generator && type != COMP_GENEXP) {
         Py_ssize_t reg = reserve_regs(c, 1);
-        emit1(c, GET_AWAITABLE, reg);
+        emit2(c, GET_AWAITABLE, reg, 0);
         emit1(c, LOAD_CONST, const_none(c));
         emit1(c, YIELD_FROM, reg);
         clear_reg(c, reg);
@@ -5279,7 +5279,7 @@ compiler_await(struct compiler *c, expr_ty e)
 
     compiler_visit_expr(c, e->v.Await.value);
     reg = reserve_regs(c, 1);
-    emit1(c, GET_AWAITABLE, reg);
+    emit2(c, GET_AWAITABLE, reg, 0);
     emit1(c, LOAD_CONST, const_none(c));
     emit1(c, YIELD_FROM, reg);
     clear_reg(c, reg);
@@ -5347,7 +5347,7 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     compiler_visit_expr(c, item->context_expr);
     with_reg = reserve_regs(c, 3);
     emit1(c, SETUP_ASYNC_WITH, with_reg);
-    emit1(c, GET_AWAITABLE, with_reg + 2);
+    emit2(c, GET_AWAITABLE, with_reg + 2, 1);
     emit1(c, LOAD_CONST, const_none(c));
     emit1(c, YIELD_FROM, with_reg + 2);
     clear_reg(c, with_reg + 2);
