@@ -236,6 +236,13 @@ gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
                 "%s raised StopIteration",
                 gen_typename(gen));
         }
+        else if (PyAsyncGen2_CheckExact(gen) &&
+                 PyErr_ExceptionMatches(PyExc_StopAsyncIteration)) {
+            _PyErr_FormatFromCause(
+                PyExc_RuntimeError,
+                "%s raised StopAsyncIteration",
+                gen_typename(gen));
+        }
         return NULL;
     }
 }
