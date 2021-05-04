@@ -342,6 +342,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     void **opcode_targets = ts->ts->opcode_targets;
     uintptr_t tid = _Py_ThreadId();
 
+    CHECK_EVAL_BREAKER();
+
     // GCC likes to get too clever
     BREAK_LIVE_RANGE(opcode_targets);
 

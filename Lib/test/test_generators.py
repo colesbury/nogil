@@ -33,7 +33,6 @@ class SignalAndYieldFromTest(unittest.TestCase):
         else:
             return "FAILED"
 
-    @unittest.skip("samisdumb: signals NYI")
     def test_raise_and_yield_from(self):
         gen = self.generator1()
         gen.send(None)

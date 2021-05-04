@@ -3058,6 +3058,13 @@ vm_frame_clear_aux(intptr_t frame_link)
 int
 vm_eval_breaker(struct ThreadState *ts)
 {
+    int opcode = ts->pc[0];
+    if (opcode == WIDE) {
+        opcode = ts->pc[1];
+    }
+    if (opcode == YIELD_FROM) {
+        return 0;
+    }
     return _PyEval_HandleBreaker(ts->ts);
 }
 

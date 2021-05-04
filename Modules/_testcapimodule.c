@@ -4781,9 +4781,9 @@ dict_get_version(PyObject *self, PyObject *args)
 static PyObject *
 raise_SIGINT_then_send_None(PyObject *self, PyObject *args)
 {
-    PyGenObject *gen;
+    PyGenObject2 *gen;
 
-    if (!PyArg_ParseTuple(args, "O!", &PyGen_Type, &gen))
+    if (!PyArg_ParseTuple(args, "O!", &PyGen2_Type, &gen))
         return NULL;
 
     /* This is used in a test to check what happens if a signal arrives just
@@ -4797,7 +4797,7 @@ raise_SIGINT_then_send_None(PyObject *self, PyObject *args)
          because we check for signals before every bytecode operation.
      */
     raise(SIGINT);
-    return _PyGen_Send(gen, Py_None);
+    return _PyGen2_Send(gen, Py_None);
 }
 
 
