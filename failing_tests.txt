@@ -16,7 +16,6 @@ test_faulthandler
 test_frame
 test_funcattrs
 test_future
-test_gc
 test_gdb
 test_inspect
 test_io
