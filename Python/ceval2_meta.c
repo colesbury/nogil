@@ -521,7 +521,7 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
 }
 
 static PyObject *
-traceback_from_pc(PyFunc *func, const uint8_t *pc, PyObject *tb);
+traceback_here(struct ThreadState *ts, PyObject *tb);
 
 // Unwinds the stack looking for the nearest exception handler. Returns
 // the program counter (PC) of the exception handler block, or NULL if
@@ -556,7 +556,7 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
         }
 
         if (!skip_frame) {
-            PyObject *newtb = traceback_from_pc(func, pc, tb);
+            PyObject *newtb = traceback_here(ts, tb);
             if (newtb != NULL) {
                 Py_XSETREF(tb, newtb);
             }
@@ -609,49 +609,38 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
     }
 }
 
-_Py_IDENTIFIER(__builtins__);
-
 static PyFrameObject *
-new_fake_frame(PyFunc *func, const uint8_t *pc)
+new_fake_frame(struct ThreadState *ts, Py_ssize_t offset, const uint8_t *pc)
 {
-    PyCodeObject2 *co2 = PyCode2_FromFunc(func);
-    int firstlineno = co2->co_firstlineno;
+    assert(PyFunc_Check(AS_OBJ(ts->regs[offset-1])));
 
-    PyCodeObject *empty_code = PyCode_NewEmpty("", "", firstlineno);
-    if (empty_code == NULL) {
-        return NULL;
-    }
-    // NOTE: we copy co_filename here instead of passing the c-string above
-    // so that it's the exact same object. Turns out stack-collapsing code
-    // relies on that.
-    Py_INCREF(co2->co_filename);
-    Py_SETREF(empty_code->co_filename, co2->co_filename);
-    Py_INCREF(co2->co_name);
-    Py_SETREF(empty_code->co_name, co2->co_name);
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[offset-1]);
+    PyCodeObject2 *co = PyCode2_FromFunc(func);
 
-    PyObject *globals = ((PyFunc *)func)->globals;
-    PyFrameObject *frame = PyFrame_New(PyThreadState_Get(), empty_code, globals, NULL);
-    Py_DECREF(empty_code);
+    PyFrameObject *frame = _PyFrame_NewFake(co, func->globals);
     if (frame == NULL) {
         return NULL;
     }
-    Py_CLEAR(frame->f_back);
 
-    // fake trace so that we use f->f_lineno
-    Py_INCREF(globals);
-    frame->f_trace = globals;
-
-    const uint8_t *first_instr = PyCode2_GET_CODE(co2);
+    const uint8_t *first_instr = PyCode2_GET_CODE(co);
     Py_ssize_t instr_offset = (pc - first_instr);
     intptr_t addrq = sizeof(*pc) * instr_offset;
-    frame->f_lineno = PyCode2_Addr2Line(co2, (int)addrq);
+    frame->f_lasti = addrq;
+    frame->f_lineno = PyCode2_Addr2Line(co, (int)addrq);
+
+    for (Py_ssize_t i = 0, nlocals = co->co_nlocals; i < nlocals; i++) {
+        // PyObject *op = AS_OBJ(ts->regs[i]);
+        // Py_XINCREF(op);
+        // frame->f_localsplus[i] = op;
+    }
+
     return frame;
 }
 
 static PyObject *
-traceback_from_pc(PyFunc *func, const uint8_t *pc, PyObject *tb)
+traceback_here(struct ThreadState *ts, PyObject *tb)
 {
-    PyFrameObject *frame = new_fake_frame(func, pc);
+    PyFrameObject *frame = new_fake_frame(ts, 0, ts->pc);
     if (frame == NULL) {
         return NULL;
     }
@@ -668,14 +657,10 @@ vm_traceback_here(struct ThreadState *ts)
     vm_stack_walk_init(&w, ts);
     while (vm_stack_walk(&w)) {
         Register *regs = vm_stack_walk_regs(&w);
-        PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable) || w.pc == NULL) {
-            continue;
+        if (PyFunc_Check(AS_OBJ(regs[-1]))) {
+            return new_fake_frame(ts, w.offset, w.pc);
         }
-
-        return traceback_from_pc((PyFunc *)callable, w.pc, NULL);
     }
-
     return NULL;
 }
 
@@ -700,7 +685,7 @@ vm_get_frame(int depth)
             continue;
         }
 
-        PyFrameObject *frame = new_fake_frame((PyFunc *)callable, w.pc);
+        PyFrameObject *frame = new_fake_frame(w.ts, w.offset, w.pc);
         if (frame == NULL) {
             Py_XDECREF(top);
             return NULL;
@@ -2431,6 +2416,7 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 PyObject *
 vm_builtins_from_globals(PyObject *globals)
 {
+    _Py_IDENTIFIER(__builtins__);
     PyObject *builtins = _PyDict_GetItemIdWithError(globals, &PyId___builtins__);
     if (!builtins) {
         if (PyErr_Occurred()) {
@@ -2955,11 +2941,11 @@ frame_aux_state(struct ThreadState *ts, Py_ssize_t offset)
 
     struct FrameAux *aux = mi_malloc(sizeof(struct FrameAux));
     if (aux == NULL) {
+        PyErr_NoMemory();
         return NULL;
     }
+    memset(aux, 0, sizeof(struct FrameAux));
     aux->code = CLEAR_FRAME_AUX;
-    aux->frame = NULL;
-    aux->locals = NULL;
     aux->frame_link = ts->regs[offset-2].as_int64;
     ts->regs[offset-2].as_int64 = (intptr_t)&aux->code;
     return aux;

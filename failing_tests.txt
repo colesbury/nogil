@@ -3,6 +3,7 @@ test_asyncio
 test_audit
 test_bdb
 test_capi
+test_cgitb
 test_code
 test_collections
 test_contextlib_async

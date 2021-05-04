@@ -5,6 +5,7 @@
 #include "pycore_pystate.h"
 
 #include "code.h"
+#include "code2.h"
 #include "frameobject.h"
 #include "opcode.h"
 #include "structmember.h"
@@ -13,7 +14,7 @@
 
 static PyMemberDef frame_memberlist[] = {
     {"f_back",          T_OBJECT,       OFF(f_back),      READONLY},
-    {"f_code",          T_OBJECT,       OFF(f_code),      READONLY},
+    // {"f_code",          T_OBJECT,       OFF(f_code),      READONLY},
     {"f_builtins",      T_OBJECT,       OFF(f_builtins),  READONLY},
     {"f_globals",       T_OBJECT,       OFF(f_globals),   READONLY},
     {"f_lasti",         T_INT,          OFF(f_lasti),     READONLY},
@@ -31,13 +32,28 @@ frame_getlocals(PyFrameObject *f, void *closure)
     return f->f_locals;
 }
 
+static PyObject *
+frame_getcode(PyFrameObject *f, void *closure)
+{
+    if (f->f_code) {
+        Py_INCREF(f->f_code);
+        return (PyObject *)f->f_code;
+    }
+    else {
+        Py_INCREF(f->f_code2);
+        return (PyObject *)f->f_code2;
+    }
+}
+
 int
 PyFrame_GetLineNumber(PyFrameObject *f)
 {
     if (f->f_trace)
         return f->f_lineno;
-    else
+    else if (f->f_code)
         return PyCode_Addr2Line(f->f_code, f->f_lasti);
+    else
+        return PyCode2_Addr2Line(f->f_code2, f->f_lasti);
 }
 
 static PyObject *
@@ -567,6 +583,7 @@ frame_settrace(PyFrameObject *f, PyObject* v, void *closure)
 
 static PyGetSetDef frame_getsetlist[] = {
     {"f_locals",        (getter)frame_getlocals, NULL, NULL},
+    {"f_code",        (getter)frame_getcode, NULL, NULL},
     {"f_lineno",        (getter)frame_getlineno,
                     (setter)frame_setlineno, NULL},
     {"f_trace",         (getter)frame_gettrace, (setter)frame_settrace, NULL},
@@ -651,25 +668,35 @@ frame_dealloc(PyFrameObject *f)
         }
     }
 
-    Py_XDECREF(f->f_back);;
+    Py_XDECREF(f->f_back);
     Py_CLEAR(f->f_locals);
     Py_CLEAR(f->f_trace);
+    Py_CLEAR(f->f_code2);
     builtins = f->f_builtins;
     globals = f->f_globals;
     co = f->f_code;
 
-    if (!_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL)
-        co->co_zombieframe = f;
-    else
-        PyObject_GC_Del(f);
+    if (co) {
+        if (!_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL) {
+            co->co_zombieframe = f;
+        }
+        else {
+            PyObject_GC_Del(f);
+        }
 
-    Py_DECREF_STACK(builtins);
-    Py_DECREF_STACK(globals);
-    Py_DECREF_STACK(co);
-    if (retains_code) {
-        Py_DECREF(builtins);
+        Py_DECREF_STACK(builtins);
+        Py_DECREF_STACK(globals);
+        Py_DECREF_STACK(co);
+        if (retains_code) {
+            Py_DECREF(builtins);
+            Py_DECREF(globals);
+            Py_DECREF(co);
+        }
+    }
+    else {
+        PyObject_GC_Del(f);
         Py_DECREF(globals);
-        Py_DECREF(co);
+        assert(builtins == NULL);
     }
     Py_TRASHCAN_SAFE_END(f)
 }
@@ -682,13 +709,17 @@ frame_traverse(PyFrameObject *f, visitproc visit, void *arg)
 
     Py_VISIT(f->f_back);
     Py_VISIT(f->f_code);
+    Py_VISIT(f->f_code2);
     Py_VISIT(f->f_builtins);
     Py_VISIT(f->f_globals);
     Py_VISIT(f->f_locals);
     Py_VISIT(f->f_trace);
 
     /* locals */
-    slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+    if (f->f_code)
+        slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+    else
+        slots = 0;
     fastlocals = f->f_localsplus;
     for (i = slots; --i >= 0; ++fastlocals)
         Py_VISIT(*fastlocals);
@@ -725,7 +756,10 @@ frame_tp_clear(PyFrameObject *f)
     Py_CLEAR(f->f_trace);
 
     /* locals */
-    slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+    if (f->f_code)
+        slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+    else
+        slots = 0;
     fastlocals = f->f_localsplus;
     for (i = slots; --i >= 0; ++fastlocals)
         Py_CLEAR(*fastlocals);
@@ -782,10 +816,14 @@ PyDoc_STRVAR(sizeof__doc__,
 static PyObject *
 frame_repr(PyFrameObject *f)
 {
+    // TODO(sgross): clean-up
+    PyObject *co_filename = f->f_code ? f->f_code->co_filename : f->f_code2->co_filename;
+    PyObject *co_name = f->f_code ? f->f_code->co_name : f->f_code2->co_name;
+
     int lineno = PyFrame_GetLineNumber(f);
     return PyUnicode_FromFormat(
         "<frame at %p, file %R, line %d, code %S>",
-        f, f->f_code->co_filename, lineno, f->f_code->co_name);
+        f, co_filename, lineno, co_name);
 }
 
 static PyMethodDef frame_methods[] = {
@@ -862,6 +900,41 @@ builtins_from_globals(PyObject *globals)
     return builtins;
 }
 
+PyFrameObject*
+_PyFrame_NewFake(PyCodeObject2 *code, PyObject *globals)
+{
+    Py_ssize_t extras = code->co_nlocals;
+    PyFrameObject *f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
+    if (f == NULL) {
+        return NULL;
+    }
+    f->f_back = NULL;
+    f->f_code = NULL;
+    Py_INCREF(code);
+    f->f_code2 = code;
+    f->f_builtins = NULL;
+    Py_INCREF(globals);
+    f->f_globals = globals;
+    f->f_locals = NULL;
+    f->f_valuestack = f->f_localsplus + extras;
+    f->f_stacktop = f->f_valuestack;
+    f->f_callablestack = f->f_callabletop = f->f_stacktop;
+    f->f_trace = NULL;
+    f->f_gen = NULL;
+    f->f_lasti = -1;
+    f->f_lineno = 0;
+    f->f_iblock = 0;
+    f->f_trace_lines = 1;
+    f->f_trace_opcodes = 0;
+    f->f_executing = 0;
+    f->f_retains_code = 0;
+    for (Py_ssize_t i = 0; i < extras; i++) {
+        f->f_localsplus[i] = NULL;
+    }
+    _PyObject_GC_TRACK(f);
+    return f;
+}
+
 PyFrameObject* _Py_HOT_FUNCTION
 _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
                      PyObject *globals, PyObject *locals)
@@ -901,6 +974,7 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
         }
 
         f->f_code = code;
+        f->f_code2 = NULL;
         extras = code->co_nlocals + ncells + nfrees + 1;
         f->f_valuestack = f->f_localsplus + extras;
         f->f_callablestack = f->f_valuestack + code->co_stacksize;
@@ -1152,6 +1226,55 @@ dict_to_map(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
 }
 
 int
+PyFrame_FastToLocalsWithError2(PyFrameObject *f, PyCodeObject2 *co)
+{
+    /* Merge fast locals into f->f_locals */
+    PyObject *locals, *map;
+    PyObject **fast;
+    Py_ssize_t j;
+
+    map = co->co_varnames;
+    locals = f->f_locals;
+
+    if (!PyTuple_Check(map)) {
+        PyErr_Format(PyExc_SystemError,
+                     "co_varnames must be a tuple, not %s",
+                     Py_TYPE(map)->tp_name);
+        return -1;
+    }
+    fast = f->f_localsplus;
+    j = PyTuple_GET_SIZE(map);
+    if (j > co->co_nlocals)
+        j = co->co_nlocals;
+    if (co->co_nlocals) {
+        if (map_to_dict(map, j, locals, fast, 0) < 0)
+            return -1;
+    }
+    // ncells = PyTuple_GET_SIZE(co->co_cellvars);
+    // nfreevars = PyTuple_GET_SIZE(co->co_freevars);
+    // if (ncells || nfreevars) {
+    //     if (map_to_dict(co->co_cellvars, ncells,
+    //                     locals, fast + co->co_nlocals, 1))
+    //         return -1;
+
+    //     /* If the namespace is unoptimized, then one of the
+    //        following cases applies:
+    //        1. It does not contain free variables, because it
+    //           uses import * or is a top-level namespace.
+    //        2. It is a class namespace.
+    //        We don't want to accidentally copy free variables
+    //        into the locals dict used by the class.
+    //     */
+    //     if (co->co_flags & CO_OPTIMIZED) {
+    //         if (map_to_dict(co->co_freevars, nfreevars,
+    //                         locals, fast + co->co_nlocals + ncells, 1) < 0)
+    //             return -1;
+    //     }
+    // }
+    return 0;
+}
+
+int
 PyFrame_FastToLocalsWithError(PyFrameObject *f)
 {
     /* Merge fast locals into f->f_locals */
@@ -1171,7 +1294,12 @@ PyFrame_FastToLocalsWithError(PyFrameObject *f)
         if (locals == NULL)
             return -1;
     }
+
     co = f->f_code;
+    if (co == NULL) {
+        return PyFrame_FastToLocalsWithError2(f, f->f_code2);
+    }
+
     map = co->co_varnames;
     if (!PyTuple_Check(map)) {
         PyErr_Format(PyExc_SystemError,
@@ -1237,6 +1365,9 @@ PyFrame_LocalsToFast(PyFrameObject *f, int clear)
         return;
     locals = f->f_locals;
     co = f->f_code;
+    if (co == NULL) {
+        return;
+    }
     map = co->co_varnames;
     if (locals == NULL)
         return;
@@ -1272,7 +1403,7 @@ PyFrame_RetainForGC(PyFrameObject *top)
         // running the tracefunc for that thread. This logic could be simplified
         // if we mark the frame as executing *before* running the tracefunc. That
         // would maintain an invariant that f_executing <=> frame on the stack.
-        if (f->f_retains_code ) {
+        if (f->f_retains_code || !f->f_code) {
             return;
         }
         f->f_retains_code = 1;
@@ -1290,7 +1421,7 @@ void
 PyFrame_UnretainForGC(PyFrameObject *top)
 {
     for (PyFrameObject *f = top; f != NULL; f = f->f_back) {
-        if (!f->f_retains_code) {
+        if (!f->f_retains_code || !f->f_code) {
             return;
         }
         f->f_retains_code = 0;

@@ -34,7 +34,6 @@ test_c_locale_coercion
 test_calendar
 test_call
 test_cgi
-test_cgitb
 test_charmapcodec
 test_check_c_globals
 test_class

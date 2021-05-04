@@ -15,10 +15,14 @@ typedef struct {
     int b_callablelevel;        /* callable stack level to pop to */
 } PyTryBlock;
 
+struct _PyCodeObject2;
+typedef struct _PyCodeObject2 PyCodeObject2;
+
 typedef struct _frame {
     PyObject_VAR_HEAD
     struct _frame *f_back;      /* previous frame, or NULL */
     PyCodeObject *f_code;       /* code segment */
+    PyCodeObject2 *f_code2;       /* code segment */
     PyObject *f_builtins;       /* builtin symbol table (PyDictObject) */
     PyObject *f_globals;        /* global symbol table (PyDictObject) */
     PyObject *f_locals;         /* local symbol table (any mapping) */
@@ -66,6 +70,8 @@ PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
 /* only internal use */
 PyFrameObject* _PyFrame_New_NoTrack(PyThreadState *, PyCodeObject *,
                                     PyObject *, PyObject *);
+
+PyFrameObject* _PyFrame_NewFake(PyCodeObject2 *, PyObject *);
 
 
 /* The rest of the interface is specific for frame objects */

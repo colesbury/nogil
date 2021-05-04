@@ -5,6 +5,7 @@
 #include "pycore_pystate.h"
 
 #include "code.h"
+#include "code2.h"
 #include "frameobject.h"
 #include "structmember.h"
 #include "osdefs.h"
@@ -561,24 +562,28 @@ tb_printinternal(PyTracebackObject *tb, PyObject *f, long limit)
         tb = tb->tb_next;
     }
     while (tb != NULL && err == 0) {
+        PyFrameObject *frame = tb->tb_frame;
+        PyObject *co_filename = frame->f_code ? frame->f_code->co_filename : frame->f_code2->co_filename;
+        PyObject *co_name = frame->f_code ? frame->f_code->co_name : frame->f_code2->co_name;
+
         if (last_file == NULL ||
-            tb->tb_frame->f_code->co_filename != last_file ||
+            co_filename != last_file ||
             last_line == -1 || tb->tb_lineno != last_line ||
-            last_name == NULL || tb->tb_frame->f_code->co_name != last_name) {
+            last_name == NULL || co_name != last_name) {
             if (cnt > TB_RECURSIVE_CUTOFF) {
                 err = tb_print_line_repeated(f, cnt);
             }
-            last_file = tb->tb_frame->f_code->co_filename;
+            last_file = co_filename;
             last_line = tb->tb_lineno;
-            last_name = tb->tb_frame->f_code->co_name;
+            last_name = co_name;
             cnt = 0;
         }
         cnt++;
         if (err == 0 && cnt <= TB_RECURSIVE_CUTOFF) {
             err = tb_displayline(f,
-                                 tb->tb_frame->f_code->co_filename,
+                                 co_filename,
                                  tb->tb_lineno,
-                                 tb->tb_frame->f_code->co_name);
+                                 co_name);
             if (err == 0) {
                 err = PyErr_CheckSignals();
             }

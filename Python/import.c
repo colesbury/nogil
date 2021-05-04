@@ -1562,12 +1562,13 @@ remove_importlib_frames(PyThreadState *tstate)
         PyTracebackObject *traceback = (PyTracebackObject *)tb;
         PyObject *next = (PyObject *) traceback->tb_next;
         PyFrameObject *frame = traceback->tb_frame;
-        PyCodeObject *code = frame->f_code;
+        PyObject *filename = frame->f_code ? frame->f_code->co_filename : frame->f_code2->co_filename;
+        PyObject *name = frame->f_code ? frame->f_code->co_name : frame->f_code2->co_name;
         int now_in_importlib;
 
         assert(PyTraceBack_Check(tb));
-        now_in_importlib = _PyUnicode_EqualToASCIIString(code->co_filename, importlib_filename) ||
-                           _PyUnicode_EqualToASCIIString(code->co_filename, external_filename);
+        now_in_importlib = _PyUnicode_EqualToASCIIString(filename, importlib_filename) ||
+                           _PyUnicode_EqualToASCIIString(filename, external_filename);
         if (now_in_importlib && !in_importlib) {
             /* This is the link to this chunk of importlib tracebacks */
             outer_link = prev_link;
@@ -1576,7 +1577,7 @@ remove_importlib_frames(PyThreadState *tstate)
 
         if (in_importlib &&
             (always_trim ||
-             _PyUnicode_EqualToASCIIString(code->co_name, remove_frames))) {
+             _PyUnicode_EqualToASCIIString(name, remove_frames))) {
             Py_XINCREF(next);
             Py_XSETREF(*outer_link, next);
             prev_link = outer_link;
