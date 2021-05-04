@@ -2884,6 +2884,10 @@ defaults_to_regs(struct compiler *c, arguments_ty args)
         if (e != NULL) {
             expr_to_reg(c, e, kw_base + i);
         }
+        else {
+            reserve_regs(c, 1);
+            assert(c->unit->next_register == kw_base + i + 1);
+        }
     }
 
     return base;
