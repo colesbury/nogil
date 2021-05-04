@@ -127,6 +127,7 @@ test_frozen
 test_fstring
 test_ftplib
 test_functools
+test_future
 test_future3
 test_future4
 test_future5

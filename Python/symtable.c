@@ -1267,7 +1267,9 @@ symtable_visit_stmt(struct symtable *st, stmt_ty s)
         else {
             VISIT(st, expr, s->v.AnnAssign.target);
         }
-        VISIT(st, expr, s->v.AnnAssign.annotation);
+        if (st->st_future == NULL || (st->st_future->ff_features & CO_FUTURE_ANNOTATIONS) == 0) {
+            VISIT(st, expr, s->v.AnnAssign.annotation);
+        }
         if (s->v.AnnAssign.value) {
             VISIT(st, expr, s->v.AnnAssign.value);
         }
@@ -1697,6 +1699,18 @@ symtable_visit_params(struct symtable *st, asdl_seq *args)
 }
 
 static int
+symtable_visit_argannotation(struct symtable *st, expr_ty annotation)
+{
+    if (annotation) {
+        if (st->st_future == NULL || (st->st_future->ff_features & CO_FUTURE_ANNOTATIONS) == 0) {
+            VISIT(st, expr, annotation);
+        }
+    }
+    return 1;
+}
+
+
+static int
 symtable_visit_argannotations(struct symtable *st, asdl_seq *args)
 {
     int i;
@@ -1706,8 +1720,9 @@ symtable_visit_argannotations(struct symtable *st, asdl_seq *args)
 
     for (i = 0; i < asdl_seq_LEN(args); i++) {
         arg_ty arg = (arg_ty)asdl_seq_GET(args, i);
-        if (arg->annotation)
-            VISIT(st, expr, arg->annotation);
+        if (!symtable_visit_argannotation(st, arg->annotation)) {
+            return 0;
+        }
     }
 
     return 1;
@@ -1721,14 +1736,14 @@ symtable_visit_annotations(struct symtable *st, stmt_ty s,
         return 0;
     if (a->args && !symtable_visit_argannotations(st, a->args))
         return 0;
-    if (a->vararg && a->vararg->annotation)
-        VISIT(st, expr, a->vararg->annotation);
-    if (a->kwarg && a->kwarg->annotation)
-        VISIT(st, expr, a->kwarg->annotation);
+    if (a->vararg && !symtable_visit_argannotation(st, a->vararg->annotation))
+        return 0;
+    if (a->kwarg && !symtable_visit_argannotation(st, a->kwarg->annotation))
+        return 0;
     if (a->kwonlyargs && !symtable_visit_argannotations(st, a->kwonlyargs))
         return 0;
-    if (returns)
-        VISIT(st, expr, returns);
+    if (returns && !symtable_visit_argannotation(st, returns))
+        return 0;
     return 1;
 }
 
