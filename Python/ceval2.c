@@ -219,16 +219,20 @@ _OWNING_REF(Register r, intptr_t tid)
 // This allows us to skip saving it during the DECREF calls,
 // which typically allows the compiler to re-use the register
 // normally allocated to pc.
+#define CLEAR_X(reg) do {                                   \
+    Register r = (reg);                                     \
+    (reg).as_int64 = 0;                                     \
+    if (r.as_int64 != 0) {                                  \
+        DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);          \
+    }                                                       \
+} while (0)
+
 #define CLEAR_REGISTERS(N) do {                             \
     ts->pc = pc;                                            \
     Py_ssize_t _n = (N);                                    \
     do {                                                    \
         _n--;                                               \
-        Register r = regs[_n];                              \
-        regs[_n].as_int64 = 0;                              \
-        if (r.as_int64 != 0) {                              \
-            DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);      \
-        }                                                   \
+        CLEAR_X(regs[_n]);                                  \
     } while (_n >= 0);                                      \
 } while (0)
 
@@ -933,6 +937,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
     #endif
         CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
+        CLEAR_X(regs[-3]);
     #if DEBUG_FRAME
         for (Py_ssize_t i = 0; i < frame_size; i++) {
             assert(regs[i].as_int64 == 0);

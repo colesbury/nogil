@@ -43,6 +43,9 @@ static Py_ssize_t
 vm_regs_frame_size(Register *regs)
 {
     PyObject *this_func = AS_OBJ(regs[-1]);
+    if (this_func == NULL) {
+        return 0;
+    }
     if (!PyFunc_Check(this_func)) {
         return regs[-3].as_int64;
     }
@@ -2582,7 +2585,6 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
 
     ts->regs += frame_delta;
 
-    PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
     ts->regs[-4].as_int64 = frame_delta;
     // ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2].as_int64 = -(intptr_t)ts->pc;
@@ -3049,24 +3051,16 @@ PyEval2_GetGlobals(void)
     return NULL;
 }
 
-static struct FrameAux *
+static PyFrameObject *
 frame_aux_state(struct ThreadState *ts, Py_ssize_t offset)
 {
-    intptr_t frame_link = ts->regs[offset-2].as_int64;
-    if (frame_link_is_aux(frame_link)) {
-        return (struct FrameAux *)frame_link;
+    if (ts->regs[offset-3].as_int64 != 0) {
+        return (PyFrameObject *)AS_OBJ(ts->regs[offset-3]);
     }
 
-    struct FrameAux *aux = mi_malloc(sizeof(struct FrameAux));
-    if (aux == NULL) {
-        PyErr_NoMemory();
-        return NULL;
-    }
-    memset(aux, 0, sizeof(struct FrameAux));
-    aux->code = CLEAR_FRAME_AUX;
-    aux->frame_link = ts->regs[offset-2].as_int64;
-    ts->regs[offset-2].as_int64 = (intptr_t)&aux->code;
-    return aux;
+    PyFrameObject *frame = new_fake_frame(ts, offset, ts->pc);
+    ts->regs[offset-3] = PACK(frame, REFCOUNT_TAG);
+    return frame;
 }
 
 static PyObject *
@@ -3081,14 +3075,14 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
         return locals;
     }
 
-    struct FrameAux *aux = frame_aux_state(ts, offset);
-    if (aux == NULL) {
+    PyFrameObject *frame = frame_aux_state(ts, offset);
+    if (frame == NULL) {
         return NULL;
     }
 
-    PyObject *locals = aux->locals;
+    PyObject *locals = frame->f_locals;
     if (locals == NULL) {
-        locals = aux->locals = PyDict_New();
+        locals = frame->f_locals = PyDict_New();
         if (locals == NULL) {
             return NULL;
         }
@@ -3144,19 +3138,20 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
 intptr_t
 vm_frame_clear_aux(intptr_t frame_link)
 {
-    struct FrameAux *aux;
+    abort();
+    // struct FrameAux *aux;
 
-    // The frame_link points the aux->code field. This is the
-    assert(frame_link_is_aux(frame_link));
-    aux = (struct FrameAux *)frame_link;
+    // // The frame_link points the aux->code field. This is the
+    // assert(frame_link_is_aux(frame_link));
+    // aux = (struct FrameAux *)frame_link;
 
-    Py_CLEAR(aux->frame);
-    Py_CLEAR(aux->locals);
+    // Py_CLEAR(aux->frame);
+    // Py_CLEAR(aux->locals);
 
-    frame_link = aux->frame_link;
-    mi_free(aux);
+    // frame_link = aux->frame_link;
+    // mi_free(aux);
 
-    return frame_link;
+    // return frame_link;
 }
 
 int
