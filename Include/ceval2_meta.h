@@ -22,7 +22,6 @@ enum {
 };
 
 #define FRAME_EXTRA     4
-#define CFRAME_EXTRA    4
 
 
 /*

@@ -289,8 +289,7 @@ _OWNING_REF(Register r, intptr_t tid)
 #define THIS_CODE() \
     (PyCode2_FromInstr(THIS_FUNC()->func_base.first_instr))
 
-#define CONSTANTS() \
-    ((PyObject **)regs[-3].as_int64)
+#define CONSTANTS() (constants)
 
 static const Register primitives[3] = {
     {(intptr_t)Py_False + NO_REFCOUNT_TAG},
@@ -340,6 +339,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     Register acc = initial_acc;
     Register *regs = ts->regs;
     void **opcode_targets = ts->ts->opcode_targets;
+    PyObject **constants = THIS_CODE()->co_constants;
     uintptr_t tid = _Py_ThreadId();
 
     CHECK_EVAL_BREAKER();
@@ -491,7 +491,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         PyCodeObject2 *this_code = PyCode2_FromInstr(pc);
         assert(Py_TYPE(this_code) == &PyCode2_Type);
 
-        regs[-3].as_int64 = (intptr_t)this_code->co_constants;
+        constants = this_code->co_constants;
 
         // Fast path if the number of positional arguments matches exactly and
         // there are not any keyword arguments, cells, or freevars.
@@ -967,6 +967,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         // convert it to an owning reference before returning.
         acc = STRONG_REF(acc);
         pc = (const uint8_t *)frame_link;
+        if (pc[0] != CLEAR_FRAME_AUX)
+            constants = THIS_CODE()->co_constants;
         NEXT_INSTRUCTION();
     }
 
@@ -999,7 +1001,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(LOAD_GLOBAL) {
         assert(IS_EMPTY(acc));
-        PyObject **constants = CONSTANTS();
+        // PyObject **constants = CONSTANTS();
         intptr_t *metadata = (intptr_t *)(char *)constants;
         PyObject *name = constants[UImm(0)];
         PyObject *globals = THIS_FUNC()->globals;
@@ -2510,6 +2512,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             ts->ts->use_new_interp -= 1;
             return NULL;
         }
+        constants = THIS_CODE()->co_constants;
         NEXT_INSTRUCTION();
     }
 
@@ -2544,6 +2547,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             "# ts = %4 \n\t"
             "# opcode_targets = %5 \n\t"
             "# tid = %6 \n\t"
+            "# constants = %7 \n\t"
         ::
             "r" (opcode),
             "r" (acc),
@@ -2551,7 +2555,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             "r" (regs),
             "r" (ts),
             "r" (opcode_targets),
-            "r" (tid));
+            "r" (tid),
+            "r" (constants));
 #endif
         NEXT_INSTRUCTION();
     }

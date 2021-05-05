@@ -2481,10 +2481,10 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     PyCodeObject2 *code = PyCode2_FromFunc(func);
 
     // copy over func and arguments
-    Py_ssize_t frame_delta = CFRAME_EXTRA;
+    Py_ssize_t frame_delta = FRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-3] = old->regs[-3];  // copy constants
+    // ts->regs[-3] = old->regs[-3];  // copy constants
     ts->regs[-2].as_int64 = FRAME_GENERATOR;
     ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
@@ -2492,7 +2492,7 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     // We can't clear the old thread states values because they will be
     // referenced (and cleared) by RETURN_VALUE momentarily. Instead, just
     // mark them as non-refcounted references -- the generator owns them now.
-    old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
+    // old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
     Py_ssize_t nargs = code->co_totalargcount;
@@ -2572,7 +2572,7 @@ static int
 setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssize_t nargs)
 {
     assert(PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE));
-    Py_ssize_t frame_delta = vm_frame_size(ts) + CFRAME_EXTRA + extra;
+    Py_ssize_t frame_delta = vm_frame_size(ts) + FRAME_EXTRA + extra;
     Py_ssize_t frame_size = frame_delta + nargs;
     if (UNLIKELY(ts->regs + frame_size > ts->maxstack)) {
         if (vm_resize_stack(ts, frame_size) != 0) {
@@ -2584,7 +2584,7 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
 
     PyCodeObject2 *code = PyCode2_FROM_FUNC(func);
     ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
+    // ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-2].as_int64 = -(intptr_t)ts->pc;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
