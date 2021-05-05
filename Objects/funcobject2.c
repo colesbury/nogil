@@ -487,12 +487,24 @@ func_set_kwdefaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
         return -1;
     }
 
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    Py_ssize_t co_argcount = co->co_argcount;
+    Py_ssize_t co_totalargcount = co->co_totalargcount;
+    Py_ssize_t co_kwonlyargcount = co_totalargcount - co_argcount;
 
-    PyErr_SetString(PyExc_TypeError, "func.__kwdefaults__ assignment NYI");
-    return -1;
-    // Py_XINCREF(value);
-    // Py_XSETREF(op->func_kwdefaults, value);
-    // return 0;
+    Py_ssize_t j = co->co_ndefaultargs - co_kwonlyargcount;
+    for (Py_ssize_t i = co_argcount; i < co_totalargcount; i++, j++) {
+        PyObject *kwname = PyTuple_GET_ITEM(co->co_varnames, i);
+        PyObject *dflt = value ? PyDict_GetItemWithError(value, kwname) : NULL;
+        if (dflt == NULL && PyErr_Occurred()) {
+            return -1;
+        }
+
+        Py_XINCREF(dflt);
+        Py_XSETREF(op->freevars[j], dflt);
+    }
+
+    return 0;
 }
 
 

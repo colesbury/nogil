@@ -1450,16 +1450,88 @@ static int
 positional_only_passed_as_keyword(struct ThreadState *ts, PyCodeObject2 *co,
                                   Py_ssize_t kwcount, PyObject** kwnames)
 {
-    // FIXME
+    int posonly_conflicts = 0;
+    PyObject* posonly_names = PyList_New(0);
+
+    for(int k=0; k < co->co_posonlyargcount; k++){
+        PyObject* posonly_name = PyTuple_GET_ITEM(co->co_varnames, k);
+
+        for (int k2=0; k2<kwcount; k2++){
+            PyObject* kwname = kwnames[k2];
+            int cmp = PyObject_RichCompareBool(posonly_name, kwname, Py_EQ);
+            if (cmp == 1) {
+                if(PyList_Append(posonly_names, kwname) != 0) {
+                    goto fail;
+                }
+                posonly_conflicts++;
+            } else if (cmp < 0) {
+                goto fail;
+            }
+
+        }
+    }
+    if (posonly_conflicts) {
+        PyObject* comma = PyUnicode_FromString(", ");
+        if (comma == NULL) {
+            goto fail;
+        }
+        PyObject* error_names = PyUnicode_Join(comma, posonly_names);
+        Py_DECREF(comma);
+        if (error_names == NULL) {
+            goto fail;
+        }
+        _PyErr_Format(ts->ts, PyExc_TypeError,
+                      "%U() got some positional-only arguments passed"
+                      " as keyword arguments: '%U'",
+                      co->co_name, error_names);
+        Py_DECREF(error_names);
+        goto fail;
+    }
+
+    Py_DECREF(posonly_names);
     return 0;
+
+fail:
+    Py_XDECREF(posonly_names);
+    return 1;
 }
 
 static int _Py_NO_INLINE
-unexpected_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *keyword)
+unexpected_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co,
+                            PyObject *keyword, Py_ssize_t kwcount,
+                            PyObject **kwnames)
 {
-    _PyErr_Format(ts->ts, PyExc_TypeError,
-                  "%U() got an unexpected keyword argument '%S'",
-                  co->co_name, keyword);
+    if (co->co_posonlyargcount == 0 ||
+        !positional_only_passed_as_keyword(ts, co, kwcount, kwnames))
+    {
+        _PyErr_Format(ts->ts, PyExc_TypeError,
+                    "%U() got an unexpected keyword argument '%S'",
+                    co->co_name, keyword);
+    }
+    return -1;
+}
+
+static int _Py_NO_INLINE
+unexpected_keyword_argument_dict(struct ThreadState *ts, PyCodeObject2 *co,
+                                 PyObject *keyword, PyObject *kwargs)
+{
+    Py_ssize_t kwcount = PyDict_Size(kwargs);
+    PyObject *keys = PyTuple_New(kwcount);
+    if (keys == NULL) {
+        return -1;
+    }
+
+    Py_ssize_t i = 0, j = 0;
+    PyObject *key, *value;
+    while (PyDict_Next(kwargs, &i, &key, &value)) {
+        Py_INCREF(key);
+        PyTuple_SET_ITEM(keys, j, key);
+        j++;
+    }
+
+    PyObject **kwnames = _PyTuple_ITEMS(keys);
+    unexpected_keyword_argument(ts, co, keyword, kwcount, kwnames);
+    Py_DECREF(keys);
     return -1;
 }
 
@@ -1563,7 +1635,7 @@ missing_arguments(struct ThreadState *ts)
             // argument has value
             continue;
         }
-        if (i > required_args && func->freevars[i - required_args] != NULL) {
+        if (i >= required_args && func->freevars[i - required_args] != NULL) {
             // argument has default value
             continue;
         }
@@ -1595,9 +1667,57 @@ cleanup:
 }
 
 int _Py_NO_INLINE
-too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount)
+too_many_positional(struct ThreadState *ts,
+                    Py_ssize_t given,
+                    Py_ssize_t kwcount)
 {
-    PyErr_Format(PyExc_TypeError, "too_many_positional");
+    int plural;
+    PyObject *sig, *kwonly_sig;
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *co = PyCode2_FromFunc(func);
+    Py_ssize_t co_argcount = co->co_argcount;
+    Py_ssize_t co_totalargcount = co->co_totalargcount;
+
+    assert((co->co_flags & CO_VARARGS) == 0);
+
+    Py_ssize_t defcount = co_argcount + co->co_ndefaultargs - co_totalargcount;
+    if (defcount > 0) {
+        Py_ssize_t atleast = co_argcount - defcount;
+        plural = 1;
+        sig = PyUnicode_FromFormat("from %zd to %zd", atleast, co_argcount);
+    }
+    else {
+        plural = (co_argcount != 1);
+        sig = PyUnicode_FromFormat("%zd", co_argcount);
+    }
+    if (sig == NULL)
+        return -1;
+    if (kwcount) {
+        const char *format = " positional argument%s (and %zd keyword-only argument%s)";
+        kwonly_sig = PyUnicode_FromFormat(format,
+                                          given != 1 ? "s" : "",
+                                          kwcount,
+                                          kwcount != 1 ? "s" : "");
+        if (kwonly_sig == NULL) {
+            Py_DECREF(sig);
+            return -1;
+        }
+    }
+    else {
+        /* This will not fail. */
+        kwonly_sig = PyUnicode_FromString("");
+        assert(kwonly_sig != NULL);
+    }
+    _PyErr_Format(ts->ts, PyExc_TypeError,
+                  "%U() takes %U positional argument%s but %zd%U %s given",
+                  co->co_name,
+                  sig,
+                  plural ? "s" : "",
+                  given,
+                  kwonly_sig,
+                  given == 1 && !kwcount ? "was" : "were");
+    Py_DECREF(sig);
+    Py_DECREF(kwonly_sig);
     return -1;
 }
 
@@ -1679,13 +1799,7 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 
         assert(j >= total_args);
         if (kwdict == NULL) {
-            Py_ssize_t kwcount = 0;
-            // FIXME
-            if (co->co_posonlyargcount &&
-                positional_only_passed_as_keyword(ts, co, kwcount, NULL)) {
-                return -1;
-            }
-            return unexpected_keyword_argument(ts, co, keyword);
+            return unexpected_keyword_argument_dict(ts, co, keyword, kwargs);
         }
 
         if (PyDict_SetItem(kwdict, keyword, value) == -1) {
@@ -1702,7 +1816,8 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 
     /* Check the number of positional arguments */
     if ((argcount > co->co_argcount) && !(co->co_flags & CO_VARARGS)) {
-        return too_many_positional(ts, argcount);
+        Py_ssize_t kwcount = kwargs ? PyDict_Size(kwargs) : 0;
+        return too_many_positional(ts, argcount, kwcount);
     }
 
     CLEAR(ts->regs[-FRAME_EXTRA - 2]);
@@ -1741,10 +1856,10 @@ int
 vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObject **kwnames)
 {
     Py_ssize_t total_args = co->co_totalargcount;
-    for (; ACC_KWCOUNT(acc) != 0; kwnames++,
-            acc.as_int64 -= (1 << ACC_SHIFT_KWARGS)) {
+    Py_ssize_t kwcount = ACC_KWCOUNT(acc);
+    for (; kwcount != 0; kwnames++, kwcount--) {
         PyObject *keyword = *kwnames;
-        Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
+        Py_ssize_t kwdpos = -FRAME_EXTRA - kwcount - 1;
 
         /* Speed hack: do raw pointer compares. As names are
            normally interned this should almost always hit. */
@@ -1783,11 +1898,7 @@ vm_setup_kwargs(struct ThreadState *ts, PyCodeObject2 *co, Register acc, PyObjec
             continue;
         }
 
-        if (co->co_posonlyargcount &&
-            positional_only_passed_as_keyword(ts, co, ACC_KWCOUNT(acc), kwnames)) {
-            return -1;
-        }
-        return unexpected_keyword_argument(ts, co, keyword);
+        return unexpected_keyword_argument(ts, co, keyword, kwcount, kwnames);
 
       kw_found:
         if (UNLIKELY(ts->regs[j].as_int64 != 0)) {

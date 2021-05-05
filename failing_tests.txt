@@ -18,7 +18,6 @@ test_funcattrs
 test_gdb
 test_inspect
 test_io
-test_keywordonlyarg
 test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
@@ -26,7 +25,6 @@ test_multiprocessing_spawn
 test_nntplib
 test_pdb
 test_peepholer
-test_positional_only_arg
 test_profile
 test_pstats
 test_regrtest
