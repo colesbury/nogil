@@ -520,8 +520,21 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
     return NULL;
 }
 
+static PyFrameObject *
+new_fake_frame(struct ThreadState *ts, Py_ssize_t offset, const uint8_t *pc);
+
 static PyObject *
-traceback_here(struct ThreadState *ts, PyObject *tb);
+traceback_here(struct ThreadState *ts, PyObject *tb)
+{
+    PyFrameObject *frame = new_fake_frame(ts, 0, ts->pc);
+    if (frame == NULL) {
+        return NULL;
+    }
+
+    PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
+    Py_DECREF(frame);
+    return newtb;
+}
 
 // Unwinds the stack looking for the nearest exception handler. Returns
 // the program counter (PC) of the exception handler block, or NULL if
@@ -637,19 +650,6 @@ new_fake_frame(struct ThreadState *ts, Py_ssize_t offset, const uint8_t *pc)
     return frame;
 }
 
-static PyObject *
-traceback_here(struct ThreadState *ts, PyObject *tb)
-{
-    PyFrameObject *frame = new_fake_frame(ts, 0, ts->pc);
-    if (frame == NULL) {
-        return NULL;
-    }
-
-    PyObject *newtb = _PyTraceBack_FromFrame(tb, frame);
-    Py_DECREF(frame);
-    return newtb;
-}
-
 PyObject *
 vm_traceback_here(struct ThreadState *ts)
 {
@@ -658,7 +658,14 @@ vm_traceback_here(struct ThreadState *ts)
     while (vm_stack_walk(&w)) {
         Register *regs = vm_stack_walk_regs(&w);
         if (PyFunc_Check(AS_OBJ(regs[-1]))) {
-            return new_fake_frame(ts, w.offset, w.pc);
+            PyFrameObject *frame = new_fake_frame(ts, w.offset, w.pc);
+            if (frame == NULL) {
+                return NULL;
+            }
+
+            PyObject *tb = _PyTraceBack_FromFrame(NULL, frame);
+            Py_DECREF(frame);
+            return tb;
         }
     }
     return NULL;
