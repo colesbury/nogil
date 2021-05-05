@@ -47,7 +47,7 @@ vm_regs_frame_size(Register *regs)
         return 0;
     }
     if (!PyFunc_Check(this_func)) {
-        return regs[-3].as_int64;
+        return regs[-2].as_int64;
     }
     return PyCode2_FromFunc((PyFunc *)this_func)->co_framesize;
 }
@@ -492,9 +492,9 @@ vm_pop_frame(struct ThreadState *ts)
     }
     vm_clear_regs(ts, -1, frame_size);
     intptr_t frame_delta = ts->regs[-4].as_int64;
-    intptr_t frame_link = ts->regs[-2].as_int64;
-    ts->regs[-2].as_int64 = 0;
+    intptr_t frame_link = ts->regs[-3].as_int64;
     ts->regs[-3].as_int64 = 0;
+    ts->regs[-2].as_int64 = 0;
     ts->regs[-4].as_int64 = 0;
     ts->regs -= frame_delta;
     if (frame_link_is_aux(frame_link)) {
@@ -2487,15 +2487,15 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     Py_ssize_t frame_delta = FRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    // ts->regs[-3] = old->regs[-3];  // copy constants
-    ts->regs[-2].as_int64 = FRAME_GENERATOR;
+    // ts->regs[-2] = old->regs[-2];  // copy constants
+    ts->regs[-3].as_int64 = FRAME_GENERATOR;
     ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
     // The new thread-state takes ownership of the "func" and constants.
     // We can't clear the old thread states values because they will be
     // referenced (and cleared) by RETURN_VALUE momentarily. Instead, just
     // mark them as non-refcounted references -- the generator owns them now.
-    // old->regs[-3].as_int64 |= NO_REFCOUNT_TAG;
+    // old->regs[-2].as_int64 |= NO_REFCOUNT_TAG;
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
     Py_ssize_t nargs = code->co_totalargcount;
@@ -2586,8 +2586,8 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
     ts->regs += frame_delta;
 
     ts->regs[-4].as_int64 = frame_delta;
-    // ts->regs[-3].as_int64 = (intptr_t)code->co_constants;
-    ts->regs[-2].as_int64 = -(intptr_t)ts->pc;
+    // ts->regs[-2].as_int64 = (intptr_t)code->co_constants;
+    ts->regs[-3].as_int64 = -(intptr_t)ts->pc;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
 
@@ -3054,12 +3054,12 @@ PyEval2_GetGlobals(void)
 static PyFrameObject *
 frame_aux_state(struct ThreadState *ts, Py_ssize_t offset)
 {
-    if (ts->regs[offset-3].as_int64 != 0) {
-        return (PyFrameObject *)AS_OBJ(ts->regs[offset-3]);
+    if (ts->regs[offset-2].as_int64 != 0) {
+        return (PyFrameObject *)AS_OBJ(ts->regs[offset-2]);
     }
 
     PyFrameObject *frame = new_fake_frame(ts, offset, ts->pc);
-    ts->regs[offset-3] = PACK(frame, REFCOUNT_TAG);
+    ts->regs[offset-2] = PACK(frame, REFCOUNT_TAG);
     return frame;
 }
 

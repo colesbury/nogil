@@ -129,11 +129,12 @@ STRONG_REF(Register r)
     DECREF(_tmp);           \
 } while (0)
 
-#define XCLEAR(reg) do {    \
-    Register _tmp = (reg);  \
-    (reg).as_int64 = 0;     \
-    if (_tmp.as_int64 != 0) \
-        DECREF(_tmp);       \
+#define XCLEAR(reg) do {        \
+    Register _tmp = (reg);      \
+    if (_tmp.as_int64 != 0) {   \
+        (reg).as_int64 = 0;     \
+        DECREF(_tmp);           \
+    }                           \
 } while (0)
 
 struct _ts;

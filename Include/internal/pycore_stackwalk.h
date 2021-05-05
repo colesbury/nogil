@@ -63,7 +63,7 @@ vm_stack_walk(struct stack_walk *w)
     }
     w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
 
-    intptr_t frame_link = ts->regs[w->offset-2].as_int64;
+    intptr_t frame_link = ts->regs[w->offset-3].as_int64;
     intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
     w->next_offset = w->offset - frame_delta;
     w->frame_link = frame_link;

@@ -213,27 +213,23 @@ _OWNING_REF(Register r, intptr_t tid)
 #define PACK_INCREF(op) _PACK_INCREF(op, tid)
 
 
-// Clears and DECREFs the regsters from [-1, N) where N is usually
-// the number of local variables.
+// Clears and DECREFs the regsters from [-from, to) where "to" is
+// usually the number of local variables.
 // NOTE: The CLEAR_REGISTERS macro saves pc to the thread state.
 // This allows us to skip saving it during the DECREF calls,
 // which typically allows the compiler to re-use the register
 // normally allocated to pc.
-#define CLEAR_X(reg) do {                                   \
-    Register r = (reg);                                     \
-    (reg).as_int64 = 0;                                     \
-    if (r.as_int64 != 0) {                                  \
-        DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);          \
-    }                                                       \
-} while (0)
-
-#define CLEAR_REGISTERS(N) do {                             \
+#define CLEAR_REGISTERS(from, to) do {                      \
     ts->pc = pc;                                            \
-    Py_ssize_t _n = (N);                                    \
+    Py_ssize_t _n = (to);                                   \
     do {                                                    \
         _n--;                                               \
-        CLEAR_X(regs[_n]);                                  \
-    } while (_n >= 0);                                      \
+        Register r = regs[_n];                              \
+        if (r.as_int64 != 0) {                              \
+            regs[_n].as_int64 = 0;                          \
+            DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);      \
+        }                                                   \
+    } while (_n != from);                                   \
 } while (0)
 
 
@@ -688,18 +684,18 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(CFUNC_HEADER) {
         PyObject *res;
-        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
+        regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size
         CALL_VM(res = vm_call_cfunction(ts, acc));
         if (UNLIKELY(res == NULL)) {
             acc.as_int64 = 0;
             goto error;
         }
         acc = PACK_OBJ(res);
-        CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint8_t *)regs[-2].as_int64;
+        CLEAR_REGISTERS(-1, regs[-2].as_int64);
+        pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
+        regs[-2].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -709,7 +705,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(FUNC_TPCALL_HEADER) {
         PyObject *res;
-        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
+        regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size
         // steals arguments
         CALL_VM(res = vm_tpcall_function(ts, acc));
         if (UNLIKELY(res == NULL)) {
@@ -717,11 +713,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
-        CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint8_t *)regs[-2].as_int64;
+        CLEAR_REGISTERS(-1, regs[-2].as_int64);
+        pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
+        regs[-2].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -789,7 +785,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs = &regs[base];
         ts->regs = regs;
         regs[-4].as_int64 = base;    // frame delta
-        regs[-2].as_int64 = (intptr_t)(pc + OP_SIZE(CALL_FUNCTION));
+        regs[-3].as_int64 = (intptr_t)(pc + OP_SIZE(CALL_FUNCTION));
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
             goto call_object;
         }
@@ -800,7 +796,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #ifndef WIDE_OP
     call_object: {
         // DEBUG_LABEL(call_object);
-        regs[-3].as_int64 = ACC_ARGCOUNT(acc);  // frame size
+        regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size
         PyObject *res;
         CALL_VM(res = vm_call_function(ts, acc));
         if (UNLIKELY(res == NULL)) {
@@ -809,11 +805,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
-        CLEAR_REGISTERS(regs[-3].as_int64);
-        pc = (const uint8_t *)regs[-2].as_int64;
+        CLEAR_REGISTERS(-1, regs[-2].as_int64);
+        pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
-        regs[-3].as_int64 = 0; // should already be zero?
+        regs[-3].as_int64 = 0;
+        regs[-2].as_int64 = 0; // should already be zero?
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -834,7 +830,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         regs = &regs[base];
         ts->regs = regs;
         regs[-4].as_int64 = base;  // frame delta
-        regs[-2].as_int64 = (intptr_t)(pc + OP_SIZE(CALL_FUNCTION_EX));
+        regs[-3].as_int64 = (intptr_t)(pc + OP_SIZE(CALL_FUNCTION_EX));
 
         // pc is no longer valid. The NULL value prevents this
         // partially set-up frame from showing up in tracebacks.
@@ -871,7 +867,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #ifndef WIDE_OP
     call_object_ex: {
         // DEBUG_LABEL(call_object_ex);
-        assert(regs[-3].as_int64 == 0 && "frame size not zero");
+        assert(regs[-2].as_int64 == 0 && "frame size not zero");
         PyObject *callable = AS_OBJ(regs[-1]);
         PyObject *args = AS_OBJ(regs[-FRAME_EXTRA - 2]);
         PyObject *kwargs = AS_OBJ(regs[-FRAME_EXTRA - 1]);
@@ -885,10 +881,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CLEAR(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
         CLEAR(regs[-FRAME_EXTRA - 2]);  // clear *args
         CLEAR(regs[-1]);  // clear callable
-        pc = (const uint8_t *)regs[-2].as_int64;
+        pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
-        // regs[-3] is already zero
+        regs[-3].as_int64 = 0;
+        // regs[-2] is already zero
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -936,17 +932,16 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #if DEBUG_FRAME
         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
     #endif
-        CLEAR_REGISTERS(THIS_CODE()->co_nlocals);
-        CLEAR_X(regs[-3]);
+        CLEAR_REGISTERS(-2, THIS_CODE()->co_nlocals);
     #if DEBUG_FRAME
         for (Py_ssize_t i = 0; i < frame_size; i++) {
             assert(regs[i].as_int64 == 0);
         }
     #endif
-        intptr_t frame_link = regs[-2].as_int64;
+        intptr_t frame_link = regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-2].as_int64 = 0;
         regs[-3].as_int64 = 0;
+        regs[-2].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
