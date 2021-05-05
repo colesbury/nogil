@@ -67,6 +67,7 @@ test_configparser
 test_contains
 test_context
 test_contextlib
+test_contextlib_async
 test_copy
 test_copyreg
 test_coroutines

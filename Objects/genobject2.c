@@ -205,6 +205,25 @@ static PyObject *
 _PyGen2_SetStopIterationValue(PyGenObject2 *gen);
 
 static PyObject *
+gen_wrap_exception(PyGenObject2 *gen)
+{
+    if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
+        _PyErr_FormatFromCause(
+            PyExc_RuntimeError,
+            "%s raised StopIteration",
+            gen_typename(gen));
+    }
+    else if (PyAsyncGen2_CheckExact(gen) &&
+                PyErr_ExceptionMatches(PyExc_StopAsyncIteration)) {
+        _PyErr_FormatFromCause(
+            PyExc_RuntimeError,
+            "%s raised StopAsyncIteration",
+            gen_typename(gen));
+    }
+    return NULL;
+}
+
+static PyObject *
 gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
 {
     PyObject *res = PyEval2_EvalGen(gen, opt_value);
@@ -225,20 +244,7 @@ gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
         return _PyGen2_SetStopIterationValue(gen);
     }
     else {
-        if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
-            _PyErr_FormatFromCause(
-                PyExc_RuntimeError,
-                "%s raised StopIteration",
-                gen_typename(gen));
-        }
-        else if (PyAsyncGen2_CheckExact(gen) &&
-                 PyErr_ExceptionMatches(PyExc_StopAsyncIteration)) {
-            _PyErr_FormatFromCause(
-                PyExc_RuntimeError,
-                "%s raised StopAsyncIteration",
-                gen_typename(gen));
-        }
-        return NULL;
+        return gen_wrap_exception(gen);
     }
 }
 
@@ -454,7 +460,7 @@ gen_throw_current(PyGenObject2 *gen)
     const uint8_t *pc = vm_exception_unwind(ts, false);
     if (pc == NULL) {
         assert(gen->status == GEN_CLOSED);
-        return NULL;
+        return gen_wrap_exception(gen);
     }
     gen->status = GEN_SUSPENDED;
     ts->pc = pc;

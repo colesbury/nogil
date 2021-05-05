@@ -280,6 +280,16 @@ class ExceptionTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'raised StopIteration'):
             next(gen())
 
+    def test_stopiteration_throw(self):
+        def gen():
+            yield
+
+        g = gen()
+        next(g)
+
+        with self.assertRaisesRegex(RuntimeError, 'raised StopIteration'):
+            g.throw(StopIteration, 'spam')
+
     def test_tutorial_stopiteration(self):
         # Raise StopIteration" stops the generator too:
 
