@@ -16,7 +16,6 @@ test_frame
 test_funcattrs
 test_gdb
 test_inspect
-test_io
 test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
