@@ -4645,6 +4645,26 @@ maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
     return result;
 }
 
+static void
+update_use_tracing(PyThreadState *tstate)
+{
+    int use_tracing = (tstate->c_tracefunc   != NULL ||
+                       tstate->c_profilefunc != NULL);
+
+    /* Flag that tracing or profiling is turned on */
+    tstate->use_tracing = use_tracing;
+
+    /* Update opcode handlers */
+    for (int i = 0; i < 128; i++) {
+        if (use_tracing) {
+            tstate->opcode_targets[i] = tstate->trace_target;
+        }
+        else {
+            tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
+        }
+    }
+}
+
 void
 PyEval_SetProfile(Py_tracefunc func, PyObject *arg)
 {
@@ -4662,8 +4682,7 @@ PyEval_SetProfile(Py_tracefunc func, PyObject *arg)
     Py_XDECREF(temp);
     tstate->c_profilefunc = func;
     tstate->c_profileobj = arg;
-    /* Flag that tracing or profiling is turned on */
-    tstate->use_tracing = (func != NULL) || (tstate->c_tracefunc != NULL);
+    update_use_tracing(tstate);
 }
 
 void
@@ -4685,20 +4704,7 @@ PyEval_SetTrace(Py_tracefunc func, PyObject *arg)
     Py_XDECREF(temp);
     tstate->c_tracefunc = func;
     tstate->c_traceobj = arg;
-    /* Flag that tracing or profiling is turned on */
-    tstate->use_tracing = ((func != NULL)
-                           || (tstate->c_profilefunc != NULL));
-
-    if (tstate->use_tracing) {
-        for (int i = 0; i < 128; i++) {
-            tstate->opcode_targets[i] = tstate->trace_target;
-        }
-    }
-    else {
-        for (int i = 0; i < 128; i++) {
-            tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
-        }
-    }
+    update_use_tracing(tstate);
 }
 
 void
