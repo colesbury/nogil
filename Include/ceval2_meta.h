@@ -138,6 +138,7 @@ STRONG_REF(Register r)
 } while (0)
 
 struct _ts;
+struct _frame;
 
 // struct VirtualThread {};
 
@@ -147,8 +148,7 @@ struct _ts;
 
 enum {
     THREAD_THREAD = 1,
-    THREAD_GENERATOR = 2,
-    THREAD_COROUTINE = 3
+    THREAD_GENERATOR = 2
 };
 
 struct ThreadState {
@@ -189,6 +189,7 @@ struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 PyObject *vm_compute_cr_origin(struct ThreadState *ts);
 struct _frame *vm_frame(struct ThreadState *ts);
+struct _frame *vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset);
 
 // used by errors.c
 PyObject *vm_traceback_here(struct ThreadState *ts);

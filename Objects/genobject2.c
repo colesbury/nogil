@@ -789,6 +789,24 @@ gen_get_running(PyGenObject2 *op, void *Py_UNUSED(ignored))
 }
 
 static PyObject *
+gen_get_frame(PyGenObject2 *op, void *Py_UNUSED(ignored))
+{
+    if (op->status == GEN_CLOSED) {
+        return Py_None;
+    }
+
+    // get the bottom frame in the thread
+    struct ThreadState *ts = &op->base.thread;
+    Py_ssize_t offset = ts->stack - ts->regs + FRAME_EXTRA;
+    PyObject *frame = (PyObject *)vm_frame_at_offset(ts, offset);
+    if (frame == NULL && !PyErr_Occurred()) {
+        return Py_None;
+    }
+    Py_INCREF(frame);
+    return frame;
+}
+
+static PyObject *
 gen_get_state(PyGenObject2 *op, void *Py_UNUSED(ignored))
 {
     static const char *states[] = {
@@ -1438,8 +1456,9 @@ async_gen_athrow_new(PyAsyncGenObject2 *gen, PyObject *args)
 
 static PyGetSetDef gen_getsetlist[] = {
     {"gi_running",   (getter)gen_get_running, NULL, NULL },
-    {"_genstate",   (getter)gen_get_state, NULL, NULL },
-    {"__name__", (getter)gen_get_name, (setter)gen_set_name,
+    {"gi_frame",     (getter)gen_get_frame,   NULL, NULL },
+    {"_genstate",    (getter)gen_get_state,   NULL, NULL },
+    {"__name__",     (getter)gen_get_name,     (setter)gen_set_name,
      PyDoc_STR("name of the generator")},
     {"__qualname__", (getter)gen_get_qualname, (setter)gen_set_qualname,
      PyDoc_STR("qualified name of the generator")},
@@ -1497,6 +1516,7 @@ static PyMemberDef coro_memberlist[] = {
 
 static PyGetSetDef coro_getsetlist[] = {
     {"cr_running",   (getter)gen_get_running, NULL, NULL },
+    {"cr_frame",     (getter)gen_get_frame,   NULL, NULL },
     {"_corostate",   (getter)coro_get_state, NULL, NULL },
     {"__name__", (getter)gen_get_name, (setter)gen_set_name,
      PyDoc_STR("name of the coroutine")},
@@ -1553,6 +1573,7 @@ static PyMemberDef async_gen_memberlist[] = {
 
 static PyGetSetDef async_gen_getsetlist[] = {
     {"ag_running",   (getter)gen_get_running, NULL, NULL },
+    {"ag_frame",     (getter)gen_get_frame,   NULL, NULL },
     {"ag_await", (getter)coro_get_cr_await, NULL,
      PyDoc_STR("object being awaited on, or None")},
     {"_genstate",   (getter)gen_get_state, NULL, NULL },

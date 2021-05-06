@@ -701,6 +701,7 @@ sys_excepthook_impl(PyObject *module, PyObject *exctype, PyObject *value,
     Py_RETURN_NONE;
 }
 
+PyObject *vm_cur_handled_exc(void);
 
 /*[clinic input]
 sys.exc_info
@@ -710,8 +711,6 @@ Return current exception information: (type, value, traceback).
 Return information about the most recent exception caught by an except
 clause in the current stack frame or in an older stack frame.
 [clinic start generated code]*/
-
-PyObject *vm_cur_handled_exc(void);
 
 static PyObject *
 sys_exc_info_impl(PyObject *module)

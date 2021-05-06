@@ -12,6 +12,7 @@
 #include "../Modules/hashtable.h"
 #include "parking_lot.h"
 #include "frameobject.h"
+#include "ceval2_meta.h"
 
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
@@ -44,10 +45,6 @@ static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_st
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
 
 Py_DECL_THREAD PyThreadState *_Py_current_tstate;
-
-// FROM ceval2_meta.h
-// FIXME(sgross): make the includes sane
-struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 
 
 static PyStatus

@@ -490,11 +490,15 @@ vm_pop_frame(struct ThreadState *ts)
         // setup frame (e.g. CALL_FUNCTION_EX).
         frame_size = ts->maxstack - ts->regs;
     }
-    vm_clear_regs(ts, -1, frame_size);
+    Py_ssize_t from = -1;
+    if (PyFunc_Check(AS_OBJ(ts->regs[-1]))) {
+        from = -2;
+    }
+    vm_clear_regs(ts, from, frame_size);
     intptr_t frame_delta = ts->regs[-4].as_int64;
     intptr_t frame_link = ts->regs[-3].as_int64;
-    ts->regs[-3].as_int64 = 0;
     ts->regs[-2].as_int64 = 0;
+    ts->regs[-3].as_int64 = 0;
     ts->regs[-4].as_int64 = 0;
     ts->regs -= frame_delta;
     return frame_link;
@@ -635,9 +639,7 @@ new_fake_frame(struct ThreadState *ts, Py_ssize_t offset, const uint8_t *pc)
         return NULL;
     }
 
-    const uint8_t *first_instr = PyCode2_GET_CODE(co);
-    Py_ssize_t instr_offset = (pc - first_instr);
-    intptr_t addrq = sizeof(*pc) * instr_offset;
+    int addrq = (pc - PyCode2_GET_CODE(co));
     frame->f_lasti = addrq;
     frame->f_lineno = PyCode2_Addr2Line(co, (int)addrq);
 
@@ -2250,7 +2252,6 @@ vm_new_threadstate(PyThreadState *tstate)
 
 void vm_free_threadstate(struct ThreadState *ts)
 {
-    // printf("vm_free_threadstate: %p\n", ts);
     while (ts->regs != ts->stack) {
         vm_pop_frame(ts);
     }
@@ -2440,16 +2441,15 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     Py_ssize_t frame_delta = FRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-2] = old->regs[-2];  // PyFrameObject ?
+    ts->regs[-2] = old->regs[-2];  // PyFrameObject
     old->regs[-2].as_int64 = 0;
     ts->regs[-3].as_int64 = FRAME_GENERATOR;
     ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
-    // The new thread-state takes ownership of the "func" and constants.
-    // We can't clear the old thread states values because they will be
+    // The new thread-state takes ownership of the "func".
+    // We can't clear the old thread states function because it will be
     // referenced (and cleared) by RETURN_VALUE momentarily. Instead, just
-    // mark them as non-refcounted references -- the generator owns them now.
-    // old->regs[-2].as_int64 |= NO_REFCOUNT_TAG;
+    // mark it as a non-refcounted reference -- the generator owns them now.
     old->regs[-1].as_int64 |= NO_REFCOUNT_TAG;
 
     Py_ssize_t nargs = code->co_totalargcount;
@@ -2540,7 +2540,6 @@ setup_frame_ex(struct ThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssiz
     ts->regs += frame_delta;
 
     ts->regs[-4].as_int64 = frame_delta;
-    // ts->regs[-2].as_int64 = (intptr_t)code->co_constants;
     ts->regs[-3].as_int64 = -(intptr_t)ts->pc;
     ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
     return 0;
@@ -3008,12 +3007,19 @@ PyEval2_GetGlobals(void)
 PyFrameObject *
 vm_frame(struct ThreadState *ts)
 {
+    return vm_frame_at_offset(ts, 0);
+}
+
+PyFrameObject *
+vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset)
+{
     PyFrameObject *top = NULL;
     PyFrameObject *prev = NULL;
 
     bool done = false;
     struct stack_walk w;
     vm_stack_walk_init(&w, ts);
+    w.next_offset = offset;
     while (vm_stack_walk(&w) && !done) {
         Register *regs = vm_stack_walk_regs(&w);
         PyObject *callable = AS_OBJ(regs[-1]);
@@ -3031,10 +3037,19 @@ vm_frame(struct ThreadState *ts)
             done = true;
         }
         else {
-            frame = new_fake_frame(w.ts, w.offset, w.pc);
+            const uint8_t *pc = w.pc;
+            if (w.ts->thread_type == THREAD_GENERATOR &&
+                PyGen2_FromThread(w.ts)->status == GEN_CREATED)
+            {
+                // want address of the current or previously executed
+                // instruction
+                pc -= 1;
+            }
+            frame = new_fake_frame(w.ts, w.offset, pc);
             if (frame == NULL) {
                 return NULL;
             }
+            // FIXME: above may re-allocate regs!
             regs[-2] = PACK(frame, REFCOUNT_TAG);
         }
 
