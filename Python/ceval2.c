@@ -967,19 +967,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         // convert it to an owning reference before returning.
         acc = STRONG_REF(acc);
         pc = (const uint8_t *)frame_link;
-        if (pc[0] != CLEAR_FRAME_AUX)
-            constants = THIS_CODE()->co_constants;
+        constants = THIS_CODE()->co_constants;
         NEXT_INSTRUCTION();
-    }
-
-    TARGET(CLEAR_FRAME_AUX) {
-        // CLEAR_FRAME_AUX
-        //
-        // TODO
-        intptr_t frame_link;
-        CALL_VM(frame_link = vm_frame_clear_aux((intptr_t)pc));
-        pc = (const uint8_t *)frame_link;
-        goto return_value;
     }
     #endif
 

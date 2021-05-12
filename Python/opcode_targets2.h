@@ -113,7 +113,7 @@ static void *opcode_targets_base[256] = {
     &&WIDE,
     &&SETUP_ANNOTATIONS,
     &&SET_FUNC_ANNOTATIONS,
-    &&CLEAR_FRAME_AUX,
+    &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,
     &&_unknown_opcode,

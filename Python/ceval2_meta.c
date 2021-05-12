@@ -497,9 +497,6 @@ vm_pop_frame(struct ThreadState *ts)
     ts->regs[-2].as_int64 = 0;
     ts->regs[-4].as_int64 = 0;
     ts->regs -= frame_delta;
-    if (frame_link_is_aux(frame_link)) {
-        frame_link = vm_frame_clear_aux(frame_link);
-    }
     return frame_link;
 }
 

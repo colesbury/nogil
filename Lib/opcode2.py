@@ -187,7 +187,6 @@ def_op('DICT_MERGE', 109, 'reg')
 def_op('DICT_UPDATE', 110, 'reg')
 def_op('SETUP_ANNOTATIONS', 112)
 def_op('SET_FUNC_ANNOTATIONS', 113, 'reg')
-def_op('CLEAR_FRAME_AUX', 114)
 def_op('WIDE', 111)
 
 def_intrinsic('PyObject_Str', 1)
