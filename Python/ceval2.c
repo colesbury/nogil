@@ -81,7 +81,7 @@
     call; \
     regs = ts->regs
 
-#define CALL_VM_DONT_SAVE_NEXT_INSTR(call) \
+#define CALL_VM_DONT_SAVE_PC(call) \
     call; \
     regs = ts->regs
 
@@ -227,7 +227,7 @@ _OWNING_REF(Register r, intptr_t tid)
         Register r = regs[_n];                              \
         if (r.as_int64 != 0) {                              \
             regs[_n].as_int64 = 0;                          \
-            DECREF_X(r, CALL_VM_DONT_SAVE_NEXT_INSTR);      \
+            DECREF_X(r, CALL_VM_DONT_SAVE_PC);              \
         }                                                   \
     } while (_n != from);                                   \
 } while (0)
