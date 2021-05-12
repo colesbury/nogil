@@ -694,8 +694,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-3].as_int64 = 0;
         regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -716,8 +716,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-3].as_int64 = 0;
         regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -808,8 +808,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-3].as_int64 = 0;
         regs[-2].as_int64 = 0; // should already be zero?
+        regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -883,8 +883,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CLEAR(regs[-1]);  // clear callable
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-3].as_int64 = 0;
         // regs[-2] is already zero
+        regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;
@@ -940,8 +940,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #endif
         intptr_t frame_link = regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
-        regs[-3].as_int64 = 0;
         regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
         regs[-4].as_int64 = 0;
         regs -= frame_delta;
         ts->regs = regs;

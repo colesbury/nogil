@@ -30,9 +30,9 @@ enum {
        +-------------------+
   -4   |    frame delta    |
        |- - - - - - - - - -|
-  -3   |     constants     |
+  -3   |    frame link     |
        |- - - - - - - - - -|
-  -2   |  frame link | tag |
+  -2   |  [PyFrameObject]  |
        |- - - - - - - - - -|
   -1   |      PyFunc       |
   -----+-------------------+---
@@ -53,10 +53,10 @@ enum {
   idx     C function frame
        +-------------------+
   -4   |    frame delta    |
-       +-------------------+
-  -3   |    frame size     |
        |- - - - - - - - - -|
-  -2   |  frame link | tag |
+  -3   |    frame link     |
+       |- - - - - - - - - -|
+  -2   |    frame size     |
        |- - - - - - - - - -|
   -1   |     PyObject      |
   -----+-------------------+---
