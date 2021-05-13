@@ -244,6 +244,7 @@ test_posixpath
 test_pow
 test_pprint
 test_print
+test_profile
 test_property
 test_pty
 test_pulldom

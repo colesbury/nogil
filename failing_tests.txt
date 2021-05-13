@@ -13,7 +13,6 @@ test_inspect
 test_nntplib
 test_pdb
 test_peepholer
-test_profile
 test_pstats
 test_super
 test_sys

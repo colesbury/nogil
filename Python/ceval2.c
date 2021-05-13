@@ -255,8 +255,9 @@ _OWNING_REF(Register r, intptr_t tid)
 #define UImm16(idx) (load_uimm16(&pc[idx + 1]))
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
+#define PY_THREAD_STATE() ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
 #define EVAL_BREAKER_OFFSET (offsetof(PyThreadState, eval_breaker) - offsetof(PyThreadState, opcode_targets))
-#define EVAL_BREAKER ((uintptr_t *)(((char *)opcode_targets) + EVAL_BREAKER_OFFSET))
+#define EVAL_BREAKER (&PY_THREAD_STATE()->eval_breaker)
 
 #define CHECK_EVAL_BREAKER() do {                                   \
     if (UNLIKELY(!_Py_atomic_uintptr_is_zero(EVAL_BREAKER))) {      \
@@ -331,6 +332,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
         memcpy(ts->ts->opcode_targets + 128, wide_opcode_targets_base, 128 * sizeof(*wide_opcode_targets_base));
         ts->ts->trace_target = &&TRACE;
+        ts->ts->trace_cfunc_target = &&TRACE_CFUNC_HEADER;
         ts->ts->opcode_targets_base = opcode_targets_base;
     }
 
@@ -675,7 +677,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         }
         // tail call dispatch to underlying func
         PyObject *func = meth->im_func;
-        if (UNLIKELY(!PyFunc_Check(func))) {
+        if (!PyType_HasFeature(Py_TYPE(func), Py_TPFLAGS_FUNC_INTERFACE)) {
             Register x = PACK_INCREF(func);
             SET_REG(regs[-1], x);
             goto call_object;
@@ -710,8 +712,28 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     TARGET(FUNC_TPCALL_HEADER) {
         PyObject *res;
         regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size
-        // steals arguments
         CALL_VM(res = vm_tpcall_function(ts, acc));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(-1, regs[-2].as_int64);
+        pc = (const uint8_t *)regs[-3].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
+        CHECK_EVAL_BREAKER();
+        NEXT_INSTRUCTION();
+    }
+
+    TARGET(TRACE_CFUNC_HEADER) {
+        PyObject *res;
+        regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size
+        CALL_VM(res = vm_trace_cfunc(ts, acc));
         if (UNLIKELY(res == NULL)) {
             acc.as_int64 = 0;
             goto error;
@@ -2438,7 +2460,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #ifndef WIDE_OP
     TARGET(TRACE) {
         int err;
-        CALL_VM(err = vm_trace(ts));
+        const uint8_t *last_pc = ts->pc;
+        CALL_VM(err = vm_trace_handler(ts, last_pc, acc));
         if (UNLIKELY(err != 0)) {
             goto error;
         }

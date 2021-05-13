@@ -4,6 +4,7 @@
 #include "pycore_object.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
+#include "opcode2.h"
 #include "structmember.h" /* Why is this not included in Python.h? */
 
 _Py_IDENTIFIER(getattr);
@@ -705,7 +706,7 @@ PyTypeObject PyMethodDescr_Type = {
     0,                                          /* tp_setattro */
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
-    _Py_TPFLAGS_HAVE_VECTORCALL |
+    _Py_TPFLAGS_HAVE_VECTORCALL | Py_TPFLAGS_FUNC_INTERFACE |
     Py_TPFLAGS_METHOD_DESCRIPTOR,               /* tp_flags */
     0,                                          /* tp_doc */
     descr_traverse,                             /* tp_traverse */
@@ -894,6 +895,10 @@ descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
     return descr;
 }
 
+static const uint8_t func_vector_call[] = {
+    CFUNC_HEADER, 0, 0, 0
+};
+
 PyObject *
 PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
 {
@@ -932,6 +937,7 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
         return NULL;
     }
 
+    ((PyFuncBase *)descr)->first_instr = &func_vector_call[0];
     descr->d_method = method;
     if (type->tp_lockoffset) {
         descr->vectorcall = method_vectorcall_synchronized;

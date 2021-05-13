@@ -385,6 +385,11 @@ frame_block_unwind(PyFrameObject *f)
 static int
 frame_setlineno(PyFrameObject *f, PyObject* p_new_lineno, void *Py_UNUSED(ignored))
 {
+    if (f->f_code2 != NULL) {
+        PyErr_SetString(PyExc_TypeError, "frame_setlineno NYI");
+        return -1;
+    }
+
     if (p_new_lineno == NULL) {
         PyErr_SetString(PyExc_AttributeError, "cannot delete attribute");
         return -1;

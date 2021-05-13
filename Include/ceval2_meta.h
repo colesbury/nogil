@@ -309,7 +309,8 @@ int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
 
 int vm_eval_breaker(struct ThreadState *ts);
-int vm_trace(struct ThreadState *ts);
+int vm_trace_handler(struct ThreadState *ts, const uint8_t *last_pc, Register acc);
+PyObject *vm_trace_cfunc(struct ThreadState *ts, Register acc);
 
 #ifdef __cplusplus
 }

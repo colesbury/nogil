@@ -23,6 +23,7 @@
 
 #include "code.h"
 #include "code2.h"
+#include "opcode2.h"
 #include "dictobject.h"
 #include "frameobject.h"
 #include "opcode.h"
@@ -4657,7 +4658,12 @@ update_use_tracing(PyThreadState *tstate)
     /* Update opcode handlers */
     for (int i = 0; i < 128; i++) {
         if (use_tracing) {
-            tstate->opcode_targets[i] = tstate->trace_target;
+            if (i == CFUNC_HEADER || i == FUNC_TPCALL_HEADER) {
+                tstate->opcode_targets[i] = tstate->trace_cfunc_target;
+            }
+            else {
+                tstate->opcode_targets[i] = tstate->trace_target;
+            }
         }
         else {
             tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
