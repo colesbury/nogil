@@ -384,18 +384,20 @@ static int
 profiler_callback(PyObject *self, PyFrameObject *frame, int what,
                   PyObject *arg)
 {
+    PyObject *code = frame->f_code ? (PyObject *)frame->f_code : (PyObject *)frame->f_code2;
+
     switch (what) {
 
     /* the 'frame' of a called function is about to start its execution */
     case PyTrace_CALL:
-        ptrace_enter_call(self, (void *)frame->f_code,
-                                (PyObject *)frame->f_code);
+        ptrace_enter_call(self, (void *)code,
+                                (PyObject *)code);
         break;
 
     /* the 'frame' of a called function is about to finish
        (either normally or with an exception) */
     case PyTrace_RETURN:
-        ptrace_leave_call(self, (void *)frame->f_code);
+        ptrace_leave_call(self, (void *)code);
         break;
 
     /* case PyTrace_EXCEPTION:

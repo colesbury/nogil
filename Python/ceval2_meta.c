@@ -630,12 +630,13 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
             return PyCode2_GET_CODE(code) + handler->handler;
         }
 
-      next: ;
-        // No handler found in this call frame. Clears the entire frame and
-        // unwinds the call stack.
         if (ts->ts->use_tracing) {
             vm_trace_err(ts, &exc, &val, &tb);
         }
+
+      next: ;
+        // No handler found in this call frame. Clears the entire frame and
+        // unwinds the call stack.
 
         intptr_t frame_link = vm_pop_frame(ts);
         if (frame_link <= 0) {
