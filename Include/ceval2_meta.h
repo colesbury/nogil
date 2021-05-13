@@ -176,14 +176,6 @@ struct PyVirtualThread {
     struct ThreadState thread;
 };
 
-// Auxiliary frame data
-struct FrameAux {
-    uint8_t code;
-    PyObject *frame;
-    PyObject *locals;
-    intptr_t frame_link;
-};
-
 // ceval2.c
 PyObject *_PyEval_Fast(struct ThreadState *ts, Register acc, const uint8_t *pc);
 PyObject *PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value);
@@ -196,6 +188,7 @@ struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 // used by genobject2.c
 int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 PyObject *vm_compute_cr_origin(struct ThreadState *ts);
+struct _frame *vm_frame(struct ThreadState *ts);
 
 // used by errors.c
 PyObject *vm_traceback_here(struct ThreadState *ts);
@@ -279,8 +272,6 @@ int vm_kwargs_to_dict(struct ThreadState *ts);
 PyObject *vm_call_cfunction(struct ThreadState *ts, Register acc);
 PyObject *vm_call_function(struct ThreadState *ts, Register acc);
 PyObject *vm_tpcall_function(struct ThreadState *ts, Register acc);
-
-intptr_t vm_frame_clear_aux(intptr_t frame_link);
 
 Register
 vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);

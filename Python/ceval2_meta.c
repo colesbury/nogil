@@ -671,50 +671,6 @@ vm_traceback_here(struct ThreadState *ts)
     return NULL;
 }
 
-PyObject *
-vm_get_frame(int depth)
-{
-    PyFrameObject *top = NULL, *last = NULL;
-
-    struct ThreadState *ts = current_thread_state();
-
-    struct stack_walk w;
-    vm_stack_walk_init(&w, ts);
-    while (vm_stack_walk(&w)) {
-        Register *regs = vm_stack_walk_regs(&w);
-        PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable) || w.pc == NULL) {
-            continue;
-        }
-
-        if (depth > 0) {
-            depth--;
-            continue;
-        }
-
-        PyFrameObject *frame = new_fake_frame(w.ts, w.offset, w.pc);
-        if (frame == NULL) {
-            Py_XDECREF(top);
-            return NULL;
-        }
-        if (top == NULL) {
-            top = frame;
-        }
-        else {
-            last->f_back = frame;
-        }
-        last = frame;
-    }
-
-    if (top == NULL) {
-        _PyErr_SetString(ts->ts, PyExc_ValueError,
-                         "call stack is not deep enough");
-        return NULL;
-    }
-
-    return (PyObject *)top;
-}
-
 static int
 is_importlib_frame(PyFunc *func)
 {
@@ -2484,7 +2440,8 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     Py_ssize_t frame_delta = FRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    // ts->regs[-2] = old->regs[-2];  // copy constants
+    ts->regs[-2] = old->regs[-2];  // PyFrameObject ?
+    old->regs[-2].as_int64 = 0;
     ts->regs[-3].as_int64 = FRAME_GENERATOR;
     ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
@@ -3048,16 +3005,51 @@ PyEval2_GetGlobals(void)
     return NULL;
 }
 
-static PyFrameObject *
-frame_aux_state(struct ThreadState *ts, Py_ssize_t offset)
+PyFrameObject *
+vm_frame(struct ThreadState *ts)
 {
-    if (ts->regs[offset-2].as_int64 != 0) {
-        return (PyFrameObject *)AS_OBJ(ts->regs[offset-2]);
+    PyFrameObject *top = NULL;
+    PyFrameObject *prev = NULL;
+
+    bool done = false;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w) && !done) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable)) {
+            continue;
+        }
+
+        PyFrameObject *frame;
+        if (regs[-2].as_int64 != 0) {
+            frame = (PyFrameObject *)AS_OBJ(regs[-2]);
+            // Update f_lasti
+            PyCodeObject2 *co = PyCode2_FromFunc((PyFunc *)callable);
+            const uint8_t *first_instr = PyCode2_GET_CODE(co);
+            frame->f_lasti = w.pc - first_instr;
+            done = true;
+        }
+        else {
+            frame = new_fake_frame(w.ts, w.offset, w.pc);
+            if (frame == NULL) {
+                return NULL;
+            }
+            regs[-2] = PACK(frame, REFCOUNT_TAG);
+        }
+
+        if (top == NULL) {
+            top = frame;
+        }
+        if (prev != NULL) {
+            Py_INCREF(frame);
+            assert(prev->f_back == NULL);
+            Py_XSETREF(prev->f_back, frame);
+        }
+        prev = frame;
     }
 
-    PyFrameObject *frame = new_fake_frame(ts, offset, ts->pc);
-    ts->regs[offset-2] = PACK(frame, REFCOUNT_TAG);
-    return frame;
+    return top;
 }
 
 static PyObject *
@@ -3072,7 +3064,7 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
         return locals;
     }
 
-    PyFrameObject *frame = frame_aux_state(ts, offset);
+    PyFrameObject *frame = vm_frame(ts);
     if (frame == NULL) {
         return NULL;
     }
@@ -3132,32 +3124,20 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
     return locals;
 }
 
-intptr_t
-vm_frame_clear_aux(intptr_t frame_link)
-{
-    abort();
-    // struct FrameAux *aux;
-
-    // // The frame_link points the aux->code field. This is the
-    // assert(frame_link_is_aux(frame_link));
-    // aux = (struct FrameAux *)frame_link;
-
-    // Py_CLEAR(aux->frame);
-    // Py_CLEAR(aux->locals);
-
-    // frame_link = aux->frame_link;
-    // mi_free(aux);
-
-    // return frame_link;
-}
-
-int
-vm_eval_breaker(struct ThreadState *ts)
+static int
+vm_opcode(struct ThreadState *ts)
 {
     int opcode = ts->pc[0];
     if (opcode == WIDE) {
         opcode = ts->pc[1];
     }
+    return opcode;
+}
+
+int
+vm_eval_breaker(struct ThreadState *ts)
+{
+    int opcode = vm_opcode(ts);
     if (opcode == YIELD_FROM) {
         return 0;
     }

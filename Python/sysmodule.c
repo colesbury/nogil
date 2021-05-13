@@ -17,6 +17,7 @@ Data members:
 #include "Python.h"
 #include "code.h"
 #include "code2.h"
+#include "ceval2_meta.h"
 #include "frameobject.h"
 #include "pycore_ceval.h"
 #include "pycore_initconfig.h"
@@ -1788,13 +1789,11 @@ sys_getallocatedblocks_impl(PyObject *module)
     return _Py_GetAllocatedBlocks();
 }
 
-
-PyObject *vm_get_frame(int depth);
-
 static PyObject *
 sys__getframe_impl_new(PyObject *module, int depth)
 {
-    PyFrameObject *f = (PyFrameObject *)vm_get_frame(depth);
+    PyThreadState *tstate = PyThreadState_GET();
+    PyFrameObject *f = vm_frame(tstate->active);
     if (f == NULL) {
         return NULL;
     }
@@ -1804,6 +1803,16 @@ sys__getframe_impl_new(PyObject *module, int depth)
         return NULL;
     }
 
+    while (depth > 0 && f != NULL) {
+        f = f->f_back;
+        --depth;
+    }
+    if (f == NULL) {
+        _PyErr_SetString(tstate, PyExc_ValueError,
+                         "call stack is not deep enough");
+        return NULL;
+    }
+    Py_INCREF(f);
     return (PyObject *)f;
 }
 
