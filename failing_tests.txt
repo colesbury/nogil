@@ -13,10 +13,8 @@ test_inspect
 test_nntplib
 test_pdb
 test_peepholer
-test_pstats
 test_super
 test_sys
-test_sys_setprofile
 test_sys_settrace
 test_threading
 test_traceback

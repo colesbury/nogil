@@ -2672,6 +2672,9 @@ current_thread_state(void)
     return tstate->active;
 }
 
+static int
+vm_trace_enter_gen(struct ThreadState *ts);
+
 PyObject *
 PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
 {
@@ -2692,11 +2695,20 @@ PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
     ts->prev = tstate->active;
     tstate->active = ts;
 
+    int prev_status = gen->status;
     gen->status = GEN_RUNNING;
+    PyObject *ret = NULL;
+
+    if (tstate->use_tracing && prev_status == GEN_SUSPENDED) {
+        if (vm_trace_enter_gen(ts) != 0) {
+            goto exit;
+        }
+    }
 
     Register acc = opt_value ? PACK_INCREF(opt_value) : (Register){0};
-    PyObject *ret = _PyEval_Fast(ts, acc, ts->pc);
+    ret = _PyEval_Fast(ts, acc, ts->pc);
 
+exit:
     // pop `ts` from the list of active threads
     tstate->active = ts->prev;
     ts->prev = NULL;
@@ -3395,7 +3407,8 @@ vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
         }
     }
 
-    if (vm_opcode(ts->pc) == RETURN_VALUE) {
+    int opcode = vm_opcode(ts->pc);
+    if (opcode == RETURN_VALUE || opcode == YIELD_VALUE) {
         PyFrameObject *frame = vm_frame(ts);
         if (frame == NULL) {
             return -1;
@@ -3547,6 +3560,34 @@ vm_trace_err(struct ThreadState *ts, PyObject **type, PyObject **value, PyObject
     }
 
     Py_DECREF(arg);
+}
+
+static int
+vm_trace_enter_gen(struct ThreadState *ts)
+{
+    PyThreadState *tstate = ts->ts;
+    if (tstate->tracing) {
+        return 0;
+    }
+
+    PyFrameObject *frame = vm_frame(ts);
+    if (frame == NULL) {
+        return -1;
+    }
+
+    if (tstate->c_tracefunc != NULL) {
+        if (call_trace(ts, frame, PyTrace_CALL, Py_None) != 0) {
+            return -1;
+        }
+    }
+
+    if (tstate->c_profilefunc != NULL) {
+        if (call_profile(ts, frame, PyTrace_CALL, Py_None) != 0) {
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 PyObject *

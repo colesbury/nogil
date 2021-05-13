@@ -246,6 +246,7 @@ test_pprint
 test_print
 test_profile
 test_property
+test_pstats
 test_pty
 test_pulldom
 test_pwd
@@ -314,6 +315,7 @@ test_support
 test_symbol
 test_symtable
 test_syntax
+test_sys_setprofile
 test_sysconfig
 test_syslog
 test_tabnanny
