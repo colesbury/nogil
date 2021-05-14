@@ -3301,6 +3301,9 @@ call_trace(struct ThreadState *ts, PyFrameObject *frame,
     PyThreadState *tstate = ts->ts;
     Py_tracefunc func = tstate->c_tracefunc;
     PyObject *obj = tstate->c_traceobj;
+    if (func == NULL) {
+        return 0;
+    }
 
     tstate->tracing++;
     tstate->use_tracing = 0;
@@ -3423,7 +3426,7 @@ vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 }
 
 static int
-vm_trace(struct ThreadState *ts)
+vm_trace(struct ThreadState *ts, Register acc)
 {
     PyObject *callable = AS_OBJ(ts->regs[-1]);
     if (!PyFunc_Check(callable)) {
@@ -3459,6 +3462,7 @@ vm_trace(struct ThreadState *ts)
         frame->f_lineno = line;
     }
     else if (frame->seen_func_header && !frame->traced_func) {
+        frame->f_lasti = 0;
         frame->traced_func = true;
         trace_line = true;
 
@@ -3466,6 +3470,8 @@ vm_trace(struct ThreadState *ts)
         if (err != 0) {
             return -1;
         }
+
+        frame->f_lasti = addrq;
     }
 
     /* If the last instruction falls at the start of a line or if it
@@ -3491,6 +3497,13 @@ vm_trace(struct ThreadState *ts)
         }
     }
 
+    if (opcode == RETURN_VALUE) {
+        int err = call_trace(ts, frame, PyTrace_RETURN, AS_OBJ(acc));
+        if (err != 0) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -3504,7 +3517,7 @@ vm_trace_handler(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 
     int err;
     if (tstate->c_tracefunc != NULL) {
-        err = vm_trace(ts);
+        err = vm_trace(ts, acc);
         if (err != 0) {
             return -1;
         }
