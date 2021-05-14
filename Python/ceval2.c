@@ -583,7 +583,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     LABEL(setup_default_args): ;
         Py_ssize_t total_args = this_code->co_totalargcount;
-        Py_ssize_t co_required_args = total_args - this_code->co_ndefaultargs;
+        Py_ssize_t co_required_args = total_args - THIS_FUNC()->num_defaults;
 
         // Check for missing required arguments
         Py_ssize_t i = acc.as_int64 & ACC_MASK_ARGS;
@@ -620,9 +620,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if ((this_code->co_packed_flags & CODE_FLAG_HAS_FREEVARS) != 0) {
             PyFunc *this_func = THIS_FUNC();
             Py_ssize_t n = this_code->co_nfreevars;
+            // TODO: clean-up (maybe move freevars before defaults?)
+            Py_ssize_t offset = this_func->num_defaults - this_code->co_ndefaultargs;
             for (Py_ssize_t i = this_code->co_ndefaultargs; i < n; i++) {
                 Py_ssize_t r = this_code->co_free2reg[i*2+1];
-                PyObject *cell = this_func->freevars[i];
+                PyObject *cell = this_func->freevars[i + offset];
                 assert(PyCell_Check(cell));
                 regs[r] = PACK(cell, NO_REFCOUNT_TAG);
             }

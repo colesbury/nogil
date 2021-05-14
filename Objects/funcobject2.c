@@ -20,7 +20,7 @@ PyFunc_New(PyObject *co, PyObject *globals, PyObject *builtins)
 
     assert(PyCode2_Check(co));
     PyCodeObject2 *code = (PyCodeObject2 *)co;
-    PyFunc *func = PyObject_GC_NewVar(PyFunc, &PyFunc_Type, code->co_nfreevars);
+    PyFunc *func = PyObject_GC_New(PyFunc, &PyFunc_Type);
     if (func == NULL) {
         return NULL;
     }
@@ -55,6 +55,8 @@ PyFunc_New(PyObject *co, PyObject *globals, PyObject *builtins)
     func->func_weakreflist = NULL;
     func->func_annotations = NULL;
     func->vectorcall = _PyFunc_Vectorcall;
+    func->num_defaults = 0;
+    func->freevars = NULL;
 
     func->func_module = _PyDict_GetItemIdWithError(globals, &PyId___name__);
     if (UNLIKELY(func->func_module == NULL && PyErr_Occurred())) {
@@ -73,6 +75,15 @@ PyFunc_New(PyObject *co, PyObject *globals, PyObject *builtins)
         }
     }
     assert(PyDict_Check(func->builtins));
+
+    if (code->co_nfreevars > 0) {
+        func->freevars = PyObject_Malloc(code->co_nfreevars * sizeof(PyObject *));
+        if (func->freevars == NULL) {
+            Py_DECREF(func);
+            return NULL;
+        }
+        func->num_defaults = code->co_ndefaultargs;
+    }
 
     _PyObject_GC_TRACK(func);
     return (PyObject *)func;
@@ -193,10 +204,15 @@ func_new_impl(PyTypeObject *type, PyCodeObject2 *code, PyObject *globals,
 static int
 func_clear(PyFunc *op)
 {
-    const uint8_t *first_instr = op->func_base.first_instr;
-    if (first_instr != NULL) {
-        op->func_base.first_instr = NULL;
-        Py_DECREF(PyCode2_FromInstr(first_instr));
+    if (op->freevars != NULL) {
+        PyCodeObject2 *co = PyCode2_FromFunc(op);
+        PyObject **freevars = op->freevars;
+        op->freevars = NULL;
+        Py_ssize_t n = op->num_defaults + PyCode2_NumFreevars(co);
+        for (Py_ssize_t i = 0; i < n; i++) {
+            Py_CLEAR(freevars[i]);
+        }
+        PyObject_Free(freevars);
     }
     Py_CLEAR(op->globals);
     Py_CLEAR(op->builtins);
@@ -206,10 +222,6 @@ func_clear(PyFunc *op)
     Py_CLEAR(op->func_module);
     Py_CLEAR(op->func_annotations);
     Py_CLEAR(op->func_qualname);
-    Py_ssize_t nfreevars = Py_SIZE(op);
-    for (Py_ssize_t i = 0; i < nfreevars; i++) {
-        Py_CLEAR(op->freevars[i]);
-    }
     return 0;
 }
 
@@ -221,6 +233,9 @@ func_dealloc(PyFunc *op)
         PyObject_ClearWeakRefs((PyObject *) op);
     }
     (void)func_clear(op);
+    PyCodeObject2 *co = PyCode2_FromFunc(op);
+    ((PyFuncBase *)op)->first_instr = NULL;
+    Py_DECREF(co);
     PyObject_GC_Del(op);
 }
 
@@ -244,9 +259,11 @@ func_traverse(PyFunc *op, visitproc visit, void *arg)
     Py_VISIT(op->func_module);
     Py_VISIT(op->func_annotations);
     Py_VISIT(op->func_qualname);
-    Py_ssize_t nfreevars = Py_SIZE(op);
-    for (Py_ssize_t i = 0; i < nfreevars; i++) {
-        Py_VISIT(op->freevars[i]);
+    if (op->freevars != NULL) {
+        Py_ssize_t n = op->num_defaults + PyCode2_NumFreevars(co);
+        for (Py_ssize_t i = 0; i < n; i++) {
+            Py_VISIT(op->freevars[i]);
+        }
     }
     return 0;
 }
@@ -288,8 +305,6 @@ func_get_code(PyFunc *op, void *Py_UNUSED(ignored))
 static int
 func_set_code(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
 {
-    Py_ssize_t nfree, nclosure;
-
     /* Not legal to del f.func_code or to set it to anything
      * other than a code object. */
     if (value == NULL || !PyCode2_Check(value)) {
@@ -305,18 +320,17 @@ func_set_code(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
 
     // TODO: check other attributes
     PyCodeObject2 *co = ((PyCodeObject2 *)value);
-    nfree = co->co_nfreevars;
-    nclosure = Py_SIZE(op);
-    if (nclosure != nfree) {
+    PyCodeObject2 *prev = PyCode2_FromFunc(op);
+    if (PyCode2_NumFreevars(prev) != PyCode2_NumFreevars(co)) {
         PyErr_Format(PyExc_ValueError,
                      "%U() requires a code object with %zd free vars,"
                      " not %zd",
                      op->func_name,
-                     nclosure, nfree);
+                     PyCode2_NumFreevars(prev),
+                     PyCode2_NumFreevars(co));
         return -1;
     }
 
-    PyCodeObject2 *prev = PyCode2_FromFunc(op);
     Py_INCREF(value);
     op->func_base.first_instr = PyCode2_Code(co);
     Py_DECREF(prev);
@@ -375,7 +389,7 @@ func_get_defaults(PyFunc *op, void *Py_UNUSED(ignored))
         return NULL;
     }
     PyCodeObject2 *co = PyCode2_FromFunc(op);
-    Py_ssize_t required_args = co->co_totalargcount - co->co_ndefaultargs;
+    Py_ssize_t required_args = co->co_totalargcount - op->num_defaults;
     Py_ssize_t n = co->co_argcount - required_args;
     if (n <= 0) {
         Py_RETURN_NONE;
@@ -415,20 +429,41 @@ func_set_defaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
     }
 
     PyCodeObject2 *co = PyCode2_FromFunc(op);
-    Py_ssize_t nkwargs = co->co_totalargcount - co->co_argcount;
-    Py_ssize_t expected = co->co_ndefaultargs - nkwargs;
-    Py_ssize_t n = (value == NULL ? 0 : PyTuple_GET_SIZE(value));
-    if (expected != n) {
-        PyErr_Format(PyExc_TypeError,
-            "__defaults__ size can't change (expected %zd)",
-            expected);
+
+    Py_ssize_t num_posdflts = (value == NULL ? 0 : PyTuple_GET_SIZE(value));
+    Py_ssize_t num_kwargs = PyCode2_NumKwargs(co);
+    Py_ssize_t num_freevars = PyCode2_NumFreevars(co);
+    Py_ssize_t new_size = num_posdflts + num_kwargs + num_freevars;
+
+    PyObject **array = PyObject_Malloc(new_size * sizeof(PyObject *));
+    if (array == NULL) {
         return -1;
     }
 
-    for (Py_ssize_t i = 0; i < n; i++) {
-        PyObject *d = PyTuple_GET_ITEM(value, i);
-        Py_XSETREF(op->freevars[i], d);
+    // copy over new positional defaults
+    Py_ssize_t i = 0;
+    for (; i < num_posdflts; i++) {
+        PyObject *o = PyTuple_GET_ITEM(value, i);
+        Py_INCREF(o);
+        array[i] = o;
     }
+
+    // copy over previous kwarg defaults and freevars
+    assert(op->num_defaults >= num_kwargs);
+    Py_ssize_t prev_posdflts = op->num_defaults - num_kwargs;
+    Py_ssize_t n = num_kwargs + num_freevars;
+    memcpy(&array[i], &op->freevars[prev_posdflts], n * sizeof(PyObject *));
+
+    PyObject **prev = op->freevars;
+
+    op->freevars = array;
+    op->num_defaults = num_posdflts + num_kwargs;
+
+    // decref previous positional defaults
+    for (Py_ssize_t i = 0; i < prev_posdflts; i++) {
+        Py_DECREF(prev[i]);
+    }
+    PyObject_Free(prev);
 
     return 0;
 }
@@ -441,18 +476,18 @@ func_get_kwdefaults(PyFunc *op, void *Py_UNUSED(ignored))
         return NULL;
     }
     PyCodeObject2 *co = PyCode2_FromFunc(op);
-    Py_ssize_t kwonlyargcount = co->co_totalargcount - co->co_argcount;
-    if (kwonlyargcount == 0 || co->co_ndefaultargs == 0) {
+    Py_ssize_t num_kwargs = PyCode2_NumKwargs(co);
+    if (num_kwargs == 0 || op->num_defaults == 0) {
         Py_RETURN_NONE;
     }
     PyObject *kwdefaults = PyDict_New();
     if (kwdefaults == NULL) {
         return NULL;
     }
-    Py_ssize_t i = co->co_ndefaultargs - kwonlyargcount;
-    Py_ssize_t j = co->co_totalargcount - kwonlyargcount;
+    Py_ssize_t i = op->num_defaults - num_kwargs;
+    Py_ssize_t j = co->co_totalargcount - num_kwargs;
     assert(i >= 0 && j >= 0);
-    for (; i < co->co_ndefaultargs; i++, j++) {
+    for (; i < op->num_defaults; i++, j++) {
         PyObject *value = op->freevars[i];
         if (value == NULL) continue;
         PyObject *name = PyTuple_GET_ITEM(co->co_varnames, j);
@@ -492,7 +527,7 @@ func_set_kwdefaults(PyFunc *op, PyObject *value, void *Py_UNUSED(ignored))
     Py_ssize_t co_totalargcount = co->co_totalargcount;
     Py_ssize_t co_kwonlyargcount = co_totalargcount - co_argcount;
 
-    Py_ssize_t j = co->co_ndefaultargs - co_kwonlyargcount;
+    Py_ssize_t j = op->num_defaults - co_kwonlyargcount;
     for (Py_ssize_t i = co_argcount; i < co_totalargcount; i++, j++) {
         PyObject *kwname = PyTuple_GET_ITEM(co->co_varnames, i);
         PyObject *dflt = value ? PyDict_GetItemWithError(value, kwname) : NULL;
@@ -512,7 +547,7 @@ static PyObject *
 func_get_closure(PyFunc *op, void *Py_UNUSED(ignored))
 {
     PyCodeObject2 *co = PyCode2_FromFunc(op);
-    Py_ssize_t n = co->co_nfreevars - co->co_ndefaultargs;
+    Py_ssize_t n = co->co_nfreevars - op->num_defaults;
     if (n <= 0) {
         Py_RETURN_NONE;
     }
@@ -521,7 +556,7 @@ func_get_closure(PyFunc *op, void *Py_UNUSED(ignored))
         return NULL;
     }
     for (Py_ssize_t i = 0; i < n; i++) {
-        PyObject *value = op->freevars[i + co->co_ndefaultargs];
+        PyObject *value = op->freevars[i + op->num_defaults];
         Py_INCREF(value);
         PyTuple_SET_ITEM(closure, i, value);
     }
@@ -579,7 +614,6 @@ PyTypeObject PyFunc_Type = {
     .tp_name = "PyFunc",
     .tp_doc = func_new__doc__,
     .tp_basicsize = sizeof(PyFunc),
-    .tp_itemsize = sizeof(PyObject*),
     .tp_call = (ternaryfunc)_PyFunc_Call,
     .tp_vectorcall_offset = offsetof(PyFunc, vectorcall),
     .tp_descr_get = func_descr_get,

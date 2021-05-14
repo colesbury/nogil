@@ -142,6 +142,18 @@ PyCode2_FromFunc(PyFunc *func)
     return PyCode2_FromInstr(func->func_base.first_instr);
 }
 
+static inline Py_ssize_t
+PyCode2_NumFreevars(PyCodeObject2 *code)
+{
+    return code->co_nfreevars - code->co_ndefaultargs;
+}
+
+static inline Py_ssize_t
+PyCode2_NumKwargs(PyCodeObject2 *code)
+{
+    return code->co_totalargcount - code->co_argcount;
+}
+
 
 #ifdef __cplusplus
 }

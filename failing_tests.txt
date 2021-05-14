@@ -5,7 +5,6 @@ test_bdb
 test_capi
 test_cgitb
 test_code
-test_collections
 test_cprofile
 test_dis
 test_doctest
@@ -13,7 +12,6 @@ test_embed
 test_extcall
 test_faulthandler
 test_frame
-test_funcattrs
 test_gdb
 test_inspect
 test_metaclass
@@ -33,8 +31,6 @@ test_sys_settrace
 test_threading
 test_trace
 test_traceback
-test_typing
-test_unittest
 test_unpack_ex
 test_userlist
 test_xml_etree_c

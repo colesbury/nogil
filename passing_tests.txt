@@ -57,6 +57,7 @@ test_codecmaps_kr
 test_codecmaps_tw
 test_codecs
 test_codeop
+test_collections
 test_colorsys
 test_compare
 test_compile
@@ -127,6 +128,7 @@ test_fractions
 test_frozen
 test_fstring
 test_ftplib
+test_funcattrs
 test_functools
 test_future
 test_future3
@@ -329,6 +331,7 @@ test_turtle
 test_type_comments
 test_typechecks
 test_types
+test_typing
 test_ucn
 test_unary
 test_unicode
@@ -336,6 +339,7 @@ test_unicode_file
 test_unicode_file_functions
 test_unicode_identifiers
 test_unicodedata
+test_unittest
 test_univnewlines
 test_unpack
 test_unparse

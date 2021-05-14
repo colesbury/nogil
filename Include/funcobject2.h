@@ -30,8 +30,8 @@ typedef struct {
     PyObject *func_annotations; /* Annotations, a dict or NULL */
     PyObject *func_qualname;    /* The qualified name */
     vectorcallfunc vectorcall;
-    PyObject *freevars[0];  // captured variables and default argument values
-    // closure... LuaJit has closed-over variables as flexiable array member
+    Py_ssize_t num_defaults;
+    PyObject **freevars;        /* captured (free) variables */
 } PyFunc;
 
 PyAPI_DATA(PyTypeObject) PyFunc_Type;

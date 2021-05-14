@@ -1398,7 +1398,6 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code)
         return (Register){0};
     }
 
-    assert(Py_SIZE(func) >= code->co_nfreevars);
     for (Py_ssize_t i = 0, n = code->co_nfreevars; i < n; i++) {
         Py_ssize_t r = code->co_free2reg[i*2];
         PyObject *var = AS_OBJ(ts->regs[r]);
@@ -1581,7 +1580,7 @@ missing_arguments(struct ThreadState *ts)
 
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
     PyCodeObject2 *co = PyCode2_FromFunc(func);
-    Py_ssize_t required_args = co->co_totalargcount - co->co_ndefaultargs;
+    Py_ssize_t required_args = co->co_totalargcount - func->num_defaults;
 
     // names of missing positional arguments
     positional = PyList_New(0);
@@ -1645,7 +1644,7 @@ too_many_positional(struct ThreadState *ts,
 
     assert((co->co_flags & CO_VARARGS) == 0);
 
-    Py_ssize_t defcount = co_argcount + co->co_ndefaultargs - co_totalargcount;
+    Py_ssize_t defcount = co_argcount + func->num_defaults - co_totalargcount;
     if (defcount > 0) {
         Py_ssize_t atleast = co_argcount - defcount;
         plural = 1;
