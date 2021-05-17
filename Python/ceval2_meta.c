@@ -1364,6 +1364,7 @@ vm_tpcall_function(struct ThreadState *ts, Register acc)
             }
         }
         result = (*(PyCFunctionWithKeywords)(void(*)(void))meth)(self, args, kwargs);
+        Py_XDECREF(kwargs);
     }
     else if (UNLIKELY(ACC_KWCOUNT(acc) != 0)) {
         _PyErr_Format(ts->ts, PyExc_TypeError,

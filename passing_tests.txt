@@ -373,6 +373,7 @@ test_wsgiref
 test_xdrlib
 test_xml_dom_minicompat
 test_xml_etree
+test_xml_etree_c
 test_xmlrpc
 test_xmlrpc_net
 test_xxtestfuzz

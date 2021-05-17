@@ -32,5 +32,4 @@ test_threading
 test_trace
 test_traceback
 test_userlist
-test_xml_etree_c
 test_zipimport_support
