@@ -342,6 +342,7 @@ test_unicodedata
 test_unittest
 test_univnewlines
 test_unpack
+test_unpack_ex
 test_unparse
 test_urllib
 test_urllib2

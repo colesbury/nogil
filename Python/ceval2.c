@@ -2116,7 +2116,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         int err;
         CALL_VM(err = _PyDict_MergeEx(dict, update, 2));
         if (UNLIKELY(err != 0)) {
-            // TODO: update error message
+            CALL_VM(vm_err_dict_merge(ts, acc));
             goto error;
         }
         DECREF(acc);

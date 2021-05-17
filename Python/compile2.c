@@ -3007,18 +3007,6 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
     }
 
     clear_regs_above(c, defaults_base);
-    // FIXME: annotations
-    // Py_INCREF(qualname);
-    // compiler_exit_scope(c);
-    // if (co == NULL) {
-    //     Py_XDECREF(qualname);
-    //     Py_XDECREF(co);
-    //     return 0;
-    // }
-
-    // compiler_make_closure(c, co, funcflags, qualname);
-    // Py_DECREF(qualname);
-    // Py_DECREF(co);
 
     /* decorators */
     for (i = 0; i < asdl_seq_LEN(decos); i++) {
@@ -4758,22 +4746,42 @@ kwdargs_to_reg(struct compiler *c, asdl_seq *kwds, Py_ssize_t reg)
         return;
     }
 
+    Py_ssize_t dict = reg;
+    bool merged = false;
     for (i = 0; i < n; i++) {
         keyword_ty kwd = asdl_seq_GET(kwds, i);
         PyObject *key = kwd->arg;
         expr_ty value = kwd->value;
-        if (key != NULL) {
-            // FIXME: this does not properly handle duplicate keys:
-            // foo(*({'a': 'a'}), a=2)
-            Py_ssize_t reg_key = const_to_any_reg(c, key);
-            compiler_visit_expr(c, value);
-            emit2(c, STORE_SUBSCR, reg, reg_key);
-            clear_reg(c, reg_key);
-        }
-        else {
+        if (key == NULL) {
+            // e.g. foo(**kwargs)
+            if (dict != reg) {
+                emit1(c, LOAD_FAST, dict);
+                clear_reg(c, dict);
+                emit1(c, DICT_MERGE, reg);
+                dict = reg;
+            }
             compiler_visit_expr(c, value);
             emit1(c, DICT_MERGE, reg);
+            merged = true;
         }
+        else {
+            // foo(key=value)
+            if (merged && dict == reg) {
+                dict = reserve_regs(c, 1);
+                emit1(c, BUILD_MAP, 8);
+                emit1(c, STORE_FAST, dict);
+            }
+            Py_ssize_t reg_key = const_to_any_reg(c, key);
+            compiler_visit_expr(c, value);
+            emit2(c, STORE_SUBSCR, dict, reg_key);
+            clear_reg(c, reg_key);
+        }
+    }
+
+    if (dict != reg) {
+        emit1(c, LOAD_FAST, dict);
+        clear_reg(c, dict);
+        emit1(c, DICT_MERGE, reg);
     }
 }
 

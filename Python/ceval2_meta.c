@@ -85,6 +85,27 @@ Register vm_unknown_opcode(intptr_t opcode)
     abort();
 }
 
+static int
+vm_opcode(const uint8_t *pc)
+{
+    int opcode = pc[0];
+    if (opcode == WIDE) {
+        opcode = pc[1];
+    }
+    return opcode;
+}
+
+static int
+vm_oparg(const uint8_t *pc, int idx)
+{
+    if (pc[0] == WIDE) {
+        uint32_t arg;
+        memcpy(&arg, &pc[(idx * 4) + 2], sizeof(uint32_t));
+        return (int)arg;
+    }
+    return (int)pc[idx + 1];
+}
+
 static Register _Py_NO_INLINE
 attribute_error(struct ThreadState *ts, _Py_Identifier *id)
 {
@@ -2421,6 +2442,59 @@ vm_err_dict_update(struct ThreadState *ts, Register acc)
     }
 }
 
+void
+vm_err_dict_merge(struct ThreadState *ts, Register acc)
+{
+
+    /* _PyDict_MergeEx raises attribute
+     * error (percolated from an attempt
+     * to get 'keys' attribute) instead of
+     * a type error if its second argument
+     * is not a mapping.
+     */
+    PyThreadState *tstate = ts->ts;
+
+    PyObject *kwargs = AS_OBJ(acc);
+
+    Py_ssize_t dict_reg = vm_oparg(ts->pc, 0);
+    Py_ssize_t func_reg = dict_reg + FRAME_EXTRA;
+    PyObject *func = AS_OBJ(ts->regs[func_reg]);
+
+    if (_PyErr_ExceptionMatches(tstate, PyExc_AttributeError)) {
+        _PyErr_Clear(tstate);
+        PyObject *funcstr = _PyObject_FunctionStr(func);
+        if (funcstr != NULL) {
+            _PyErr_Format(
+                tstate, PyExc_TypeError,
+                "%U argument after ** must be a mapping, not %.200s",
+                funcstr, Py_TYPE(kwargs)->tp_name);
+            Py_DECREF(funcstr);
+        }
+    }
+    else if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
+        PyObject *exc, *val, *tb;
+        _PyErr_Fetch(tstate, &exc, &val, &tb);
+        if (val && PyTuple_Check(val) && PyTuple_GET_SIZE(val) == 1) {
+            _PyErr_Clear(tstate);
+            PyObject *funcstr = _PyObject_FunctionStr(func);
+            if (funcstr != NULL) {
+                PyObject *key = PyTuple_GET_ITEM(val, 0);
+                _PyErr_Format(
+                    tstate, PyExc_TypeError,
+                    "%U got multiple values for keyword argument '%S'",
+                    funcstr, key);
+                Py_DECREF(funcstr);
+            }
+            Py_XDECREF(exc);
+            Py_XDECREF(val);
+            Py_XDECREF(tb);
+        }
+        else {
+            _PyErr_Restore(tstate, exc, val, tb);
+        }
+    }
+}
+
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 {
@@ -3138,20 +3212,10 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
     return locals;
 }
 
-static int
-vm_opcode(struct ThreadState *ts)
-{
-    int opcode = ts->pc[0];
-    if (opcode == WIDE) {
-        opcode = ts->pc[1];
-    }
-    return opcode;
-}
-
 int
 vm_eval_breaker(struct ThreadState *ts)
 {
-    int opcode = vm_opcode(ts);
+    int opcode = vm_opcode(ts->pc);
     if (opcode == YIELD_FROM) {
         return 0;
     }
