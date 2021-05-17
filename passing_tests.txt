@@ -395,4 +395,5 @@ test_zipapp
 test_zipfile
 test_zipfile64
 test_zipimport
+test_zipimport_support
 test_zlib
