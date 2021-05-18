@@ -1752,6 +1752,7 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
 
     Py_ssize_t i = 0;
     PyObject *keyword, *value;
+    // FIXME: PyDict_Next isn't safe if the rich comparison modifies kwargs
     while (kwargs && PyDict_Next(kwargs, &i, &keyword, &value)) {
         if (keyword == NULL || !PyUnicode_Check(keyword)) {
             _PyErr_Format(ts->ts, PyExc_TypeError,
@@ -1760,9 +1761,11 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
             return -1;
         }
 
-        /* Speed hack: do raw pointer compares. As names are
-           normally interned this should almost always hit. */
-        PyObject **co_varnames = ((PyTupleObject *)(co->co_varnames))->ob_item;
+        Py_INCREF(value);
+
+        // Speed hack: do raw pointer compares. As names are
+        // normally interned this should almost always hit.
+        PyObject **co_varnames = _PyTuple_ITEMS(co->co_varnames);
         Py_ssize_t j;
         for (j = co->co_posonlyargcount; j < total_args; j++) {
             PyObject *name = co_varnames[j];
@@ -1771,33 +1774,40 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
             }
         }
 
-        /* Slow fallback, just in case */
+        // Slow fallback, just in case.
+        // We need to ensure that keyword and value are kept alive across the
+        // rich comparison call. The call might modify "kwargs"!
+        Py_INCREF(keyword);
         for (j = co->co_posonlyargcount; j < total_args; j++) {
             PyObject *name = co_varnames[j];
             int cmp = PyObject_RichCompareBool(keyword, name, Py_EQ);
             if (cmp > 0) {
+                Py_DECREF(keyword);
                 goto kw_found;
             }
             else if (cmp < 0) {
-                return -1;
+                goto error;
             }
         }
 
         assert(j >= total_args);
         if (kwdict == NULL) {
-            return unexpected_keyword_argument_dict(ts, co, keyword, kwargs);
+            unexpected_keyword_argument_dict(ts, co, keyword, kwargs);
+            goto error;
         }
 
         if (PyDict_SetItem(kwdict, keyword, value) == -1) {
-            return -1;
+            goto error;
         }
+        Py_DECREF(keyword);
+        Py_DECREF(value);
         continue;
 
       kw_found:
         if (ts->regs[j].as_int64 != 0) {
             return duplicate_keyword_argument(ts, co, keyword);
         }
-        ts->regs[j] = PACK_INCREF(value);
+        ts->regs[j] = PACK_OBJ(value);
     }
 
     /* Check the number of positional arguments */
@@ -1811,6 +1821,11 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
         CLEAR(ts->regs[-FRAME_EXTRA - 1]);
     }
     return 0;
+
+error:
+    Py_DECREF(keyword);
+    Py_DECREF(value);
+    return -1;
 }
 
 int
@@ -2493,6 +2508,22 @@ vm_err_dict_merge(struct ThreadState *ts, Register acc)
         else {
             _PyErr_Restore(tstate, exc, val, tb);
         }
+    }
+}
+
+void
+vm_err_list_extend(struct ThreadState *ts, Register acc)
+{
+    PyThreadState *tstate = ts->ts;
+    PyObject *iterable = AS_OBJ(acc);
+
+    if (_PyErr_ExceptionMatches(tstate, PyExc_TypeError) &&
+        (Py_TYPE(iterable)->tp_iter == NULL && !PySequence_Check(iterable)))
+    {
+        _PyErr_Clear(tstate);
+        _PyErr_Format(tstate, PyExc_TypeError,
+            "Value after * must be an iterable, not %.200s",
+            Py_TYPE(iterable)->tp_name);
     }
 }
 

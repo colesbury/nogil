@@ -2143,6 +2143,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         PyObject *res;
         CALL_VM(res = _PyList_Extend((PyListObject *)list, iterable));
         if (UNLIKELY(res == NULL)) {
+            CALL_VM(vm_err_list_extend(ts, acc));
             goto error;
         }
         assert(res == Py_None);

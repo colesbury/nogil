@@ -750,7 +750,7 @@ From the Iterators list, about the types of these things.
 ...     yield 1
 ...
 >>> type(g)
-<class 'PyFunc'>
+<class 'function'>
 >>> i = g()
 >>> type(i)
 <class 'generator'>

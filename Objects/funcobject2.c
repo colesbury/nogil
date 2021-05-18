@@ -611,7 +611,7 @@ static PyGetSetDef func_getsetlist[] = {
 // TODO: vectorcall offset?
 PyTypeObject PyFunc_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "PyFunc",
+    .tp_name = "function",
     .tp_doc = func_new__doc__,
     .tp_basicsize = sizeof(PyFunc),
     .tp_call = (ternaryfunc)_PyFunc_Call,

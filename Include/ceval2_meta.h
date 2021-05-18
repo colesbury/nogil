@@ -258,6 +258,7 @@ void vm_err_async_for_anext_invalid(struct ThreadState *ts, Register res);
 void vm_err_async_with_aenter(struct ThreadState *ts, Register acc);
 void vm_err_dict_update(struct ThreadState *ts, Register acc);
 void vm_err_dict_merge(struct ThreadState *ts, Register acc);
+void vm_err_list_extend(struct ThreadState *ts, Register acc);
 
 PyObject *vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);
