@@ -12,9 +12,6 @@ test_embed
 test_frame
 test_gdb
 test_inspect
-test_multiprocessing_fork
-test_multiprocessing_forkserver
-test_multiprocessing_spawn
 test_nntplib
 test_pdb
 test_peepholer
