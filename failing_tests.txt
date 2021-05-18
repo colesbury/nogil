@@ -12,7 +12,6 @@ test_embed
 test_frame
 test_gdb
 test_inspect
-test_metaclass
 test_multiprocessing_fork
 test_multiprocessing_forkserver
 test_multiprocessing_spawn

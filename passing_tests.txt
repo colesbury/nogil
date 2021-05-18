@@ -198,6 +198,7 @@ test_marshal
 test_math
 test_memoryio
 test_memoryview
+test_metaclass
 test_mimetypes
 test_minidom
 test_mmap
