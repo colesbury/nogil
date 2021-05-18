@@ -191,10 +191,6 @@ PyObject *vm_compute_cr_origin(struct ThreadState *ts);
 struct _frame *vm_frame(struct ThreadState *ts);
 struct _frame *vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset);
 
-// used by errors.c
-PyObject *vm_traceback_here(struct ThreadState *ts);
-
-
 // Used by funcobject2.c.
 PyObject *vm_builtins_from_globals(PyObject *globals);
 

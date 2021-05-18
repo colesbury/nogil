@@ -14,9 +14,9 @@ extern "C" {
 
 struct stack_walk {
     struct ThreadState *ts;
+    Register *regs;
     const uint8_t *pc;
     intptr_t offset;
-    intptr_t next_offset;
     intptr_t frame_link;
 };
 
@@ -25,40 +25,52 @@ vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
 {
     memset(w, 0, sizeof(*w));
     w->ts = ts;
-    w->frame_link = (intptr_t)ts->pc;
 }
 
-static inline Register *
-vm_stack_walk_regs(struct stack_walk *w)
+int
+vm_stack_walk_lineno(struct stack_walk *w);
+
+static inline int
+vm_stack_walk_all(struct stack_walk *w)
 {
-    return &w->ts->regs[w->offset];
+    struct ThreadState *ts = w->ts;
+    while (ts != NULL) {
+        if (w->regs != NULL) {
+            intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
+            intptr_t frame_link = ts->regs[w->offset-3].as_int64;
+            w->offset -= frame_delta;
+            w->pc = (const uint8_t *)(frame_link < 0 ? -frame_link : frame_link);
+            w->frame_link = frame_link;
+        }
+        else {
+            w->pc = ts->pc;
+            w->frame_link = 0;
+        }
+
+        if (ts->regs + w->offset == ts->stack) {
+            // switch to calling virtual thread
+            w->ts = ts = ts->prev;
+            w->offset = 0;
+            w->regs = NULL;
+            continue;
+        }
+
+        w->regs = &ts->regs[w->offset];
+        return 1;
+    }
+
+    return 0;
 }
 
 static inline int
 vm_stack_walk(struct stack_walk *w)
 {
-    struct ThreadState *ts = w->ts;
-    // FIXME(sgross): an if-statement (instead of a loop) should be
-    // sufficient, but we currently can have parent threads with empty stacks
-    // because of the mix of old and new interpreters.
-    while (ts->regs + w->next_offset == ts->stack) {
-        if (ts->prev == NULL) {
-            return 0;
+    while (vm_stack_walk_all(w)) {
+        if (PyFunc_Check(AS_OBJ(w->regs[-1])) && w->pc != NULL) {
+            return 1;
         }
-        // switch to calling virtual thread
-        w->ts = ts = ts->prev;
-        w->frame_link = (intptr_t)w->ts->pc;
-        w->next_offset = 0;
     }
-
-    w->offset = w->next_offset;
-    w->pc = (const uint8_t *)(w->frame_link < 0 ? -w->frame_link : w->frame_link);
-
-    intptr_t frame_link = ts->regs[w->offset-3].as_int64;
-    intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
-    w->next_offset = w->offset - frame_delta;
-    w->frame_link = frame_link;
-    return 1;
+    return 0;
 }
 
 #ifdef __cplusplus

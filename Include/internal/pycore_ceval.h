@@ -52,7 +52,7 @@ extern PyObject *_PyEval_EvalCode(
     PyObject *name, PyObject *qualname);
 
 int
-vm_frame_info(PyFunc **func, int *addrq, int depth,
+vm_frame_info(PyFunc **func, int *lineno, int depth,
               bool skip_importlib_frames);
 
 #ifdef __cplusplus

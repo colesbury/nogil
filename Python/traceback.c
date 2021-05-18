@@ -759,10 +759,9 @@ _Py_DumpASCII(int fd, PyObject *text)
    This function is signal safe. */
 
 static void
-dump_frame(int fd, PyFunc *func, int addrq)
+dump_frame(int fd, PyFunc *func, int lineno)
 {
     PyCodeObject2 *code;
-    int lineno;
 
     code = PyCode2_FromFunc(func);
     PUTS(fd, "  File ");
@@ -777,7 +776,6 @@ dump_frame(int fd, PyFunc *func, int addrq)
     }
 
     /* PyFrame_GetLineNumber() was introduced in Python 2.7.0 and 3.2.0 */
-    lineno = PyCode2_Addr2Line(code, addrq);
     PUTS(fd, ", line ");
     if (lineno >= 0) {
         _Py_DumpDecimal(fd, (unsigned long)lineno);
@@ -815,20 +813,14 @@ dump_traceback(int fd, PyThreadState *tstate, int write_header)
     struct stack_walk w;
     vm_stack_walk_init(&w, tstate->active);
     while (vm_stack_walk(&w)) {
-        Register *regs = vm_stack_walk_regs(&w);
-        PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable)) {
-            continue;
-        }
-
         if (MAX_FRAME_DEPTH <= depth) {
             PUTS(fd, "  ...\n");
             break;
         }
 
-        PyFunc *func = (PyFunc *)callable;
-        int addrq = w.pc - func->func_base.first_instr;
-        dump_frame(fd, func, addrq);
+        PyFunc *func = (PyFunc *)AS_OBJ(w.regs[-1]);
+        int lineno = vm_stack_walk_lineno(&w);
+        dump_frame(fd, func, lineno);
         depth++;
     }
 

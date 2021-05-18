@@ -12,6 +12,7 @@ test_asdl_parser
 test_ast
 test_asyncgen
 test_asynchat
+test_asyncio
 test_asyncore
 test_atexit
 test_audioop

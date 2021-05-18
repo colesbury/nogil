@@ -500,16 +500,11 @@ traceback_get_frames_new(traceback_t *traceback)
             continue;
         }
 
-        Register *regs = vm_stack_walk_regs(&w);
-        PyObject *callable = AS_OBJ(regs[-1]);
-        if (!PyFunc_Check(callable)) {
-            continue;
-        }
-        PyFunc *func = (PyFunc *)callable;
+        PyFunc *func = (PyFunc *)AS_OBJ(w.regs[-1]);
         PyCodeObject2 *code = PyCode2_FromFunc(func);
 
         frame_t *frame = &traceback->frames[traceback->nframe];
-        frame->lineno = PyCode2_Addr2Line(code, w.pc - func->func_base.first_instr);
+        frame->lineno = vm_stack_walk_lineno(&w);
         tracemalloc_set_filename(frame, code->co_filename);
 
         assert(traceback->frames[traceback->nframe].filename != NULL);

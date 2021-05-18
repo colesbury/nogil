@@ -1386,21 +1386,18 @@ _PyErr_WriteUnraisableMsg(const char *err_msg_str, PyObject *obj)
     }
 
     if (exc_tb == NULL) {
+        struct _frame *frame;
         if (_PyRuntime.preconfig.new_bytecode) {
-            struct ThreadState *ts = tstate->active;
-            exc_tb = vm_traceback_here(ts);
-            if (exc_tb == NULL) {
-                _PyErr_Clear(tstate);
-            }
+            frame = vm_frame(tstate->active);
         }
         else {
-            struct _frame *frame = tstate->frame;
-            if (frame != NULL) {
-                exc_tb = _PyTraceBack_FromFrame(NULL, frame);
-                if (exc_tb == NULL) {
-                    _PyErr_Clear(tstate);
-                }
-            }
+            frame = tstate->frame;
+        }
+        if (frame != NULL) {
+            exc_tb = _PyTraceBack_FromFrame(NULL, frame);
+        }
+        if (exc_tb == NULL) {
+            _PyErr_Clear(tstate);
         }
     }
 

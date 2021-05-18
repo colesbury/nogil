@@ -914,9 +914,9 @@ setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
 
     /* Setup globals, filename and lineno. */
     PyFunc *func;
-    int err, addrq;
+    int err;
 
-    err = vm_frame_info(&func, &addrq, stack_level, true);
+    err = vm_frame_info(&func, lineno, stack_level, true);
     if (err < 0) {
         return 0;
     }
@@ -931,7 +931,6 @@ setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
         globals = ((PyFunc *)func)->globals;
         *filename = code->co_filename;
         Py_INCREF(*filename);
-        *lineno = PyCode2_Addr2Line(code, addrq);
     }
 
     *module = NULL;

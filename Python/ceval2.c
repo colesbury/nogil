@@ -862,6 +862,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         // partially set-up frame from showing up in tracebacks.
         pc = NULL;
 
+        // TODO(sgross): can we re-order this so we don't have a partially
+        // set-up frame?
+
         // ensure that *args is a tuple
         if (UNLIKELY(!PyTuple_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 2])))) {
             int err;
