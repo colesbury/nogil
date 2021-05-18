@@ -3,6 +3,8 @@
 
 #include "Python.h"
 #include "pycore_pystate.h"
+#include "ceval2_meta.h"
+#include "pycore_stackwalk.h"
 
 #include "code.h"
 #include "code2.h"
@@ -757,12 +759,12 @@ _Py_DumpASCII(int fd, PyObject *text)
    This function is signal safe. */
 
 static void
-dump_frame(int fd, PyFrameObject *frame)
+dump_frame(int fd, PyFunc *func, int addrq)
 {
-    PyCodeObject *code;
+    PyCodeObject2 *code;
     int lineno;
 
-    code = frame->f_code;
+    code = PyCode2_FromFunc(func);
     PUTS(fd, "  File ");
     if (code != NULL && code->co_filename != NULL
         && PyUnicode_Check(code->co_filename))
@@ -775,7 +777,7 @@ dump_frame(int fd, PyFrameObject *frame)
     }
 
     /* PyFrame_GetLineNumber() was introduced in Python 2.7.0 and 3.2.0 */
-    lineno = PyCode_Addr2Line(code, frame->f_lasti);
+    lineno = PyCode2_Addr2Line(code, addrq);
     PUTS(fd, ", line ");
     if (lineno >= 0) {
         _Py_DumpDecimal(fd, (unsigned long)lineno);
@@ -799,30 +801,40 @@ dump_frame(int fd, PyFrameObject *frame)
 static void
 dump_traceback(int fd, PyThreadState *tstate, int write_header)
 {
-    PyFrameObject *frame;
     unsigned int depth;
 
     if (write_header) {
         PUTS(fd, "Stack (most recent call first):\n");
     }
 
-    frame = _PyThreadState_GetFrame(tstate);
-    if (frame == NULL) {
-        PUTS(fd, "<no Python frame>\n");
-        return;
+    depth = 0;
+    if (tstate->active == NULL) {
+        goto done;
     }
 
-    depth = 0;
-    while (frame != NULL) {
+    struct stack_walk w;
+    vm_stack_walk_init(&w, tstate->active);
+    while (vm_stack_walk(&w)) {
+        Register *regs = vm_stack_walk_regs(&w);
+        PyObject *callable = AS_OBJ(regs[-1]);
+        if (!PyFunc_Check(callable)) {
+            continue;
+        }
+
         if (MAX_FRAME_DEPTH <= depth) {
             PUTS(fd, "  ...\n");
             break;
         }
-        if (!PyFrame_Check(frame))
-            break;
-        dump_frame(fd, frame);
-        frame = frame->f_back;
+
+        PyFunc *func = (PyFunc *)callable;
+        int addrq = w.pc - func->func_base.first_instr;
+        dump_frame(fd, func, addrq);
         depth++;
+    }
+
+done:
+    if (depth == 0) {
+        PUTS(fd, "<no Python frame>\n");
     }
 }
 

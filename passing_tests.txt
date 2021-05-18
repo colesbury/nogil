@@ -113,6 +113,7 @@ test_exception_hierarchy
 test_exception_variations
 test_exceptions
 test_extcall
+test_faulthandler
 test_fcntl
 test_file
 test_file_eintr

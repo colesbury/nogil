@@ -9,7 +9,6 @@ test_cprofile
 test_dis
 test_doctest
 test_embed
-test_faulthandler
 test_frame
 test_gdb
 test_inspect
