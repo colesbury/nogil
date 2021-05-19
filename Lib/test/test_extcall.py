@@ -458,6 +458,17 @@ Too many arguments:
     Traceback (most recent call last):
       ...
     TypeError: f() takes from 1 to 2 positional arguments but 3 positional arguments (and 1 keyword-only argument) were given
+    >>> def f(a, **kwargs): pass
+    >>> f(1, 2, x=3)
+    Traceback (most recent call last):
+      ...
+    TypeError: f() takes 1 positional argument but 2 were given
+    >>> def f(): pass
+    >>> f(1, x=3)
+    Traceback (most recent call last):
+      ...
+    TypeError: f() got an unexpected keyword argument 'x'
+
 
 Too few and missing arguments:
 

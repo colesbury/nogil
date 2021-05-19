@@ -1584,10 +1584,10 @@ cleanup:
     return -1;
 }
 
-int _Py_NO_INLINE
-too_many_positional(struct ThreadState *ts,
-                    Py_ssize_t given,
-                    Py_ssize_t kwcount)
+static int _Py_NO_INLINE
+too_many_positional_ex(struct ThreadState *ts,
+                       Py_ssize_t given,
+                       Py_ssize_t kwcount)
 {
     int plural;
     PyObject *sig, *kwonly_sig;
@@ -1597,6 +1597,10 @@ too_many_positional(struct ThreadState *ts,
     Py_ssize_t co_totalargcount = co->co_totalargcount;
 
     assert((co->co_flags & CO_VARARGS) == 0);
+    if ((co->co_flags & CO_VARKEYWORDS) != 0) {
+        kwcount = 0;
+    }
+
 
     Py_ssize_t defcount = co_argcount + func->num_defaults - co_totalargcount;
     if (defcount > 0) {
@@ -1637,6 +1641,47 @@ too_many_positional(struct ThreadState *ts,
     Py_DECREF(sig);
     Py_DECREF(kwonly_sig);
     return -1;
+}
+
+void
+too_many_positional(struct ThreadState *ts, Register acc)
+{
+    // We have too many positional arguments, but we might also have invalid
+    // keyword arguments -- those error messages take precedence.
+
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *co = PyCode2_FromFunc(func);
+
+    assert((co->co_packed_flags & CODE_FLAG_VARARGS) == 0);
+
+    Py_ssize_t argcount = ACC_ARGCOUNT(acc);
+    Py_ssize_t kwcount = ACC_KWCOUNT(acc);
+
+    if (kwcount > 0) {
+        // First, clear extra positional arguments
+        for (Py_ssize_t i = co->co_argcount; i < argcount; i++) {
+            CLEAR(ts->regs[i]);
+        }
+
+        if ((co->co_packed_flags & CODE_FLAG_VARKEYWORDS) != 0) {
+            // if the function uses **kwargs, create and store the dict
+            PyObject *kwdict = PyDict_New();
+            if (kwdict == NULL) {
+                return;
+            }
+            Py_ssize_t pos = co->co_totalargcount;
+            assert(ts->regs[pos].as_int64 == 0);
+            ts->regs[pos] = PACK(kwdict, REFCOUNT_TAG);
+        }
+
+        PyObject **kwnames = _PyTuple_ITEMS(AS_OBJ(ts->regs[-FRAME_EXTRA - 1]));
+        int err = vm_setup_kwargs(ts, co, acc, kwnames);
+        if (err != 0) {
+            return;
+        }
+    }
+
+    too_many_positional_ex(ts, argcount, kwcount);
 }
 
 // Setup up a function frame when invoked like `func(*args, **kwargs)`.
@@ -1745,7 +1790,7 @@ vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc)
     /* Check the number of positional arguments */
     if ((argcount > co->co_argcount) && !(co->co_flags & CO_VARARGS)) {
         Py_ssize_t kwcount = kwargs ? PyDict_Size(kwargs) : 0;
-        return too_many_positional(ts, argcount, kwcount);
+        return too_many_positional_ex(ts, argcount, kwcount);
     }
 
     CLEAR(ts->regs[-FRAME_EXTRA - 2]);

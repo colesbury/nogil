@@ -277,7 +277,7 @@ vm_make_function(struct ThreadState *ts, PyCodeObject2 *code);
 
 int duplicate_keyword_argument(struct ThreadState *ts, PyCodeObject2 *co, PyObject *keyword);
 int missing_arguments(struct ThreadState *ts);
-int too_many_positional(struct ThreadState *ts, Py_ssize_t posargcount, Py_ssize_t kwonly_given);
+void too_many_positional(struct ThreadState *ts, Register acc);
 
 
 int vm_setup_ex(struct ThreadState *ts, PyCodeObject2 *co, Register acc);

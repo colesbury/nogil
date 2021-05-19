@@ -525,7 +525,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             }
         }
         else if ((acc.as_int64 & ACC_MASK_ARGS) > this_code->co_argcount) {
-            FUNC_CALL_VM(too_many_positional(ts, ACC_ARGCOUNT(acc), ACC_KWCOUNT(acc)));
+            FUNC_CALL_VM(too_many_positional(ts, acc));
             goto error_func_header;
         }
 
