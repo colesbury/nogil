@@ -1698,6 +1698,14 @@ PyThreadState_IsCurrent(PyThreadState *tstate)
     return tstate == _PyRuntimeState_GetThreadState(&_PyRuntime);
 }
 
+int
+_PyThreadState_IsRunning(PyThreadState *tstate)
+{
+    /* Must be the tstate for this thread */
+    struct ThreadState *ts = tstate->active;
+    return ts->regs != ts->stack;
+}
+
 /* Internal initialization/finalization functions called by
    Py_Initialize/Py_FinalizeEx
 */
@@ -2054,6 +2062,9 @@ _PyCrossInterpreterData_Release(_PyCrossInterpreterData *data)
         // The interpreter was already destroyed.
         if (data->free != NULL) {
             // XXX Someone leaked some memory...
+        }
+        if (PyErr_Occurred()) {
+            PyErr_Clear();  // ???
         }
         return;
     }

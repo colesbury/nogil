@@ -1,4 +1,3 @@
-test__xxsubinterpreters
 test_bdb
 test_capi
 test_cgitb
