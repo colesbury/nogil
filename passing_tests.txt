@@ -328,6 +328,7 @@ test_tempfile
 test_textwrap
 test_thread
 test_threadedtempfile
+test_threading
 test_threading_local
 test_threadsignals
 test_time

@@ -14,6 +14,5 @@ test_peepholer
 test_super
 test_sys
 test_sys_settrace
-test_threading
 test_traceback
 test_userlist

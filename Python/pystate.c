@@ -6,6 +6,7 @@
 #include "pycore_initconfig.h"
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
+#include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
 #include "pycore_refcnt.h"
 #include "condvar.h"
@@ -1610,6 +1611,7 @@ _PyThread_CurrentFrames(void)
 {
     PyObject *result;
     PyInterpreterState *i;
+    PyThreadState *this_thread;
 
     if (PySys_Audit("sys._current_frames", NULL) < 0) {
         return NULL;
@@ -1618,6 +1620,9 @@ _PyThread_CurrentFrames(void)
     result = PyDict_New();
     if (result == NULL)
         return NULL;
+
+    this_thread = PyThreadState_GET();
+    this_thread->cant_stop_wont_stop = 1;
 
     /* for i in all interpreters:
      *     for t in all of i's thread states:
@@ -1631,10 +1636,16 @@ _PyThread_CurrentFrames(void)
         PyThreadState *t;
         for (t = i->tstate_head; t != NULL; t = t->next) {
             PyObject *id;
-            int stat;
-            struct _frame *frame = t->frame;
-            if (frame == NULL)
+
+            struct _frame *frame = vm_frame(t->active);
+            if (frame == NULL) {
+                if (_PyErr_Occurred(this_thread)) {
+                    goto Fail;
+                }
                 continue;
+            }
+
+            int stat;
             id = PyLong_FromUnsignedLong(t->thread_id);
             if (id == NULL)
                 goto Fail;
@@ -1649,6 +1660,7 @@ _PyThread_CurrentFrames(void)
 
  Fail:
     HEAD_UNLOCK(runtime);
+    this_thread->cant_stop_wont_stop = 0;
     Py_DECREF(result);
     return NULL;
 }
