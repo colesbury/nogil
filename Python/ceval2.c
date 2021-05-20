@@ -256,7 +256,6 @@ _OWNING_REF(Register r, intptr_t tid)
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
 #define PY_THREAD_STATE() ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
-#define EVAL_BREAKER_OFFSET (offsetof(PyThreadState, eval_breaker) - offsetof(PyThreadState, opcode_targets))
 #define EVAL_BREAKER (&PY_THREAD_STATE()->eval_breaker)
 
 #define CHECK_EVAL_BREAKER() do {                                   \
@@ -289,8 +288,6 @@ _OWNING_REF(Register r, intptr_t tid)
 
 #define THIS_CODE() \
     (PyCode2_FromInstr(THIS_FUNC()->func_base.first_instr))
-
-#define CONSTANTS() (constants)
 
 static const Register primitives[3] = {
     {(intptr_t)Py_False + NO_REFCOUNT_TAG},
@@ -356,7 +353,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     #endif // WIDE_OP
     TARGET(LOAD_CONST) {
-        acc = PACK(CONSTANTS()[UImm(0)], NO_REFCOUNT_TAG);
+        acc = PACK(constants[UImm(0)], NO_REFCOUNT_TAG);
         DISPATCH(LOAD_CONST);
     }
 
@@ -769,7 +766,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(MAKE_FUNCTION) {
-        PyCodeObject2 *code = (PyCodeObject2 *)CONSTANTS()[UImm(0)];
+        PyCodeObject2 *code = (PyCodeObject2 *)constants[UImm(0)];
         CALL_VM(acc = vm_make_function(ts, code));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
@@ -998,7 +995,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     TARGET(LOAD_NAME) {
         assert(IS_EMPTY(acc));
         PyObject *locals = AS_OBJ(regs[0]);
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         PyObject *value;
         CALL_VM(value = vm_load_name(ts, locals, name));
         if (value == NULL) {
@@ -1013,7 +1010,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(LOAD_GLOBAL) {
         assert(IS_EMPTY(acc));
-        // PyObject **constants = CONSTANTS();
         intptr_t *metadata = (intptr_t *)(char *)constants;
         PyObject *name = constants[UImm(0)];
         PyObject *globals = THIS_FUNC()->globals;
@@ -1072,7 +1068,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (UNLIKELY(owner == NULL)) {
             goto LABEL(unbound_local_error);
         }
-        PyObject *name = CONSTANTS()[UImm(1)];
+        PyObject *name = constants[UImm(1)];
         PyObject *res;
         CALL_VM(res = _PyObject_GetAttrFast(owner, name));
         if (UNLIKELY(res == NULL)) {
@@ -1084,7 +1080,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(LOAD_METHOD) {
         PyObject *owner = AS_OBJ(acc);
-        PyObject *name = CONSTANTS()[UImm(1)];
+        PyObject *name = constants[UImm(1)];
         int err;
         CALL_VM(err = vm_load_method(ts, owner, name, UImm(0)));
         if (UNLIKELY(err != 0)) {
@@ -1096,7 +1092,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(STORE_NAME) {
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         PyObject *locals = AS_OBJ(regs[0]);
         int err;
         if (LIKELY(PyDict_CheckExact(locals))) {
@@ -1114,7 +1110,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     TARGET(STORE_GLOBAL) {
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         PyObject *globals = THIS_FUNC()->globals;
         PyObject *value = AS_OBJ(acc);
         int err;
@@ -1152,7 +1148,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (UNLIKELY(owner == NULL)) {
             goto LABEL(unbound_local_error);
         }
-        PyObject *name = CONSTANTS()[UImm(1)];
+        PyObject *name = constants[UImm(1)];
         PyObject *value = AS_OBJ(acc);
         int err;
         CALL_VM(err = PyObject_SetAttr(owner, name, value));
@@ -1263,7 +1259,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     TARGET(LOAD_CLASSDEREF) {
         assert(IS_EMPTY(acc));
         intptr_t idx = UImm(0);
-        PyObject *name = CONSTANTS()[UImm(1)];
+        PyObject *name = constants[UImm(1)];
         CALL_VM(acc = vm_load_class_deref(ts, idx, name));
         if (UNLIKELY(acc.as_int64 == 0)) {
             goto error;
@@ -1284,7 +1280,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(DELETE_NAME) {
         assert(IS_EMPTY(acc));
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         int err;
         CALL_VM(err = vm_delete_name(ts, name));
         if (UNLIKELY(err != 0)) {
@@ -1295,7 +1291,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(DELETE_GLOBAL) {
         PyObject *globals = THIS_FUNC()->globals;
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         int err;
         CALL_VM(err = PyDict_DelItem(globals, name));
         if (UNLIKELY(err != 0)) {
@@ -1307,7 +1303,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(DELETE_ATTR) {
         PyObject *owner = AS_OBJ(acc);
-        PyObject *name = CONSTANTS()[UImm(0)];
+        PyObject *name = constants[UImm(0)];
         int err;
         CALL_VM(err = PyObject_SetAttr(owner, name, (PyObject *)NULL));
         if (UNLIKELY(err != 0)) {
@@ -1846,7 +1842,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(IMPORT_NAME) {
         PyFunc *this_func = THIS_FUNC();
-        PyObject *arg = CONSTANTS()[UImm(0)];
+        PyObject *arg = constants[UImm(0)];
         PyObject *res;
         CALL_VM(res = vm_import_name(ts, this_func, arg));
         if (UNLIKELY(res == 0)) {
@@ -1858,7 +1854,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(IMPORT_FROM) {
         PyObject *module = AS_OBJ(regs[UImm(0)]);
-        PyObject *name = CONSTANTS()[UImm(1)];
+        PyObject *name = constants[UImm(1)];
         PyObject *res;
         CALL_VM(res = vm_import_from(ts, module, name));
         if (UNLIKELY(res == NULL)) {
