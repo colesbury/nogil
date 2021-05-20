@@ -96,6 +96,10 @@ typedef struct _PyCodeObject2 {
     struct _PyHandlerTable *co_exc_handlers;
 
     PyObject *co_weakreflist;
+    /* Scratch space for extra data relating to the code object.
+       Type is a void* to keep the format private in codeobject.c to force
+       people to go through the proper APIs. */
+    void *co_extra;
 
     Py_ssize_t co_nmeta;
     int co_firstlineno;
