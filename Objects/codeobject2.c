@@ -613,7 +613,7 @@ code_sizeof(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     Py_ssize_t size = sizeof(PyCodeObject);
     size += co->co_size;
-    size = co->co_nconsts * sizeof(PyObject *);
+    size += co->co_nconsts * sizeof(PyObject *);
     return PyLong_FromSsize_t(size);
 }
 

@@ -86,7 +86,7 @@ PyAPI_FUNC(PyObject *) PyCFunction_NewEx(PyMethodDef *, PyObject *,
 
 #ifndef Py_LIMITED_API
 typedef struct {
-    PyObject_VAR_HEAD
+    PyObject_HEAD
     const uint8_t *first_instr;  // can get PyCodeObject2 via offset
 } PyFuncBase;
 

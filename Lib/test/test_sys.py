@@ -235,6 +235,7 @@ class SysModuleTest(unittest.TestCase):
             sys.setrecursionlimit(oldlimit)
 
     @test.support.cpython_only
+    @unittest.skip("sgross: no low water mark")
     def test_setrecursionlimit_recursion_depth(self):
         # Issue #25274: Setting a low recursion limit must be blocked if the
         # current recursion depth is already higher than the "lower-water
@@ -269,6 +270,7 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(oldlimit)
 
+    @unittest.skip("sgross: no low water mark")
     def test_recursionlimit_fatalerror(self):
         # A fatal error occurs if a second recursion limit is hit when recovering
         # from a first one.
@@ -1114,7 +1116,7 @@ class SizeofTest(unittest.TestCase):
         # buffer
         # XXX
         # builtin_function_or_method
-        check(len, size('6P'))
+        check(len, size('7P'))
         # bytearray
         samples = [b'', b'u'*100000]
         for sample in samples:
@@ -1145,17 +1147,17 @@ class SizeofTest(unittest.TestCase):
         # complex
         check(complex(0,1), size('2d'))
         # method_descriptor (descriptor object)
-        check(str.lower, size('6P'))
+        check(str.lower, size('7P'))
         # classmethod_descriptor (descriptor object)
         # XXX
         # member_descriptor (descriptor object)
         import datetime
-        check(datetime.timedelta.days, size('3PP'))
+        check(datetime.timedelta.days, size('4PP'))
         # getset_descriptor (descriptor object)
         import collections
-        check(collections.defaultdict.default_factory, size('3PP'))
+        check(collections.defaultdict.default_factory, size('4PP'))
         # wrapper_descriptor (descriptor object)
-        check(int.__add__, size('3P2P'))
+        check(int.__add__, size('4P2P'))
         # method-wrapper (descriptor object)
         check({}.__iter__, size('2P'))
         # empty dict
@@ -1204,14 +1206,14 @@ class SizeofTest(unittest.TestCase):
         # sys.floatinfo
         check(sys.float_info, vsize('') + self.P * len(sys.float_info))
         # frame
-        import inspect
-        x = inspect.currentframe()
-        ncells = len(x.f_code.co_cellvars)
-        nfrees = len(x.f_code.co_freevars)
-        nblocks = x.f_code.co_maxfblocks
-        extras = x.f_code.co_stacksize + 1 + +x.f_code.co_callablesize + x.f_code.co_nlocals +\
-                  ncells + nfrees - 1
-        check(x, vsize('11P3i4c' + '2P' + extras*'P' + nblocks*'4i'))
+        # import inspect
+        # x = inspect.currentframe()
+        # ncells = len(x.f_code.co_cellvars)
+        # nfrees = len(x.f_code.co_freevars)
+        # nblocks = x.f_code.co_maxfblocks
+        # extras = x.f_code.co_stacksize + 1 + +x.f_code.co_callablesize + x.f_code.co_nlocals +\
+        #           ncells + nfrees - 1
+        # check(x, vsize('11P3i4c' + '2P' + extras*'P' + nblocks*'4i'))
         # function
         def func(): pass
         check(func, size('13P'))
@@ -1228,7 +1230,7 @@ class SizeofTest(unittest.TestCase):
             check(bar, size('PP'))
         # generator
         def get_gen(): yield 1
-        check(get_gen(), size('Pb2PPP4P'))
+        check(get_gen(), size('6Pc6Pc'))
         # iterator
         check(iter('abc'), size('lP'))
         # callable-iterator

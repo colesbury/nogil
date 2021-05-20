@@ -140,12 +140,6 @@ STRONG_REF(Register r)
 struct _ts;
 struct _frame;
 
-// struct VirtualThread {};
-
-// typedef struct {
-//     struct PyVirtualThread thread;
-// } PyGenObject2;
-
 enum {
     THREAD_THREAD = 1,
     THREAD_GENERATOR = 2
