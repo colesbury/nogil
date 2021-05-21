@@ -131,7 +131,7 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
 }
 
 PyDoc_STRVAR(code_doc,
-"code(???, argcount, posonlyargcount, kwonlyargcount, nlocals, stacksize,\n\
+"code(argcount, posonlyargcount, kwonlyargcount, nlocals, stacksize,\n\
       flags, codestring, constants, names, varnames, filename, name,\n\
       firstlineno, lnotab[, freevars[, cellvars]])\n\
 \n\
@@ -140,16 +140,16 @@ Create a code object.  Not for the faint of heart.");
 /*[clinic input]
 @classmethod
 code.__new__ as code_new
-    bytecode: object(subclass_of="&PyBytes_Type")
-    constants as consts: object(subclass_of="&PyTuple_Type")
     argcount: int = 0
     posonlyargcount: int = 0
     kwonlyargcount: int = 0
-    ndefaultargs: int = 0
     nlocals: int = 0
     framesize: int = 0
+    ndefaultargs: int = 0
     nmeta: int = 0
     flags: int = 0
+    code: object(subclass_of="&PyBytes_Type") = None
+    constants as consts: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     varnames: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     filename: unicode = None
     name: unicode = None
@@ -165,22 +165,22 @@ Create a code object.  Not for the faint of heart.
 [clinic start generated code]*/
 
 static PyObject *
-code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
-              int argcount, int posonlyargcount, int kwonlyargcount,
-              int ndefaultargs, int nlocals, int framesize, int nmeta,
-              int flags, PyObject *varnames, PyObject *filename,
+code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
+              int kwonlyargcount, int nlocals, int framesize,
+              int ndefaultargs, int nmeta, int flags, PyObject *code,
+              PyObject *consts, PyObject *varnames, PyObject *filename,
               PyObject *name, int firstlineno, PyObject *linetable,
               PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
               PyObject *free2reg, PyObject *cell2reg)
-/*[clinic end generated code: output=1479fe53549304cb input=8a495d20172a274b]*/
+/*[clinic end generated code: output=8fdd3733847ba082 input=939e6a46666f2e43]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
 
     PyCodeObject2 *co = PyCode2_New(
-        PyBytes_GET_SIZE(bytecode),
-        PyTuple_GET_SIZE(consts),
+        code ? PyBytes_GET_SIZE(code) : 0,
+        consts ? PyTuple_GET_SIZE(consts) : 0,
         nmeta,
         ncells,
         ncaptured,
@@ -211,16 +211,17 @@ code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
     Py_INCREF(linetable);
     co->co_lnotab = linetable;
 
-    assert(co->co_size == PyBytes_GET_SIZE(bytecode));
-    memcpy(PyCode2_GET_CODE(co), PyBytes_AS_STRING(bytecode), co->co_size);
-
+    if (co->co_size != 0) {
+        memcpy(PyCode2_GET_CODE(co), PyBytes_AS_STRING(code), co->co_size);
+    }
     for (Py_ssize_t i = 0, n = co->co_nconsts; i != n; i++) {
         PyObject *c = PyTuple_GET_ITEM(consts, i);
         Py_INCREF(c);
-        if (PyUnicode_CheckExact(c)) {
-            PyUnicode_InternInPlace(&c);
-        }
         co->co_constants[i] = c;
+    }
+    if (_PyCode_InternConstants(co) != 0) {
+        Py_DECREF(co);
+        return NULL;
     }
     for (Py_ssize_t i = 0; i < ncells; i++) {
         co->co_cell2reg[i] = PyLong_AsSsize_t(PyTuple_GET_ITEM(cell2reg, i));
@@ -773,16 +774,16 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
 
     co = code_new_impl(
         &PyCode2_Type,
-        co_code,
-        co_consts,
         co_argcount,
         co_posonlyargcount,
         co_kwonlyargcount,
-        co_ndefaultargs,
         co_nlocals,
         co_framesize,
+        co_ndefaultargs,
         co_nmeta,
         co_flags,
+        co_code,
+        co_consts,
         co_varnames,
         co_filename,
         co_name,
@@ -817,6 +818,8 @@ static PyMemberDef code_memberlist[] = {
     {"co_totalargcount",        T_PYSSIZET,  OFF(co_totalargcount),   READONLY},
     {"co_nlocals",      T_PYSSIZET,     OFF(co_nlocals),         READONLY},
     {"co_framesize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
+    {"co_ndefaultargs", T_PYSSIZET,     OFF(co_ndefaultargs),    READONLY},
+    {"co_nmeta",        T_PYSSIZET,     OFF(co_nmeta),           READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
     {"co_packed_flags", T_INT,          OFF(co_packed_flags),    READONLY},
     {"co_varnames",     T_OBJECT,       OFF(co_varnames),        READONLY},

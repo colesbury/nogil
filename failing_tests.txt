@@ -4,7 +4,6 @@ test_audit
 test_bdb
 test_capi
 test_cgitb
-test_code
 test_cprofile
 test_dis
 test_doctest

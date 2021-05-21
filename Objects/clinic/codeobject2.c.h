@@ -3,20 +3,20 @@ preserve
 [clinic start generated code]*/
 
 PyDoc_STRVAR(code_new__doc__,
-"code(bytecode, constants, argcount=0, posonlyargcount=0,\n"
-"     kwonlyargcount=0, ndefaultargs=0, nlocals=0, framesize=0, nmeta=0,\n"
-"     flags=0, varnames=(), filename=None, name=None, firstlineno=0,\n"
-"     linetable=None, eh_table=(), freevars=(), cellvars=(),\n"
-"     free2reg=(), cell2reg=())\n"
+"code(argcount=0, posonlyargcount=0, kwonlyargcount=0, nlocals=0,\n"
+"     framesize=0, ndefaultargs=0, nmeta=0, flags=0, code=None,\n"
+"     constants=(), varnames=(), filename=None, name=None,\n"
+"     firstlineno=0, linetable=None, eh_table=(), freevars=(),\n"
+"     cellvars=(), free2reg=(), cell2reg=())\n"
 "--\n"
 "\n"
 "Create a code object.  Not for the faint of heart.");
 
 static PyObject *
-code_new_impl(PyTypeObject *type, PyObject *bytecode, PyObject *consts,
-              int argcount, int posonlyargcount, int kwonlyargcount,
-              int ndefaultargs, int nlocals, int framesize, int nmeta,
-              int flags, PyObject *varnames, PyObject *filename,
+code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
+              int kwonlyargcount, int nlocals, int framesize,
+              int ndefaultargs, int nmeta, int flags, PyObject *code,
+              PyObject *consts, PyObject *varnames, PyObject *filename,
               PyObject *name, int firstlineno, PyObject *linetable,
               PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
               PyObject *free2reg, PyObject *cell2reg);
@@ -25,22 +25,22 @@ static PyObject *
 code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     PyObject *return_value = NULL;
-    static const char * const _keywords[] = {"bytecode", "constants", "argcount", "posonlyargcount", "kwonlyargcount", "ndefaultargs", "nlocals", "framesize", "nmeta", "flags", "varnames", "filename", "name", "firstlineno", "linetable", "eh_table", "freevars", "cellvars", "free2reg", "cell2reg", NULL};
+    static const char * const _keywords[] = {"argcount", "posonlyargcount", "kwonlyargcount", "nlocals", "framesize", "ndefaultargs", "nmeta", "flags", "code", "constants", "varnames", "filename", "name", "firstlineno", "linetable", "eh_table", "freevars", "cellvars", "free2reg", "cell2reg", NULL};
     static _PyArg_Parser _parser = {NULL, _keywords, "code", 0};
     PyObject *argsbuf[20];
     PyObject * const *fastargs;
     Py_ssize_t nargs = PyTuple_GET_SIZE(args);
-    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 2;
-    PyObject *bytecode;
-    PyObject *consts;
+    Py_ssize_t noptargs = nargs + (kwargs ? PyDict_GET_SIZE(kwargs) : 0) - 0;
     int argcount = 0;
     int posonlyargcount = 0;
     int kwonlyargcount = 0;
-    int ndefaultargs = 0;
     int nlocals = 0;
     int framesize = 0;
+    int ndefaultargs = 0;
     int nmeta = 0;
     int flags = 0;
+    PyObject *code = Py_None;
+    PyObject *consts = NULL;
     PyObject *varnames = NULL;
     PyObject *filename = Py_None;
     PyObject *name = Py_None;
@@ -52,22 +52,40 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     PyObject *free2reg = NULL;
     PyObject *cell2reg = NULL;
 
-    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 2, 20, 0, argsbuf);
+    fastargs = _PyArg_UnpackKeywords(_PyTuple_CAST(args)->ob_item, nargs, kwargs, NULL, &_parser, 0, 20, 0, argsbuf);
     if (!fastargs) {
         goto exit;
     }
-    if (!PyBytes_Check(fastargs[0])) {
-        _PyArg_BadArgument("code", "argument 'bytecode'", "bytes", fastargs[0]);
-        goto exit;
-    }
-    bytecode = fastargs[0];
-    if (!PyTuple_Check(fastargs[1])) {
-        _PyArg_BadArgument("code", "argument 'constants'", "tuple", fastargs[1]);
-        goto exit;
-    }
-    consts = fastargs[1];
     if (!noptargs) {
         goto skip_optional_pos;
+    }
+    if (fastargs[0]) {
+        if (PyFloat_Check(fastargs[0])) {
+            PyErr_SetString(PyExc_TypeError,
+                            "integer argument expected, got float" );
+            goto exit;
+        }
+        argcount = _PyLong_AsInt(fastargs[0]);
+        if (argcount == -1 && PyErr_Occurred()) {
+            goto exit;
+        }
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
+    }
+    if (fastargs[1]) {
+        if (PyFloat_Check(fastargs[1])) {
+            PyErr_SetString(PyExc_TypeError,
+                            "integer argument expected, got float" );
+            goto exit;
+        }
+        posonlyargcount = _PyLong_AsInt(fastargs[1]);
+        if (posonlyargcount == -1 && PyErr_Occurred()) {
+            goto exit;
+        }
+        if (!--noptargs) {
+            goto skip_optional_pos;
+        }
     }
     if (fastargs[2]) {
         if (PyFloat_Check(fastargs[2])) {
@@ -75,8 +93,8 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
                             "integer argument expected, got float" );
             goto exit;
         }
-        argcount = _PyLong_AsInt(fastargs[2]);
-        if (argcount == -1 && PyErr_Occurred()) {
+        kwonlyargcount = _PyLong_AsInt(fastargs[2]);
+        if (kwonlyargcount == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -89,8 +107,8 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
                             "integer argument expected, got float" );
             goto exit;
         }
-        posonlyargcount = _PyLong_AsInt(fastargs[3]);
-        if (posonlyargcount == -1 && PyErr_Occurred()) {
+        nlocals = _PyLong_AsInt(fastargs[3]);
+        if (nlocals == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -103,8 +121,8 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
                             "integer argument expected, got float" );
             goto exit;
         }
-        kwonlyargcount = _PyLong_AsInt(fastargs[4]);
-        if (kwonlyargcount == -1 && PyErr_Occurred()) {
+        framesize = _PyLong_AsInt(fastargs[4]);
+        if (framesize == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -131,8 +149,8 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
                             "integer argument expected, got float" );
             goto exit;
         }
-        nlocals = _PyLong_AsInt(fastargs[6]);
-        if (nlocals == -1 && PyErr_Occurred()) {
+        nmeta = _PyLong_AsInt(fastargs[6]);
+        if (nmeta == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -145,8 +163,8 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
                             "integer argument expected, got float" );
             goto exit;
         }
-        framesize = _PyLong_AsInt(fastargs[7]);
-        if (framesize == -1 && PyErr_Occurred()) {
+        flags = _PyLong_AsInt(fastargs[7]);
+        if (flags == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -154,29 +172,21 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         }
     }
     if (fastargs[8]) {
-        if (PyFloat_Check(fastargs[8])) {
-            PyErr_SetString(PyExc_TypeError,
-                            "integer argument expected, got float" );
+        if (!PyBytes_Check(fastargs[8])) {
+            _PyArg_BadArgument("code", "argument 'code'", "bytes", fastargs[8]);
             goto exit;
         }
-        nmeta = _PyLong_AsInt(fastargs[8]);
-        if (nmeta == -1 && PyErr_Occurred()) {
-            goto exit;
-        }
+        code = fastargs[8];
         if (!--noptargs) {
             goto skip_optional_pos;
         }
     }
     if (fastargs[9]) {
-        if (PyFloat_Check(fastargs[9])) {
-            PyErr_SetString(PyExc_TypeError,
-                            "integer argument expected, got float" );
+        if (!PyTuple_Check(fastargs[9])) {
+            _PyArg_BadArgument("code", "argument 'constants'", "tuple", fastargs[9]);
             goto exit;
         }
-        flags = _PyLong_AsInt(fastargs[9]);
-        if (flags == -1 && PyErr_Occurred()) {
-            goto exit;
-        }
+        consts = fastargs[9];
         if (!--noptargs) {
             goto skip_optional_pos;
         }
@@ -287,7 +297,7 @@ code_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     }
     cell2reg = fastargs[19];
 skip_optional_pos:
-    return_value = code_new_impl(type, bytecode, consts, argcount, posonlyargcount, kwonlyargcount, ndefaultargs, nlocals, framesize, nmeta, flags, varnames, filename, name, firstlineno, linetable, eh_table, freevars, cellvars, free2reg, cell2reg);
+    return_value = code_new_impl(type, argcount, posonlyargcount, kwonlyargcount, nlocals, framesize, ndefaultargs, nmeta, flags, code, consts, varnames, filename, name, firstlineno, linetable, eh_table, freevars, cellvars, free2reg, cell2reg);
 
 exit:
     return return_value;
@@ -563,4 +573,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=53293cbaf905449e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=a7d158b6ccff561c input=a9049054013a1b77]*/

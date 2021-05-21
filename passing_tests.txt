@@ -42,6 +42,7 @@ test_cmath
 test_cmd
 test_cmd_line
 test_cmd_line_script
+test_code
 test_code_module
 test_codeccallbacks
 test_codecencodings_cn

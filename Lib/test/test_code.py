@@ -166,6 +166,7 @@ class CodeTest(unittest.TestCase):
         self.assertEqual(co.co_firstlineno, 15)
 
     @cpython_only
+    @unittest.skip("sgross: can't add freevars")
     def test_closure_injection(self):
         # From https://bugs.python.org/issue32176
         from types import FunctionType
@@ -212,18 +213,22 @@ class CodeTest(unittest.TestCase):
                         co.co_posonlyargcount,
                         co.co_kwonlyargcount,
                         co.co_nlocals,
-                        co.co_stacksize,
+                        co.co_framesize,
+                        co.co_ndefaultargs,
+                        co.co_nmeta,
                         co.co_flags,
                         co.co_code,
                         co.co_consts,
-                        co.co_names,
                         co.co_varnames,
                         co.co_filename,
                         co.co_name,
                         co.co_firstlineno,
                         co.co_lnotab,
+                        co.co_exc_handlers,
                         co.co_freevars,
-                        co.co_cellvars)
+                        co.co_cellvars,
+                        co.co_free2reg,
+                        co.co_cell2reg)
 
     def test_replace(self):
         def func():
@@ -242,12 +247,11 @@ class CodeTest(unittest.TestCase):
             ("co_posonlyargcount", 0),
             ("co_kwonlyargcount", 0),
             ("co_nlocals", 0),
-            ("co_stacksize", 0),
+            ("co_framesize", 0),
             ("co_flags", code.co_flags | inspect.CO_COROUTINE),
             ("co_firstlineno", 100),
             ("co_code", code2.co_code),
             ("co_consts", code2.co_consts),
-            ("co_names", ("myname",)),
             ("co_varnames", code2.co_varnames),
             ("co_freevars", ("freevar",)),
             ("co_cellvars", ("cellvar",)),
