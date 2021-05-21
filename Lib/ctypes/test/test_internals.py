@@ -1,6 +1,7 @@
 # This tests the internal _objects attribute
 import unittest
 from ctypes import *
+import sys
 from sys import getrefcount as grc
 
 # XXX This test must be reviewed for correctness!!!
@@ -26,7 +27,7 @@ class ObjectsTestCase(unittest.TestCase):
         self.assertEqual(ci._objects, None)
 
     def test_c_char_p(self):
-        s = b"Hello, World"
+        s = b"Hello, World "[:-1]
         refcnt = grc(s)
         cs = c_char_p(s)
         self.assertEqual(refcnt + 1, grc(s))

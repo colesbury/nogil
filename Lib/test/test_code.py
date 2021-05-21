@@ -276,10 +276,6 @@ class CodeConstsTest(unittest.TestCase):
         if not isinterned(s):
             self.fail('String %r is not interned' % (s,))
 
-    def assertIsNotInterned(self, s):
-        if isinterned(s):
-            self.fail('String %r is interned' % (s,))
-
     @cpython_only
     def test_interned_string(self):
         co = compile('res = "str_value"', '?', 'exec')
@@ -303,12 +299,6 @@ class CodeConstsTest(unittest.TestCase):
         def f(a='str_value'):
             return a
         self.assertIsInterned(f())
-
-    @cpython_only
-    def test_interned_string_with_null(self):
-        co = compile(r'res = "str\0value!"', '?', 'exec')
-        v = self.find_const(co.co_consts, 'str\0value!')
-        self.assertIsNotInterned(v)
 
 
 class CodeWeakRefTest(unittest.TestCase):

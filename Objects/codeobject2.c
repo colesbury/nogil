@@ -9,6 +9,7 @@
 #include "pycore_gc.h"
 #include "pycore_pystate.h"
 #include "pycore_tupleobject.h"
+#include "../Modules/hashtable.h"
 
 // An individual register can have an owning or non-owning reference
 // Deferred and immortal objects always have non-owning references (immortal for correctness, deferred for perf, helps)
@@ -269,6 +270,205 @@ code_dealloc(PyCodeObject2 *co)
     Py_XDECREF(co->co_filename);
     Py_XDECREF(co->co_name);
     Py_XDECREF(co->co_lnotab);
+}
+
+static Py_uhash_t
+hash_const(_Py_hashtable_t *ht, const void *pkey)
+{
+    PyObject *op = *(PyObject **)pkey;
+    if (PySlice_Check(op)) {
+        PySliceObject *s = (PySliceObject *)op;
+        PyObject *data[3] = { s->start, s->stop, s->step };
+        return _Py_HashBytes(&data, sizeof(data));
+    }
+    else if (PyTuple_CheckExact(op)) {
+        Py_ssize_t size = PyTuple_GET_SIZE(op);
+        PyObject **data = _PyTuple_ITEMS(op);
+        return _Py_HashBytes(data, sizeof(PyObject *) * size);
+    }
+    Py_hash_t h = PyObject_Hash(op);
+    if (h == -1) {
+        Py_FatalError("hash failed");
+    }
+    return (Py_uhash_t)h;
+}
+
+static int
+compare_constants(PyObject *op1, PyObject *op2)
+{
+    if (op1 == op2) {
+        return 1;
+    }
+    if (Py_TYPE(op1) != Py_TYPE(op2)) {
+        return 0;
+    }
+    if (PyTuple_CheckExact(op1)) {
+        Py_ssize_t size = PyTuple_GET_SIZE(op1);
+        if (size != PyTuple_GET_SIZE(op2)) {
+            return 0;
+        }
+        for (Py_ssize_t i = 0; i < size; i++) {
+            if (PyTuple_GET_ITEM(op1, i) != PyTuple_GET_ITEM(op2, i)) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    else if (PyBytes_CheckExact(op1)) {
+        return PyObject_RichCompareBool(op1, op2, Py_EQ);
+    }
+    else if (PyLong_CheckExact(op1)) {
+        return PyObject_RichCompareBool(op1, op2, Py_EQ);
+    }
+    else if (PySlice_Check(op1)) {
+        PySliceObject *s1 = (PySliceObject *)op1;
+        PySliceObject *s2 = (PySliceObject *)op2;
+        return (s1->start == s2->start &&
+                s1->stop  == s2->stop  &&
+                s1->step  == s2->step);
+    }
+    else if (PyFloat_CheckExact(op1)) {
+        double f1 = PyFloat_AS_DOUBLE(op1);
+        double f2 = PyFloat_AS_DOUBLE(op2);
+        return (memcmp(&f1, &f2, sizeof(double)) == 0);
+    }
+    else if (PyComplex_CheckExact(op1)) {
+        Py_complex c1 = ((PyComplexObject *)op1)->cval;
+        Py_complex c2 = ((PyComplexObject *)op2)->cval;
+        return (memcmp(&c1, &c2, sizeof(Py_complex)) == 0);
+    }
+    else {
+        Py_FatalError("unexpected type in compare_constants");
+        return 0;
+    }
+}
+
+static int
+compare_const(_Py_hashtable_t *ht,
+              const void *pkey,
+              const _Py_hashtable_entry_t *he)
+{
+    PyObject *op1 = *(PyObject **)pkey;
+    PyObject *op2 = *(PyObject **)_Py_HASHTABLE_ENTRY_PKEY(he);
+    return compare_constants(op1, op2);
+}
+
+static int
+intern_immortal(_Py_hashtable_t *ht, PyObject *key, PyObject **ptr)
+{
+    // TODO: only intern + immortalize when in nogil mode.
+
+    assert(!PyUnicode_CheckExact(key));
+    _Py_hashtable_entry_t *entry;
+    PyObject *op = *ptr;
+
+    entry = _Py_HASHTABLE_GET_ENTRY(ht, op);
+    if (entry == NULL) {
+        if (_Py_HASHTABLE_SET_NODATA(ht, op) != 0) {
+            return -1;
+        }
+        if (PyType_HasFeature(Py_TYPE(op), Py_TPFLAGS_HAVE_GC)) {
+            PyObject_GC_UnTrack(op);
+        }
+        op->ob_ref_local |= _Py_REF_IMMORTAL_MASK;
+        op->ob_tid = 0;
+    }
+    else {
+        PyObject *value = *(PyObject **)_Py_HASHTABLE_ENTRY_PKEY(entry);
+        Py_INCREF(value);
+        Py_SETREF(*ptr, value);
+    }
+    return 0;
+}
+
+static int
+intern_constant(_Py_hashtable_t *ht, PyObject **ptr)
+{
+    PyObject *op = *ptr;
+    if (_PyObject_IS_IMMORTAL(op)) {
+        // already interned
+        return 0;
+    }
+    else if (PyUnicode_CheckExact(op)) {
+        PyUnicode_InternInPlace(ptr);
+        return 0;
+    }
+    else if (PyFloat_CheckExact(op) ||
+             PyLong_CheckExact(op) ||
+             PyComplex_CheckExact(op) ||
+             PyBytes_CheckExact(op))
+    {
+        return intern_immortal(ht, op, ptr);
+    }
+    else if (PySlice_Check(op)) {
+        PySliceObject *s = (PySliceObject *)op;
+        if (intern_constant(ht, &s->start) != 0) {
+            return -1;
+        }
+        if (intern_constant(ht, &s->stop) != 0) {
+            return -1;
+        }
+        if (intern_constant(ht, &s->step) != 0) {
+            return -1;
+        }
+        return intern_immortal(ht, op, ptr);
+    }
+    else if (PyTuple_CheckExact(op)) {
+        PyObject **items = _PyTuple_ITEMS(op);
+        for (Py_ssize_t i = 0, n = PyTuple_GET_SIZE(op); i < n; i++) {
+            if (intern_constant(ht, &items[i]) != 0) {
+                return -1;
+            }
+        }
+        return intern_immortal(ht, op, ptr);
+    }
+    else if (PyFrozenSet_CheckExact(op)) {
+        // intern and immortalize set contents, but don't bother
+        // with the set itself for now.
+        PySetObject *set = (PySetObject *)op;
+        for (Py_ssize_t i = 0; i <= set->mask; i++) {
+            if (set->table[i].key != NULL) {
+                if (intern_constant(ht, &set->table[i].key) != 0) {
+                    return -1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    // don't bother immortalizing code objects
+    assert(PyCode2_Check(op));
+    return 0;
+}
+
+int
+_PyCode_InternConstants(PyCodeObject2 *co)
+{
+    PyInterpreterState *is = PyThreadState_GET()->interp;
+    _PyRecursiveMutex_lock(&is->consts_mutex);
+
+    _Py_hashtable_t *consts = is->consts;
+    if (consts == NULL) {
+        consts = _Py_hashtable_new(sizeof(PyObject *), 0,
+                                   &hash_const, &compare_const);
+        if (consts == NULL) {
+            goto error;
+        }
+        is->consts = consts;
+    }
+
+    for (Py_ssize_t i = 0; i < co->co_nconsts; i++) {
+        if (intern_constant(consts, &co->co_constants[i]) != 0) {
+            goto error;
+        }
+    }
+
+    _PyRecursiveMutex_unlock(&is->consts_mutex);
+    return 0;
+
+error:
+    _PyRecursiveMutex_unlock(&is->consts_mutex);
+    return -1;
 }
 
 static PyObject *

@@ -767,6 +767,7 @@ class CBytesIOTest(PyBytesIOTest):
     def _test_cow_mutation(self, mutation):
         # Common code for all BytesIO copy-on-write mutation tests.
         imm = b' ' * 1024
+        imm = imm[:-1]  # avoids interned, immortalized byte string
         old_rc = sys.getrefcount(imm)
         memio = self.ioclass(imm)
         self.assertEqual(sys.getrefcount(imm), old_rc + 1)

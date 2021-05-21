@@ -6531,11 +6531,11 @@ makecode(struct compiler *c)
         if (key == NULL) {
             COMPILER_ERROR(c);
         }
-        if (PyUnicode_CheckExact(key)) {
-            PyUnicode_InternInPlace(&key);
-        }
         co->co_constants[i] = key;
         i++;
+    }
+    if (_PyCode_InternConstants(co) != 0) {
+        COMPILER_ERROR(c);
     }
 
     // sort exception handlers by 'except' position (inner-most first)

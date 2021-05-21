@@ -1542,6 +1542,9 @@ r_object(RFILE *p)
                 if (v == NULL) goto code2_error;
                 co->co_constants[i] = v;
             }
+            if (_PyCode_InternConstants(co) != 0) {
+                goto code2_error;
+            }
             for (Py_ssize_t i = 0; i < ncells; i++) {
                 co->co_cell2reg[i] = r_long(p);
                 if (PyErr_Occurred()) goto code2_error;
