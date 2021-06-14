@@ -33,10 +33,12 @@
 #include "pycore_refcnt.h"
 #include "pycore_initconfig.h"
 #include "pycore_gc.h"
+#include "pycore_generator.h"
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
 #include "pytime.h"             /* for _PyTime_GetMonotonicClock() */
 #include "pyatomic.h"
+#include "ceval2_meta.h"
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 
@@ -708,6 +710,15 @@ find_frames_visitor(PyGC_Head *gc, void *void_arg)
             _PyGen_UnretainForGC((PyGenObject *)op);
         }
     }
+    else if (PyGen2_CheckExact(op) || PyCoro2_CheckExact(op) || PyAsyncGen2_CheckExact(op)) {
+        PyGenObject2 *gen = (PyGenObject2 *)op;
+        if (args->op == RETAIN) {
+            vm_retain_for_gc(&gen->base.thread);
+        }
+        else {
+            vm_unretain_for_gc(&gen->base.thread);
+        }
+    }
     return 0;
 }
 
@@ -732,6 +743,12 @@ add_deferred_reference_counts(void)
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
             PyFrame_RetainForGC(p->frame);
+
+            struct ThreadState *ts = p->active;
+            while (ts != NULL) {
+                vm_retain_for_gc(ts);
+                ts = ts->prev;
+            }
         }
     }
 
@@ -760,6 +777,12 @@ remove_deferred_reference_counts(int prev_use_deferred_rc)
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
             PyFrame_UnretainForGC(p->frame);
+
+            struct ThreadState *ts = p->active;
+            while (ts != NULL) {
+                vm_unretain_for_gc(ts);
+                ts = ts->prev;
+            }
         }
     }
 

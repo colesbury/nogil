@@ -31,10 +31,10 @@ int
 vm_stack_walk_lineno(struct stack_walk *w);
 
 static inline int
-vm_stack_walk_all(struct stack_walk *w)
+vm_stack_walk_thread(struct stack_walk *w)
 {
     struct ThreadState *ts = w->ts;
-    while (ts != NULL) {
+    for (;;) {
         if (w->regs != NULL) {
             intptr_t frame_delta = ts->regs[w->offset-4].as_int64;
             intptr_t frame_link = ts->regs[w->offset-3].as_int64;
@@ -48,17 +48,28 @@ vm_stack_walk_all(struct stack_walk *w)
         }
 
         if (ts->regs + w->offset == ts->stack) {
+            return 0;
+        }
+
+        w->regs = &ts->regs[w->offset];
+        return 1;
+    }
+}
+
+static inline int
+vm_stack_walk_all(struct stack_walk *w)
+{
+    struct ThreadState *ts = w->ts;
+    while (ts != NULL) {
+        if (vm_stack_walk_thread(w) == 0) {
             // switch to calling virtual thread
             w->ts = ts = ts->prev;
             w->offset = 0;
             w->regs = NULL;
             continue;
         }
-
-        w->regs = &ts->regs[w->offset];
         return 1;
     }
-
     return 0;
 }
 

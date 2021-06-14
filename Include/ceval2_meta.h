@@ -163,6 +163,7 @@ struct ThreadState {
     struct ThreadState *prev;
 
     char thread_type;
+    char gc_visited;
 };
 
 struct PyVirtualThread {
@@ -294,6 +295,9 @@ void vm_free_threadstate(struct ThreadState *ts);
 int vm_for_iter_exc(struct ThreadState *ts);
 PyObject *vm_get_iter(PyObject *obj);
 int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
+
+void vm_retain_for_gc(struct ThreadState *ts);
+void vm_unretain_for_gc(struct ThreadState *ts);
 
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);

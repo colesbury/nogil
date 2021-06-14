@@ -2606,7 +2606,7 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
     }
 
     uint32_t refcount = _Py_atomic_load_uint32_relaxed(&value->ob_ref_local);
-    if (_Py_REF_IS_IMMORTAL(refcount)) {
+    if ((refcount & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0) {
         result.acc = PACK(value, NO_REFCOUNT_TAG);
         goto check_keys;
     }

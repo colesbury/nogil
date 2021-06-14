@@ -250,6 +250,10 @@ vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg)
         return 0;
     }
 
+    // FIXME: does this double-count generators that are executing
+    // when calling other generators? i.e. due to thread switch while
+    // walking up ts->active->prev...
+
     Register *max = ts->maxstack;
     struct stack_walk w;
     vm_stack_walk_init(&w, ts);
@@ -2263,13 +2267,81 @@ vm_new_threadstate(PyThreadState *tstate)
     return ts;
 }
 
-void vm_free_threadstate(struct ThreadState *ts)
+void
+vm_free_threadstate(struct ThreadState *ts)
 {
     while (ts->regs != ts->stack) {
         vm_pop_frame(ts);
     }
     mi_free(ts->stack);
     ts->stack = ts->regs = ts->maxstack = NULL;
+}
+
+void
+vm_retain_for_gc(struct ThreadState *ts)
+{
+    if (ts->gc_visited) {
+        return;
+    }
+
+    ts->gc_visited = true;
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk_thread(&w)) {
+        Register *regs = w.regs;
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot;
+        for (bot = &regs[-1]; bot != top; bot++) {
+            Register r = *bot;
+            if ((r.as_int64 & NON_OBJECT_TAG) != NO_REFCOUNT_TAG) {
+                continue;
+            }
+
+            PyObject *obj = AS_OBJ(r);
+            Py_INCREF(obj);
+        }
+
+        // don't visit the frame header
+        max = regs - FRAME_EXTRA;
+    }
+}
+
+void
+vm_unretain_for_gc(struct ThreadState *ts)
+{
+    if (!ts->gc_visited) {
+        return;
+    }
+    ts->gc_visited = false;
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk_thread(&w)) {
+        Register *regs = w.regs;
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot;
+        for (bot = &regs[-1]; bot != top; bot++) {
+            Register r = *bot;
+            if ((r.as_int64 & NON_OBJECT_TAG) != NO_REFCOUNT_TAG) {
+                continue;
+            }
+
+            PyObject *obj = AS_OBJ(r);
+            Py_DECREF(obj);
+        }
+
+        // don't visit the frame header
+        max = regs - FRAME_EXTRA;
+    }
 }
 
 int
