@@ -1150,7 +1150,7 @@ clear_dead_objects(PyGC_Head *head)
 
         PyObject *op = FROM_GC(gc);
         assert(_PyObject_IS_DEFERRED_RC(op));
-        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op) || PyFunc_Check(op));
+        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op) || PyFunc_Check(op) || PyCFunction_Check(op));
         op->ob_ref_local &= ~_Py_REF_DEFERRED_MASK;
         _Py_Dealloc(op);
         n++;
@@ -1732,8 +1732,8 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
     _PyMutex_lock(&runtime->stoptheworld_mutex);
 
     if (!gc_reason_is_valid(gcstate, reason)) {
-         _PyMutex_unlock(&runtime->stoptheworld_mutex);
-         return 0;
+        _PyMutex_unlock(&runtime->stoptheworld_mutex);
+        return 0;
     }
 
     _PyRuntimeState_StopTheWorld(runtime);

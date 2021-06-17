@@ -78,6 +78,9 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
     if (op == NULL) {
         return NULL;
     }
+    if (self == NULL) {
+        _PyObject_SET_DEFERRED_RC(op);
+    }
     ((PyFuncBase *)op)->first_instr = first_instr;
     op->m_weakreflist = NULL;
     op->m_ml = ml;
