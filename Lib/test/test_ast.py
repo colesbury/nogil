@@ -1,5 +1,5 @@
 import ast
-import dis2 as dis
+import dis
 import os
 import sys
 import unittest

@@ -1,4 +1,4 @@
-import dis2 as dis
+import dis
 import math
 import os
 import unittest

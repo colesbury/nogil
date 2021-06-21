@@ -1,7 +1,7 @@
 """Unit tests for the positional only argument syntax specified in PEP 570."""
 
 import sys
-import dis2 as dis
+import dis
 import pickle
 import unittest
 

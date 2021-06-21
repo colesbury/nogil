@@ -20,7 +20,7 @@
 # SOFTWARE.
 
 import ast, collections, types, sys
-import dis2 as dis
+import dis
 from check_subset import check_conformity
 import inspect  # ast uses inspect -- early initialize to load it using old interp
 

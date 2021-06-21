@@ -1,6 +1,6 @@
 """Find modules used by a script, using introspection."""
 
-import dis2 as dis
+import dis
 import importlib._bootstrap_external
 import importlib.machinery
 import marshal

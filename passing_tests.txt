@@ -1,7 +1,6 @@
 test___all__
 test___future__
 test__locale
-test__opcode
 test__osx_support
 test__xxsubinterpreters
 test_abc
