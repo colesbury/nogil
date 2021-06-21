@@ -862,18 +862,6 @@ sys_intern_impl(PyObject *module, PyObject *s)
     }
 }
 
-/*[clinic input]
-sys.use_new_bytecode
-
-[clinic start generated code]*/
-
-static PyObject *
-sys_use_new_bytecode_impl(PyObject *module)
-/*[clinic end generated code: output=d7822eb67a59e753 input=603d029b7d80c977]*/
-{
-    return PyLong_FromLong(1);
-}
-
 
 /*
  * Cached interned string objects used for calling the profile and
@@ -2157,7 +2145,6 @@ static PyMethodDef sys_methods[] = {
     SYS_GET_ASYNCGEN_HOOKS_METHODDEF
     SYS_GETANDROIDAPILEVEL_METHODDEF
     SYS_UNRAISABLEHOOK_METHODDEF
-    SYS_USE_NEW_BYTECODE_METHODDEF
     {NULL,              NULL}           /* sentinel */
 };
 
