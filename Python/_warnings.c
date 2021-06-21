@@ -905,10 +905,6 @@ static int
 setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
               PyObject **module, PyObject **registry)
 {
-    if (!_PyRuntime.preconfig.new_bytecode) {
-        return setup_context_old(stack_level, filename, lineno, module, registry);
-    }
-
     _Py_IDENTIFIER(__warningregistry__);
     PyObject *globals;
 

@@ -89,7 +89,6 @@ struct _ts {
     struct ThreadState *active;
     int recursion_depth;
     int use_new_interp;
-    char use_new_bytecode;
     char overflowed; /* The stack has overflowed. Allow 50 more calls
                         to handle the runtime error. */
     char recursion_critical; /* The current calls must not cause

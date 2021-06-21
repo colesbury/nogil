@@ -871,8 +871,7 @@ static PyObject *
 sys_use_new_bytecode_impl(PyObject *module)
 /*[clinic end generated code: output=d7822eb67a59e753 input=603d029b7d80c977]*/
 {
-    PyThreadState *tstate = _PyThreadState_GET();
-    return PyLong_FromLong(tstate->use_new_bytecode);
+    return PyLong_FromLong(1);
 }
 
 

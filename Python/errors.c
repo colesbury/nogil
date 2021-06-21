@@ -1386,13 +1386,7 @@ _PyErr_WriteUnraisableMsg(const char *err_msg_str, PyObject *obj)
     }
 
     if (exc_tb == NULL) {
-        struct _frame *frame;
-        if (_PyRuntime.preconfig.new_bytecode) {
-            frame = vm_frame(tstate->active);
-        }
-        else {
-            frame = tstate->frame;
-        }
+        struct _frame *frame = vm_frame(tstate->active);
         if (frame != NULL) {
             exc_tb = _PyTraceBack_FromFrame(NULL, frame);
         }

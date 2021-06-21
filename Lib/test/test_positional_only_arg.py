@@ -1,10 +1,7 @@
 """Unit tests for the positional only argument syntax specified in PEP 570."""
 
 import sys
-if sys.use_new_bytecode():
-    import dis2 as dis
-else:
-    import dis
+import dis2 as dis
 import pickle
 import unittest
 

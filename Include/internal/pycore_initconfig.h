@@ -101,7 +101,6 @@ typedef struct {
     int use_environment;      /* -E option */
     int dev_mode;             /* -X dev and PYTHONDEVMODE */
     int disable_gil;          /* -X nogil and PYTHONGIL=0 */
-    int new_bytecode;         /* -X newbc and PYTHONNEWBC=1 */
 } _PyPreCmdline;
 
 #define _PyPreCmdline_INIT \
@@ -109,8 +108,7 @@ typedef struct {
         .use_environment = -1, \
         .isolated = -1, \
         .dev_mode = -1, \
-        .disable_gil = -1, \
-        .new_bytecode = -1 }
+        .disable_gil = -1 }
 /* Note: _PyPreCmdline_INIT sets other fields to 0/NULL */
 
 extern void _PyPreCmdline_Clear(_PyPreCmdline *cmdline);

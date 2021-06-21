@@ -608,7 +608,6 @@ _PyConfig_InitCompatConfig(PyConfig *config)
     config->use_environment = -1;
     config->dev_mode = -1;
     config->disable_gil = -1;
-    config->new_bytecode = -1;
     config->install_signal_handlers = 1;
     config->use_hash_seed = -1;
     config->faulthandler = -1;
@@ -684,7 +683,6 @@ PyConfig_InitIsolatedConfig(PyConfig *config)
     config->user_site_directory = 0;
     config->dev_mode = 0;
     config->disable_gil = 0;
-    config->new_bytecode = 0;
     config->install_signal_handlers = 0;
     config->use_hash_seed = 0;
     config->faulthandler = 0;
@@ -794,7 +792,6 @@ _PyConfig_Copy(PyConfig *config, const PyConfig *config2)
     COPY_ATTR(use_environment);
     COPY_ATTR(dev_mode);
     COPY_ATTR(disable_gil);
-    COPY_ATTR(new_bytecode);
     COPY_ATTR(install_signal_handlers);
     COPY_ATTR(use_hash_seed);
     COPY_ATTR(hash_seed);
@@ -899,7 +896,6 @@ config_as_dict(const PyConfig *config)
     SET_ITEM_INT(use_environment);
     SET_ITEM_INT(dev_mode);
     SET_ITEM_INT(disable_gil);
-    SET_ITEM_INT(new_bytecode);
     SET_ITEM_INT(install_signal_handlers);
     SET_ITEM_INT(use_hash_seed);
     SET_ITEM_UINT(hash_seed);
@@ -1830,7 +1826,6 @@ _PyConfig_Write(const PyConfig *config, _PyRuntimeState *runtime)
     preconfig->use_environment = config->use_environment;
     preconfig->dev_mode = config->dev_mode;
     preconfig->disable_gil = config->disable_gil;
-    preconfig->new_bytecode = config->new_bytecode;
 }
 
 
@@ -2505,7 +2500,6 @@ PyConfig_Read(PyConfig *config)
     assert(config->use_environment >= 0);
     assert(config->dev_mode >= 0);
     assert(config->disable_gil >= 0);
-    assert(config->new_bytecode >= 0);
     assert(config->install_signal_handlers >= 0);
     assert(config->use_hash_seed >= 0);
     assert(config->faulthandler >= 0);

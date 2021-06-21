@@ -850,11 +850,7 @@ class SourceLoader(_LoaderBasics):
 
         The 'data' argument can be any object type that compile() supports.
         """
-        flags = 0
-        if sys.use_new_bytecode() == 2:
-            flags |= 0x10000
-        elif sys.use_new_bytecode():
-            flags |= 0x8000
+        flags = 0x8000  # PyCF_NEW_BYTECODE
         return _bootstrap._call_with_frames_removed(compile, data, path, 'exec',
                                         flags=flags, dont_inherit=True, optimize=_optimize)
 

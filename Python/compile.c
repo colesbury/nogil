@@ -313,32 +313,10 @@ compiler_init(struct compiler *c)
     return 1;
 }
 
-PyObject *
-PyAST_CompileObject3(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
-                     int optimize, PyArena *arena)
-{
-    PyThreadState *tstate = PyThreadState_GET();
-    int old_use_new_bytecode = tstate->use_new_bytecode;
-    tstate->use_new_bytecode = 0;
-    PyObject *compile3 = PyImport_ImportModule("compile3");
-    tstate->use_new_bytecode = old_use_new_bytecode;
-    if (compile3 == NULL) {
-        return NULL;
-    }
-    PyObject *ast = PyAST_mod2obj(mod);
-    if (ast == NULL) {
-        Py_DECREF(compile3);
-        return NULL;
-    }
-    return PyObject_CallMethod(compile3, "compile3", "OOi", ast, filename, optimize);
-}
-
 PyCodeObject *
 PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
                    int optimize, PyArena *arena)
 {
-    struct compiler c;
-    PyCodeObject *co = NULL;
     PyCompilerFlags local_flags = _PyCompilerFlags_INIT;
     int merged;
     PyConfig *config = &_PyInterpreterState_GET_UNSAFE()->config;
@@ -346,58 +324,10 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
         optimize = config->optimization_level;
     }
 
-    if ((flags && (flags->cf_flags & PyCF_NEW_BYTECODE)) || _PyRuntime.preconfig.new_bytecode) {
-        if (!_PyAST_Optimize(mod, arena, optimize)) {
-            return NULL;
-        }
-        return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
-    }
-    if (!__doc__) {
-        __doc__ = PyUnicode_InternFromString("__doc__");
-        if (!__doc__)
-            return NULL;
-    }
-    if (!__annotations__) {
-        __annotations__ = PyUnicode_InternFromString("__annotations__");
-        if (!__annotations__)
-            return NULL;
-    }
-    if (!compiler_init(&c))
+    if (!_PyAST_Optimize(mod, arena, optimize)) {
         return NULL;
-    Py_INCREF(filename);
-    c.c_filename = filename;
-    c.c_arena = arena;
-    c.c_future = PyFuture_FromASTObject(mod, filename);
-    if (c.c_future == NULL)
-        goto finally;
-    if (!flags) {
-        flags = &local_flags;
     }
-    merged = c.c_future->ff_features | flags->cf_flags;
-    c.c_future->ff_features = merged;
-    flags->cf_flags = merged;
-    c.c_flags = flags;
-    c.c_optimize = optimize;
-    c.c_nestlevel = 0;
-    c.c_do_not_emit_bytecode = 0;
-
-    if (!_PyAST_Optimize(mod, arena, c.c_optimize)) {
-        goto finally;
-    }
-
-    c.c_st = PySymtable_BuildObject(mod, filename, c.c_future);
-    if (c.c_st == NULL) {
-        if (!PyErr_Occurred())
-            PyErr_SetString(PyExc_SystemError, "no symtable");
-        goto finally;
-    }
-
-    co = compiler_mod(&c, mod);
-
- finally:
-    compiler_free(&c);
-    assert(co || PyErr_Occurred());
-    return co;
+    return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
 }
 
 PyCodeObject *

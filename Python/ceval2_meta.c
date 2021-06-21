@@ -1067,7 +1067,6 @@ vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg)
     if (ilevel == -1 && _PyErr_Occurred(ts->ts)) {
         return NULL;
     }
-    ts->ts->use_new_bytecode = 1;
     return PyImport_ImportModuleLevelObject(
         name,
         this_func->globals,
