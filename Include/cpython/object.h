@@ -271,6 +271,7 @@ struct _typeobject {
 
     destructor tp_finalize;
     vectorcallfunc tp_vectorcall;
+    unsigned int tp_typeid;
 };
 
 struct _dictkeysobject;

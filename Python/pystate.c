@@ -1223,6 +1223,8 @@ _PyEventRC_New(void)
 
 bool _mi_heap_done(mi_heap_t* heap);
 
+void vm_merge_type_refcnt(PyThreadState *tstate);
+
 /* Common code for PyThreadState_Delete() and PyThreadState_DeleteCurrent() */
 static void
 tstate_delete_common(PyThreadState *tstate,
@@ -1241,6 +1243,8 @@ tstate_delete_common(PyThreadState *tstate,
 
     assert(is_current ? tstate->status == _Py_THREAD_ATTACHED
                       : tstate->status != _Py_THREAD_ATTACHED);
+
+    vm_merge_type_refcnt(tstate);
 
     if (is_current) {
         _Py_qsbr_offline(tstate->qsbr);

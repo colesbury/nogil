@@ -57,9 +57,13 @@ _Py_TryIncRefShared2(PyObject *op)
     for (;;) {
         uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
 
-        if (shared == _Py_REF_MERGED_MASK ||
-            shared == (_Py_REF_MERGED_MASK|_Py_REF_QUEUED_MASK)) {
-            return false;
+        if (shared == _Py_REF_MERGED_MASK || shared == (_Py_REF_MERGED_MASK|_Py_REF_QUEUED_MASK)) {
+            // deferred rc objects may have zero refcount, but can still be
+            // incref'd.
+            uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+            if ((local & _Py_REF_DEFERRED_MASK) == 0) {
+                return false;
+            }
         }
 
         if (_Py_atomic_compare_exchange_uint32(

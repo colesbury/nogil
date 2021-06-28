@@ -2424,7 +2424,7 @@ _Py_ExplicitMergeRefcount(PyObject *op)
         _PyRef_UnpackShared(old_shared, &refcount, &queued, &merged);
 
         if (merged) {
-            assert(refcount > 0);
+            assert(refcount > 0 || PyType_Check(op));
             return refcount;
         }
 
@@ -2493,8 +2493,8 @@ _Py_DecRefShared(PyObject *op)
 
     if (_Py_REF_IS_MERGED(new_shared)) {
         // TOOD(sgross): implementation defined behavior
-        assert(((int32_t)new_shared) >= 0);
-        if (((int32_t)new_shared) < 0) {
+        // assert(((int32_t)new_shared) >= 0);
+        if (((int32_t)new_shared) < 0 && !PyType_Check(op)) {
             Py_FatalError("negative refcount on merged object");
         }
     }

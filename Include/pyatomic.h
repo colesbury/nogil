@@ -158,6 +158,9 @@ static inline void
 _Py_atomic_store_ptr_release(volatile void *address, void *value);
 
 static inline void
+_Py_atomic_store_ssize_relaxed(volatile Py_ssize_t *address, Py_ssize_t value);
+
+static inline void
 _Py_atomic_thread_fence(void);
 
 static inline int

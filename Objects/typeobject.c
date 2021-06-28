@@ -9,6 +9,7 @@
 #include "frameobject.h"
 #include "structmember.h"
 #include "pyatomic.h"
+#include "lock.h"
 
 #include <ctype.h>
 
@@ -150,7 +151,7 @@ _PyType_CheckConsistency(PyTypeObject *type)
         return 1;
     }
 
-    CHECK(Py_REFCNT(type) >= 1);
+    // CHECK(Py_REFCNT(type) >= 1);
     CHECK(PyType_Check(type));
 
     CHECK(!(type->tp_flags & Py_TPFLAGS_READYING));
@@ -1019,6 +1020,125 @@ type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return obj;
 }
 
+struct heap_type_x {
+    union {
+        PyTypeObject *type;
+        Py_ssize_t next;
+    } u;
+    bool allocated;
+};
+
+static _PyMutex heap_type_mutex;
+static Py_ssize_t max_typeid = 0;
+static Py_ssize_t next_typeid;
+static struct heap_type_x *heap_types;
+
+static void
+free_typeid(PyTypeObject *type)
+{
+    _PyMutex_lock(&heap_type_mutex);
+    Py_ssize_t id = type->tp_typeid;
+    heap_types[id].u.next = next_typeid;
+    heap_types[id].allocated = false;
+    next_typeid = id;
+    _PyMutex_unlock(&heap_type_mutex);
+}
+
+static int
+allocate_typeid(PyTypeObject *type)
+{
+    _PyMutex_lock(&heap_type_mutex);
+    if (next_typeid >= max_typeid) {
+        Py_ssize_t new_size = max_typeid * 2;
+        if (new_size < 8) {
+            new_size = 8;
+        }
+        struct heap_type_x *ptr = mi_recalloc(
+            heap_types,
+            new_size,
+            sizeof(struct heap_type_x));
+        if (ptr == NULL) {
+            goto error;
+        }
+        heap_types = ptr;
+        for (Py_ssize_t i = max_typeid; i < new_size; i++) {
+           heap_types[i].u.next = i + 1;
+           heap_types[i].allocated = false;
+        }
+        next_typeid = max_typeid;
+        _Py_atomic_store_ssize_relaxed(&max_typeid, new_size);
+    }
+
+    Py_ssize_t next = heap_types[next_typeid].u.next;
+    heap_types[next_typeid].u.type = type;
+    heap_types[next_typeid].allocated = true;
+    type->tp_typeid = next_typeid;
+    next_typeid = next;
+
+    _PyMutex_unlock(&heap_type_mutex);
+    return 0;
+
+error:
+    _PyMutex_unlock(&heap_type_mutex);
+    return -1;
+}
+
+static void
+resize_type_refcnts(PyThreadState *tstate, PyTypeObject *type)
+{
+    Py_ssize_t *refcnts;
+
+    Py_ssize_t size = _Py_atomic_load_ssize(&max_typeid);
+    assert(size > type->tp_typeid);
+
+    refcnts = mi_reallocn(tstate->type_refcnts, size, sizeof(Py_ssize_t));
+    if (refcnts == NULL) {
+        Py_FatalError("unable to allocate refcount storage for type");
+    }
+
+    Py_ssize_t old_size = tstate->max_type_refcnts;
+    memset(refcnts + old_size, 0, (size - old_size) * sizeof(Py_ssize_t));
+    tstate->type_refcnts = refcnts;
+    tstate->max_type_refcnts = size;
+}
+
+void
+vm_merge_type_refcnt(PyThreadState *tstate)
+{
+    _PyMutex_lock(&heap_type_mutex);
+    Py_ssize_t n = tstate->max_type_refcnts;
+    assert(n <= max_typeid);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        Py_ssize_t refcnt = tstate->type_refcnts[i];
+        if (refcnt == 0) {
+            continue;
+        }
+
+        assert(heap_types[i].allocated);
+        PyObject *type = (PyObject *)heap_types[i].u.type;
+        type->ob_ref_shared += (refcnt << _Py_REF_SHARED_SHIFT);
+        tstate->type_refcnts[i] = 0;
+    }
+    _PyMutex_unlock(&heap_type_mutex);
+}
+
+void
+vm_clear_dead_types(void)
+{
+    // fprintf(stderr, "vm_clear_dead_types\n");
+    for (Py_ssize_t i = 0, n = max_typeid; i < n; i++) {
+        if (!heap_types[i].allocated) {
+            continue;
+        }
+
+        PyObject *type = (PyObject *)heap_types[i].u.type;
+        // fprintf(stderr, "DEALLOC: %s\n", heap_types[i].u.type->tp_name);
+        if (Py_REFCNT(type) == 0) {
+            _Py_Dealloc(type);
+        }
+    }
+}
+
 PyObject *
 PyType_GenericAlloc(PyTypeObject *type, Py_ssize_t nitems)
 {
@@ -1035,11 +1155,26 @@ PyType_GenericAlloc(PyTypeObject *type, Py_ssize_t nitems)
         return PyErr_NoMemory();
 
     memset(obj, '\0', size);
+    if (type->tp_itemsize != 0) {
+        Py_SET_SIZE(obj, nitems);
+    }
 
-    if (type->tp_itemsize == 0)
-        (void)PyObject_INIT(obj, type);
-    else
-        (void) PyObject_INIT_VAR((PyVarObject *)obj, type, nitems);
+    // PyObject_INIT
+    Py_SET_TYPE(obj, type);
+    if (!_PyObject_IS_IMMORTAL(obj)) {
+        if (type->tp_typeid == 0) {
+            Py_INCREF(type);
+        }
+        else {
+            assert(_PyObject_IS_DEFERRED_RC((PyObject *)type));
+            PyThreadState *tstate = PyThreadState_GET();
+            if (type->tp_typeid >= tstate->max_type_refcnts) {
+                resize_type_refcnts(tstate, type);
+            }
+            tstate->type_refcnts[type->tp_typeid]++;
+        }
+    }
+    _Py_NewReference(obj);
 
     if (PyType_IS_GC(type))
         _PyObject_GC_TRACK(obj);
@@ -1308,8 +1443,19 @@ subtype_dealloc(PyObject *self)
        our type from a HEAPTYPE to a non-HEAPTYPE, so be careful about
        reference counting. Only decref if the base type is not already a heap
        allocated type. Otherwise, basedealloc should have decref'd it already */
-    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE && !(base->tp_flags & Py_TPFLAGS_HEAPTYPE))
-      Py_DECREF(type);
+    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE && !(base->tp_flags & Py_TPFLAGS_HEAPTYPE)) {
+        if (type->tp_typeid == 0) {
+            Py_DECREF(type);
+        }
+        else {
+            assert(_PyObject_IS_DEFERRED_RC((PyObject *)type));
+            PyThreadState *tstate = PyThreadState_GET();
+            if (type->tp_typeid >= tstate->max_type_refcnts) {
+                resize_type_refcnts(tstate, type);
+            }
+            tstate->type_refcnts[type->tp_typeid]--;
+        }
+    }
 
   endlabel:
     Py_TRASHCAN_END
@@ -2589,6 +2735,10 @@ type_new(PyTypeObject *metatype, PyObject *args, PyObject *kwds)
 
     /* Keep name and slots alive in the extended type object */
     et = (PyHeapTypeObject *)type;
+    if (allocate_typeid(type) < 0) {
+        goto error;
+    }
+    _PyObject_SET_DEFERRED_RC((PyObject *)et);
     Py_INCREF(name);
     et->ht_name = name;
     et->ht_slots = slots;
@@ -2900,6 +3050,11 @@ PyType_FromSpecWithBases(PyType_Spec *spec, PyObject *bases)
     res = (PyHeapTypeObject*)PyType_GenericAlloc(&PyType_Type, nmembers);
     if (res == NULL)
         return NULL;
+
+    if (allocate_typeid((PyTypeObject *)res) < 0) {
+        goto fail;
+    }
+    _PyObject_SET_DEFERRED_RC((PyObject *)res);
     res_start = (char*)res;
 
     if (spec->name == NULL) {
@@ -3383,6 +3538,7 @@ type_dealloc(PyTypeObject *type)
     /* Assert this is a heap-allocated type object */
     _PyObject_ASSERT((PyObject *)type, type->tp_flags & Py_TPFLAGS_HEAPTYPE);
     _PyObject_GC_UNTRACK(type);
+    free_typeid(type);
     PyErr_Fetch(&tp, &val, &tb);
     remove_all_subclasses(type, type->tp_bases);
     PyErr_Restore(tp, val, tb);

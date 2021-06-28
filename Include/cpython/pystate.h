@@ -169,6 +169,9 @@ struct _ts {
     void *trace_cfunc_target;
     void **opcode_targets_base;
 
+    Py_ssize_t *type_refcnts;
+    Py_ssize_t max_type_refcnts;
+
     /* XXX signal handlers should also be here */
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
 };

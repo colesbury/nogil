@@ -367,7 +367,7 @@ _Py_GC_REFCNT(PyObject *op)
     _PyRef_UnpackShared(op->ob_ref_shared, &shared, &queued, &merged);
 
     assert(!immortal);
-    assert(local + shared >= 0);
+    // assert(local + shared >= 0);
 
     // Add one if object needs to have its reference counts merged.
     // We don't want to free objects in the refcount queue!
@@ -587,7 +587,13 @@ static int
 valid_refcount(PyObject *op)
 {
     Py_ssize_t rc = _Py_GC_REFCNT(op);
-    return rc > 0 || (rc == 0 && _PyObject_IS_DEFERRED_RC(op));
+    if (rc > 0) {
+        return 1;
+    }
+    if (_PyObject_IS_DEFERRED_RC(op)) {
+        return rc == 0 || PyType_Check(op);
+    }
+    return 0;
 }
 
 static int
@@ -733,6 +739,9 @@ find_frames(enum find_frames_args_op op)
     visit_heap(find_frames_visitor, &args);
 }
 
+void vm_merge_type_refcnt(PyThreadState *tstate);
+void vm_clear_dead_types(void);
+
 static int
 add_deferred_reference_counts(void)
 {
@@ -742,6 +751,7 @@ add_deferred_reference_counts(void)
     PyInterpreterState *head = _PyRuntime.interpreters.head;
     for (PyInterpreterState *interp = head; interp != NULL; interp = interp->next) {
         for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+            assert(p->frame == NULL);
             PyFrame_RetainForGC(p->frame);
 
             struct ThreadState *ts = p->active;
@@ -749,6 +759,8 @@ add_deferred_reference_counts(void)
                 vm_retain_for_gc(ts);
                 ts = ts->prev;
             }
+
+            vm_merge_type_refcnt(p);
         }
     }
 
@@ -1150,11 +1162,13 @@ clear_dead_objects(PyGC_Head *head)
 
         PyObject *op = FROM_GC(gc);
         assert(_PyObject_IS_DEFERRED_RC(op));
-        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op) || PyFunc_Check(op) || PyCFunction_Check(op));
+        assert(PyCode_Check(op) || PyDict_Check(op) || PyFunction_Check(op) || PyFunc_Check(op) || PyCFunction_Check(op)
+               || PyType_Check(op));
         op->ob_ref_local &= ~_Py_REF_DEFERRED_MASK;
         _Py_Dealloc(op);
         n++;
     }
+    vm_clear_dead_types();
     return n;
 }
 
