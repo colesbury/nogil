@@ -302,7 +302,7 @@ struct probe_result {
 };
 
 static inline struct probe_result
-dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid);
+dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
 
 _Py_ALWAYS_INLINE static inline uint16_t
 load_uimm16(const uint8_t *addr)
@@ -1025,7 +1025,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         }
 
     /* load_global: */ {
-        struct probe_result probe = dict_probe(globals, name, guess, tid);
+        struct probe_result probe;
+        probe = dict_probe((PyDictObject *)globals, name, guess, tid);
         acc = probe.acc;
         if (LIKELY(probe.found)) {
             goto LABEL(dispatch_load_global);
@@ -1041,7 +1042,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (UNLIKELY(!PyDict_CheckExact(builtins))) {
             goto LABEL(load_global_slow);
         }
-        struct probe_result probe = dict_probe(builtins, name, guess, tid);
+        struct probe_result probe;
+        probe = dict_probe((PyDictObject *)builtins, name, guess, tid);
         acc = probe.acc;
         if (LIKELY(probe.found)) {
             goto LABEL(dispatch_load_global);
@@ -2587,11 +2589,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
 // Search for the key `name` in the dict `op` at the offset `guess`.
 _Py_ALWAYS_INLINE static inline struct probe_result
-dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
+dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
 {
-    assert(PyDict_CheckExact(op));
+    assert(PyDict_CheckExact(dict));
     struct probe_result result = {(Register){0}, 0};
-    PyDictObject *dict = (PyDictObject *)op;
+    uint64_t tag = _Py_atomic_load_uint64(&dict->ma_version_tag);
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
     guess = ((uintptr_t)guess) & keys->dk_size;
 
@@ -2608,17 +2610,33 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
     uint32_t refcount = _Py_atomic_load_uint32_relaxed(&value->ob_ref_local);
     if ((refcount & (_Py_REF_IMMORTAL_MASK | _Py_REF_DEFERRED_MASK)) != 0) {
         result.acc = PACK(value, NO_REFCOUNT_TAG);
-        goto check_keys;
+        goto check_tag;
     }
     else if (LIKELY(_Py_ThreadMatches(value, tid))) {
         _Py_INCREF_TOTAL;
-        _Py_atomic_store_uint32_relaxed(&value->ob_ref_local, refcount + 4);
+        _Py_atomic_store_uint32_relaxed(&value->ob_ref_local,
+                                        refcount + (1 << _Py_REF_LOCAL_SHIFT));
         result.acc = PACK(value, REFCOUNT_TAG);
-        goto check_keys;
+        goto check_tag;
     }
     else {
+retry: ;
+        uint32_t shared = _Py_atomic_load_uint32_relaxed(&value->ob_ref_shared);
+        if (UNLIKELY(shared == _Py_REF_MERGED_MASK ||
+                     shared == (_Py_REF_MERGED_MASK|_Py_REF_QUEUED_MASK)))
+        {
+            // object has zero refcount; fail
+            return result;
+        }
+
+        uint32_t new_shared = shared + (1 << _Py_REF_SHARED_SHIFT);
+        if (!_Py_atomic_compare_exchange_uint32(
+                &value->ob_ref_shared,
+                shared,
+                new_shared)) {
+            goto retry;
+        }
         _Py_INCREF_TOTAL;
-        _Py_atomic_add_uint32(&value->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
         result.acc = PACK(value, REFCOUNT_TAG);
         if (value != _Py_atomic_load_ptr(&entry->me_value)) {
             result.found = 0;
@@ -2626,8 +2644,8 @@ dict_probe(PyObject *op, PyObject *name, intptr_t guess, intptr_t tid)
         }
     }
 
-  check_keys:
-    if (UNLIKELY(keys != _Py_atomic_load_ptr(&dict->ma_keys))) {
+  check_tag:
+    if (UNLIKELY(tag != _Py_atomic_load_uint64(&dict->ma_version_tag))) {
         result.found = 0;
         return result;
     }

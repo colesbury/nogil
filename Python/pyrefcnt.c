@@ -39,7 +39,7 @@ _Py_queue_object(PyObject *ob, uintptr_t tid)
     Bucket *bucket = &buckets[tid % NUM_BUCKETS];
 
     if (tid == 0) {
-        if (_PyObject_IS_IMMORTAL(ob)) {
+        if (_PyObject_IS_IMMORTAL(ob) || _PyObject_IS_DEFERRED_RC(ob)) {
             // kind of awkward, but strings can be immortalized after they have
             // a bunch of references and the new interpreter still tries decrefing
             // the immortalized object.
