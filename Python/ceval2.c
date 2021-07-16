@@ -958,7 +958,14 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #if DEBUG_FRAME
         Py_ssize_t frame_size = THIS_CODE()->co_framesize;
     #endif
-        CLEAR_REGISTERS(-2, THIS_CODE()->co_nlocals);
+        CLEAR_REGISTERS(-1, THIS_CODE()->co_nlocals);
+        Register frame_reg = regs[-2];
+        if (frame_reg.as_int64 != 0) {
+            PyFrameObject *frame = (PyFrameObject *)AS_OBJ(frame_reg);
+            frame->f_executing = 0;
+            regs[-2].as_int64 = 0;
+            DECREF_X(frame_reg, CALL_VM_DONT_SAVE_PC);
+        }
     #if DEBUG_FRAME
         for (Py_ssize_t i = 0; i < frame_size; i++) {
             assert(regs[i].as_int64 == 0);

@@ -180,6 +180,8 @@ PyObject *PyEval2_GetLocals(void);
 // Used by pstate.c
 struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 
+PyObject *vm_locals(struct ThreadState *ts, struct _frame *frame, Py_ssize_t offset);
+
 // used by genobject2.c
 int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 PyObject *vm_compute_cr_origin(struct ThreadState *ts);

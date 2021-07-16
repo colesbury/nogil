@@ -6,6 +6,7 @@
 
 #include "code.h"
 #include "code2.h"
+#include "ceval2_meta.h"
 #include "frameobject.h"
 #include "opcode.h"
 #include "structmember.h"
@@ -1236,116 +1237,34 @@ dict_to_map(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
 }
 
 int
-PyFrame_FastToLocalsWithError2(PyFrameObject *f, PyCodeObject2 *co)
-{
-    /* Merge fast locals into f->f_locals */
-    PyObject *locals, *map;
-    PyObject **fast;
-    Py_ssize_t j;
-
-    map = co->co_varnames;
-    locals = f->f_locals;
-
-    if (!PyTuple_Check(map)) {
-        PyErr_Format(PyExc_SystemError,
-                     "co_varnames must be a tuple, not %s",
-                     Py_TYPE(map)->tp_name);
-        return -1;
-    }
-    fast = f->f_localsplus;
-    j = PyTuple_GET_SIZE(map);
-    if (j > co->co_nlocals)
-        j = co->co_nlocals;
-    if (co->co_nlocals) {
-        if (map_to_dict(map, j, locals, fast, 0) < 0)
-            return -1;
-    }
-    // ncells = PyTuple_GET_SIZE(co->co_cellvars);
-    // nfreevars = PyTuple_GET_SIZE(co->co_freevars);
-    // if (ncells || nfreevars) {
-    //     if (map_to_dict(co->co_cellvars, ncells,
-    //                     locals, fast + co->co_nlocals, 1))
-    //         return -1;
-
-    //     /* If the namespace is unoptimized, then one of the
-    //        following cases applies:
-    //        1. It does not contain free variables, because it
-    //           uses import * or is a top-level namespace.
-    //        2. It is a class namespace.
-    //        We don't want to accidentally copy free variables
-    //        into the locals dict used by the class.
-    //     */
-    //     if (co->co_flags & CO_OPTIMIZED) {
-    //         if (map_to_dict(co->co_freevars, nfreevars,
-    //                         locals, fast + co->co_nlocals + ncells, 1) < 0)
-    //             return -1;
-    //     }
-    // }
-    return 0;
-}
-
-int
 PyFrame_FastToLocalsWithError(PyFrameObject *f)
 {
-    /* Merge fast locals into f->f_locals */
-    PyObject *locals, *map;
-    PyObject **fast;
-    PyCodeObject *co;
-    Py_ssize_t j;
-    Py_ssize_t ncells, nfreevars;
-
     if (f == NULL) {
         PyErr_BadInternalCall();
         return -1;
     }
-    locals = f->f_locals;
+
+    PyObject *locals = f->f_locals;
     if (locals == NULL) {
         locals = f->f_locals = PyDict_New();
         if (locals == NULL)
             return -1;
     }
 
-    co = f->f_code;
-    if (co == NULL) {
-        return PyFrame_FastToLocalsWithError2(f, f->f_code2);
+    if (!f->f_executing) {
+        return 0;
     }
 
-    map = co->co_varnames;
-    if (!PyTuple_Check(map)) {
-        PyErr_Format(PyExc_SystemError,
-                     "co_varnames must be a tuple, not %s",
-                     Py_TYPE(map)->tp_name);
+    struct ThreadState *ts = f->ts;
+    Py_ssize_t offset = (ts->stack + f->f_offset) - ts->regs;
+
+    assert(AS_OBJ(ts->regs[offset-2]) == (PyObject *)f);
+
+    PyObject *res = vm_locals(f->ts, f, offset);
+    if (res == NULL) {
         return -1;
     }
-    fast = f->f_localsplus;
-    j = PyTuple_GET_SIZE(map);
-    if (j > co->co_nlocals)
-        j = co->co_nlocals;
-    if (co->co_nlocals) {
-        if (map_to_dict(map, j, locals, fast, 0) < 0)
-            return -1;
-    }
-    ncells = PyTuple_GET_SIZE(co->co_cellvars);
-    nfreevars = PyTuple_GET_SIZE(co->co_freevars);
-    if (ncells || nfreevars) {
-        if (map_to_dict(co->co_cellvars, ncells,
-                        locals, fast + co->co_nlocals, 1))
-            return -1;
 
-        /* If the namespace is unoptimized, then one of the
-           following cases applies:
-           1. It does not contain free variables, because it
-              uses import * or is a top-level namespace.
-           2. It is a class namespace.
-           We don't want to accidentally copy free variables
-           into the locals dict used by the class.
-        */
-        if (co->co_flags & CO_OPTIMIZED) {
-            if (map_to_dict(co->co_freevars, nfreevars,
-                            locals, fast + co->co_nlocals + ncells, 1) < 0)
-                return -1;
-        }
-    }
     return 0;
 }
 

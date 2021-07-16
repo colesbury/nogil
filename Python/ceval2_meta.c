@@ -503,11 +503,13 @@ vm_pop_frame(struct ThreadState *ts)
         // setup frame (e.g. CALL_FUNCTION_EX).
         frame_size = ts->maxstack - ts->regs;
     }
-    Py_ssize_t from = -1;
-    if (PyFunc_Check(AS_OBJ(ts->regs[-1]))) {
-        from = -2;
+    bool is_pyfunc = PyFunc_Check(AS_OBJ(ts->regs[-1]));
+    vm_clear_regs(ts, -1, frame_size);
+    if (is_pyfunc && ts->regs[-2].as_int64 != 0) {
+        PyFrameObject *frame = (PyFrameObject *)AS_OBJ(ts->regs[-2]);
+        frame->f_executing = 0;
+        CLEAR(ts->regs[-2]);
     }
-    vm_clear_regs(ts, from, frame_size);
     intptr_t frame_delta = ts->regs[-4].as_int64;
     intptr_t frame_link = ts->regs[-3].as_int64;
     ts->regs[-2].as_int64 = 0;
@@ -3199,6 +3201,10 @@ vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset)
             // NOTE: allocating the frame may re-allocate regs!
             w.regs = &w.ts->regs[w.offset];
             w.regs[-2] = PACK(frame, REFCOUNT_TAG);
+
+            frame->ts = w.ts;
+            frame->f_offset = w.regs - w.ts->stack;
+            frame->f_executing = true;
         }
         else {
             done = true;
@@ -3230,8 +3236,8 @@ vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset)
     return top;
 }
 
-static PyObject *
-frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
+PyObject *
+vm_locals(struct ThreadState *ts, PyFrameObject *frame, Py_ssize_t offset)
 {
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[offset-1]);
     assert(PyFunc_Check(func));
@@ -3239,12 +3245,11 @@ frame_to_locals(struct ThreadState *ts, Py_ssize_t offset)
     if ((code->co_flags & CO_NEWLOCALS) == 0) {
         PyObject *locals = AS_OBJ(ts->regs[offset]);
         assert(PyMapping_Check(locals));
+        if (locals != frame->f_locals) {
+            Py_INCREF(locals);
+            Py_XSETREF(frame->f_locals, locals);
+        }
         return locals;
-    }
-
-    PyFrameObject *frame = vm_frame(ts);
-    if (frame == NULL) {
-        return NULL;
     }
 
     PyObject *locals = frame->f_locals;
@@ -3313,14 +3318,19 @@ vm_eval_breaker(struct ThreadState *ts)
 }
 
 PyObject *
-PyEval2_GetLocals(void)
+PyEval_GetLocals(void)
 {
+    // TODO: use stack walk?
     struct ThreadState *ts = current_thread_state();
     Py_ssize_t offset = 0;
     while (&ts->regs[offset] > ts->stack) {
         PyObject *func = AS_OBJ(ts->regs[offset-1]);
         if (PyFunc_Check(func)) {
-            return frame_to_locals(ts, offset);
+            PyFrameObject *frame = vm_frame_at_offset(ts, offset);
+            if (frame == NULL) {
+                return NULL;
+            }
+            return vm_locals(ts, frame, offset);
         }
 
         intptr_t frame_delta = ts->regs[offset-4].as_int64;

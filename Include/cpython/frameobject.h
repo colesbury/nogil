@@ -23,6 +23,7 @@ typedef struct _frame {
     struct _frame *f_back;      /* previous frame, or NULL */
     PyCodeObject *f_code;       /* code segment */
     PyCodeObject2 *f_code2;       /* code segment */
+    struct ThreadState *ts;
     PyObject *f_builtins;       /* builtin symbol table (PyDictObject) */
     PyObject *f_globals;        /* global symbol table (PyDictObject) */
     PyObject *f_locals;         /* local symbol table (any mapping) */
@@ -53,6 +54,7 @@ typedef struct _frame {
     char f_trace_opcodes;       /* Emit per-opcode trace events? */
     char f_executing;           /* whether the frame is still executing */
     char f_retains_code;        /* Use deferred ref counting for builtins, globals, code */
+    Py_ssize_t f_offset;        /* offset from the bottom of the stack */
 
     /* tracing stuff */
     int instr_lb;
