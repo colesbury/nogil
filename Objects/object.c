@@ -2433,7 +2433,7 @@ _Py_ExplicitMergeRefcount(PyObject *op)
             (((int32_t)old_shared) >> _Py_REF_SHARED_SHIFT) +
             (int32_t)(op->ob_ref_local >> _Py_REF_LOCAL_SHIFT);
 
-        assert(refcount >= 0);
+        assert(refcount >= 0 || _PyObject_IS_DEFERRED_RC(op));
 
         new_shared = (((uint32_t)refcount) << _Py_REF_SHARED_SHIFT) |
                      _Py_REF_MERGED_MASK;
