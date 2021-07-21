@@ -2081,15 +2081,8 @@ cache_struct_converter(PyObject *fmt, PyStructObject **ptr)
         return 1;
     }
 
-    if (cache == NULL) {
-        cache = PyDict_New();
-        if (cache == NULL)
-            return 0;
-    }
-
-    s_object = PyDict_GetItemWithError(cache, fmt);
+    s_object = PyDict_GetItemWithError2(cache, fmt);
     if (s_object != NULL) {
-        Py_INCREF(s_object);
         *ptr = (PyStructObject *)s_object;
         return Py_CLEANUP_SUPPORTED;
     }
@@ -2120,7 +2113,7 @@ static PyObject *
 _clearcache_impl(PyObject *module)
 /*[clinic end generated code: output=ce4fb8a7bf7cb523 input=463eaae04bab3211]*/
 {
-    Py_CLEAR(cache);
+    PyDict_Clear(cache);
     Py_RETURN_NONE;
 }
 
@@ -2350,6 +2343,10 @@ PyInit__struct(void)
 
     m = PyModule_Create(&_structmodule);
     if (m == NULL)
+        return NULL;
+
+    cache = PyDict_New();
+    if (cache == NULL)
         return NULL;
 
     PyObject *PyStructType = PyType_FromSpec(&PyStructType_spec);
