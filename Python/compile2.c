@@ -1582,7 +1582,7 @@ emit2(struct compiler *c, int opcode, int imm0, int imm1)
     if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
-    int wide = (imm0 > 255 || imm1 > 255);
+    int wide = (imm0 > 255 || imm1 > 255 || imm0 < -127 || imm1 < -127);
     if (wide) {
         uint8_t *pc = next_instr(c, 10);
         pc[0] = WIDE;
@@ -2026,10 +2026,11 @@ compiler_varname(struct compiler *c, PyObject *mangled_name)
     return PyLong_AsLong(v);
 }
 
-static int32_t
+static Py_ssize_t
 compiler_metaslot(struct compiler *c, PyObject *name)
 {
-    return compiler_add_o(c, c->unit->metadata, name);
+    Py_ssize_t slot = 2 * compiler_add_o(c, c->unit->metadata, name);
+    return -slot - 2;
 }
 
 // Merge const *o* recursively and return constant key object.
@@ -6493,7 +6494,7 @@ makecode(struct compiler *c)
     PyCodeObject2 *co;
     Py_ssize_t instr_size = c->unit->instr.offset;
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
-    Py_ssize_t nmeta = PyDict_GET_SIZE(c->unit->metadata);
+    Py_ssize_t nmeta = 2 * PyDict_GET_SIZE(c->unit->metadata);
     Py_ssize_t ncells = c->unit->cellvars.offset;
     Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;

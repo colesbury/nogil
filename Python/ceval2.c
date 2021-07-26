@@ -253,6 +253,7 @@ _OWNING_REF(Register r, intptr_t tid)
 
 #define UImm(idx) (pc[idx + 1])
 #define UImm16(idx) (load_uimm16(&pc[idx + 1]))
+#define SImm(idx) ((int8_t)UImm(idx))
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
 #define PY_THREAD_STATE() ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
@@ -341,6 +342,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     Register *regs = ts->regs;
     void **opcode_targets = ts->ts->opcode_targets;
     PyObject **constants = THIS_CODE()->co_constants;
+    #define metadata ((intptr_t *)(char *)constants)
     uintptr_t tid = _Py_ThreadId();
 
     CHECK_EVAL_BREAKER();
@@ -1017,18 +1019,20 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(LOAD_GLOBAL) {
         assert(IS_EMPTY(acc));
-        intptr_t *metadata = (intptr_t *)(char *)constants;
-        PyObject *name = constants[UImm(0)];
-        PyObject *globals = THIS_FUNC()->globals;
-        intptr_t metaidx = UImm(1);
+        PyFunc *this_func = THIS_FUNC();
+        PyObject *globals = this_func->globals;
         if (UNLIKELY(!PyDict_CheckExact(globals))) {
             goto LABEL(load_global_slow);
         }
 
-        intptr_t guess = metadata[-metaidx - 1];
+        PyObject *name = constants[UImm(0)];
+        intptr_t metaidx = SImm(1);
+
+        intptr_t guess = metadata[metaidx];
         if (guess < 0) {
-            if (guess == -1) goto LABEL(load_global_slow);
-            else goto LABEL(load_builtin);
+            uint64_t tag = _PyDict_VersionTag(globals);
+            if (LIKELY((uint64_t)(-guess) == tag)) goto LABEL(load_builtin);
+            else goto LABEL(load_global_slow);
         }
 
     /* load_global: */ {
@@ -1042,13 +1046,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
 
     LABEL(load_builtin): {
-        if (UNLIKELY(dict_may_contain((PyDictObject *)globals, name))) {
-            goto LABEL(load_global_slow);
-        }
-        PyObject *builtins = THIS_FUNC()->builtins;
+        PyObject *builtins = this_func->builtins;
         if (UNLIKELY(!PyDict_CheckExact(builtins))) {
             goto LABEL(load_global_slow);
         }
+        guess = metadata[metaidx + 1];
         struct probe_result probe;
         probe = dict_probe((PyDictObject *)builtins, name, guess, tid);
         acc = probe.acc;
@@ -1060,7 +1062,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     LABEL(load_global_slow): {
         PyObject *value;
-        CALL_VM(value = vm_load_global(ts, name, &metadata[-metaidx - 1]));
+        CALL_VM(value = vm_load_global(ts, constants[UImm(0)], &metadata[SImm(1)]));
         if (UNLIKELY(value == NULL)) {
             goto error;
         }
@@ -2484,6 +2486,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     #undef WIDTH_PREFIX
     #undef TARGET
+    #undef SImm
     #undef UImm
     #undef UImm16
     #undef JumpImm
@@ -2491,6 +2494,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #define TARGET(name) COLD_TARGET(WIDE_##name) DEBUG_LABEL(WIDE_##name);
     #define UImm(idx) (load_uimm32(&pc[2 + 4 * idx]))
     #define UImm16(idx) (load_uimm16(&pc[2 + 4 * idx]))
+    #define SImm(idx) ((int32_t)UImm(idx))
     #define JumpImm(idx) ((int32_t)UImm(idx))
 
     // Include target definitions for "wide" operands. This includes the
@@ -2504,6 +2508,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #undef TARGET
     #undef UImm
     #undef UImm16
+    #undef SImm
     #undef JumpImm
 
     return_to_c: {

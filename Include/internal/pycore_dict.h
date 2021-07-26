@@ -64,6 +64,13 @@ _mm_loadu_si128_nonatomic(void *p)
     return _mm_loadu_si128((__m128i *)p);
 }
 
+static inline uint64_t
+_PyDict_VersionTag(PyObject *mp)
+{
+    PyDictObject *dict = (PyDictObject *)mp;
+    return _Py_atomic_load_uint64(&dict->ma_version_tag);
+}
+
 static inline PyDictKeyEntry *
 find_unicode(PyDictKeysObject *keys, PyObject *key)
 {

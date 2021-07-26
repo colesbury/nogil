@@ -35,7 +35,7 @@ static PyObject* dict_iter(PyDictObject *dict);
 /*Global counter used to set ma_version_tag field of dictionary.
  * It is incremented each time that a dictionary is created and each
  * time that a dictionary is modified. */
-static volatile uint64_t pydict_global_version = 0;
+static uint64_t pydict_global_version = 2;
 
 static inline uint64_t
 DICT_NEXT_VERSION(void)
@@ -992,7 +992,7 @@ PyDict_GetItemWithError2(PyObject *op, PyObject *key)
 }
 
 static PyObject *
-vm_try_load(PyObject *op, PyObject *key, intptr_t *meta, intptr_t meta_mask)
+vm_try_load(PyObject *op, PyObject *key, intptr_t *meta)
 {
     if (UNLIKELY(!PyDict_CheckExact(op))) {
         PyObject *value = PyObject_GetItem(op, key);
@@ -1004,6 +1004,7 @@ vm_try_load(PyObject *op, PyObject *key, intptr_t *meta, intptr_t meta_mask)
         return value;
     }
     PyDictObject *mp = (PyDictObject *)op;
+    uint64_t tag = _Py_atomic_load_uint64(&mp->ma_version_tag);
     PyDictKeysObject *keys = _Py_atomic_load_ptr(&mp->ma_keys);
     if (UNLIKELY(keys->dk_type != DK_UNICODE)) {
         return PyDict_GetItemWithError2(op, key);
@@ -1011,10 +1012,15 @@ vm_try_load(PyObject *op, PyObject *key, intptr_t *meta, intptr_t meta_mask)
     assert(keys->dk_type == DK_UNICODE); // for now
     PyDictKeyEntry *entry = find_unicode(keys, key);
     if (entry == NULL) {
+        if (tag == (intptr_t)tag) {
+            // A negative value (other than -1) indicates the key is not
+            // present in the dict with the given version_tag.
+            _Py_atomic_store_intptr_relaxed(meta,  -((intptr_t)tag));
+        }
         return NULL;
     }
     intptr_t offset = (intptr_t)(entry - keys->dk_entries);
-    _Py_atomic_store_intptr_relaxed(meta, meta_mask + offset);
+    _Py_atomic_store_intptr_relaxed(meta, offset);
     return value_for_entry(mp, keys, key, -1, entry);
 }
 
@@ -1024,11 +1030,11 @@ vm_load_global(struct ThreadState *ts, PyObject *key, intptr_t *meta)
     assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
     _Py_atomic_store_intptr_relaxed(meta, -1);
     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-    PyObject *res = vm_try_load(func->globals, key, meta, 0);
+    PyObject *res = vm_try_load(func->globals, key, meta);
     if (res != NULL || PyErr_Occurred()) {
         return res;
     }
-    res = vm_try_load(func->builtins, key, meta, INTPTR_MIN);
+    res = vm_try_load(func->builtins, key, meta + 1);
     if (res != NULL || PyErr_Occurred()) {
         return res;
     }
