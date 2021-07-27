@@ -895,6 +895,8 @@ descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
     return descr;
 }
 
+static uint8_t cmethod_o = CMETHOD_O;
+static uint8_t cmethod_noargs = CMETHOD_NOARGS;
 static const uint8_t func_vector_call[] = {
     CFUNC_HEADER, 0, 0, 0
 };
@@ -904,6 +906,7 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
 {
     /* Figure out correct vectorcall function to use */
     vectorcallfunc vectorcall;
+    const uint8_t *first_instr = &func_vector_call[0];
     switch (method->ml_flags & (METH_VARARGS | METH_FASTCALL | METH_NOARGS | METH_O | METH_KEYWORDS))
     {
         case METH_VARARGS:
@@ -920,9 +923,11 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
             break;
         case METH_NOARGS:
             vectorcall = method_vectorcall_NOARGS;
+            first_instr = &cmethod_noargs;
             break;
         case METH_O:
             vectorcall = method_vectorcall_O;
+            first_instr = &cmethod_o;
             break;
         default:
             PyErr_SetString(PyExc_SystemError, "bad call flags");
@@ -937,7 +942,7 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
         return NULL;
     }
 
-    ((PyFuncBase *)descr)->first_instr = &func_vector_call[0];
+    ((PyFuncBase *)descr)->first_instr = first_instr;
     descr->d_method = method;
     if (type->tp_lockoffset) {
         descr->vectorcall = method_vectorcall_synchronized;

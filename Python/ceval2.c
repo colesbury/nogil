@@ -708,6 +708,128 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         NEXT_INSTRUCTION();
     }
 
+    TARGET(CFUNC_HEADER_NOARGS) {
+        if (UNLIKELY(acc.as_int64 != 0)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-1]);
+        PyCFunction meth = func->m_ml->ml_meth;
+        PyObject *res;
+
+        CALL_VM(res = meth(PyCFunction_GET_SELF(func), NULL));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR(regs[-1]);
+        pc = (const uint8_t *)regs[-3].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
+        CHECK_EVAL_BREAKER();
+        NEXT_INSTRUCTION();
+    }
+
+    TARGET(CFUNC_HEADER_O) {
+        if (UNLIKELY(acc.as_int64 != 1)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyCFunctionObject *func = (PyCFunctionObject *)AS_OBJ(regs[-1]);
+        PyCFunction meth = func->m_ml->ml_meth;
+        PyObject *res;
+
+        regs[-2].as_int64 = 1;
+        CALL_VM(res = meth(PyCFunction_GET_SELF(func), AS_OBJ(regs[0])));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR(regs[0]);
+        CLEAR(regs[-1]);
+        pc = (const uint8_t *)regs[-3].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
+        CHECK_EVAL_BREAKER();
+        NEXT_INSTRUCTION();
+    }
+
+    TARGET(CMETHOD_O) {
+        if (UNLIKELY(acc.as_int64 != 2)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyMethodDescrObject *func = (PyMethodDescrObject *)AS_OBJ(regs[-1]);
+        PyObject *self = AS_OBJ(regs[0]);
+        if (UNLIKELY(Py_TYPE(self) != func->d_common.d_type)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyCFunction meth = func->d_method->ml_meth;
+        PyObject *res;
+
+        regs[-2].as_int64 = 2;
+        CALL_VM(res = meth(self, AS_OBJ(regs[1])));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(-1, regs[-2].as_int64);
+        pc = (const uint8_t *)regs[-3].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
+        CHECK_EVAL_BREAKER();
+        NEXT_INSTRUCTION();
+    }
+
+    TARGET(CMETHOD_NOARGS) {
+        if (UNLIKELY(acc.as_int64 != 1)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyMethodDescrObject *func = (PyMethodDescrObject *)AS_OBJ(regs[-1]);
+        PyObject *self = AS_OBJ(regs[0]);
+        if (UNLIKELY(Py_TYPE(self) != func->d_common.d_type)) {
+            goto LABEL(CFUNC_HEADER);
+        }
+
+        PyCFunction meth = func->d_method->ml_meth;
+        PyObject *res;
+
+        regs[-2].as_int64 = 1;
+        CALL_VM(res = meth(self, NULL));
+        if (UNLIKELY(res == NULL)) {
+            acc.as_int64 = 0;
+            goto error;
+        }
+        acc = PACK_OBJ(res);
+        CLEAR_REGISTERS(-1, 1);
+        pc = (const uint8_t *)regs[-3].as_int64;
+        intptr_t frame_delta = regs[-4].as_int64;
+        regs[-2].as_int64 = 0;
+        regs[-3].as_int64 = 0;
+        regs[-4].as_int64 = 0;
+        regs -= frame_delta;
+        ts->regs = regs;
+        CHECK_EVAL_BREAKER();
+        NEXT_INSTRUCTION();
+    }
+
     TARGET(FUNC_TPCALL_HEADER) {
         PyObject *res;
         regs[-2].as_int64 = ACC_ARGCOUNT(acc);  // frame size

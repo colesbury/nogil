@@ -65,6 +65,10 @@ def_op('FUNC_HEADER', 5, 'lit')
 def_op('METHOD_HEADER', 6)
 def_op('COROGEN_HEADER', 7, 'lit')
 def_op('CFUNC_HEADER', 8)
+def_op('CFUNC_HEADER_NOARGS', 115)
+def_op('CFUNC_HEADER_O', 114)
+def_op('CMETHOD_NOARGS', 116)
+def_op('CMETHOD_O', 117)
 def_op('FUNC_TPCALL_HEADER', 9)
 
 # unary math operations

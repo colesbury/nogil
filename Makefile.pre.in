@@ -851,6 +851,10 @@ regen-opcode:
 		$(srcdir)/Lib/opcode.py \
 		$(srcdir)/Include/opcode.h.new
 	$(UPDATE_FILE) $(srcdir)/Include/opcode.h $(srcdir)/Include/opcode.h.new
+	$(PYTHON_FOR_REGEN) $(srcdir)/Tools/scripts/generate_opcode2_h.py \
+		$(srcdir)/Lib/opcode2.py \
+		$(srcdir)/Include/opcode2.h.new
+	$(UPDATE_FILE) $(srcdir)/Include/opcode2.h $(srcdir)/Include/opcode2.h.new
 
 .PHONY: regen-token
 regen-token:
@@ -949,6 +953,7 @@ regen-opcode-targets:
 	$(PYTHON_FOR_REGEN) $(srcdir)/Python/makeopcodetargets.py \
 		$(srcdir)/Python/opcode_targets.h.new
 	$(UPDATE_FILE) $(srcdir)/Python/opcode_targets.h $(srcdir)/Python/opcode_targets.h.new
+	$(PYTHON_FOR_REGEN) $(srcdir)/Python/makeopcodetargets2.py
 
 Python/ceval.o: $(srcdir)/Python/opcode_targets.h $(srcdir)/Python/ceval_gil.h \
 		$(srcdir)/Python/condvar.h

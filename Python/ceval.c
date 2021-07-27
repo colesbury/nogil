@@ -4655,10 +4655,18 @@ update_use_tracing(PyThreadState *tstate)
     /* Flag that tracing or profiling is turned on */
     tstate->use_tracing = use_tracing;
 
+    static bool trace_cfunc[128] = {
+        [CFUNC_HEADER] = 1,
+        [CFUNC_HEADER_NOARGS] = 1,
+        [CFUNC_HEADER_O] = 1,
+        [CMETHOD_O] = 1,
+        [FUNC_TPCALL_HEADER] = 1,
+    };
+
     /* Update opcode handlers */
     for (int i = 0; i < 128; i++) {
         if (use_tracing) {
-            if (i == CFUNC_HEADER || i == FUNC_TPCALL_HEADER) {
+            if (trace_cfunc[i]) {
                 tstate->opcode_targets[i] = tstate->trace_cfunc_target;
             }
             else {

@@ -33,6 +33,9 @@ PyCFunction_New(PyMethodDef *ml, PyObject *self)
     return PyCFunction_NewEx(ml, self, NULL);
 }
 
+static const uint8_t cfunc_header_noargs =  CFUNC_HEADER_NOARGS;
+static const uint8_t cfunc_header_o =  CFUNC_HEADER_O;
+
 static const uint8_t func_vector_call[] = {
     CFUNC_HEADER, 0, 0, 0
 };
@@ -64,9 +67,11 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
             break;
         case METH_NOARGS:
             vectorcall = cfunction_vectorcall_NOARGS;
+            first_instr = &cfunc_header_noargs;
             break;
         case METH_O:
             vectorcall = cfunction_vectorcall_O;
+            first_instr = &cfunc_header_o;
             break;
         default:
             PyErr_SetString(PyExc_SystemError, "bad call flags");

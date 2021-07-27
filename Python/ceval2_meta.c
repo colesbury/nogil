@@ -1193,7 +1193,7 @@ vm_call_function_ex(struct ThreadState *ts)
     return res;
 }
 
-static PyObject * _Py_NO_INLINE
+PyObject * _Py_NO_INLINE
 vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
 {
     const int flags_ex = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;
@@ -1233,6 +1233,9 @@ vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
 PyObject *
 vm_call_cfunction(struct ThreadState *ts, Register acc)
 {
+    // PyObject *f = AS_OBJ(ts->regs[-1]);
+    // assert(PyCFunction_Check(f) || Py_TYPE(f) == &PyMethodDescr_Type);
+
     if (UNLIKELY(acc.as_int64 >= 6)) {
         return vm_call_cfunction_slow(ts, acc);
     }
@@ -3385,11 +3388,11 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
 
     PyThreadState *tstate = ts->ts;
     if (tstate->tracing || tstate->c_profilefunc == NULL) {
-        if (ts->pc[0] == CFUNC_HEADER) {
-            return vm_call_cfunction(ts, acc);
+        if (ts->pc[0] == FUNC_TPCALL_HEADER) {
+            return vm_tpcall_function(ts, acc);
         }
         else {
-            return vm_tpcall_function(ts, acc);
+            return vm_call_cfunction(ts, acc);
         }
     }
 
@@ -3408,11 +3411,11 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
     // NOTE: CFUNC_HEADER and FUNC_TPCALL_HEADER do not have WIDE variants
     int opcode = ts->pc[0];
     assert(opcode == CFUNC_HEADER || opcode == FUNC_TPCALL_HEADER);
-    if (opcode == CFUNC_HEADER) {
-        res = vm_call_cfunction(ts, acc);
+    if (opcode == FUNC_TPCALL_HEADER) {
+        res = vm_tpcall_function(ts, acc);
     }
     else {
-        res = vm_tpcall_function(ts, acc);
+        res = vm_call_cfunction(ts, acc);
     }
 
     if (tstate->c_profilefunc == NULL) {
