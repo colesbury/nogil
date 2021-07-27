@@ -27,14 +27,7 @@ bool_repr(PyObject *self)
 
 PyObject *PyBool_FromLong(long ok)
 {
-    PyObject *result;
-
-    if (ok)
-        result = Py_True;
-    else
-        result = Py_False;
-    Py_INCREF(result);
-    return result;
+    return ok ? Py_True : Py_False;
 }
 
 /* We define bool_new to always return either Py_True or Py_False */

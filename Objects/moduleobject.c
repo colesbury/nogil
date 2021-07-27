@@ -749,25 +749,22 @@ _PyModuleSpec_IsInitializing(PyObject *spec)
     return 0;
 }
 
-static PyObject*
-module_getattro(PyModuleObject *m, PyObject *name)
+PyObject *
+_PyModule_MissingAttr(PyObject *m, PyObject *name)
 {
-    PyObject *attr, *mod_name, *getattr;
-    attr = PyObject_GenericGetAttr((PyObject *)m, name);
-    if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError)) {
-        return attr;
-    }
-    PyErr_Clear();
-    if (m->md_dict) {
+    assert(PyModule_Check(m));
+    PyObject *mod_name, *getattr;
+    PyObject *dict = ((PyModuleObject *)m)->md_dict;
+    if (dict) {
         _Py_IDENTIFIER(__getattr__);
-        getattr = _PyDict_GetItemId(m->md_dict, &PyId___getattr__);
+        getattr = _PyDict_GetItemId(dict, &PyId___getattr__);
         if (getattr) {
             return _PyObject_CallOneArg(getattr, name);
         }
-        mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
+        mod_name = _PyDict_GetItemId(dict, &PyId___name__);
         if (mod_name && PyUnicode_Check(mod_name)) {
             Py_INCREF(mod_name);
-            PyObject *spec = _PyDict_GetItemId(m->md_dict, &PyId___spec__);
+            PyObject *spec = _PyDict_GetItemId(dict, &PyId___spec__);
             Py_XINCREF(spec);
             if (_PyModuleSpec_IsInitializing(spec)) {
                 PyErr_Format(PyExc_AttributeError,
@@ -789,6 +786,20 @@ module_getattro(PyModuleObject *m, PyObject *name)
     PyErr_Format(PyExc_AttributeError,
                 "module has no attribute '%U'", name);
     return NULL;
+}
+
+static PyObject*
+module_getattro(PyObject *m, PyObject *name)
+{
+    PyObject *attr = PyObject_GenericGetAttr(m, name);
+    if (attr != NULL) {
+        return attr;
+    }
+    if (!PyErr_ExceptionMatches(PyExc_AttributeError)) {
+        return NULL;
+    }
+    PyErr_Clear();
+    return _PyModule_MissingAttr(m, name);
 }
 
 static int
@@ -875,7 +886,7 @@ PyTypeObject PyModule_Type = {
     0,                                          /* tp_hash */
     0,                                          /* tp_call */
     0,                                          /* tp_str */
-    (getattrofunc)module_getattro,              /* tp_getattro */
+    module_getattro,                            /* tp_getattro */
     PyObject_GenericSetAttr,                    /* tp_setattro */
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |

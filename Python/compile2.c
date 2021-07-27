@@ -206,6 +206,7 @@ struct compiler_unit {
     Py_ssize_t nlocals;
     Py_ssize_t max_registers;
     Py_ssize_t next_register;
+    Py_ssize_t next_metaslot;
 
     // Set if the last emitted instruction is a JUMP, RAISE, or RETURN_VALUE.
     // This prevents unreachable bytecode from being emitted to the
@@ -733,6 +734,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
     u->metadata = PyDict_New();
+    u->next_metaslot = 0;
     if (u->metadata == NULL) {
         COMPILER_ERROR(c);
     }
@@ -1604,7 +1606,8 @@ emit3(struct compiler *c, int opcode, int imm0, int imm1, int imm2)
     if (c->do_not_emit_bytecode || c->unit->unreachable) {
         return;
     }
-    int wide = (imm0 > 255 || imm1 > 255 || imm2 > 255);
+    int wide = (imm0 > 255  || imm1 > 255 ||  imm2 > 255 ||
+                imm0 < -127 || imm1 < -127 || imm2 < -127);
     if (wide) {
         uint8_t *pc = next_instr(c, 14);
         pc[0] = WIDE;
@@ -2027,10 +2030,36 @@ compiler_varname(struct compiler *c, PyObject *mangled_name)
 }
 
 static Py_ssize_t
-compiler_metaslot(struct compiler *c, PyObject *name)
+compiler_next_metaslot(struct compiler *c, Py_ssize_t n)
 {
-    Py_ssize_t slot = 2 * compiler_add_o(c, c->unit->metadata, name);
-    return -slot - 2;
+    Py_ssize_t slot = -c->unit->next_metaslot - n;
+    c->unit->next_metaslot += n;
+    return slot;
+}
+
+static Py_ssize_t
+compiler_global_metaslot(struct compiler *c, PyObject *name)
+{
+    PyObject *dict = c->unit->metadata;
+    PyObject *v = PyDict_GetItemWithError(dict, name);
+    if (v != NULL) {
+        return PyLong_AsLong(v);
+    }
+    else if (PyErr_Occurred()) {
+        COMPILER_ERROR(c);
+    }
+
+    Py_ssize_t slot = compiler_next_metaslot(c, 2);
+    v = PyLong_FromSsize_t(slot);
+    if (v == NULL) {
+        COMPILER_ERROR(c);
+    }
+    if (PyDict_SetItem(dict, name, v) < 0) {
+        Py_DECREF(v);
+        COMPILER_ERROR(c);
+    }
+    Py_DECREF(v);
+    return slot;
 }
 
 // Merge const *o* recursively and return constant key object.
@@ -2347,13 +2376,13 @@ load_name(struct compiler *c, PyObject *name)
         emit2(c,
               LOAD_NAME,
               compiler_const(c, mangled),
-              compiler_metaslot(c, mangled));
+              compiler_global_metaslot(c, mangled));
         break;
     case ACCESS_GLOBAL:
         emit2(c,
               LOAD_GLOBAL,
               compiler_const(c, mangled),
-              compiler_metaslot(c, mangled));
+              compiler_global_metaslot(c, mangled));
         break;
     }
 }
@@ -4708,7 +4737,9 @@ maybe_optimize_method_call(struct compiler *c, expr_ty e)
     /* Alright, we can optimize the code. */
     compiler_visit_expr(c, meth->v.Attribute.value);
     base = reserve_regs(c, FRAME_EXTRA + 1) + FRAME_EXTRA;
-    emit2(c, LOAD_METHOD, base - 1, compiler_name(c, meth->v.Attribute.attr));
+    emit3(c, LOAD_METHOD, base - 1,
+        compiler_name(c, meth->v.Attribute.attr),
+        compiler_next_metaslot(c, 1));
     for (i = 0; i < argsl; i++) {
         expr_ty elt = asdl_seq_GET(args, i);
         expr_to_reg(c, elt, base + i + 1);
@@ -6494,7 +6525,7 @@ makecode(struct compiler *c)
     PyCodeObject2 *co;
     Py_ssize_t instr_size = c->unit->instr.offset;
     Py_ssize_t nconsts = PyDict_GET_SIZE(c->unit->consts);
-    Py_ssize_t nmeta = 2 * PyDict_GET_SIZE(c->unit->metadata);
+    Py_ssize_t metaslots = c->unit->next_metaslot;
     Py_ssize_t ncells = c->unit->cellvars.offset;
     Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
@@ -6505,7 +6536,7 @@ makecode(struct compiler *c)
     instr_size += header_size;
 
     co = PyCode2_New(
-        instr_size, nconsts, nmeta,
+        instr_size, nconsts, metaslots,
         ncells, ncaptures, nexc_handlers);
     if (co == NULL) {
         COMPILER_ERROR(c);

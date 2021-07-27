@@ -106,6 +106,16 @@ vm_oparg(const uint8_t *pc, int idx)
     return (int)pc[idx + 1];
 }
 
+static PyObject *
+vm_constant(struct ThreadState *ts, int idx)
+{
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+    int oparg = vm_oparg(ts->pc, idx);
+    return code->co_constants[oparg];
+}
+
 static Register _Py_NO_INLINE
 attribute_error(struct ThreadState *ts, _Py_Identifier *id)
 {
@@ -1111,74 +1121,6 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
         }
         return PACK(bc, REFCOUNT_TAG);
     }
-}
-
-int
-vm_load_method(struct ThreadState *ts, PyObject *obj, PyObject *name, int opA)
-{
-    assert(ts->regs[opA].as_int64 == 0);
-    assert(ts->regs[opA+1].as_int64 == 0);
-    PyObject *descr;
-    if (Py_TYPE(obj)->tp_getattro != PyObject_GenericGetAttr) {
-        PyObject *value = PyObject_GetAttr(obj, name);
-        if (value == NULL) {
-            return -1;
-        }
-        ts->regs[opA] = PACK_OBJ(value);
-        return 0;
-    }
-
-    PyObject **dictptr = _PyObject_GetDictPtr(obj);
-    if (dictptr == NULL) {
-        goto lookup_type;
-    }
-
-    PyObject *dict = *dictptr;
-    if (dict == NULL) {
-        goto lookup_type;
-    }
-
-    Py_INCREF(dict);
-    PyObject *attr = PyDict_GetItemWithError2(dict, name);
-    if (attr != NULL) {
-        ts->regs[opA] = PACK_OBJ(attr);
-        Py_DECREF(dict);
-        return 0;
-    }
-    else if (UNLIKELY(_PyErr_Occurred(ts->ts) != NULL)) {
-        Py_DECREF(dict);
-        return -1;
-    }
-    Py_DECREF(dict);
-
-lookup_type:
-    descr = _PyType_Lookup(Py_TYPE(obj), name);
-    if (descr == NULL) {
-        goto err;
-    }
-
-    if (PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
-        ts->regs[opA] = PACK_INCREF(descr);
-        ts->regs[opA+1] = PACK_INCREF(obj);
-        return 0;
-    }
-
-    descrgetfunc f = Py_TYPE(descr)->tp_descr_get;
-    if (f != NULL) {
-        PyObject *value = f(descr, obj, (PyObject *)Py_TYPE(obj));
-        ts->regs[opA] = PACK_OBJ(value);
-        return 0;
-    }
-    else {
-        ts->regs[opA] = PACK_INCREF(descr);
-        return 0;
-    }
-
-err:
-    PyErr_Format(PyExc_AttributeError,
-                 "'%.50s' object has no attribute '%U'",
-                 Py_TYPE(obj)->tp_name, name);
-    return -1;
 }
 
 static PyObject * _Py_NO_INLINE
@@ -2580,6 +2522,21 @@ vm_err_list_extend(struct ThreadState *ts, Register acc)
     }
 }
 
+PyObject *
+vm_load_method_err(struct ThreadState *ts, Register acc)
+{
+    PyObject *owner = AS_OBJ(acc);
+    PyObject *name = vm_constant(ts, 1);
+    if (PyModule_CheckExact(owner)) {
+        return _PyModule_MissingAttr(owner, name);
+    }
+
+    _PyErr_Format(ts->ts, PyExc_AttributeError,
+                 "'%.50s' object has no attribute '%U'",
+                 Py_TYPE(owner)->tp_name, name);
+    return NULL;
+}
+
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 {
@@ -3410,7 +3367,7 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
 
     // NOTE: CFUNC_HEADER and FUNC_TPCALL_HEADER do not have WIDE variants
     int opcode = ts->pc[0];
-    assert(opcode == CFUNC_HEADER || opcode == FUNC_TPCALL_HEADER);
+    // assert(opcode == CFUNC_HEADER || opcode == FUNC_TPCALL_HEADER);
     if (opcode == FUNC_TPCALL_HEADER) {
         res = vm_tpcall_function(ts, acc);
     }

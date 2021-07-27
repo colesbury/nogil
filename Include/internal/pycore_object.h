@@ -51,6 +51,40 @@ _Py_TryIncrefStackFast(PyObject *op) {
     return 0;
 }
 
+static inline _Py_ALWAYS_INLINE PyObject **
+_PyObject_GET_DICT_PTR(PyObject *obj)
+{
+    Py_ssize_t dictoffset;
+    PyTypeObject *tp = Py_TYPE(obj);
+
+    dictoffset = tp->tp_dictoffset;
+    if (dictoffset == 0) {
+        return NULL;
+    }
+    if (_PY_UNLIKELY(dictoffset < 0)) {
+        Py_ssize_t tsize = Py_SIZE(obj);
+        if (tsize < 0) {
+            tsize = -tsize;
+        }
+        size_t size = _PyObject_VAR_SIZE(tp, tsize);
+
+        dictoffset += (long)size;
+        _PyObject_ASSERT(obj, dictoffset > 0);
+        _PyObject_ASSERT(obj, dictoffset % SIZEOF_VOID_P == 0);
+    }
+    return (PyObject **) ((char *)obj + dictoffset);
+}
+
+static inline _Py_ALWAYS_INLINE PyObject *
+_PyObject_GET_DICT(PyObject *obj)
+{
+    PyObject **dictptr = _PyObject_GET_DICT_PTR(obj);
+    if (dictptr == NULL) {
+        return NULL;
+    }
+    return *dictptr;
+}
+
 static inline bool
 _Py_TryIncRefShared2(PyObject *op)
 {

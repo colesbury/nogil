@@ -81,6 +81,8 @@ compute_hash(PyObject *key)
     return PyObject_Hash(key);
 }
 
+static PyDictKeyEntry empty_entries[7];
+
 /* This immutable, empty PyDictKeysObject is used for PyDict_Clear()
  * (which cannot fail and thus can do no allocation).
  */
@@ -88,7 +90,7 @@ static PyDictKeysObject empty_keys_struct = {
         0, /* dk_usable */
         DK_UNICODE, /* dk_type */
         7, /* dk_size */
-        NULL, /* dk_entries */
+        empty_entries, /* dk_entries */
         0, /* dk_nentries */
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, /* dk_ctrl */
 };
@@ -991,7 +993,7 @@ PyDict_GetItemWithError2(PyObject *op, PyObject *key)
     return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
 }
 
-static PyObject *
+PyObject *
 vm_try_load(PyObject *op, PyObject *key, intptr_t *meta)
 {
     if (UNLIKELY(!PyDict_CheckExact(op))) {
@@ -1012,7 +1014,7 @@ vm_try_load(PyObject *op, PyObject *key, intptr_t *meta)
     assert(keys->dk_type == DK_UNICODE); // for now
     PyDictKeyEntry *entry = find_unicode(keys, key);
     if (entry == NULL) {
-        if (tag == (intptr_t)tag) {
+        if (tag <= INTPTR_MAX) {
             // A negative value (other than -1) indicates the key is not
             // present in the dict with the given version_tag.
             _Py_atomic_store_intptr_relaxed(meta,  -((intptr_t)tag));

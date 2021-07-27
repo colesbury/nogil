@@ -118,7 +118,7 @@ def_op('LOAD_NAME', 46, 'str', 'lit')
 def_op('LOAD_CONST', 47, 'const')
 def_op('LOAD_ATTR', 48, 'reg', 'str')
 def_op('LOAD_GLOBAL', 49, 'str', 'lit')
-def_op('LOAD_METHOD', 50, 'reg', 'str')
+def_op('LOAD_METHOD', 50, 'reg', 'str', 'lit')
 def_op('LOAD_DEREF', 51, 'reg')
 def_op('LOAD_CLASSDEREF', 52, 'reg', 'str')
 

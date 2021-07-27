@@ -92,7 +92,7 @@ PACK_OBJ(PyObject *o)
 
 #define PACK_INCREF(op) _PACK_INCREF(op, _Py_ThreadId())
 
-static inline Register
+static inline _Py_ALWAYS_INLINE Register
 _PACK_INCREF(PyObject *obj, intptr_t tid)
 {
     Register r;
@@ -237,10 +237,10 @@ vm_call_intrinsic(struct ThreadState *ts, Py_ssize_t id, Py_ssize_t opA, Py_ssiz
 
 PyObject *vm_load_name(struct ThreadState *ts, PyObject *locals, PyObject *name);
 PyObject *vm_load_global(struct ThreadState *ts, PyObject *key, intptr_t *meta);
+PyObject *vm_try_load(PyObject *op, PyObject *key, intptr_t *meta);
 Register vm_load_class_deref(struct ThreadState *ts, Py_ssize_t opA, PyObject *name);
 PyObject *vm_name_error(struct ThreadState *ts, PyObject *name);
 int vm_delete_name(struct ThreadState *ts, PyObject *name);
-int vm_load_method(struct ThreadState *ts, PyObject *owner, PyObject *name, int opA);
 
 void vm_err_non_iterator(struct ThreadState *ts, PyObject *o);
 void vm_err_coroutine_awaited(struct ThreadState *ts);
@@ -252,6 +252,7 @@ void vm_err_async_with_aenter(struct ThreadState *ts, Register acc);
 void vm_err_dict_update(struct ThreadState *ts, Register acc);
 void vm_err_dict_merge(struct ThreadState *ts, Register acc);
 void vm_err_list_extend(struct ThreadState *ts, Register acc);
+PyObject *vm_load_method_err(struct ThreadState *ts, Register acc);
 
 PyObject *vm_import_name(struct ThreadState *ts, PyFunc *this_func, PyObject *arg);
 PyObject *vm_import_from(struct ThreadState *ts, PyObject *v, PyObject *name);

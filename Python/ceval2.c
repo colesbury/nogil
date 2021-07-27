@@ -1213,12 +1213,83 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     TARGET(LOAD_METHOD) {
         PyObject *owner = AS_OBJ(acc);
+        PyTypeObject *tp = Py_TYPE(owner);
         PyObject *name = constants[UImm(1)];
-        int err;
-        CALL_VM(err = vm_load_method(ts, owner, name, UImm(0)));
-        if (UNLIKELY(err != 0)) {
+        PyObject *res;
+
+        if (UNLIKELY(tp->tp_getattro != PyObject_GenericGetAttr &&
+                     tp != &PyModule_Type)) {
+            CALL_VM(res = PyObject_GetAttr(owner, name));
+            if (res == NULL) {
+                goto error;
+            }
+            regs[UImm(0)] = PACK_OBJ(res);
+            DECREF(acc);
+            acc.as_int64 = 0;
+            DISPATCH(LOAD_METHOD);
+        }
+
+        PyObject *dict = _PyObject_GET_DICT(owner);
+        if (dict == NULL) {
+            goto LABEL(lookup_type);
+        }
+
+        struct probe_result probe;
+        probe = dict_probe((PyDictObject *)dict, name, metadata[SImm(2)], tid);
+        if (probe.found) {
+            regs[UImm(0)] = probe.acc;
+            DECREF(acc);
+            acc.as_int64 = 0;
+            DISPATCH(LOAD_METHOD);
+        }
+
+        // FIXME: regs[UImm(0)]
+        CALL_VM(res = vm_try_load(dict, name, &metadata[SImm(2)]));
+        if (res != NULL) {
+            regs[UImm(0)] = PACK_OBJ(res);
+            // Py_DECREF(dict);
+            DECREF(acc);
+            acc.as_int64 = 0;
+            DISPATCH(LOAD_METHOD);
+        }
+        else if (UNLIKELY(_PyErr_Occurred(ts->ts) != NULL)) {
+            // Py_DECREF(dict);
             goto error;
         }
+        // Py_DECREF(dict);
+
+        owner = AS_OBJ(acc);
+        name = constants[UImm(1)];
+
+    LABEL(lookup_type): ;
+        PyObject *descr;
+        CALL_VM(descr = _PyType_Lookup(Py_TYPE(owner), name));
+        if (descr == NULL) {
+            CALL_VM(descr = vm_load_method_err(ts, acc));
+            if (descr == NULL) {
+                goto error;
+            }
+        }
+
+        if (PyType_HasFeature(Py_TYPE(descr), Py_TPFLAGS_METHOD_DESCRIPTOR)) {
+            Py_ssize_t imm0 = UImm(0);
+            regs[imm0] = PACK_INCREF(descr);
+            regs[imm0+1] = acc;
+            acc.as_int64 = 0;
+            DISPATCH(LOAD_METHOD);
+        }
+
+        descrgetfunc f = Py_TYPE(descr)->tp_descr_get;
+        if (f != NULL) {
+            PyObject *value;
+            owner = AS_OBJ(acc);
+            CALL_VM(value = f(descr, owner, (PyObject *)Py_TYPE(owner)));
+            regs[UImm(0)] = PACK_OBJ(value);
+        }
+        else {
+            regs[UImm(0)] = PACK_INCREF(descr);
+        }
+
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(LOAD_METHOD);
