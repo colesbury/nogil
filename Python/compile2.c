@@ -5587,7 +5587,10 @@ compiler_visit_expr1(struct compiler *c, expr_ty e)
     case Attribute_kind: {
         assert(e->v.Attribute.ctx == Load);
         Py_ssize_t reg = expr_to_any_reg(c, e->v.Attribute.value);
-        emit2(c, LOAD_ATTR, reg, compiler_name(c, e->v.Attribute.attr));
+        emit3(c, LOAD_ATTR,
+            reg,
+            compiler_name(c, e->v.Attribute.attr),
+            compiler_next_metaslot(c, 1));
         clear_reg(c, reg);
         break;
     }
@@ -5668,7 +5671,7 @@ compiler_augassign(struct compiler *c, stmt_ty s)
     case Attribute_kind: {
         Py_ssize_t owner = expr_to_any_reg(c, e->v.Attribute.value);
         Py_ssize_t name_slot = compiler_name(c, e->v.Attribute.attr);
-        emit2(c, LOAD_ATTR, owner, name_slot);
+        emit3(c, LOAD_ATTR, owner, name_slot, compiler_next_metaslot(c, 1));
         Py_ssize_t tmp = reserve_regs(c, 1);
         emit1(c, STORE_FAST, tmp);
         compiler_visit_expr(c, s->v.AugAssign.value);

@@ -56,7 +56,7 @@ extern "C" {
     _(LOAD_FAST,                 45,     2,      6) \
     _(LOAD_NAME,                 46,     3,     10) \
     _(LOAD_CONST,                47,     2,      6) \
-    _(LOAD_ATTR,                 48,     3,     10) \
+    _(LOAD_ATTR,                 48,     4,     14) \
     _(LOAD_GLOBAL,               49,     3,     10) \
     _(LOAD_METHOD,               50,     4,     14) \
     _(LOAD_DEREF,                51,     2,      6) \

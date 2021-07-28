@@ -1203,7 +1203,40 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         }
         PyObject *name = constants[UImm(1)];
         PyObject *res;
-        CALL_VM(res = _PyObject_GetAttrFast(owner, name));
+
+        PyTypeObject *type = Py_TYPE(owner);
+        if (UNLIKELY(type->tp_getattro != PyObject_GenericGetAttr)) {
+            goto LABEL(load_attr_slow);
+        }
+
+        PyObject *dict = _PyObject_GET_DICT(owner);
+        if (UNLIKELY(dict == NULL)) {
+            goto LABEL(load_attr_slow);
+        }
+
+        int metaidx = SImm(2);
+        intptr_t guess = metadata[metaidx];
+        if (guess >= 0) {
+            struct probe_result probe;
+            probe = dict_probe((PyDictObject *)dict, name, guess, tid);
+            acc = probe.acc;
+            if (probe.found) {
+                DISPATCH(LOAD_ATTR);
+            }
+        }
+
+        CALL_VM(res = vm_try_load(dict, name, &metadata[metaidx]));
+        if (res != NULL) {
+            XSET_ACC(PACK_OBJ(res));
+            DISPATCH(LOAD_ATTR);
+        }
+
+        XCLEAR(acc);
+        owner = AS_OBJ(regs[UImm(0)]);
+        name = constants[UImm(1)];
+
+    LABEL(load_attr_slow):
+        CALL_VM(res = PyObject_GetAttr(owner, name));
         if (UNLIKELY(res == NULL)) {
             goto error;
         }
