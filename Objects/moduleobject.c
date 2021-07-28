@@ -110,6 +110,15 @@ module_init_dict(PyModuleObject *mod, PyObject *md_dict,
     return 0;
 }
 
+static PyObject *
+module_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    PyObject *m = PyType_GenericNew(type, args, kwds);
+    if (m != NULL) {
+        _PyObject_SET_DEFERRED_RC(m);
+    }
+    return m;
+}
 
 PyObject *
 PyModule_NewObject(PyObject *name)
@@ -118,6 +127,7 @@ PyModule_NewObject(PyObject *name)
     m = PyObject_GC_New(PyModuleObject, &PyModule_Type);
     if (m == NULL)
         return NULL;
+    _PyObject_SET_DEFERRED_RC((PyObject *)m);
     m->md_def = NULL;
     m->md_state = NULL;
     m->md_weaklist = NULL;
@@ -184,6 +194,7 @@ _add_methods_to_object(PyObject *module, PyObject *name, PyMethodDef *functions)
         if (func == NULL) {
             return -1;
         }
+        _PyObject_SET_DEFERRED_RC(func);
         if (PyObject_SetAttrString(module, fdef->ml_name, func) != 0) {
             Py_DECREF(func);
             return -1;
@@ -908,6 +919,6 @@ PyTypeObject PyModule_Type = {
     offsetof(PyModuleObject, md_dict),          /* tp_dictoffset */
     module___init__,                            /* tp_init */
     PyType_GenericAlloc,                        /* tp_alloc */
-    PyType_GenericNew,                          /* tp_new */
+    module_new,                                 /* tp_new */
     PyObject_GC_Del,                            /* tp_free */
 };
