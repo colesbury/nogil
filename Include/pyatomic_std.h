@@ -363,6 +363,13 @@ _Py_atomic_store_uint64_relaxed(volatile uint64_t *address, uint64_t value)
 }
 
 static inline void
+_Py_atomic_store_uint64_release(volatile uint64_t *address, uint64_t value)
+{
+    MI_USING_STD
+    atomic_store_explicit((volatile _Atomic(uint64_t)*)address, value, memory_order_release);
+}
+
+static inline void
 _Py_atomic_store_uintptr_relaxed(volatile uintptr_t *address, uintptr_t value)
 {
     MI_USING_STD

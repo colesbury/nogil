@@ -854,6 +854,7 @@ resize(PyDictObject *mp, Py_ssize_t new_size, uint8_t type) {
     _Py_atomic_store_ptr_release(&mp->ma_keys, keys);
     ASSERT_CONSISTENT(mp);
     if (oldkeys != Py_EMPTY_KEYS) {
+        _Py_atomic_store_uint64_release(&mp->ma_version_tag, DICT_NEXT_VERSION());
         _mi_ptr_use_qsbr(oldkeys);
         mi_free(oldkeys);
     }
@@ -1189,7 +1190,7 @@ assign(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
         Py_INCREF(value);
         _Py_atomic_store_ptr_relaxed(&entry->me_key, key);
         _Py_atomic_store_ptr_relaxed(&entry->me_value, value);
-        _Py_atomic_store_uint64_relaxed(&mp->ma_version_tag, DICT_NEXT_VERSION());
+        _Py_atomic_store_uint64_release(&mp->ma_version_tag, DICT_NEXT_VERSION());
         ASSERT_CONSISTENT(mp);
         _PyMutex_unlock(&mp->ma_mutex);
         return 0;
@@ -1202,7 +1203,7 @@ assign(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
         }
         Py_INCREF(value);
         _Py_atomic_store_ptr_relaxed(&entry->me_value, value);
-        _Py_atomic_store_uint64_relaxed(&mp->ma_version_tag, DICT_NEXT_VERSION());
+        _Py_atomic_store_uint64_release(&mp->ma_version_tag, DICT_NEXT_VERSION());
         ASSERT_CONSISTENT(mp);
         _PyMutex_unlock(&mp->ma_mutex);
         Py_DECREF(old);
