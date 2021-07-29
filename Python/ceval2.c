@@ -1267,13 +1267,20 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto LABEL(lookup_type);
         }
 
-        struct probe_result probe;
-        probe = dict_probe((PyDictObject *)dict, name, metadata[SImm(2)], tid);
-        if (probe.found) {
-            regs[UImm(0)] = probe.acc;
-            DECREF(acc);
-            acc.as_int64 = 0;
-            DISPATCH(LOAD_METHOD);
+        intptr_t guess = metadata[SImm(2)];
+        if (guess >= 0) {
+            struct probe_result probe;
+            probe = dict_probe((PyDictObject *)dict, name, guess, tid);
+            // FIXME: decref probe.acc on failure!!
+            if (probe.found) {
+                regs[UImm(0)] = probe.acc;
+                DECREF(acc);
+                acc.as_int64 = 0;
+                DISPATCH(LOAD_METHOD);
+            }
+        }
+        else if ((uint64_t)(-guess) == _PyDict_VersionTag(dict)) {
+            goto LABEL(lookup_type);
         }
 
         // FIXME: regs[UImm(0)]

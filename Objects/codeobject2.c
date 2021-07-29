@@ -1014,3 +1014,10 @@ _PyCode_SetExtra(PyObject *code, Py_ssize_t index, void *extra)
     co_extra->ce_extras[index] = extra;
     return 0;
 }
+
+// for debugging
+PyCodeObject2 *
+_PyCode2_FromFunc(PyFunc *func)
+{
+    return PyCode2_FromFunc(func);
+}
