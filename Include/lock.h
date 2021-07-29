@@ -45,8 +45,8 @@ void _PyMutex_unlock_slow(_PyMutex *m);
 void _PyRawMutex_lock_slow(_PyRawMutex *m);
 void _PyRawMutex_unlock_slow(_PyRawMutex *m);
 
-void _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m);
-void _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m);
+PyAPI_FUNC(void) _PyRecursiveMutex_lock_slow(_PyRecursiveMutex *m);
+PyAPI_FUNC(void) _PyRecursiveMutex_unlock_slow(_PyRecursiveMutex *m);
 
 void _PyRawEvent_Notify(_PyRawEvent *o);
 void _PyRawEvent_Wait(_PyRawEvent *o);

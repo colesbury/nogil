@@ -1264,23 +1264,34 @@ lru_cache_descr_get(PyObject *self, PyObject *obj, PyObject *type)
 static PyObject *
 lru_cache_cache_info(lru_cache_object *self, PyObject *unused)
 {
-    if (self->maxsize == -1) {
+    Py_ssize_t hits, misses, maxsize, size;
+
+    _PyRecursiveMutex_lock(&self->rlock);
+    hits = self->hits;
+    misses = self->misses;
+    maxsize = self->maxsize;
+    size = PyDict_GET_SIZE(self->cache);
+    _PyRecursiveMutex_unlock(&self->rlock);
+
+    if (maxsize == -1) {
         return PyObject_CallFunction(self->cache_info_type, "nnOn",
-                                     self->hits, self->misses, Py_None,
-                                     PyDict_GET_SIZE(self->cache));
+                                     hits, misses, Py_None,
+                                     size);
     }
     return PyObject_CallFunction(self->cache_info_type, "nnnn",
-                                 self->hits, self->misses, self->maxsize,
-                                 PyDict_GET_SIZE(self->cache));
+                                 hits, misses, maxsize,
+                                 size);
 }
 
 static PyObject *
 lru_cache_cache_clear(lru_cache_object *self, PyObject *unused)
 {
+    _PyRecursiveMutex_lock(&self->rlock);
     lru_list_elem *list = lru_cache_unlink_list(self);
     self->hits = self->misses = 0;
     PyDict_Clear(self->cache);
     lru_cache_clear_list(list);
+    _PyRecursiveMutex_unlock(&self->rlock);
     Py_RETURN_NONE;
 }
 
@@ -1406,12 +1417,6 @@ static PyTypeObject lru_cache_type = {
     0,                                  /* tp_init */
     0,                                  /* tp_alloc */
     lru_cache_new,                      /* tp_new */
-    0,                                  /* tp_free */
-    0,                                  /* tp_is_gc */
-    0,                                  /* tp_bases */
-    0,                                  /* tp_mro */
-    offsetof(lru_cache_object, rlock),  /* tp_lockoffset */
-
 };
 
 /* module level code ********************************************************/
