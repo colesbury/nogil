@@ -345,7 +345,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #define metadata ((intptr_t *)(char *)constants)
     uintptr_t tid = _Py_ThreadId();
 
-    CHECK_EVAL_BREAKER();
+    // TODO: we can't check EVAL_BREAKER here because acc is argcount (not an object)
+    // and if the EVAL_BREAKER triggers an error that would corrupt things. Maybe we
+    // should do it in FUNC_HEADER?
 
     // GCC likes to get too clever
     BREAK_LIVE_RANGE(opcode_targets);
@@ -657,7 +659,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             Register res;
             CALL_VM(res = vm_tuple_prepend(args, meth->im_self));
             if (UNLIKELY(res.as_int64 == 0)) {
-                goto error;
+                goto error_func_header;
             }
             Register tmp = regs[-FRAME_EXTRA - 2];
             regs[-FRAME_EXTRA - 2] = res;
