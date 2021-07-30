@@ -1338,27 +1338,11 @@ textiowrapper_change_encoding(textio *self, PyObject *encoding,
     return _textiowrapper_fix_encoder_state(self);
 }
 
-/*[clinic input]
-_io.TextIOWrapper.reconfigure
-    *
-    encoding: object = None
-    errors: object = None
-    newline as newline_obj: object(c_default="NULL") = None
-    line_buffering as line_buffering_obj: object = None
-    write_through as write_through_obj: object = None
-
-Reconfigure the text stream with new parameters.
-
-This also does an implicit stream flush.
-
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_reconfigure_impl(textio *self, PyObject *encoding,
-                                   PyObject *errors, PyObject *newline_obj,
-                                   PyObject *line_buffering_obj,
-                                   PyObject *write_through_obj)
-/*[clinic end generated code: output=52b812ff4b3d4b0f input=671e82136e0f5822]*/
+_io_TextIOWrapper_reconfigure_locked(textio *self, PyObject *encoding,
+                                     PyObject *errors, PyObject *newline_obj,
+                                     PyObject *line_buffering_obj,
+                                     PyObject *write_through_obj)
 {
     int line_buffering;
     int write_through;
@@ -1407,6 +1391,38 @@ _io_TextIOWrapper_reconfigure_impl(textio *self, PyObject *encoding,
     self->line_buffering = line_buffering;
     self->write_through = write_through;
     Py_RETURN_NONE;
+}
+
+/*[clinic input]
+_io.TextIOWrapper.reconfigure
+    *
+    encoding: object = None
+    errors: object = None
+    newline as newline_obj: object(c_default="NULL") = None
+    line_buffering as line_buffering_obj: object = None
+    write_through as write_through_obj: object = None
+
+Reconfigure the text stream with new parameters.
+
+This also does an implicit stream flush.
+
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_reconfigure_impl(textio *self, PyObject *encoding,
+                                   PyObject *errors, PyObject *newline_obj,
+                                   PyObject *line_buffering_obj,
+                                   PyObject *write_through_obj)
+/*[clinic end generated code: output=52b812ff4b3d4b0f input=671e82136e0f5822]*/
+{
+    PyObject *ret;
+
+    _PyRecursiveMutex_lock(&self->lock);
+    ret = _io_TextIOWrapper_reconfigure_locked(
+        self, encoding, errors, newline_obj, line_buffering_obj,
+        write_through_obj);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return ret;
 }
 
 static int
@@ -1517,13 +1533,8 @@ textiowrapper_closed_get(textio *self, void *context);
     }
 
 
-/*[clinic input]
-_io.TextIOWrapper.detach
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_detach_impl(textio *self)
-/*[clinic end generated code: output=7ba3715cd032d5f2 input=e5a71fbda9e1d9f9]*/
+_io_TextIOWrapper_detach_locked(textio *self)
 {
     PyObject *buffer, *res;
     CHECK_ATTACHED(self);
@@ -1535,6 +1546,20 @@ _io_TextIOWrapper_detach_impl(textio *self)
     self->buffer = NULL;
     self->detached = 1;
     return buffer;
+}
+
+/*[clinic input]
+_io.TextIOWrapper.detach
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_detach_impl(textio *self)
+/*[clinic end generated code: output=7ba3715cd032d5f2 input=e5a71fbda9e1d9f9]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_detach_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 /* Flush the internal write buffer. This doesn't explicitly flush the
@@ -1608,15 +1633,8 @@ _textiowrapper_writeflush(textio *self)
     return 0;
 }
 
-/*[clinic input]
-_io.TextIOWrapper.write
-    text: unicode
-    /
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_write_impl(textio *self, PyObject *text)
-/*[clinic end generated code: output=d2deb0d50771fcec input=fdf19153584a0e44]*/
+_io_TextIOWrapper_write_locked(textio *self, PyObject *text)
 {
     PyObject *ret;
     PyObject *b;
@@ -1737,6 +1755,22 @@ _io_TextIOWrapper_write_impl(textio *self, PyObject *text)
     }
 
     return PyLong_FromSsize_t(textlen);
+}
+
+/*[clinic input]
+_io.TextIOWrapper.write
+    text: unicode
+    /
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_write_impl(textio *self, PyObject *text)
+/*[clinic end generated code: output=d2deb0d50771fcec input=fdf19153584a0e44]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_write_locked(self, text);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 /* Steal a reference to chars and store it in the decoded_char buffer;
@@ -1911,15 +1945,8 @@ textiowrapper_read_chunk(textio *self, Py_ssize_t size_hint)
     return -1;
 }
 
-/*[clinic input]
-_io.TextIOWrapper.read
-    size as n: Py_ssize_t(accept={int, NoneType}) = -1
-    /
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_read_impl(textio *self, Py_ssize_t n)
-/*[clinic end generated code: output=7e651ce6cc6a25a6 input=123eecbfe214aeb8]*/
+_io_TextIOWrapper_read_locked(textio *self, Py_ssize_t n)
 {
     PyObject *result = NULL, *chunks = NULL;
 
@@ -2016,6 +2043,22 @@ _io_TextIOWrapper_read_impl(textio *self, Py_ssize_t n)
     Py_XDECREF(result);
     Py_XDECREF(chunks);
     return NULL;
+}
+
+/*[clinic input]
+_io.TextIOWrapper.read
+    size as n: Py_ssize_t(accept={int, NoneType}) = -1
+    /
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_read_impl(textio *self, Py_ssize_t n)
+/*[clinic end generated code: output=7e651ce6cc6a25a6 input=123eecbfe214aeb8]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_read_locked(self, n);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 
@@ -2289,6 +2332,13 @@ _textiowrapper_readline(textio *self, Py_ssize_t limit)
     return NULL;
 }
 
+static PyObject *
+_io_TextIOWrapper_readline_locked(textio *self, Py_ssize_t size)
+{
+    CHECK_ATTACHED(self);
+    return _textiowrapper_readline(self, size);
+}
+
 /*[clinic input]
 _io.TextIOWrapper.readline
     size: Py_ssize_t = -1
@@ -2299,8 +2349,10 @@ static PyObject *
 _io_TextIOWrapper_readline_impl(textio *self, Py_ssize_t size)
 /*[clinic end generated code: output=344afa98804e8b25 input=56c7172483b36db6]*/
 {
-    CHECK_ATTACHED(self);
-    return _textiowrapper_readline(self, size);
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_readline_locked(self, size);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 /* Seek and Tell */
@@ -2432,16 +2484,8 @@ _textiowrapper_encoder_setstate(textio *self, cookie_type *cookie)
         self, cookie->start_pos == 0 && cookie->dec_flags == 0);
 }
 
-/*[clinic input]
-_io.TextIOWrapper.seek
-    cookie as cookieObj: object
-    whence: int = 0
-    /
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_seek_impl(textio *self, PyObject *cookieObj, int whence)
-/*[clinic end generated code: output=0a15679764e2d04d input=0458abeb3d7842be]*/
+_io_TextIOWrapper_seek_locked(textio *self, PyObject *cookieObj, int whence)
 {
     PyObject *posobj;
     cookie_type cookie;
@@ -2628,13 +2672,26 @@ _io_TextIOWrapper_seek_impl(textio *self, PyObject *cookieObj, int whence)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.tell
+_io.TextIOWrapper.seek
+    cookie as cookieObj: object
+    whence: int = 0
+    /
 [clinic start generated code]*/
 
 static PyObject *
-_io_TextIOWrapper_tell_impl(textio *self)
-/*[clinic end generated code: output=4f168c08bf34ad5f input=9a2caf88c24f9ddf]*/
+_io_TextIOWrapper_seek_impl(textio *self, PyObject *cookieObj, int whence)
+/*[clinic end generated code: output=0a15679764e2d04d input=0458abeb3d7842be]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_seek_locked(self, cookieObj, whence);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_tell_locked(textio *self)
+{
+
     PyObject *res;
     PyObject *posobj = NULL;
     cookie_type cookie = {0,0,0,0,0};
@@ -2859,14 +2916,21 @@ fail:
 }
 
 /*[clinic input]
-_io.TextIOWrapper.truncate
-    pos: object = None
-    /
+_io.TextIOWrapper.tell
 [clinic start generated code]*/
 
 static PyObject *
-_io_TextIOWrapper_truncate_impl(textio *self, PyObject *pos)
-/*[clinic end generated code: output=90ec2afb9bb7745f input=56ec8baa65aea377]*/
+_io_TextIOWrapper_tell_impl(textio *self)
+/*[clinic end generated code: output=4f168c08bf34ad5f input=9a2caf88c24f9ddf]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_tell_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_truncate_locked(textio *self, PyObject *pos)
 {
     PyObject *res;
 
@@ -2878,6 +2942,22 @@ _io_TextIOWrapper_truncate_impl(textio *self, PyObject *pos)
     Py_DECREF(res);
 
     return _PyObject_CallMethodOneArg(self->buffer, _PyIO_str_truncate, pos);
+}
+
+/*[clinic input]
+_io.TextIOWrapper.truncate
+    pos: object = None
+    /
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_truncate_impl(textio *self, PyObject *pos)
+/*[clinic end generated code: output=90ec2afb9bb7745f input=56ec8baa65aea377]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_truncate_locked(self, pos);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 static PyObject *
@@ -2948,6 +3028,13 @@ textiowrapper_repr(textio *self)
 
 /* Inquiries */
 
+static PyObject *
+_io_TextIOWrapper_fileno_locked(textio *self)
+{
+    CHECK_ATTACHED(self);
+    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_fileno);
+}
+
 /*[clinic input]
 _io.TextIOWrapper.fileno
 [clinic start generated code]*/
@@ -2956,8 +3043,17 @@ static PyObject *
 _io_TextIOWrapper_fileno_impl(textio *self)
 /*[clinic end generated code: output=21490a4c3da13e6c input=c488ca83d0069f9b]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_fileno_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_seekable_locked(textio *self)
+{
     CHECK_ATTACHED(self);
-    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_fileno);
+    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_seekable);
 }
 
 /*[clinic input]
@@ -2968,8 +3064,17 @@ static PyObject *
 _io_TextIOWrapper_seekable_impl(textio *self)
 /*[clinic end generated code: output=ab223dbbcffc0f00 input=8b005ca06e1fca13]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_seekable_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_readable_locked(textio *self)
+{
     CHECK_ATTACHED(self);
-    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_seekable);
+    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_readable);
 }
 
 /*[clinic input]
@@ -2980,8 +3085,17 @@ static PyObject *
 _io_TextIOWrapper_readable_impl(textio *self)
 /*[clinic end generated code: output=72ff7ba289a8a91b input=0704ea7e01b0d3eb]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_readable_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_writable_locked(textio *self)
+{
     CHECK_ATTACHED(self);
-    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_readable);
+    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_writable);
 }
 
 /*[clinic input]
@@ -2992,8 +3106,17 @@ static PyObject *
 _io_TextIOWrapper_writable_impl(textio *self)
 /*[clinic end generated code: output=a728c71790d03200 input=c41740bc9d8636e8]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_writable_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_isatty_locked(textio *self)
+{
     CHECK_ATTACHED(self);
-    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_writable);
+    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_isatty);
 }
 
 /*[clinic input]
@@ -3004,17 +3127,14 @@ static PyObject *
 _io_TextIOWrapper_isatty_impl(textio *self)
 /*[clinic end generated code: output=12be1a35bace882e input=fb68d9f2c99bbfff]*/
 {
-    CHECK_ATTACHED(self);
-    return _PyObject_CallMethodIdNoArgs(self->buffer, &PyId_isatty);
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_isatty_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
-/*[clinic input]
-_io.TextIOWrapper.flush
-[clinic start generated code]*/
-
 static PyObject *
-_io_TextIOWrapper_flush_impl(textio *self)
-/*[clinic end generated code: output=59de9165f9c2e4d2 input=928c60590694ab85]*/
+_io_TextIOWrapper_flush_locked(textio *self)
 {
     CHECK_ATTACHED(self);
     CHECK_CLOSED(self);
@@ -3025,12 +3145,21 @@ _io_TextIOWrapper_flush_impl(textio *self)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.close
+_io.TextIOWrapper.flush
 [clinic start generated code]*/
 
 static PyObject *
-_io_TextIOWrapper_close_impl(textio *self)
-/*[clinic end generated code: output=056ccf8b4876e4f4 input=9c2114315eae1948]*/
+_io_TextIOWrapper_flush_impl(textio *self)
+/*[clinic end generated code: output=59de9165f9c2e4d2 input=928c60590694ab85]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_flush_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
+}
+
+static PyObject *
+_io_TextIOWrapper_close_locked(textio *self)
 {
     PyObject *res;
     int r;
@@ -3071,6 +3200,20 @@ _io_TextIOWrapper_close_impl(textio *self)
         }
         return res;
     }
+}
+
+/*[clinic input]
+_io.TextIOWrapper.close
+[clinic start generated code]*/
+
+static PyObject *
+_io_TextIOWrapper_close_impl(textio *self)
+/*[clinic end generated code: output=056ccf8b4876e4f4 input=9c2114315eae1948]*/
+{
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = _io_TextIOWrapper_close_locked(self);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 static PyObject *
@@ -3309,7 +3452,7 @@ PyTypeObject PyTextIOWrapper_Type = {
     0,                          /* tp_dict */
     0,                          /* tp_descr_get */
     0,                          /* tp_descr_set */
-    offsetof(textio, dict), /*tp_dictoffset*/
+    offsetof(textio, dict),     /* tp_dictoffset */
     _io_TextIOWrapper___init__, /* tp_init */
     0,                          /* tp_alloc */
     PyType_GenericNew,          /* tp_new */
@@ -3317,7 +3460,7 @@ PyTypeObject PyTextIOWrapper_Type = {
     0,                          /* tp_is_gc */
     0,                          /* tp_bases */
     0,                          /* tp_mro */
-    offsetof(textio, lock),     /* tp_lockoffset */
+    0,                          /* tp_cache */
     0,                          /* tp_subclasses */
     0,                          /* tp_weaklist */
     0,                          /* tp_del */
