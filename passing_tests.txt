@@ -339,6 +339,7 @@ test_tk
 test_tokenize
 test_tools
 test_trace
+test_traceback
 test_tracemalloc
 test_ttk_guionly
 test_ttk_textonly

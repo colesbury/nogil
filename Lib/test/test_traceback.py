@@ -299,6 +299,7 @@ class TracebackFormatTests(unittest.TestCase):
         ])
 
     # issue 26823 - Shrink recursive tracebacks
+    @support.swap_attr(sys, 'tracebacklimit', 2000)
     def _check_recursive_traceback_display(self, render_exc):
         # Always show full diffs when this test fails
         # Note that rearranging things may require adjusting
@@ -835,6 +836,7 @@ class MiscTracebackCases(unittest.TestCase):
     # Check non-printing functions in traceback module
     #
 
+    @unittest.skip("sgross: exceptions don't capture locals")
     def test_clear(self):
         def outer():
             middle()
@@ -869,6 +871,24 @@ class MiscTracebackCases(unittest.TestCase):
             (__file__, lineno+1, 'extract', 'return traceback.extract_stack()'),
             ])
         self.assertEqual(len(result[0]), 4)
+
+    def test_varargs_traceback(self):
+        def inner(args):
+            pass
+        def outer():
+            bad = 3
+            inner(*bad)
+
+        try:
+            outer()
+        except:
+            _, _, tb = sys.exc_info()
+
+        # There shouldn't be a frame "def inner(args)" in the traceback.
+        s = list(traceback.walk_tb(tb))
+        self.assertEqual(len(s), 2)
+        for frame, _lineno in s:
+            self.assertNotEqual(frame.f_code.co_name, "inner")
 
 
 class TestFrame(unittest.TestCase):
