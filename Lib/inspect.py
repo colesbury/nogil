@@ -1421,19 +1421,17 @@ def getclosurevars(func):
     global_vars = {}
     builtin_vars = {}
     unbound_names = set()
-    # TODO: determine strategy for co_names
-    # for name in code.co_names:
-    #     if name in ("None", "True", "False"):
-    #         # Because these used to be builtins instead of keywords, they
-    #         # may still show up as name references. We ignore them.
-    #         continue
-    #     try:
-    #         global_vars[name] = global_ns[name]
-    #     except KeyError:
-    #         try:
-    #             builtin_vars[name] = builtin_ns[name]
-    #         except KeyError:
-    #             unbound_names.add(name)
+    for instr in dis.get_instructions(func):
+        if instr.opname not in ("LOAD_GLOBAL", "LOAD_NAME"):
+            continue
+        name = code.co_consts[instr.imm[0]]
+        try:
+            global_vars[name] = global_ns[name]
+        except KeyError:
+            try:
+                builtin_vars[name] = builtin_ns[name]
+            except KeyError:
+                unbound_names.add(name)
 
     return ClosureVars(nonlocal_vars, global_vars,
                        builtin_vars, unbound_names)

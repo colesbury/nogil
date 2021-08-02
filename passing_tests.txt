@@ -106,6 +106,7 @@ test_dynamic
 test_dynamicclassattribute
 test_eintr
 test_email
+test_embed
 test_ensurepip
 test_enum
 test_enumerate
@@ -171,6 +172,7 @@ test_imp
 test_import
 test_importlib
 test_index
+test_inspect
 test_int
 test_int_literal
 test_io
