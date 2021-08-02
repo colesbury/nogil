@@ -22,6 +22,8 @@ enum {
 };
 
 #define FRAME_EXTRA     4
+#define CALLARGS_IDX    (-FRAME_EXTRA-2)
+#define KWARGS_IDX      (-FRAME_EXTRA-1)
 
 
 /*
@@ -263,8 +265,8 @@ Register vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n);
 Register vm_tuple_prepend(PyObject *tuple, PyObject *obj);
 PyObject *vm_build_slice(struct ThreadState *ts, Py_ssize_t base);
 
-int vm_callargs_to_tuple(struct ThreadState *ts);
-int vm_kwargs_to_dict(struct ThreadState *ts);
+int vm_callargs_to_tuple(struct ThreadState *ts, Py_ssize_t idx);
+int vm_kwargs_to_dict(struct ThreadState *ts, Py_ssize_t idx);
 
 PyObject *vm_call_cfunction(struct ThreadState *ts, Register acc);
 PyObject *vm_call_function(struct ThreadState *ts, Register acc);

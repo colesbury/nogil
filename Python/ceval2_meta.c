@@ -567,12 +567,6 @@ vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
     bool skip_frame = skip_first_frame;
     const uint8_t *pc = ts->pc;
     for (;;) {
-        if (pc == NULL) {
-            // pc is NULL if we set up the call frame, but haven't
-            // started executing it. See CALL_FUNCTION_EX in ceval2.c
-            goto next;
-        }
-
         PyObject *callable = AS_OBJ(ts->regs[-1]);
         if (!PyFunc_Check(callable)) {
             goto next;
@@ -1946,14 +1940,14 @@ vm_tuple_prepend(PyObject *tuple, PyObject *obj)
 }
 
 int
-vm_callargs_to_tuple(struct ThreadState *ts)
+vm_callargs_to_tuple(struct ThreadState *ts, Py_ssize_t base)
 {
-    PyObject *args = AS_OBJ(ts->regs[-FRAME_EXTRA-2]);
+    PyObject *args = AS_OBJ(ts->regs[base + CALLARGS_IDX]);
     PyObject *res = PySequence_Tuple(args);
     if (UNLIKELY(res == NULL)) {
         if (Py_TYPE(args)->tp_iter == NULL && !PySequence_Check(args)) {
             PyErr_Clear();
-            PyObject *funcstr = _PyObject_FunctionStr(AS_OBJ(ts->regs[-1]));
+            PyObject *funcstr = _PyObject_FunctionStr(AS_OBJ(ts->regs[base-1]));
             if (funcstr != NULL) {
                 _PyErr_Format(ts->ts, PyExc_TypeError,
                             "%U argument after * must be an iterable, not %.200s",
@@ -1963,8 +1957,8 @@ vm_callargs_to_tuple(struct ThreadState *ts)
         }
         return -1;
     }
-    Register prev = ts->regs[-FRAME_EXTRA-2];
-    ts->regs[-FRAME_EXTRA-2] = PACK_OBJ(res);
+    Register prev = ts->regs[base + CALLARGS_IDX];
+    ts->regs[base + CALLARGS_IDX] = PACK_OBJ(res);
     DECREF(prev);
     return 0;
 }
@@ -2014,20 +2008,20 @@ format_kwargs_error(PyThreadState *tstate, PyObject *func, PyObject *kwargs)
 }
 
 int
-vm_kwargs_to_dict(struct ThreadState *ts)
+vm_kwargs_to_dict(struct ThreadState *ts, Py_ssize_t base)
 {
     PyObject *d = PyDict_New();
     if (d == NULL) {
         return -1;
     }
-    PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA-1]);
+    PyObject *kwargs = AS_OBJ(ts->regs[base + KWARGS_IDX]);
     if (_PyDict_MergeEx(d, kwargs, 2) < 0) {
         Py_DECREF(d);
-        format_kwargs_error(ts->ts, AS_OBJ(ts->regs[-1]), kwargs);
+        format_kwargs_error(ts->ts, AS_OBJ(ts->regs[base-1]), kwargs);
         return -1;
     }
-    Register prev = ts->regs[-FRAME_EXTRA-1];
-    ts->regs[-FRAME_EXTRA-1] = PACK_OBJ(d);
+    Register prev = ts->regs[base + KWARGS_IDX];
+    ts->regs[base + KWARGS_IDX] = PACK_OBJ(d);
     DECREF(prev);
     return 0;
 }

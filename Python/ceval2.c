@@ -976,36 +976,32 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         // imm0 - 1 = func
         assert(IS_EMPTY(acc));
         intptr_t base = UImm(0);
+
+        // ensure that *args is a tuple
+        if (UNLIKELY(!PyTuple_CheckExact(AS_OBJ(regs[base + CALLARGS_IDX])))) {
+            int err;
+            CALL_VM(err = vm_callargs_to_tuple(ts, base));
+            if (UNLIKELY(err < 0)) {
+                goto error;
+            }
+            base = UImm(0);
+        }
+
+        // ensure that **kwargs is a dict
+        if (regs[base + KWARGS_IDX].as_int64 != 0 &&
+            UNLIKELY(!PyDict_CheckExact(AS_OBJ(regs[base + KWARGS_IDX])))) {
+            int err;
+            CALL_VM(err = vm_kwargs_to_dict(ts, base));
+            if (UNLIKELY(err < 0)) {
+                goto error;
+            }
+            base = UImm(0);
+        }
+
         regs = &regs[base];
         ts->regs = regs;
         regs[-4].as_int64 = base;  // frame delta
         regs[-3].as_int64 = (intptr_t)(pc + OP_SIZE(CALL_FUNCTION_EX));
-
-        // pc is no longer valid. The NULL value prevents this
-        // partially set-up frame from showing up in tracebacks.
-        pc = NULL;
-
-        // TODO(sgross): can we re-order this so we don't have a partially
-        // set-up frame?
-
-        // ensure that *args is a tuple
-        if (UNLIKELY(!PyTuple_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 2])))) {
-            int err;
-            CALL_VM(err = vm_callargs_to_tuple(ts));
-            if (UNLIKELY(err < 0)) {
-                goto error;
-            }
-        }
-
-        // ensure that **kwargs is a dict
-        if (regs[-FRAME_EXTRA - 1].as_int64 != 0 &&
-            UNLIKELY(!PyDict_CheckExact(AS_OBJ(regs[-FRAME_EXTRA - 1])))) {
-            int err;
-            CALL_VM(err = vm_kwargs_to_dict(ts));
-            if (UNLIKELY(err < 0)) {
-                goto error;
-            }
-        }
 
         PyObject *callable = AS_OBJ(regs[-1]);
         if (!PyType_HasFeature(Py_TYPE(callable), Py_TPFLAGS_FUNC_INTERFACE)) {
