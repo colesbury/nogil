@@ -218,7 +218,8 @@ int vm_exit_with_res(struct ThreadState *ts, Py_ssize_t opA, PyObject *exit_res)
 PyObject *
 vm_handled_exc(struct ThreadState *ts);
 
-const uint8_t *vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame);
+const uint8_t *
+vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame);
 
 // decrefs x!
 Register vm_to_bool(Register x);

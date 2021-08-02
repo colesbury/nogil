@@ -552,14 +552,53 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
 static void
 vm_trace_err(struct ThreadState *ts, PyObject **type, PyObject **value, PyObject **traceback);
 
+// Clears the arguments to a failed function call. This is necessary
+// when the function is the outermost call into the interpreter, because
+// the calling code assumes the interpreter will clean-up the frame.
+// For simplicity, we clean-up here for all Python functions, not just
+// the outermost calls.
+static void
+vm_func_header_clear_frame(struct ThreadState *ts, Register acc)
+{
+    if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
+        XCLEAR(ts->regs[-FRAME_EXTRA - 2]);
+        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
+        return;
+    }
+    if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
+    }
+    while ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
+        Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
+        XCLEAR(ts->regs[kwdpos]);
+        acc.as_int64 -= (1 << ACC_SHIFT_KWARGS);
+    }
+    assert(acc.as_int64 <= 255);
+    while ((acc.as_int64 & ACC_MASK_ARGS) != 0) {
+        Py_ssize_t pos = acc.as_int64 - 1;
+        XCLEAR(ts->regs[pos]);
+        acc.as_int64 -= 1;
+    }
+}
+
 // Unwinds the stack looking for the nearest exception handler. Returns
 // the program counter (PC) of the exception handler block, or NULL if
 // there are no handlers before the next C frame.
 const uint8_t *
-vm_exception_unwind(struct ThreadState *ts, bool skip_first_frame)
+vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
 {
     assert(PyErr_Occurred());
     assert(ts->regs > ts->stack);
+
+    // Clear the accumulator, unless the exception happened during FUNC_HEADER,
+    // in which case the accumulator stores a representation of the number of
+    // arguments.
+    if (vm_opcode(ts->pc) == FUNC_HEADER) {
+        vm_func_header_clear_frame(ts, acc);
+    }
+    else if (acc.as_int64 != 0) {
+        DECREF(acc);
+    }
 
     PyObject *exc = NULL, *val = NULL, *tb = NULL;
     _PyErr_Fetch(ts->ts, &exc, &val, &tb);
@@ -1853,33 +1892,6 @@ vm_setup_cells(struct ThreadState *ts, PyCodeObject2 *code)
     return 0;
 }
 
-// Clears the arguments to a failed function call. This is necessary
-// if the function is called from C, but for simplicity we clean-up here
-// for functions called from both C and Python.
-void
-vm_setup_err(struct ThreadState *ts, Register acc)
-{
-    if ((acc.as_int64 & (ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS)) != 0) {
-        XCLEAR(ts->regs[-FRAME_EXTRA - 2]);
-        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
-        return;
-    }
-    if ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
-        XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
-    }
-    while ((acc.as_int64 & ACC_MASK_KWARGS) != 0) {
-        Py_ssize_t kwdpos = -FRAME_EXTRA - ACC_KWCOUNT(acc) - 1;
-        XCLEAR(ts->regs[kwdpos]);
-        acc.as_int64 -= (1 << ACC_SHIFT_KWARGS);
-    }
-    assert(acc.as_int64 <= 255);
-    while ((acc.as_int64 & ACC_MASK_ARGS) != 0) {
-        Py_ssize_t pos = acc.as_int64 - 1;
-        XCLEAR(ts->regs[pos]);
-        acc.as_int64 -= 1;
-    }
-}
-
 Register
 vm_build_set(struct ThreadState *ts, Py_ssize_t base, Py_ssize_t n)
 {
@@ -2691,15 +2703,15 @@ PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
     ts->prev = tstate->active;
     tstate->active = ts;
 
-    int prev_status = gen->status;
-    gen->status = GEN_RUNNING;
     PyObject *ret = NULL;
 
-    if (tstate->use_tracing && prev_status == GEN_SUSPENDED) {
+    if (tstate->use_tracing && gen->status == GEN_SUSPENDED) {
         if (vm_trace_enter_gen(ts) != 0) {
             goto exit;
         }
     }
+
+    gen->status = GEN_RUNNING;
 
     Register acc = opt_value ? PACK_INCREF(opt_value) : (Register){0};
     ret = _PyEval_Fast(ts, acc, ts->pc);
