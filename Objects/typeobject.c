@@ -8146,93 +8146,12 @@ super_init(PyObject *self, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTuple(args, "|O!O:super", &PyType_Type, &type, &obj))
         return -1;
 
-    if (type == NULL && _PyThreadState_GET()->use_new_interp) {
+    if (type == NULL) {
         int err = vm_super_init(&obj, &type);
         if (err != 0) {
             return -1;
         }
     }
-    else if (type == NULL) {
-        /* Call super(), without args -- fill in from __class__
-           and first local variable on the stack. */
-        PyFrameObject *f;
-        PyCodeObject *co;
-        Py_ssize_t i, n;
-        f = _PyThreadState_GET()->frame;
-        if (f == NULL) {
-            PyErr_SetString(PyExc_RuntimeError,
-                            "super(): no current frame");
-            return -1;
-        }
-        co = f->f_code;
-        if (co == NULL) {
-            PyErr_SetString(PyExc_RuntimeError,
-                            "super(): no code object");
-            return -1;
-        }
-        if (co->co_argcount == 0) {
-            PyErr_SetString(PyExc_RuntimeError,
-                            "super(): no arguments");
-            return -1;
-        }
-        obj = f->f_localsplus[0];
-        if (obj == NULL && co->co_cell2arg) {
-            /* The first argument might be a cell. */
-            n = PyTuple_GET_SIZE(co->co_cellvars);
-            for (i = 0; i < n; i++) {
-                if (co->co_cell2arg[i] == 0) {
-                    PyObject *cell = f->f_localsplus[co->co_nlocals + i];
-                    assert(PyCell_Check(cell));
-                    obj = PyCell_GET(cell);
-                    break;
-                }
-            }
-        }
-        if (obj == NULL) {
-            PyErr_SetString(PyExc_RuntimeError,
-                            "super(): arg[0] deleted");
-            return -1;
-        }
-        if (co->co_freevars == NULL)
-            n = 0;
-        else {
-            assert(PyTuple_Check(co->co_freevars));
-            n = PyTuple_GET_SIZE(co->co_freevars);
-        }
-        for (i = 0; i < n; i++) {
-            PyObject *name = PyTuple_GET_ITEM(co->co_freevars, i);
-            assert(PyUnicode_Check(name));
-            if (_PyUnicode_EqualToASCIIId(name, &PyId___class__)) {
-                Py_ssize_t index = co->co_nlocals +
-                    PyTuple_GET_SIZE(co->co_cellvars) + i;
-                PyObject *cell = f->f_localsplus[index];
-                if (cell == NULL || !PyCell_Check(cell)) {
-                    PyErr_SetString(PyExc_RuntimeError,
-                      "super(): bad __class__ cell");
-                    return -1;
-                }
-                type = (PyTypeObject *) PyCell_GET(cell);
-                if (type == NULL) {
-                    PyErr_SetString(PyExc_RuntimeError,
-                      "super(): empty __class__ cell");
-                    return -1;
-                }
-                if (!PyType_Check(type)) {
-                    PyErr_Format(PyExc_RuntimeError,
-                      "super(): __class__ is not a type (%s)",
-                      Py_TYPE(type)->tp_name);
-                    return -1;
-                }
-                break;
-            }
-        }
-        if (type == NULL) {
-            PyErr_SetString(PyExc_RuntimeError,
-                            "super(): __class__ cell not found");
-            return -1;
-        }
-    }
-
     if (obj == Py_None)
         obj = NULL;
     if (obj != NULL) {

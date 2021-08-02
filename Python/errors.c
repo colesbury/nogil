@@ -115,12 +115,7 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
     }
 
     Py_XINCREF(value);
-    if (tstate->use_new_interp) {
-        exc_value = vm_cur_handled_exc();
-    }
-    else {
-        exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
-    }
+    exc_value = vm_cur_handled_exc();
     if (exc_value != NULL && exc_value != Py_None) {
         /* Implicit exception chaining */
         Py_INCREF(exc_value);

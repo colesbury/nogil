@@ -336,78 +336,6 @@ hashtable_compare_traceback(_Py_hashtable_t *ht, const void *pkey,
     return 1;
 }
 
-
-static void
-tracemalloc_get_frame(PyFrameObject *pyframe, frame_t *frame)
-{
-    PyCodeObject *code;
-    PyObject *filename;
-    _Py_hashtable_entry_t *entry;
-    int lineno;
-
-    frame->filename = unknown_filename;
-    lineno = PyFrame_GetLineNumber(pyframe);
-    if (lineno < 0)
-        lineno = 0;
-    frame->lineno = (unsigned int)lineno;
-
-    code = pyframe->f_code;
-    if (code == NULL) {
-#ifdef TRACE_DEBUG
-        tracemalloc_error("failed to get the code object of the frame");
-#endif
-        return;
-    }
-
-    if (code->co_filename == NULL) {
-#ifdef TRACE_DEBUG
-        tracemalloc_error("failed to get the filename of the code object");
-#endif
-        return;
-    }
-
-    filename = code->co_filename;
-    assert(filename != NULL);
-    if (filename == NULL)
-        return;
-
-    if (!PyUnicode_Check(filename)) {
-#ifdef TRACE_DEBUG
-        tracemalloc_error("filename is not a unicode string");
-#endif
-        return;
-    }
-    if (!PyUnicode_IS_READY(filename)) {
-        /* Don't make a Unicode string ready to avoid reentrant calls
-           to tracemalloc_malloc() or tracemalloc_realloc() */
-#ifdef TRACE_DEBUG
-        tracemalloc_error("filename is not a ready unicode string");
-#endif
-        return;
-    }
-
-    /* intern the filename */
-    entry = _Py_HASHTABLE_GET_ENTRY(tracemalloc_filenames, filename);
-    if (entry != NULL) {
-        _Py_HASHTABLE_ENTRY_READ_KEY(tracemalloc_filenames, entry, filename);
-    }
-    else {
-        /* tracemalloc_filenames is responsible to keep a reference
-           to the filename */
-        Py_INCREF(filename);
-        if (_Py_HASHTABLE_SET_NODATA(tracemalloc_filenames, filename) < 0) {
-            Py_DECREF(filename);
-#ifdef TRACE_DEBUG
-            tracemalloc_error("failed to intern the filename");
-#endif
-            return;
-        }
-    }
-
-    /* the tracemalloc_filenames table keeps a reference to the filename */
-    frame->filename = filename;
-}
-
 static void
 tracemalloc_set_filename(frame_t *frame, PyObject *filename)
 {
@@ -478,7 +406,7 @@ traceback_hash(traceback_t *traceback)
 }
 
 static void
-traceback_get_frames_new(traceback_t *traceback)
+traceback_get_frames(traceback_t *traceback)
 {
     PyThreadState *tstate;
 
@@ -513,38 +441,9 @@ traceback_get_frames_new(traceback_t *traceback)
 }
 
 
-static void
-traceback_get_frames(traceback_t *traceback)
-{
-    PyThreadState *tstate;
-    PyFrameObject *pyframe;
-
-    tstate = PyGILState_GetThisThreadState();
-    if (tstate == NULL) {
-#ifdef TRACE_DEBUG
-        tracemalloc_error("failed to get the current thread state");
-#endif
-        return;
-    }
-    if (tstate->use_new_interp) {
-        traceback_get_frames_new(traceback);
-        return;
-    }
-
-    for (pyframe = tstate->frame; pyframe != NULL; pyframe = pyframe->f_back) {
-        if (traceback->nframe < _Py_tracemalloc_config.max_nframe) {
-            tracemalloc_get_frame(pyframe, &traceback->frames[traceback->nframe]);
-            assert(traceback->frames[traceback->nframe].filename != NULL);
-            traceback->nframe++;
-        }
-        if (traceback->total_nframe < UINT16_MAX)
-            traceback->total_nframe++;
-    }
-}
-
-
 static traceback_t *
 traceback_new(void)
+
 {
     traceback_t *traceback;
     _Py_hashtable_entry_t *entry;

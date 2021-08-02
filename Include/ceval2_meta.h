@@ -176,7 +176,6 @@ struct PyVirtualThread {
 // ceval2.c
 PyObject *_PyEval_Fast(struct ThreadState *ts, Register acc, const uint8_t *pc);
 PyObject *PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value);
-PyObject *PyEval2_GetGlobals(void);
 PyObject *PyEval2_GetLocals(void);
 
 // Used by pstate.c

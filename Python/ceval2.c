@@ -334,8 +334,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         ts->ts->opcode_targets_base = opcode_targets_base;
     }
 
-    ts->ts->use_new_interp += 1;
-
     const uint8_t *pc = initial_pc;
     intptr_t opcode;
     Register acc = initial_acc;
@@ -1110,7 +1108,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 assert(gen != NULL);
                 gen->status = GEN_CLOSED;
                 gen->return_value = OWNING_REF(acc);
-                ts->ts->use_new_interp -= 1;
                 return NULL;
             }
             ts->pc = (const uint8_t *)(-frame_link);
@@ -2747,9 +2744,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #undef JumpImm
 
     return_to_c: {
-        PyObject *obj = OWNING_REF(acc);
-        ts->ts->use_new_interp -= 1;
-        return obj;
+        return OWNING_REF(acc);
     }
 
     error: {
@@ -2766,7 +2761,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     finish_unwind: {
         if (pc == 0) {
-            ts->ts->use_new_interp -= 1;
             return NULL;
         }
         constants = THIS_CODE()->co_constants;

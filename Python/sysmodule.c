@@ -717,18 +717,10 @@ sys_exc_info_impl(PyObject *module)
 /*[clinic end generated code: output=3afd0940cf3a4d30 input=b5c5bf077788a3e5]*/
 {
     PyObject *exc_value = NULL, *exc_type = NULL, *exc_traceback = NULL;
-    if (_PyThreadState_GET()->use_new_interp) {
-        exc_value = vm_cur_handled_exc();
-        if (exc_value != NULL) {
-            exc_type = (PyObject *)Py_TYPE(exc_value);
-            exc_traceback = ((PyBaseExceptionObject *)exc_value)->traceback;
-        }
-    }
-    else {
-        _PyErr_StackItem *err_info = _PyErr_GetTopmostException(_PyThreadState_GET());
-        exc_type = err_info->exc_type;
-        exc_value = err_info->exc_value;
-        exc_traceback = err_info->exc_traceback;
+    exc_value = vm_cur_handled_exc();
+    if (exc_value != NULL) {
+        exc_type = (PyObject *)Py_TYPE(exc_value);
+        exc_traceback = ((PyBaseExceptionObject *)exc_value)->traceback;
     }
 
     return Py_BuildValue("(OOO)",
@@ -895,8 +887,7 @@ static PyObject *
 call_trampoline(PyObject* callback,
                 PyFrameObject *frame, int what, PyObject *arg)
 {
-    PyThreadState *tstate = PyThreadState_GET();
-    if (!tstate->use_new_interp) {
+    if (0 /*!tstate->use_new_interp*/) {
         if (PyFrame_FastToLocalsWithError(frame) < 0) {
             return NULL;
         }
@@ -910,9 +901,10 @@ call_trampoline(PyObject* callback,
     /* call the Python-level function */
     PyObject *result = _PyObject_FastCall(callback, stack, 3);
 
-    if (!tstate->use_new_interp) {
+    if (0 /*!tstate->use_new_interp*/) {
        PyFrame_LocalsToFast(frame, 1);
     }
+
     if (result == NULL) {
         PyTraceBack_Here(frame);
     }
@@ -1780,33 +1772,6 @@ sys_getallocatedblocks_impl(PyObject *module)
     return _Py_GetAllocatedBlocks();
 }
 
-static PyObject *
-sys__getframe_impl_new(PyObject *module, int depth)
-{
-    PyThreadState *tstate = PyThreadState_GET();
-    PyFrameObject *f = vm_frame(tstate->active);
-    if (f == NULL) {
-        return NULL;
-    }
-
-    if (PySys_Audit("sys._getframe", "O", f) < 0) {
-        Py_DECREF(f);
-        return NULL;
-    }
-
-    while (depth > 0 && f != NULL) {
-        f = f->f_back;
-        --depth;
-    }
-    if (f == NULL) {
-        _PyErr_SetString(tstate, PyExc_ValueError,
-                         "call stack is not deep enough");
-        return NULL;
-    }
-    Py_INCREF(f);
-    return (PyObject *)f;
-}
-
 /*[clinic input]
 sys._getframe
 
@@ -1829,14 +1794,13 @@ sys__getframe_impl(PyObject *module, int depth)
 /*[clinic end generated code: output=d438776c04d59804 input=c1be8a6464b11ee5]*/
 {
     PyThreadState *tstate = _PyThreadState_GET();
-
-    if (tstate->use_new_interp) {
-        return sys__getframe_impl_new(module, depth);
+    PyFrameObject *f = vm_frame(tstate->active);
+    if (f == NULL) {
+        return NULL;
     }
 
-    PyFrameObject *f = tstate->frame;
-
     if (PySys_Audit("sys._getframe", "O", f) < 0) {
+        Py_DECREF(f);
         return NULL;
     }
 
@@ -1850,7 +1814,7 @@ sys__getframe_impl(PyObject *module, int depth)
         return NULL;
     }
     Py_INCREF(f);
-    return (PyObject*)f;
+    return (PyObject *)f;
 }
 
 /*[clinic input]

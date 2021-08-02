@@ -3119,7 +3119,7 @@ exit:
 
 
 PyObject *
-PyEval2_GetGlobals(void)
+PyEval_GetGlobals(void)
 {
     struct ThreadState *ts = current_thread_state();
     Py_ssize_t offset = 0;

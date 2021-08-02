@@ -754,13 +754,10 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
     const _Py_CODEUNIT *next_instr;
     int opcode;        /* Current opcode */
     int oparg;         /* Current opcode argument, if any */
-    int old_use_new_interp;
     PyObject **fastlocals, **freevars;
     PyObject *retval = NULL;            /* Return value */
     _PyRuntimeState * const runtime = &_PyRuntime;
     PyThreadState * const tstate = _PyRuntimeState_GetThreadState(runtime);
-    old_use_new_interp = tstate->use_new_interp;
-    tstate->use_new_interp = 0;
     struct _ceval_runtime_state * const ceval = &runtime->ceval;
     uintptr_t * const eval_breaker = &tstate->eval_breaker;
     PyCodeObject *co;
@@ -1056,7 +1053,6 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
 
     /* push frame */
     if (_Py_EnterRecursiveCall(tstate, "")) {
-        tstate->use_new_interp = old_use_new_interp;
         return NULL;
     }
 
@@ -3757,7 +3753,6 @@ exit_eval_frame:
     f->f_executing = 0;
     tstate->frame = f->f_back;
     tstate->use_deferred_rc--;
-    tstate->use_new_interp = old_use_new_interp;
 
     return _Py_CheckFunctionResult(tstate, NULL, retval, "PyEval_EvalFrameEx");
 }
@@ -4813,25 +4808,6 @@ _PyEval_GetBuiltinId(_Py_Identifier *name)
         _PyErr_SetObject(tstate, PyExc_AttributeError, _PyUnicode_FromId(name));
     }
     return attr;
-}
-
-PyObject *PyEval2_GetGlobals(void);
-
-PyObject *
-PyEval_GetGlobals(void)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-    if (tstate->use_new_interp) {
-        return PyEval2_GetGlobals();
-    }
-
-    PyFrameObject *current_frame = _PyEval_GetFrame(tstate);
-    if (current_frame == NULL) {
-        return NULL;
-    }
-
-    assert(current_frame->f_globals != NULL);
-    return current_frame->f_globals;
 }
 
 int
