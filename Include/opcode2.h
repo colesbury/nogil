@@ -11,7 +11,7 @@ extern "C" {
 #define OPCODE_LIST(_) \
     _(CLEAR_ACC,                  1,     1,      2) \
     _(CLEAR_FAST,                 2,     2,      6) \
-    _(COPY,                       3,     3,     10) \
+    _(ALIAS,                      3,     3,     10) \
     _(MOVE,                       4,     3,     10) \
     _(FUNC_HEADER,                5,     2,      6) \
     _(METHOD_HEADER,              6,     1,      2) \

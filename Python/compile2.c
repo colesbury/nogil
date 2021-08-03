@@ -4419,7 +4419,7 @@ compiler_comprehension_generator(struct compiler *c,
             // The GET_ANEXT in emit_async_for needs two adjacent registers
             // so we copy the received iterator to a temporary register.
             iter_reg = reserve_regs(c, 1);
-            emit2(c, COPY, iter_reg, 0);
+            emit2(c, ALIAS, iter_reg, 0);
         }
     }
     else {

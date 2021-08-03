@@ -1437,13 +1437,13 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         DISPATCH(MOVE);
     }
 
-    TARGET(COPY) {
+    TARGET(ALIAS) {
         intptr_t dst = UImm(0);
         intptr_t src = UImm(1);
         // FIXME: is this only used for aliases???
         assert(IS_EMPTY(regs[dst]));
         regs[dst].as_int64 = regs[src].as_int64 | NO_REFCOUNT_TAG;
-        DISPATCH(COPY);
+        DISPATCH(ALIAS);
     }
 
     TARGET(CLEAR_FAST) {

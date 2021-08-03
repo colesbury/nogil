@@ -59,7 +59,7 @@ def def_intrinsic(name, code, nargs=1):
 
 def_op('CLEAR_ACC', 1)
 def_op('CLEAR_FAST', 2, 'reg')
-def_op('COPY', 3, 'reg', 'reg')
+def_op('ALIAS', 3, 'reg', 'reg')
 def_op('MOVE', 4, 'reg', 'reg')
 def_op('FUNC_HEADER', 5, 'lit')
 def_op('METHOD_HEADER', 6)
