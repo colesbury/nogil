@@ -1437,6 +1437,18 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         DISPATCH(MOVE);
     }
 
+    TARGET(COPY) {
+        intptr_t dst = UImm(0);
+        Register r = regs[UImm(1)];
+        if (UNLIKELY(r.as_int64 == 0)) {
+            goto LABEL(unbound_local_error1);
+        }
+        INCREF(r);
+        assert(IS_EMPTY(regs[dst]));
+        regs[dst] = r;
+        DISPATCH(COPY);
+    }
+
     TARGET(ALIAS) {
         intptr_t dst = UImm(0);
         intptr_t src = UImm(1);

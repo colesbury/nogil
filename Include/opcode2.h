@@ -125,7 +125,8 @@ extern "C" {
     _(CFUNC_HEADER_O,           114,     1,      2) \
     _(CFUNC_HEADER_NOARGS,      115,     1,      2) \
     _(CMETHOD_NOARGS,           116,     1,      2) \
-    _(CMETHOD_O,                117,     1,      2)
+    _(CMETHOD_O,                117,     1,      2) \
+    _(COPY,                     118,     3,     10)
 
 #define INTRINSIC_LIST(_) \
     _(PyObject_Str,                   1) \

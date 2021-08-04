@@ -117,7 +117,7 @@ static const char *opcode_names[256] = {
     "CFUNC_HEADER_NOARGS",
     "CMETHOD_NOARGS",
     "CMETHOD_O",
-    "unknown_opcode",
+    "COPY",
     "unknown_opcode",
     "unknown_opcode",
     "unknown_opcode",

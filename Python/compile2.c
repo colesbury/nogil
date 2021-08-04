@@ -689,7 +689,7 @@ is_local(struct compiler *c, Py_ssize_t reg)
 static bool
 is_temporary(struct compiler *c, Py_ssize_t reg)
 {
-    return !is_local(c, reg);
+    return reg >= c->unit->nlocals;
 }
 
 // /* Set the i_lineno member of the instruction at offset off if the
@@ -1249,21 +1249,6 @@ clear_reg(struct compiler *c, Py_ssize_t reg)
     }
 }
 
-static void
-expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
-{
-    if (e == NULL) {
-        emit1(c, LOAD_CONST, const_none(c));
-    }
-    else {
-        compiler_visit_expr(c, e);
-    }
-    emit1(c, STORE_FAST, reg);
-    if (reg >= c->unit->next_register) {
-        reserve_regs(c, reg - c->unit->next_register + 1);
-    }
-}
-
 /* returns the register of `e` is a local variable name; otherwise -1*/
 static Py_ssize_t
 expr_as_reg(struct compiler *c, expr_ty e)
@@ -1287,6 +1272,28 @@ expr_discharge(struct compiler *c, expr_ty e)
     }
     compiler_visit_expr(c, e);
     return REG_ACCUMULATOR;
+}
+
+static void
+expr_to_reg(struct compiler *c, expr_ty e, Py_ssize_t reg)
+{
+    assert(is_temporary(c, reg));
+    if (e == NULL) {
+        emit1(c, LOAD_CONST, const_none(c));
+        emit1(c, STORE_FAST, reg);
+    }
+    else {
+        Py_ssize_t src = expr_discharge(c, e);
+        if (src == REG_ACCUMULATOR) {
+            emit1(c, STORE_FAST, reg);
+        }
+        else {
+            emit2(c, COPY, reg, src);
+        }
+    }
+    if (reg >= c->unit->next_register) {
+        reserve_regs(c, reg - c->unit->next_register + 1);
+    }
 }
 
 static Py_ssize_t
