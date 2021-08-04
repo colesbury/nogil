@@ -3505,6 +3505,7 @@ compiler_visit_stmt_expr(struct compiler *c, expr_ty value)
     if (c->interactive && c->nestlevel <= 1) {
         compiler_visit_expr(c, value);
         emit1(c, CALL_INTRINSIC_1, Intrinsic_vm_print);
+        emit0(c, CLEAR_ACC);
         return;
     }
 
@@ -3881,6 +3882,7 @@ compiler_compare(struct compiler *c, expr_ty e)
             }
 
             emit_jump(c, JUMP_IF_FALSE, multi_label_next(c, &label));
+            emit0(c, CLEAR_ACC);
         }
 
         // Load the right-hand-side of the comparison into the accumulator.

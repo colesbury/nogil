@@ -128,7 +128,7 @@
     DECREF(_old);           \
 } while (0)
 
-#define IS_EMPTY(acc) (acc.as_int64 == 0 || !IS_RC(acc))
+#define IS_EMPTY(acc) (acc.as_int64 == 0)
 
 #define DECREF_X(reg, CALL) do { \
     if (IS_RC(reg)) { \

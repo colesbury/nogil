@@ -3070,9 +3070,9 @@ _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
 {
     PyThreadState *tstate = PyThreadState_GET();
     Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    Py_ssize_t nkwargs = (kwnames == NULL ? 0 : PyTuple_GET_SIZE(kwnames));
 
-    if (UNLIKELY(nargs >= 255 || 
-          (kwnames != NULL && PyTuple_GET_SIZE(kwnames) >= 256))) {
+    if (UNLIKELY(nargs >= 255 || nkwargs >= 256)) {
         return _PyObject_MakeTpCall(tstate, func, stack, nargs, kwnames);
     }
 
@@ -3085,30 +3085,25 @@ _PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
     Register acc;
     int err;
 
-    if (LIKELY(kwnames == NULL)) {
-        acc.as_int64 = nargs;
-        err = setup_frame_ex(ts, func, /*extra=*/0, /*nargs=*/nargs);
-        if (UNLIKELY(err != 0)) {
-            goto exit;
-        }
-        for (Py_ssize_t i = 0; i < nargs; i++) {
-            ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
-        }
+    acc.as_int64 = nargs + (nkwargs << 8);
+    Py_ssize_t extra = (nkwargs == 0 ? 0 : nkwargs + 1);
+
+    err = setup_frame_ex(ts, func, extra, nargs);
+    if (UNLIKELY(err != 0)) {
+        goto exit;
     }
-    else {
-        Py_ssize_t nkwargs = PyTuple_GET_SIZE(kwnames);
-        err = setup_frame_ex(ts, func, /*extra=*/nkwargs + 1, /*nargs=*/nargs);
-        if (UNLIKELY(err != 0)) {
-            goto exit;
-        }
-        for (Py_ssize_t i = 0; i < nargs; i++) {
-            ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
-        }
+
+    // setup positional arguments
+    for (Py_ssize_t i = 0; i < nargs; i++) {
+        ts->regs[i] = PACK(stack[i], NO_REFCOUNT_TAG);
+    }
+
+    // setup keyword arguments
+    if (nkwargs != 0) {
         for (Py_ssize_t i = 0; i < nkwargs; i++) {
             ts->regs[-FRAME_EXTRA - 1 - nkwargs + i] = PACK(stack[i + nargs], NO_REFCOUNT_TAG);
         }
         ts->regs[-FRAME_EXTRA - 1] = PACK(kwnames, NO_REFCOUNT_TAG);
-        acc.as_int64 = nargs + (nkwargs << 8);
     }
 
     ret = _PyEval_Fast(ts, acc, ((PyFuncBase*)func)->first_instr);

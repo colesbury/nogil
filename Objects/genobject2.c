@@ -226,7 +226,20 @@ gen_wrap_exception(PyGenObject2 *gen)
 static PyObject *
 gen_send_internal(PyGenObject2 *gen, PyObject *opt_value)
 {
-    PyObject *res = PyEval2_EvalGen(gen, opt_value);
+    PyObject *res;
+
+    if (gen->status == GEN_CREATED) {
+        if (UNLIKELY(opt_value != Py_None)) {
+            PyErr_Format(
+                PyExc_TypeError,
+                "can't send non-None value to a just-started %s",
+                gen_typename(gen));
+            return NULL;
+        }
+        opt_value = NULL;
+    }
+
+    res = PyEval2_EvalGen(gen, opt_value);
 
     if (LIKELY(res != NULL)) {
         assert(gen->status == GEN_SUSPENDED);
@@ -294,13 +307,6 @@ _PyGen2_Send(PyGenObject2 *gen, PyObject *arg)
     assert(arg != NULL);
     if (UNLIKELY(gen->status >= GEN_RUNNING)) {
         return gen_status_error(gen, arg);
-    }
-    if (UNLIKELY(gen->status == GEN_CREATED && arg != Py_None)) {
-        PyErr_Format(
-            PyExc_TypeError,
-            "can't send non-None value to a just-started %s",
-            gen_typename(gen));
-        return NULL;
     }
 
     return gen_send_internal(gen, arg);
