@@ -5,7 +5,21 @@
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#ifdef HAVE_SSE2
 #include <x86intrin.h>
+#endif
+
+#if HAVE_SSE2
+typedef int     dict_bitmask;
+typedef __m128i dict_ctrl;
+#define DICT_GROUP_SIZE 16
+#define DICT_SIZE_MASK (~15)
+#else
+typedef uint64_t dict_bitmask;
+typedef uint64_t dict_ctrl;
+#define DICT_GROUP_SIZE 8
+#define DICT_SIZE_MASK (~7)
+#endif
 
 typedef struct {
     PyObject *me_key;
@@ -50,18 +64,58 @@ struct _dictkeysobject {
     //
 };
 
-
-static inline int
-ctrl_has_empty(__m128i ctrl)
+static inline dict_bitmask
+ctrl_match_empty(dict_ctrl ctrl)
 {
-    return _mm_movemask_epi8(_mm_cmpeq_epi8(ctrl, _mm_set1_epi8(CTRL_EMPTY)));
+#ifdef HAVE_SSE2
+    return _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_setzero_si128(), ctrl));
+#else
+    uint64_t msbs = 0x8080808080808080ULL;
+    uint64_t x = ~ctrl;
+    return (x & (x << 7)) & msbs;
+#endif
+}
+
+static inline bool
+ctrl_has_empty(dict_ctrl ctrl)
+{
+    return ctrl_match_empty(ctrl) != 0;
 }
 
 __attribute__((no_sanitize("thread")))
-static inline __m128i
-_mm_loadu_si128_nonatomic(void *p)
+static inline dict_ctrl
+load_ctrl(PyDictKeysObject *keys, Py_ssize_t ix)
 {
-    return _mm_loadu_si128((__m128i *)p);
+#ifdef HAVE_SSE2
+    return _mm_loadu_si128((dict_ctrl *)(keys->dk_ctrl + ix));
+#else
+    return _Py_atomic_load_uint64_relaxed((dict_ctrl *)(keys->dk_ctrl + ix));
+#endif
+}
+
+static inline dict_bitmask
+dict_match(dict_ctrl ctrl, Py_ssize_t hash)
+{
+#ifdef HAVE_SSE2
+    dict_ctrl needle = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
+    return _mm_movemask_epi8(_mm_cmpeq_epi8(ctrl, needle));
+#else
+    uint64_t msbs = 0x8080808080808080ULL;
+    uint64_t lsbs = 0x0101010101010101ULL;
+    uint64_t needle = lsbs * (CTRL_FULL | (hash & 0x7F));
+    uint64_t match = ctrl ^ needle;
+    return (match - lsbs) & ~match & msbs & needle;
+#endif
+}
+
+static inline int
+bitmask_lsb(dict_bitmask bitmask)
+{
+#ifdef HAVE_SSE2
+    return __builtin_ctz(bitmask);
+#else
+    return __builtin_ctzll(bitmask) >> 3;
+#endif
 }
 
 static inline uint64_t
@@ -75,15 +129,14 @@ static inline PyDictKeyEntry *
 find_unicode(PyDictKeysObject *keys, PyObject *key)
 {
     PyDictKeyEntry *entries = keys->dk_entries;
-    size_t mask = keys->dk_size & ~15;
+    size_t mask = keys->dk_size & DICT_SIZE_MASK;
     Py_hash_t hash = ((PyASCIIObject *)key)->hash;
     Py_hash_t ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
     for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
+        dict_ctrl ctrl = load_ctrl(keys, ix);
+        dict_bitmask bitmask = dict_match(ctrl, hash);
         while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
+            int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
             if (_PY_LIKELY(entry->me_key == key)) {
                 return entry;
@@ -93,27 +146,8 @@ find_unicode(PyDictKeysObject *keys, PyObject *key)
         if (_PY_LIKELY(ctrl_has_empty(ctrl))) {
             return NULL;
         }
-        ix = (ix + 16) & mask;
+        ix = (ix + DICT_GROUP_SIZE) & mask;
     }
-}
-
-static inline int
-dict_may_contain(PyDictObject *dict, PyObject *key)
-{
-    PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
-    if (keys->dk_type != DK_UNICODE) {
-        return 1;
-    }
-    size_t mask = keys->dk_size & ~15;
-    Py_hash_t hash = ((PyASCIIObject *)key)->hash;
-    Py_hash_t ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
-    __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-    if (!ctrl_has_empty(ctrl)) { 
-        return 1;
-    }
-    int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
-    return bitmask != 0;
 }
 
 #endif /* !Py_INTERNAL_DICT_H */

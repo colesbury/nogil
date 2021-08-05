@@ -131,6 +131,14 @@ typedef int Py_ssize_clean_t;
 /* Smallest negative value of type Py_ssize_t. */
 #define PY_SSIZE_T_MIN (-PY_SSIZE_T_MAX-1)
 
+#if defined(__SSE2__)
+#define HAVE_SSE2 1
+#elif defined(_MSC_VER) && (defined(_M_X64) || (defined(_M_IX86) && _M_IX86_FP >= 2))
+#define HAVE_SSE2 1
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+#define HAVE_NEON 1
+#endif
+
 /* PY_FORMAT_SIZE_T is a platform-specific modifier for use in a printf
  * format to convert an argument with the width of a size_t or Py_ssize_t.
  * C99 introduced "z" for this purpose, but old MSVCs had not supported it.

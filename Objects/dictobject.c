@@ -16,8 +16,6 @@
 
 #include "ceval2_meta.h"
 
-#include <x86intrin.h>
-
 /*[clinic input]
 class dict "PyDictObject *" "&PyDict_Type"
 [clinic start generated code]*/
@@ -142,11 +140,15 @@ _PyDict_CheckConsistency(PyObject *op, int check_content)
         for (Py_ssize_t i = 0, n = keys_nentries(keys); i < n; i++) {
             Py_ssize_t ix = get_index(keys, i);
             CHECK(ix >= 0 && ix < keys->dk_size);
+            if (i > 0) {
+                assert(ix != get_index(keys, i - 1));
+            }
         }
 
         for (Py_ssize_t i=0; i < keys->dk_size; i++) {
             PyDictKeyEntry *entry = &entries[i];
             uint8_t ctrl = keys->dk_ctrl[i];
+
             if (ctrl == CTRL_EMPTY || ctrl == CTRL_DELETED) {
                 CHECK(entry->me_key == NULL);
                 CHECK(entry->me_value == NULL);
@@ -211,6 +213,9 @@ bsr(Py_ssize_t x)
 static Py_ssize_t
 usable_fraction(Py_ssize_t size)
 {
+    if (DICT_GROUP_SIZE == 8 && size == 7) {
+        return 6;
+    }
     // NOTE: faster with unsigned arithmetic; size is never negative.
     return (size_t)size - (size_t)size / 8;
 }
@@ -238,7 +243,8 @@ key_is_interned(PyObject *key)
     return PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key);
 }
 
-static PyDictKeysObject *new_keys_object(Py_ssize_t size, uint8_t type)
+static PyDictKeysObject *
+new_keys_object(Py_ssize_t size, uint8_t type)
 {
     // TODO: integer overflow! = PyErr_NoMemory
     assert(size >= PyDict_MINSIZE);
@@ -246,8 +252,11 @@ static PyDictKeysObject *new_keys_object(Py_ssize_t size, uint8_t type)
 
     Py_ssize_t usable = usable_fraction(size);
     Py_ssize_t ctrl_size = size + 1;
-    if (ctrl_size < 16) {
-        ctrl_size = 16;
+    if (ctrl_size < DICT_GROUP_SIZE) {
+        ctrl_size = DICT_GROUP_SIZE;
+    }
+    if (DICT_GROUP_SIZE == 8 && size == 7) {
+        usable = 6;
     }
 
     size_t hash_size = type == DK_GENERIC ? sizeof(Py_hash_t) * size : 0;
@@ -362,14 +371,13 @@ find_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, int *is_error)
 retry:
     keys = mp->ma_keys;
     entries = keys->dk_entries;
-    mask = keys->dk_size & ~15;
+    mask = keys->dk_size & DICT_SIZE_MASK;
     ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
     for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
+        dict_ctrl ctrl = load_ctrl(keys, ix);
+        dict_bitmask bitmask = dict_match(ctrl, hash);
         while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
+            int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
             PyObject *entry_key = entry->me_key;
             if (_PY_LIKELY(entry->me_key == key)) {
@@ -403,7 +411,7 @@ next:
             *is_error = 0;
             return NULL;
         }
-        ix = (ix + 16) & mask;
+        ix = (ix + DICT_GROUP_SIZE) & mask;
     }
 }
 
@@ -417,14 +425,13 @@ find(PyDictObject *mp, PyObject *key, Py_hash_t hash)
 retry:
     keys = mp->ma_keys;
     entries = keys->dk_entries;
-    mask = keys->dk_size & ~15;
+    mask = keys->dk_size & DICT_SIZE_MASK;
     ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
     for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
+        dict_ctrl ctrl = load_ctrl(keys, ix);
+        dict_bitmask bitmask = dict_match(ctrl, hash);
         while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
+            int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
             PyObject *entry_key = entry->me_key;
             if (_PY_LIKELY(entry_key == key)) {
@@ -452,7 +459,7 @@ next:
         if (_PY_LIKELY(ctrl_has_empty(ctrl))) {
             return NULL;
         }
-        ix = (ix + 16) & mask;
+        ix = (ix + DICT_GROUP_SIZE) & mask;
     }
 }
 
@@ -546,8 +553,8 @@ prepare_insert(PyDictObject *mp, Py_hash_t hash);
 static Py_hash_t *
 dict_hashes(PyDictKeysObject *keys) {
     assert(keys->dk_type == DK_GENERIC);
-    size_t mask = keys->dk_size & ~15;
-    return (Py_hash_t *)(keys->dk_ctrl + mask + 16);
+    size_t mask = keys->dk_size & DICT_SIZE_MASK;
+    return (Py_hash_t *)(keys->dk_ctrl + mask + DICT_GROUP_SIZE);
 }
 
 static void
@@ -657,18 +664,15 @@ find_or_prepare_insert(PyDictObject *mp, PyObject *key, Py_hash_t hash, int *is_
 static Py_ssize_t
 find_first_non_full(PyDictKeysObject *keys, Py_hash_t hash)
 {
-    size_t mask = keys->dk_size & ~15;
+    size_t mask = keys->dk_size & DICT_SIZE_MASK;
     Py_hash_t ix = (hash >> 7) & mask;
-    __m128i match = _mm_setzero_si128();
-
     for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
-        while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
+        dict_bitmask bitmask = ctrl_match_empty(load_ctrl(keys, ix));
+        if (bitmask != 0) {
+            int lsb = bitmask_lsb(bitmask);
             return ix + lsb;
         }
-        ix = (ix + 16) & mask;
+        ix = (ix + DICT_GROUP_SIZE) & mask;
     }
 }
 
@@ -744,14 +748,13 @@ pydict_get(PyDictObject *mp, PyObject *key, Py_hash_t hash)
     assert(hash != -1);
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&mp->ma_keys);
     PyDictKeyEntry *entries = _Py_atomic_load_ptr_relaxed(&keys->dk_entries);
-    size_t mask = keys->dk_size & ~15;
+    size_t mask = keys->dk_size & DICT_SIZE_MASK;
     Py_hash_t ix = (hash >> 7) & mask;
-    __m128i match = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
     for (;;) {
-        __m128i ctrl = _mm_loadu_si128_nonatomic(keys->dk_ctrl + ix);
-        int bitmask = _mm_movemask_epi8(_mm_cmpeq_epi8(match, ctrl));
+        dict_ctrl ctrl = load_ctrl(keys, ix);
+        dict_bitmask bitmask = dict_match(ctrl, hash);
         while (bitmask) {
-            int lsb = __builtin_ctz(bitmask);
+            int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
             PyObject *entry_key = _Py_atomic_load_ptr_relaxed(&entry->me_key);
             if (_PY_LIKELY(entry_key == key)) {
@@ -768,7 +771,7 @@ next:
         if (_PY_LIKELY(ctrl_has_empty(ctrl))) {
             return NULL;
         }
-        ix = (ix + 16) & mask;
+        ix = (ix + DICT_GROUP_SIZE) & mask;
     }
 }
 
