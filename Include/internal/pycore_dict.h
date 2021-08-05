@@ -5,21 +5,30 @@
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
-#ifdef HAVE_SSE2
+#if HAVE_SSE2
 #include <x86intrin.h>
+#elif HAVE_NEON
+#include <arm_neon.h>
+#endif
+
+#if HAVE_SSE2 || HAVE_NEON
+#define DICT_GROUP_SIZE 16
+#else
+#define DICT_GROUP_SIZE 16
 #endif
 
 #if HAVE_SSE2
-typedef int     dict_bitmask;
-typedef __m128i dict_ctrl;
-#define DICT_GROUP_SIZE 16
-#define DICT_SIZE_MASK (~15)
+typedef int         dict_bitmask;
+typedef __m128i     dict_ctrl;
+#elif HAVE_NEON
+typedef uint64_t    dict_bitmask;
+typedef uint8x16_t  dict_ctrl;
 #else
-typedef uint64_t dict_bitmask;
-typedef uint64_t dict_ctrl;
-#define DICT_GROUP_SIZE 8
-#define DICT_SIZE_MASK (~7)
+typedef uint64_t    dict_bitmask;
+typedef uint64_t    dict_ctrl;
 #endif
+
+#define DICT_SIZE_MASK (~(DICT_GROUP_SIZE - 1))
 
 typedef struct {
     PyObject *me_key;
@@ -69,6 +78,11 @@ ctrl_match_empty(dict_ctrl ctrl)
 {
 #ifdef HAVE_SSE2
     return _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_setzero_si128(), ctrl));
+#elif HAVE_NEON
+    uint8x16_t test = vtstq_u8(ctrl, ctrl);
+    uint8x8_t maskV = vshrn_n_u16(vreinterpretq_u16_u8(test), 4);
+    uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(maskV), 0);
+    return ~mask;
 #else
     uint64_t msbs = 0x8080808080808080ULL;
     uint64_t x = ~ctrl;
@@ -88,6 +102,8 @@ load_ctrl(PyDictKeysObject *keys, Py_ssize_t ix)
 {
 #ifdef HAVE_SSE2
     return _mm_loadu_si128((dict_ctrl *)(keys->dk_ctrl + ix));
+#elif HAVE_NEON
+    return vld1q_u8((uint8_t *)(keys->dk_ctrl + ix));
 #else
     return _Py_atomic_load_uint64_relaxed((dict_ctrl *)(keys->dk_ctrl + ix));
 #endif
@@ -99,6 +115,13 @@ dict_match(dict_ctrl ctrl, Py_ssize_t hash)
 #ifdef HAVE_SSE2
     dict_ctrl needle = _mm_set1_epi8(CTRL_FULL | (hash & 0x7F));
     return _mm_movemask_epi8(_mm_cmpeq_epi8(ctrl, needle));
+#elif HAVE_NEON
+    uint64_t lsbs = 0x1111111111111111ULL;
+    dict_ctrl needle = vdupq_n_u8(CTRL_FULL | (hash & 0x7F));
+    dict_ctrl eq = vceqq_u8(ctrl, needle);
+    uint8x8_t maskV = vshrn_n_u16(vreinterpretq_u16_u8(eq), 4);
+    uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(maskV), 0);
+    return mask & lsbs;
 #else
     uint64_t msbs = 0x8080808080808080ULL;
     uint64_t lsbs = 0x0101010101010101ULL;
@@ -113,6 +136,8 @@ bitmask_lsb(dict_bitmask bitmask)
 {
 #ifdef HAVE_SSE2
     return __builtin_ctz(bitmask);
+#elif HAVE_NEON
+    return __builtin_ctzll(bitmask) >> 2;
 #else
     return __builtin_ctzll(bitmask) >> 3;
 #endif
