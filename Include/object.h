@@ -424,23 +424,22 @@ Py_ssize_t _Py_ExplicitMergeRefcount(PyObject *);
 static inline uintptr_t
 _Py_ThreadId(void)
 {
-#if defined(__GNUC__)
-    // TODO: only AMD64 fix i386
-    uintptr_t out;
-    #if defined(__MACH__)
-    __asm__ ("mov %%gs:0, %0" : "=r" (out));  // value of fs
-    #else
-    __asm__ ("mov %%fs:0, %0" : "=r" (out));  // value of fs
-    #endif
-    return out;
-#elif defined(_WIN64) && defined(_X86_)
-    // TODO: figure out what happens when you target 32-bit Windows from 64-bit windows
-    return __readgsdword(0x48);  // current thread ID
-#elif defined(_WIN32) && defined(_X86_)
-    return __readfsdword(0x24);  // current thread ID
+    // copied from mimalloc-internal.h
+    uintptr_t tid;
+#if defined(__i386__)
+    __asm__("movl %%gs:0, %0" : "=r" (tid));  // 32-bit always uses GS
+#elif defined(__MACH__) && defined(__x86_64__)
+    __asm__("movq %%gs:0, %0" : "=r" (tid));  // x86_64 macOSX uses GS
+#elif defined(__x86_64__)
+    __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS
+#elif defined(__arm__)
+    __asm__ ("mrc p15, 0, %0, c13, c0, 3\nbic %0, %0, #3" : "=r" (tid));
+#elif defined(__aarch64__)
+    __asm__ ("mrs %0, tpidr_el0" : "=r" (tid));
 #else
-    return 0;
+    tid = 0;
 #endif
+  return tid;
 }
 
 static inline int
