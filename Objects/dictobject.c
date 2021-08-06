@@ -488,35 +488,31 @@ value_for_key_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash)
 
 __attribute__((noinline, cold))
 static PyObject *
-vaue_for_key_retry(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *garbage)
+value_for_key_retry(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *garbage)
 {
     Py_DECREF(garbage);
     return value_for_key_locked(mp, key, hash);
 }
 
 static inline PyObject *
-value_for_entry(PyDictObject *mp, PyDictKeysObject *keys, PyObject *key, Py_hash_t hash, PyDictKeyEntry *entry)
+value_for_entry(PyDictObject *mp, uint64_t tag, PyObject *key, Py_hash_t hash, PyDictKeyEntry *entry)
 {
-    PyObject *value = NULL;
-    if (entry == NULL) {
-        goto check_keys;
-    }
-    value = _Py_atomic_load_ptr(&entry->me_value);
+    PyObject *value = _Py_atomic_load_ptr(&entry->me_value);
     if (_PY_UNLIKELY(value == NULL)) {
         return value_for_key_locked(mp, key, hash);
     }
     if (_PY_LIKELY(_Py_TryIncrefFast(value))) {
-        goto check_keys;
+        goto check_tag;
     }
     if (_PY_UNLIKELY(!_Py_TryIncRefShared2(value))) {
         return value_for_key_locked(mp, key, hash);
     }
     if (_PY_UNLIKELY(value != _Py_atomic_load_ptr(&entry->me_value))) {
-        return vaue_for_key_retry(mp, key, hash, value);
+        return value_for_key_retry(mp, key, hash, value);
     }
-check_keys:
-    if (_PY_UNLIKELY(keys != _Py_atomic_load_ptr(&mp->ma_keys))) {
-        return vaue_for_key_retry(mp, key, hash, value);
+check_tag:
+    if (_PY_UNLIKELY(tag != _Py_atomic_load_uint64(&mp->ma_version_tag))) {
+        return value_for_key_retry(mp, key, hash, value);
     }
     return value;
 }
@@ -720,6 +716,7 @@ static PyObject *
 pydict_get(PyDictObject *mp, PyObject *key, Py_hash_t hash)
 {
     assert(hash != -1);
+    uint64_t tag = _Py_atomic_load_uint64(&mp->ma_version_tag);
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&mp->ma_keys);
     PyDictKeyEntry *entries = _Py_atomic_load_ptr_relaxed(&keys->dk_entries);
     size_t mask = keys->dk_size & DICT_SIZE_MASK;
@@ -732,7 +729,7 @@ pydict_get(PyDictObject *mp, PyObject *key, Py_hash_t hash)
             PyDictKeyEntry *entry = &entries[ix + lsb];
             PyObject *entry_key = _Py_atomic_load_ptr_relaxed(&entry->me_key);
             if (_PY_LIKELY(entry_key == key)) {
-                return value_for_entry(mp, keys, key, hash, entry);
+                return value_for_entry(mp, tag, key, hash, entry);
             }
             Py_hash_t entry_hash = dict_entry_hash(keys, entry);
             if (entry_hash != hash) {
@@ -960,13 +957,14 @@ PyObject *
 PyDict_GetItemWithError2(PyObject *op, PyObject *key)
 {
     PyDictObject *mp = (PyDictObject *)op;
+    uint64_t tag = _Py_atomic_load_uint64(&mp->ma_version_tag);
     PyDictKeysObject *keys = mp->ma_keys;
     if (_PY_LIKELY(keys->dk_type == DK_UNICODE && key_is_interned(key))) {
         PyDictKeyEntry *entry = find_unicode(keys, key);
         if (entry == NULL) {
             return NULL;
         }
-        return value_for_entry(mp, keys, key, -1, entry);
+        return value_for_entry(mp, tag, key, -1, entry);
     }
     return PyDict_GetItemWithError2_slow((PyDictObject *)op, key);
 }
@@ -1001,7 +999,7 @@ vm_try_load(PyObject *op, PyObject *key, intptr_t *meta)
     }
     intptr_t offset = (intptr_t)(entry - keys->dk_entries);
     _Py_atomic_store_intptr_relaxed(meta, offset);
-    return value_for_entry(mp, keys, key, -1, entry);
+    return value_for_entry(mp, tag, key, -1, entry);
 }
 
 PyObject *
@@ -1573,14 +1571,17 @@ dict_subscript_slow(PyDictObject *mp, PyObject *key)
 static PyObject *
 dict_subscript(PyDictObject *mp, PyObject *key)
 {
+    uint64_t tag = _Py_atomic_load_uint64(&mp->ma_version_tag);
     PyDictKeysObject *keys = mp->ma_keys;
     if (_PY_LIKELY(keys->dk_type == DK_UNICODE && key_is_interned(key))) {
         PyDictKeyEntry *entry = find_unicode(keys, key);
-        PyObject *value = value_for_entry(mp, keys, key, -1, entry);
-        if (_PY_UNLIKELY(value == NULL)) {
-            return dict_lookup_missing(mp, key);
+        if (_PY_LIKELY(entry != NULL)) {
+            PyObject *value = value_for_entry(mp, tag, key, -1, entry);
+            if (_PY_LIKELY(value != NULL)) {
+                return value;
+            }
         }
-        return value;
+        return dict_lookup_missing(mp, key);
     }
     return dict_subscript_slow(mp, key);
 }
