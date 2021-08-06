@@ -494,32 +494,6 @@ vaue_for_key_retry(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *ga
     return value_for_key_locked(mp, key, hash);
 }
 
-static PyObject *
-value_for_unicode_key(PyDictObject *mp, PyDictKeysObject *keys, PyObject *key)
-{
-    PyDictKeyEntry *entry = find_unicode(keys, key);
-    if (entry == NULL) {
-        return NULL;
-    }
-    PyObject *value = entry->me_value;
-    if (_PY_UNLIKELY(value == NULL)) {
-        return value_for_key_locked(mp, key, ((PyASCIIObject *)key)->hash);
-    }
-    if (_PY_LIKELY(_Py_TryIncrefFast(value))) {
-        return value;
-    }
-    if (!_Py_TryIncRefShared2(value)) {
-        return value_for_key_locked(mp, key, ((PyASCIIObject *)key)->hash);
-    }
-    if (value != _Py_atomic_load_ptr(&entry->me_value)) {
-        return vaue_for_key_retry(mp, key, ((PyASCIIObject *)key)->hash, value);
-    }
-    return value;
-}
-
-static inline PyObject *
-value_for_entry(PyDictObject *mp, PyDictKeysObject *keys, PyObject *key, Py_hash_t hash, PyDictKeyEntry *entry);
-
 static inline PyObject *
 value_for_entry(PyDictObject *mp, PyDictKeysObject *keys, PyObject *key, Py_hash_t hash, PyDictKeyEntry *entry)
 {
@@ -1068,113 +1042,6 @@ _PyDict_GetItemStringWithError(PyObject *v, const char *key)
     rv = PyDict_GetItemWithError(v, kv);
     Py_DECREF(kv);
     return rv;
-}
-
-__attribute__((noinline))
-static PyObject *
-_PyDict_LoadGlobalSlow(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
-{
-    Py_hash_t hash = ((PyASCIIObject *)key)->hash;
-    PyObject *value = pydict_get(globals, key, hash);
-    if (value) {
-        return value;
-    }
-    else if (PyErr_Occurred()) {
-        return NULL;
-    }
-    else {
-        /* namespace 2: builtins */
-        return pydict_get(builtins, key, hash);
-    }
-}
-
-__attribute__((noinline))
-static PyObject *
-_PyDict_LoadNameStackSlow(PyObject *op, PyObject *name, int *is_error)
-{
-    PyObject *value = PyDict_GetItemWithError2(op, name);
-    if (!value) {
-        *is_error = PyErr_Occurred() != NULL;
-        return NULL;
-    }
-    if (_PyObject_IS_DEFERRED_RC(value)) {
-        Py_DECREF(value);
-    }
-    return value;
-}
-
-__attribute__((noinline))
-static PyObject *
-_PyDict_LoadNameStackSlow2(PyObject *op, PyObject *name, int *is_error, PyObject *garbage)
-{
-    Py_DECREF(garbage);
-    return _PyDict_LoadNameStackSlow(op, name, is_error);
-}
-
-PyObject *
-_PyDict_LoadNameStack(PyObject *op, PyObject *name, int *is_error)
-{
-    PyDictObject *mp = (PyDictObject *)op;
-    PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&mp->ma_keys);
-    if (_PY_UNLIKELY(keys->dk_type != DK_UNICODE)) {
-        return _PyDict_LoadNameStackSlow(op, name, is_error);
-    }
-    PyDictKeyEntry *entry = find_unicode(keys, name);
-    if (entry == NULL) {
-        // fixme check keys
-        *is_error = 0;
-        return NULL;
-    }
-    PyObject *value = _Py_atomic_load_ptr_relaxed(&entry->me_value);
-    if (value == NULL) {
-        return _PyDict_LoadNameStackSlow(op, name, is_error);
-    }
-    if (_Py_TryIncrefStackFast(value)) {
-        goto check_keys;
-    }
-    if (!_Py_TryIncRefShared2(value)) {
-        return _PyDict_LoadNameStackSlow(op, name, is_error);
-    }
-    if (value != _Py_atomic_load_ptr(&entry->me_value)) {
-        goto fail;
-    }
-check_keys:
-    if (keys != _Py_atomic_load_ptr(&mp->ma_keys)) {
-        goto fail;
-    }
-    return value;
-fail:
-    return _PyDict_LoadNameStackSlow2(op, name, is_error, value);
-}
-
-
-/* Fast version of global value lookup (LOAD_GLOBAL).
- * Lookup in globals, then builtins.
- *
- * Raise an exception and return NULL if an error occurred (ex: computing the
- * key hash failed, key comparison failed, ...). Return NULL if the key doesn't
- * exist. Return the value if the key exists.
- */
-PyObject *
-_PyDict_LoadGlobal(PyDictObject *globals, PyDictObject *builtins, PyObject *key)
-{
-    assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
-    PyDictKeysObject *globalkeys = globals->ma_keys;
-    if (_PY_UNLIKELY(globalkeys->dk_type != DK_UNICODE)) {
-        return _PyDict_LoadGlobalSlow(globals, builtins, key);
-    }
-
-    PyObject *value = value_for_unicode_key(globals, globalkeys, key);
-    if (value) {
-        return value;
-    }
-
-    PyDictKeysObject *builtinkeys = builtins->ma_keys;
-    if (_PY_UNLIKELY(builtinkeys->dk_type != DK_UNICODE)) {
-        return pydict_get(builtins, key, ((PyASCIIObject *)key)->hash);
-    }
-
-    return value_for_unicode_key(builtins, builtinkeys, key);
 }
 
 static int
@@ -4090,58 +3957,6 @@ PyObject_GenericGetDict(PyObject *obj, void *context)
     }
     Py_XINCREF(dict);
     return dict;
-}
-
-__attribute__((noinline, cold))
-static PyObject *
-_PyObject_GetAttrDecrefAndRetry(PyObject *owner, PyObject *name, PyObject *garbage)
-{
-    Py_DECREF(garbage);
-    return PyObject_GetAttr(owner, name);
-}
-
-
-PyObject *
-_PyObject_GetAttrFast(PyObject *owner, PyObject *name)
-{
-    assert(PyUnicode_CheckExact(name) && PyUnicode_CHECK_INTERNED(name));
-    PyTypeObject *type = Py_TYPE(owner);
-    if (_PY_UNLIKELY(type->tp_getattro != &PyObject_GenericGetAttr)) {
-        goto slow;
-    }
-    Py_ssize_t dictoffset = type->tp_dictoffset;
-    if (_PY_UNLIKELY(dictoffset <= 0)) {
-        goto slow;
-    }
-    PyObject *dict = *(PyObject **)((char *)owner + dictoffset);
-    if (_PY_UNLIKELY(dict == NULL)) {
-        goto slow;
-    }
-    assert(PyDict_Check(dict));
-    PyDictObject *mp = (PyDictObject *)dict;
-    PyDictKeysObject *keys = mp->ma_keys;
-    if (_PY_UNLIKELY(keys->dk_type != DK_UNICODE)) {
-        goto slow;
-    }
-    PyDictKeyEntry *entry = find_unicode(keys, name);
-    if (_PY_UNLIKELY(entry == NULL)) {
-        goto slow;
-    }
-    PyObject *value = _Py_atomic_load_ptr(&entry->me_value);
-    if (_PY_UNLIKELY(value == NULL)) {
-        goto slow;
-    }
-    if (_PY_LIKELY(_Py_TryIncrefFast(value))) {
-        return value;
-    }
-    if (_Py_TryIncRefShared2(value)) {
-        if (_PY_LIKELY(value == _Py_atomic_load_ptr(&entry->me_value))) {
-            return value;
-        }
-        return _PyObject_GetAttrDecrefAndRetry(owner, name, value);
-    }
-slow:
-    return PyObject_GetAttr(owner, name);
 }
 
 int

@@ -2380,141 +2380,42 @@ main_loop:
         }
 
         case TARGET(LOAD_GLOBAL_FOR_CALL): {
-            PyObject *name = GETITEM(names, oparg);
-            if (PyDict_CheckExact(f->f_globals)) {
-                int is_error = 0;
-                PyObject *v = _PyDict_LoadNameStack(f->f_globals, name, &is_error);
-                if (v != NULL) {
-                    *f->f_callabletop++ = v;
-                    DISPATCH();
-                }
-                else if (is_error) {
-                    goto error;
-                }
-                if (PyDict_CheckExact(f->f_builtins)) {
-                    int is_error = 0;
-                    PyObject *v = _PyDict_LoadNameStack(f->f_builtins, name, &is_error);
-                    if (v != NULL) {
-                        *f->f_callabletop++ = v;
-                        DISPATCH();
-                    }
-                    else if (is_error) {
-                        goto error;
-                    }
-                    else {
-                        format_exc_check_arg(tstate, PyExc_NameError,
-                                                NAME_ERROR_MSG, name);
-                    }
-                }
-            }
         }
         /* fall through */
 
         case TARGET(LOAD_GLOBAL): {
             PyObject *name;
             PyObject *v;
-            if (PyDict_CheckExact(f->f_globals)
-                && PyDict_CheckExact(f->f_builtins))
-            {
-                OPCACHE_CHECK();
-                if (co_opcache != NULL && co_opcache->optimized > 0) {
-                    _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
+            /* Slow-path if globals or builtins is not a dict */
 
-                    if (lg->globals_ver ==
-                            ((PyDictObject *)f->f_globals)->ma_version_tag
-                        && lg->builtins_ver ==
-                           ((PyDictObject *)f->f_builtins)->ma_version_tag)
-                    {
-                        PyObject *ptr = lg->ptr;
-                        OPCACHE_STAT_GLOBAL_HIT();
-                        assert(ptr != NULL);
-                        if (opcode == LOAD_GLOBAL_FOR_CALL) {
-                            Py_INCREF_STACK(ptr);
-                            *f->f_callabletop++ = ptr;
-                        }
-                        else {
-                            Py_INCREF(ptr);
-                            PUSH(ptr);
-                        }
-                        DISPATCH();
-                    }
+            /* namespace 1: globals */
+            name = GETITEM(names, oparg);
+            v = PyObject_GetItem(f->f_globals, name);
+            if (v == NULL) {
+                if (!_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
+                    goto error;
                 }
+                _PyErr_Clear(tstate);
 
-                name = GETITEM(names, oparg);
-                // TOOD: maybe don't INCREF or prefer INCREF_STACK ??
-                v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
-                                       (PyDictObject *)f->f_builtins,
-                                       name);
+                /* namespace 2: builtins */
+                v = PyObject_GetItem(f->f_builtins, name);
                 if (v == NULL) {
-                    if (!_PyErr_OCCURRED()) {
-                        /* _PyDict_LoadGlobal() returns NULL without raising
-                         * an exception if the key doesn't exist */
-                        format_exc_check_arg(tstate, PyExc_NameError,
-                                             NAME_ERROR_MSG, name);
+                    if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
+                        format_exc_check_arg(
+                                    tstate, PyExc_NameError,
+                                    NAME_ERROR_MSG, name);
                     }
                     goto error;
                 }
-
-                if (co_opcache != NULL) {
-                    _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
-
-                    if (co_opcache->optimized == 0) {
-                        /* Wasn't optimized before. */
-                        OPCACHE_STAT_GLOBAL_OPT();
-                    } else {
-                        OPCACHE_STAT_GLOBAL_MISS();
-                    }
-
-                    co_opcache->optimized = 1;
-                    lg->globals_ver =
-                        ((PyDictObject *)f->f_globals)->ma_version_tag;
-                    lg->builtins_ver =
-                        ((PyDictObject *)f->f_builtins)->ma_version_tag;
-                    lg->ptr = v; /* borrowed */
+            }
+            if (opcode == LOAD_GLOBAL_FOR_CALL) {
+                if (_PyObject_IS_DEFERRED_RC(v)) {
+                    Py_DECREF(v);
                 }
-
-                if (opcode == LOAD_GLOBAL_FOR_CALL) {
-                    if (_PyObject_IS_DEFERRED_RC(v)) {
-                        Py_DECREF(v);
-                    }
-                    *f->f_callabletop++ = v;
-                }
-                else {
-                    PUSH(v);
-                }
+                *f->f_callabletop++ = v;
             }
             else {
-                /* Slow-path if globals or builtins is not a dict */
-
-                /* namespace 1: globals */
-                name = GETITEM(names, oparg);
-                v = PyObject_GetItem(f->f_globals, name);
-                if (v == NULL) {
-                    if (!_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                        goto error;
-                    }
-                    _PyErr_Clear(tstate);
-
-                    /* namespace 2: builtins */
-                    v = PyObject_GetItem(f->f_builtins, name);
-                    if (v == NULL) {
-                        if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                            format_exc_check_arg(
-                                        tstate, PyExc_NameError,
-                                        NAME_ERROR_MSG, name);
-                        }
-                        goto error;
-                    }
-                }
-                if (opcode == LOAD_GLOBAL_FOR_CALL) {
-                    if (_PyObject_IS_DEFERRED_RC(v)) {
-                        Py_DECREF(v);
-                    }
-                    *f->f_callabletop++ = v;
-                }
-                else {
-                    PUSH(v);
-                }
+                PUSH(v);
             }
             DISPATCH();
         }
@@ -2886,7 +2787,7 @@ main_loop:
             PyObject *name = GETITEM(names, oparg);
             assert(PyUnicode_CheckExact(name));
             PyObject *owner = TOP();
-            PyObject *res = _PyObject_GetAttrFast(owner, name);
+            PyObject *res = PyObject_GetAttr(owner, name);
             Py_DECREF(owner);
             SET_TOP(res);
             if (res == NULL)
