@@ -22,6 +22,9 @@
 #define PY_RELEASE_LEVEL        PY_RELEASE_LEVEL_FINAL
 #define PY_RELEASE_SERIAL       0
 
+#define PY_NOGIL                1
+#define Py_NOGIL                1
+
 /* Version as a string */
 #define PY_VERSION              "3.9.10"
 /*--end constants--*/
