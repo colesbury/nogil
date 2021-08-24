@@ -145,10 +145,7 @@ typedef struct {
 #define Py_TYPE(ob)             (_PyObject_CAST(ob)->ob_type)
 #define Py_SIZE(ob)             (_PyVarObject_CAST(ob)->ob_size)
 
-static inline void _Py_SET_REFCNT(PyObject *ob, uint32_t refcnt) {
-    ob->ob_ref_local = refcnt;
-}
-#define Py_SET_REFCNT(ob, refcnt) _Py_SET_REFCNT(_PyObject_CAST(ob), refcnt)
+#define Py_SET_REFCNT(ob, refcnt) (_Py_SetRefCnt(_PyObject_CAST(ob), refcnt))
 
 static inline void _Py_SET_TYPE(PyObject *ob, PyTypeObject *type) {
     ob->ob_type = type;
@@ -847,6 +844,7 @@ they can have object code that is not dependent on Python compilation flags.
 PyAPI_FUNC(void) Py_IncRef(PyObject *);
 PyAPI_FUNC(void) Py_DecRef(PyObject *);
 PyAPI_FUNC(Py_ssize_t) _Py_RefCnt(PyObject *);
+PyAPI_FUNC(void) _Py_SetRefCnt(PyObject *, Py_ssize_t);
 
 /*
 _Py_NoneStruct is an object of undefined type which can be used in contexts
