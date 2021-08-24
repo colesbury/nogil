@@ -1637,6 +1637,10 @@ if test -z "$LN" ; then
 	esac
 fi
 
+# nogil release version
+AC_SUBST(NOGIL_VERSION)
+NOGIL_VERSION="a"
+
 # For calculating the .so ABI tag.
 AC_SUBST(ABIFLAGS)
 ABIFLAGS=""
@@ -5820,14 +5824,14 @@ AC_SUBST(SOABI)
 AC_MSG_CHECKING(ABIFLAGS)
 AC_MSG_RESULT($ABIFLAGS)
 AC_MSG_CHECKING(SOABI)
-SOABI='cpython-'`echo $VERSION | tr -d .`${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+SOABI='nogil-'`echo $VERSION | tr -d .`${NOGIL_VERSION}${ABIFLAGS}${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
 AC_MSG_RESULT($SOABI)
 
 # Release and debug (Py_DEBUG) ABI are compatible, but not Py_TRACE_REFS ABI
 if test "$Py_DEBUG" = 'true' -a "$with_trace_refs" != "yes"; then
   # Similar to SOABI but remove "d" flag from ABIFLAGS
   AC_SUBST(ALT_SOABI)
-  ALT_SOABI='cpython-'`echo $VERSION | tr -d .``echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
+  ALT_SOABI='nogil-'`echo $VERSION | tr -d .`${NOGIL_VERSION}`echo $ABIFLAGS | tr -d d`${PLATFORM_TRIPLET:+-$PLATFORM_TRIPLET}
   AC_DEFINE_UNQUOTED(ALT_SOABI, "${ALT_SOABI}",
             [Alternative SOABI used in debug build to load C extensions built in release mode])
 fi
