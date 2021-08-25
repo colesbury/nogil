@@ -3683,7 +3683,6 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
     switch (optype) {
     case OP_DEREF:
         switch (ctx) {
-        case FuncLoad:
         case Load:
             op = (c->u->u_ste->ste_type == ClassBlock) ? LOAD_CLASSDEREF : LOAD_DEREF;
             break;
@@ -3703,9 +3702,6 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         break;
     case OP_FAST:
         switch (ctx) {
-        case FuncLoad:
-            op = LOAD_FAST_FOR_CALL;
-            break;
         case Load: op = LOAD_FAST; break;
         case Store:
             op = STORE_FAST;
@@ -3721,13 +3717,9 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
             return 0;
         }
         ADDOP_N(c, op, mangled, varnames);
-        if (ctx == FuncLoad && op != LOAD_FAST_FOR_CALL) {
-            ADDOP(c, DEFER_REFCOUNT);
-        }
         return 1;
     case OP_GLOBAL:
         switch (ctx) {
-        case FuncLoad: op = LOAD_GLOBAL_FOR_CALL; break;
         case Load: op = LOAD_GLOBAL; break;
         case Store:
             op = STORE_GLOBAL;
@@ -3745,7 +3737,6 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
         break;
     case OP_NAME:
         switch (ctx) {
-        case FuncLoad:
         case Load: op = LOAD_NAME; break;
         case Store:
             op = STORE_NAME;
@@ -3769,11 +3760,6 @@ compiler_nameop(struct compiler *c, identifier name, expr_context_ty ctx)
     if (arg < 0)
         return 0;
     ADDOP_I(c, op, arg);
-    if (ctx == FuncLoad) {
-        if (op != LOAD_GLOBAL_FOR_CALL) {
-            ADDOP(c, DEFER_REFCOUNT);
-        }
-    }
     return 1;
 }
 
@@ -4251,19 +4237,10 @@ compiler_call(struct compiler *c, expr_ty e)
     if (ret >= 0) {
         return ret;
     }
-    expr_ty func = e->v.Call.func;
-    if (!check_caller(c, func)) {
+    if (!check_caller(c, e->v.Call.func)) {
         return 0;
     }
-    if (func->kind == Name_kind) {
-        if (!compiler_nameop(c, func->v.Name.id, FuncLoad)) {
-            return 0;
-        }
-    }
-    else {
-        VISIT(c, expr, func);
-        ADDOP(c, DEFER_REFCOUNT);
-    }
+    VISIT(c, expr, e->v.Call.func);
     return compiler_call_helper(c, 0,
                                 e->v.Call.args,
                                 e->v.Call.keywords);
@@ -5518,7 +5495,6 @@ compiler_handle_subscr(struct compiler *c, const char *kind,
 
     /* XXX this code is duplicated */
     switch (ctx) {
-        case FuncLoad: /* fall through to Load */
         case AugLoad: /* fall through to Load */
         case Load:    op = BINARY_SUBSCR; break;
         case AugStore:/* fall through to Store */

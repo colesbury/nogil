@@ -57,8 +57,6 @@ typedef struct {
     PyObject *FloorDiv_type;
     PyObject *For_type;
     PyObject *FormattedValue_type;
-    PyObject *FuncLoad_singleton;
-    PyObject *FuncLoad_type;
     PyObject *FunctionDef_type;
     PyObject *FunctionType_type;
     PyObject *GeneratorExp_type;
@@ -289,8 +287,6 @@ static int astmodule_clear(PyObject *module)
     Py_CLEAR(astmodulestate(module)->FloorDiv_type);
     Py_CLEAR(astmodulestate(module)->For_type);
     Py_CLEAR(astmodulestate(module)->FormattedValue_type);
-    Py_CLEAR(astmodulestate(module)->FuncLoad_singleton);
-    Py_CLEAR(astmodulestate(module)->FuncLoad_type);
     Py_CLEAR(astmodulestate(module)->FunctionDef_type);
     Py_CLEAR(astmodulestate(module)->FunctionType_type);
     Py_CLEAR(astmodulestate(module)->GeneratorExp_type);
@@ -520,8 +516,6 @@ static int astmodule_traverse(PyObject *module, visitproc visit, void* arg)
     Py_VISIT(astmodulestate(module)->FloorDiv_type);
     Py_VISIT(astmodulestate(module)->For_type);
     Py_VISIT(astmodulestate(module)->FormattedValue_type);
-    Py_VISIT(astmodulestate(module)->FuncLoad_singleton);
-    Py_VISIT(astmodulestate(module)->FuncLoad_type);
     Py_VISIT(astmodulestate(module)->FunctionDef_type);
     Py_VISIT(astmodulestate(module)->FunctionType_type);
     Py_VISIT(astmodulestate(module)->GeneratorExp_type);
@@ -1628,13 +1622,6 @@ static int init_types_inner(void)
     state->Param_singleton = PyType_GenericNew((PyTypeObject
                                                *)state->Param_type, NULL, NULL);
     if (!state->Param_singleton) return 0;
-    state->FuncLoad_type = make_type("FuncLoad", state->expr_context_type,
-                                     NULL, 0);
-    if (!state->FuncLoad_type) return 0;
-    state->FuncLoad_singleton = PyType_GenericNew((PyTypeObject
-                                                  *)state->FuncLoad_type, NULL,
-                                                  NULL);
-    if (!state->FuncLoad_singleton) return 0;
     state->slice_type = make_type("slice", state->AST_type, NULL, 0);
     if (!state->slice_type) return 0;
     if (!add_attributes(state->slice_type, NULL, 0)) return 0;
@@ -4478,9 +4465,6 @@ PyObject* ast2obj_expr_context(expr_context_ty o)
         case Param:
             Py_INCREF(astmodulestate_global->Param_singleton);
             return astmodulestate_global->Param_singleton;
-        case FuncLoad:
-            Py_INCREF(astmodulestate_global->FuncLoad_singleton);
-            return astmodulestate_global->FuncLoad_singleton;
         default:
             /* should never happen, but just in case ... */
             PyErr_Format(PyExc_SystemError, "unknown expr_context found");
@@ -8744,14 +8728,6 @@ obj2ast_expr_context(PyObject* obj, expr_context_ty* out, PyArena* arena)
         *out = Param;
         return 0;
     }
-    isinstance = PyObject_IsInstance(obj, astmodulestate_global->FuncLoad_type);
-    if (isinstance == -1) {
-        return 1;
-    }
-    if (isinstance) {
-        *out = FuncLoad;
-        return 0;
-    }
 
     PyErr_Format(PyExc_TypeError, "expected some sort of expr_context, but got %R", obj);
     return 1;
@@ -10249,11 +10225,6 @@ PyInit__ast(void)
         goto error;
     }
     Py_INCREF(astmodulestate(m)->Param_type);
-    if (PyModule_AddObject(m, "FuncLoad", astmodulestate_global->FuncLoad_type)
-        < 0) {
-        goto error;
-    }
-    Py_INCREF(astmodulestate(m)->FuncLoad_type);
     if (PyModule_AddObject(m, "slice", astmodulestate_global->slice_type) < 0) {
         goto error;
     }
