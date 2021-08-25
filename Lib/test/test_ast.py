@@ -334,23 +334,11 @@ class AST_Tests(unittest.TestCase):
         self.assertTrue(issubclass(ast.Gt, ast.AST))
 
     def test_field_attr_existence(self):
-        sys.getfullrefcount(None)
-        try:
-            for name, item in ast.__dict__.items():
-                pass
-        except RuntimeError:
-            pass
-            
-        import gc
-        gc.disable()
-        try:
-            for name, item in ast.__dict__.items():
-                if isinstance(item, type) and name != 'AST' and name[0].isupper():
-                    x = item()
-                    if isinstance(x, ast.AST):
-                        self.assertEqual(type(x._fields), tuple)
-        finally:
-            gc.enable()
+        for name, item in ast.__dict__.items():
+            if isinstance(item, type) and name != 'AST' and name[0].isupper():
+                x = item()
+                if isinstance(x, ast.AST):
+                    self.assertEqual(type(x._fields), tuple)
 
     def test_arguments(self):
         x = ast.arguments()
