@@ -23,8 +23,6 @@ static PyObject * cfunction_vectorcall_O(
     PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 static PyObject * cfunction_call(
     PyObject *func, PyObject *args, PyObject *kwargs);
-static PyObject * cfunction_vectorcall_synchronized(
-    PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 
 
 PyObject *
@@ -90,13 +88,7 @@ PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module)
     op->m_self = self;
     Py_XINCREF(module);
     op->m_module = module;
-    if (self && vectorcall && Py_TYPE(self)->tp_lockoffset) {
-        op->vectorcall = cfunction_vectorcall_synchronized;
-        op->base_vectorcall = vectorcall;
-    }
-    else {
-        op->vectorcall = vectorcall;
-    }
+    op->vectorcall = vectorcall;
     _PyObject_GC_TRACK(op);
     return (PyObject *)op;
 }
@@ -498,46 +490,4 @@ cfunction_call(PyObject *func, PyObject *args, PyObject *kwargs)
         result = meth(self, args);
     }
     return _Py_CheckFunctionResult(tstate, func, result, NULL);
-}
-
-static PyObject *
-cfunction_vectorcall_synchronized(
-    PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-    assert(!_PyErr_Occurred(tstate));
-
-    PyCFunctionObject *cfunc = (PyCFunctionObject *)func;
-    PyObject *self = cfunc->m_self;
-
-    if (!self) {
-        PyObject *funcstr = _PyObject_FunctionStr(func);
-        if (funcstr) {
-            _PyErr_Format(tstate, PyExc_TypeError,
-                          "%U missing self object",
-                          funcstr);
-            Py_DECREF(funcstr);
-        }
-        return NULL;
-    }
-
-    Py_ssize_t tp_lockoffset = Py_TYPE(self)->tp_lockoffset;
-    if (tp_lockoffset == 0) {
-        PyObject *funcstr = _PyObject_FunctionStr(func);
-        if (funcstr) {
-            _PyErr_Format(tstate, PyExc_TypeError,
-                          "%U expects an object with a recursive lock",
-                          funcstr);
-            Py_DECREF(funcstr);
-        }
-        return NULL;
-    }
-
-    _PyRecursiveMutex *m = (_PyRecursiveMutex *)((char*)self + tp_lockoffset);
-
-    _PyRecursiveMutex_lock(m);
-    PyObject *result = cfunc->base_vectorcall(func, args, nargsf, kwnames);
-    _PyRecursiveMutex_unlock(m);
-
-    return result;
 }

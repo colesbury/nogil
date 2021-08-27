@@ -5424,7 +5424,6 @@ inherit_slots(PyTypeObject *type, PyTypeObject *base)
         COPYSLOT(tp_alloc);
         COPYSLOT(tp_is_gc);
         COPYSLOT(tp_finalize);
-        COPYSLOT(tp_lockoffset);
         if ((type->tp_flags & Py_TPFLAGS_HAVE_GC) ==
             (base->tp_flags & Py_TPFLAGS_HAVE_GC)) {
             /* They agree about gc. */
