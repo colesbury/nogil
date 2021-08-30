@@ -48,12 +48,10 @@ _Py_ThreadCanHandlePendingCalls(void)
 
 /* Variable and macro for in-line access to current thread
    and interpreter state */
-
-static inline PyThreadState*
-_PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
-{
-    return (PyThreadState*)_Py_atomic_load_relaxed(&runtime->gilstate.tstate_current);
-}
+#if defined(__GNUC__) && !defined(Py_ENABLE_SHARED)
+__attribute__((tls_model("local-exec")))
+#endif
+extern Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 
 /* Get the current Python thread state.
 
@@ -67,12 +65,24 @@ _PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
 static inline PyThreadState*
 _PyThreadState_GET(void)
 {
-    return _PyRuntimeState_GetThreadState(&_PyRuntime);
+    return _Py_current_tstate;
+}
+
+static inline void
+_PyThreadState_SET(PyThreadState *tstate)
+{
+    _Py_current_tstate = tstate;
 }
 
 /* Redefine PyThreadState_GET() as an alias to _PyThreadState_GET() */
 #undef PyThreadState_GET
 #define PyThreadState_GET() _PyThreadState_GET()
+
+static inline PyThreadState*
+_PyRuntimeState_GetThreadState(_PyRuntimeState *runtime)
+{
+    return _PyThreadState_GET();
+}
 
 PyAPI_FUNC(void) _Py_NO_RETURN _Py_FatalError_TstateNULL(const char *func);
 
