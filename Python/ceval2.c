@@ -1323,6 +1323,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             PyObject *value;
             owner = AS_OBJ(acc);
             CALL_VM(value = f(descr, owner, (PyObject *)Py_TYPE(owner)));
+            if (UNLIKELY(value == NULL)) {
+                goto error;
+            }
             regs[UImm(0)] = PACK_OBJ(value);
         }
         else {
