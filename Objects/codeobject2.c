@@ -637,6 +637,13 @@ code_getcode(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
+code_getnames(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    // TODO: traverse bytecode looking for LOAD_GLOBAL/LOAD_NAME ??
+    return PyTuple_New(0);
+}
+
+static PyObject *
 code_getconsts(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     PyObject *t = PyTuple_New(co->co_nconsts);
@@ -836,6 +843,7 @@ static PyGetSetDef code_getset[] = {
     {"co_kwonlyargcount", (getter)code_getkwonlyargcount, (setter)NULL, NULL, NULL},
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
+    {"co_names", (getter)code_getnames, (setter)NULL, "names", NULL},
     {"co_exc_handlers", (getter)code_getexc_handlers, (setter)NULL, "exception handlers", NULL},
     {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "cell variables", NULL},
     {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "free variables", NULL},
