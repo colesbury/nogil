@@ -33,15 +33,14 @@ to avoid the expense of doing their own locking).
 extern "C" {
 #endif
 
-#define _PyRuntimeGILState_GetThreadState(gilstate) \
-    ((PyThreadState*)_Py_atomic_load_relaxed(&(gilstate)->tstate_current))
-#define _PyRuntimeGILState_SetThreadState(gilstate, value) \
-    _Py_atomic_store_relaxed(&(gilstate)->tstate_current, \
-                             (uintptr_t)(value))
+#define _PyRuntimeGILState_GetThreadState(gilstate) _PyThreadState_GET()
+#define _PyRuntimeGILState_SetThreadState(gilstate, value) _PyThreadState_SET(value)
 
 /* Forward declarations */
 static PyThreadState *_PyGILState_GetThisThreadState(struct _gilstate_runtime_state *gilstate);
 static void _PyThreadState_Delete(PyThreadState *tstate, int check_current);
+
+Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 
 
 static PyStatus
@@ -901,8 +900,7 @@ _PyThreadState_DeleteCurrent(PyThreadState *tstate)
 void
 PyThreadState_DeleteCurrent(void)
 {
-    struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    PyThreadState *tstate = _PyRuntimeGILState_GetThreadState(gilstate);
+    PyThreadState *tstate = PyThreadState_GET();
     _PyThreadState_DeleteCurrent(tstate);
 }
 
@@ -1199,9 +1197,8 @@ static int
 PyThreadState_IsCurrent(PyThreadState *tstate)
 {
     /* Must be the tstate for this thread */
-    struct _gilstate_runtime_state *gilstate = &_PyRuntime.gilstate;
-    assert(_PyGILState_GetThisThreadState(gilstate) == tstate);
-    return tstate == _PyRuntimeGILState_GetThreadState(gilstate);
+    assert(_PyGILState_GetThisThreadState(&_PyRuntime.gilstate) == tstate);
+    return tstate == _PyThreadState_GET();
 }
 
 /* Internal initialization/finalization functions called by
