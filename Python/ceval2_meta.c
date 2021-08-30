@@ -190,7 +190,19 @@ vm_stack_walk_lineno(struct stack_walk *w)
 void
 vm_dump_stack(void)
 {
-    struct ThreadState *ts = current_thread_state();
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *tstate = PyThread_tss_get(&runtime->gilstate.autoTSSkey);
+    if (tstate == NULL) {
+        fprintf(stderr, "no thread state\n");
+        return;
+    }
+
+    struct ThreadState *ts = tstate->active;
+    if (ts == NULL) {
+        fprintf(stderr, "no vm thread state\n");
+        return;
+    }
+
     struct stack_walk w;
     vm_stack_walk_init(&w, ts);
     while (vm_stack_walk(&w)) {
