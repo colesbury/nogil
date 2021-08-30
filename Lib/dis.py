@@ -19,6 +19,9 @@ _have_code = (types.MethodType, types.FunctionType2, types.CodeType2,
 MAKE_FUNCTION = opmap['MAKE_FUNCTION']
 MAKE_FUNCTION_FLAGS = ('defaults', 'kwdefaults', 'annotations', 'closure')
 
+# Meaningless, but cloudpickle imports these (but doesn't use them)
+HAVE_ARGUMENT = None
+EXTENDED_ARG = None
 
 def _try_compile(source, name):
     """Attempts to compile the given source, first as an expression and
