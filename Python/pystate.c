@@ -9,6 +9,7 @@
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
+#include "pyatomic.h"
 
 /* --------------------------------------------------------------------------
 CAUTION
@@ -168,6 +169,30 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
 /* Forward declaration */
 static void _PyGILState_NoteThreadState(
     struct _gilstate_runtime_state *gilstate, PyThreadState* tstate);
+
+int
+_PyThreadState_GetStatus(PyThreadState *tstate)
+{
+    return _Py_atomic_load_int32_relaxed(&tstate->status);
+}
+
+static int
+_PyThreadState_Attach(PyThreadState *tstate)
+{
+    if (_Py_atomic_compare_exchange_int32(
+            &tstate->status,
+            _Py_THREAD_DETACHED,
+            _Py_THREAD_ATTACHED)) {
+        return 1;
+    }
+    return 0;
+}
+
+static void
+_PyThreadState_Detach(PyThreadState *tstate)
+{
+    _Py_atomic_store_int32(&tstate->status, _Py_THREAD_DETACHED);
+}
 
 PyStatus
 _PyInterpreterState_Enable(_PyRuntimeState *runtime)
@@ -338,12 +363,13 @@ PyInterpreterState_Delete(PyInterpreterState *interp)
 {
     _PyRuntimeState *runtime = interp->runtime;
     struct pyinterpreters *interpreters = &runtime->interpreters;
-    zapthreads(interp, 0);
-
-    _PyEval_FiniState(&interp->ceval);
 
     /* Delete current thread. After this, many C API calls become crashy. */
     _PyThreadState_Swap(&runtime->gilstate, NULL);
+
+    zapthreads(interp, 0);
+
+    _PyEval_FiniState(&interp->ceval);
 
     HEAD_LOCK(runtime);
     PyInterpreterState **p;
@@ -576,6 +602,7 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->interp = interp;
 
+    tstate->status = _Py_THREAD_DETACHED;
     tstate->frame = NULL;
     tstate->recursion_depth = 0;
     tstate->overflowed = 0;
@@ -648,6 +675,7 @@ _PyThreadState_Prealloc(PyInterpreterState *interp)
 void
 _PyThreadState_Init(PyThreadState *tstate)
 {
+    tstate->fast_thread_id = _Py_ThreadId();
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
 }
 
@@ -836,15 +864,25 @@ PyThreadState_Clear(PyThreadState *tstate)
 /* Common code for PyThreadState_Delete() and PyThreadState_DeleteCurrent() */
 static void
 tstate_delete_common(PyThreadState *tstate,
-                     struct _gilstate_runtime_state *gilstate)
+                     struct _gilstate_runtime_state *gilstate,
+                     int is_current)
 {
+    assert(is_current ? tstate->status == _Py_THREAD_ATTACHED
+                      : tstate->status != _Py_THREAD_ATTACHED);
+
     _Py_EnsureTstateNotNULL(tstate);
     PyInterpreterState *interp = tstate->interp;
     if (interp == NULL) {
         Py_FatalError("NULL interpreter");
     }
-    _PyRuntimeState *runtime = interp->runtime;
 
+    if (gilstate->autoInterpreterState &&
+        PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
+    {
+        PyThread_tss_set(&gilstate->autoTSSkey, NULL);
+    }
+
+    _PyRuntimeState *runtime = interp->runtime;
     HEAD_LOCK(runtime);
     if (tstate->prev) {
         tstate->prev->next = tstate->next;
@@ -857,10 +895,8 @@ tstate_delete_common(PyThreadState *tstate,
     }
     HEAD_UNLOCK(runtime);
 
-    if (gilstate->autoInterpreterState &&
-        PyThread_tss_get(&gilstate->autoTSSkey) == tstate)
-    {
-        PyThread_tss_set(&gilstate->autoTSSkey, NULL);
+    if (is_current) {
+        _PyThreadState_SET(NULL);
     }
 }
 
@@ -874,7 +910,7 @@ _PyThreadState_Delete(PyThreadState *tstate, int check_current)
             _Py_FatalErrorFormat(__func__, "tstate %p is still current", tstate);
         }
     }
-    tstate_delete_common(tstate, gilstate);
+    tstate_delete_common(tstate, gilstate, 0);
     PyMem_RawFree(tstate);
 }
 
@@ -891,7 +927,7 @@ _PyThreadState_DeleteCurrent(PyThreadState *tstate)
 {
     _Py_EnsureTstateNotNULL(tstate);
     struct _gilstate_runtime_state *gilstate = &tstate->interp->runtime->gilstate;
-    tstate_delete_common(tstate, gilstate);
+    tstate_delete_common(tstate, gilstate, 1);
     _PyRuntimeGILState_SetThreadState(gilstate, NULL);
     _PyEval_ReleaseLock(tstate);
     PyMem_RawFree(tstate);
@@ -966,9 +1002,36 @@ PyThreadState_Get(void)
 PyThreadState *
 _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *newts)
 {
-    PyThreadState *oldts = _PyRuntimeGILState_GetThreadState(gilstate);
+    PyThreadState *oldts = _Py_current_tstate;
 
-    _PyRuntimeGILState_SetThreadState(gilstate, newts);
+#if defined(Py_DEBUG)
+    // The new thread-state should correspond to the current native thread
+    // XXX: breaks subinterpreter tests
+    if (newts && newts->fast_thread_id != _Py_ThreadId()) {
+        Py_FatalError("Invalid thread state for this thread");
+    }
+#endif
+
+    if (oldts != NULL) {
+        int32_t status = _Py_atomic_load_int32(&oldts->status);
+        assert(status == _Py_THREAD_ATTACHED || status == _Py_THREAD_GC);
+
+        if (status == _Py_THREAD_ATTACHED) {
+            _PyThreadState_Detach(oldts);
+        }
+    }
+
+    _Py_current_tstate = newts;
+
+    if (newts) {
+        int attached = _PyThreadState_Attach(newts);
+        if (!attached) {
+            // _PyThreadState_GC_Park(newts);
+        }
+
+        assert(_Py_atomic_load_int32(&newts->status) == _Py_THREAD_ATTACHED);
+    }
+
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
        builds.
@@ -979,8 +1042,7 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
            to it, we need to ensure errno doesn't change.
         */
         int err = errno;
-        PyThreadState *check = _PyGILState_GetThisThreadState(gilstate);
-        if (check && check->interp == newts->interp && check != newts)
+        if (oldts && oldts->interp == newts->interp && oldts != newts)
             Py_FatalError("Invalid thread state for this thread");
         errno = err;
     }
