@@ -500,6 +500,35 @@ PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
 
 PyAPI_FUNC(void) _Py_Dealloc(PyObject *);
 
+static inline uintptr_t
+_Py_ThreadId(void)
+{
+    // copied from mimalloc-internal.h
+    uintptr_t tid;
+#if defined(_MSC_VER) && defined(_M_X64)
+    tid = __readgsqword(48);
+#elif defined(_MSC_VER) && defined(_M_IX86)
+    tid = __readfsdword(24);
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+    tid = __getReg(18);
+#elif defined(__i386__)
+    __asm__("movl %%gs:0, %0" : "=r" (tid));  // 32-bit always uses GS
+#elif defined(__MACH__) && defined(__x86_64__)
+    __asm__("movq %%gs:0, %0" : "=r" (tid));  // x86_64 macOSX uses GS
+#elif defined(__x86_64__)
+    __asm__("movq %%fs:0, %0" : "=r" (tid));  // x86_64 Linux, BSD uses FS
+#elif defined(__arm__)
+    __asm__ ("mrc p15, 0, %0, c13, c0, 3\nbic %0, %0, #3" : "=r" (tid));
+#elif defined(__aarch64__) && defined(__APPLE__)
+    __asm__ ("mrs %0, tpidrro_el0" : "=r" (tid));
+#elif defined(__aarch64__)
+    __asm__ ("mrs %0, tpidr_el0" : "=r" (tid));
+#else
+  # error "define _Py_ThreadId for this platform"
+#endif
+  return tid;
+}
+
 /*
 These are provided as conveniences to Python runtime embedders, so that
 they can have object code that is not dependent on Python compilation flags.

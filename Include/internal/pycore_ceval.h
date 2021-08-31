@@ -152,6 +152,9 @@ extern PyObject* _Py_MakeCoro(PyFunctionObject *func);
 
 extern int _Py_HandlePending(PyThreadState *tstate);
 
+extern void _PyEval_TakeGIL(PyThreadState *tstate);
+extern void _PyEval_DropGIL(PyThreadState *tstate);
+
 
 
 #ifdef __cplusplus

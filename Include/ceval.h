@@ -16,6 +16,7 @@ PyAPI_FUNC(PyObject *) PyEval_EvalCodeEx(PyObject *co,
                                          PyObject *const *kwds, int kwdc,
                                          PyObject *const *defs, int defc,
                                          PyObject *kwdefs, PyObject *closure);
+/* Interface to random parts in ceval.c */
 
 /* PyEval_CallObjectWithKeywords(), PyEval_CallObject(), PyEval_CallFunction
  * and PyEval_CallMethod are deprecated. Since they are officially part of the

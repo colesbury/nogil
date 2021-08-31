@@ -114,6 +114,9 @@ struct _ts {
     PyThreadState *next;
     PyInterpreterState *interp;
 
+    /* thread status (attached, detached, gc) */
+    int status;
+
     /* Has been initialized to a safe state.
 
        In order to be effective, this must be set to 0 during or right
@@ -163,6 +166,8 @@ struct _ts {
      * macro PY_HAVE_THREAD_NATIVE_ID is then defined.
      */
     unsigned long native_thread_id;
+
+    uintptr_t fast_thread_id; /* Thread id used for object ownership */
 
     int trash_delete_nesting;
     PyObject *trash_delete_later;

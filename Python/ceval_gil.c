@@ -1004,3 +1004,16 @@ _Py_HandlePending(PyThreadState *tstate)
     return 0;
 }
 
+void
+_PyEval_TakeGIL(PyThreadState *tstate)
+{
+    _PyThreadState_SET(tstate);
+    take_gil(tstate);
+}
+
+void
+_PyEval_DropGIL(PyThreadState *tstate)
+{
+    _PyThreadState_SET(NULL);
+    _PyEval_ReleaseLock(tstate);
+}
