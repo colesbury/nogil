@@ -10,6 +10,11 @@ extern "C" {
 
 #include "pycore_runtime.h"   /* PyRuntimeState */
 
+typedef enum {
+    _Py_THREAD_DETACHED=0,
+    _Py_THREAD_ATTACHED,
+    _Py_THREAD_GC,
+} _Py_thread_status;
 
 /* Check if the current thread is the main thread.
    Use _Py_IsMainInterpreter() to check if it's the main interpreter. */

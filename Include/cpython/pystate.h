@@ -55,6 +55,9 @@ struct _ts {
     struct _ts *next;
     PyInterpreterState *interp;
 
+    /* thread status */
+    int32_t status;
+
     /* Borrowed reference to the current frame (it can be NULL) */
     PyFrameObject *frame;
     int recursion_depth;
@@ -95,6 +98,8 @@ struct _ts {
 
     PyObject *async_exc; /* Asynchronous exception to raise */
     unsigned long thread_id; /* Thread id where this tstate was created */
+
+    uintptr_t fast_thread_id; /* Thread id used for object ownership */
 
     int trash_delete_nesting;
     PyObject *trash_delete_later;

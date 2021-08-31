@@ -6,6 +6,8 @@ extern "C" {
 
 
 /* Interface to random parts in ceval.c */
+PyAPI_FUNC(void) _PyEval_TakeGIL(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyEval_DropGIL(PyThreadState *tstate);
 
 /* PyEval_CallObjectWithKeywords(), PyEval_CallObject(), PyEval_CallFunction
  * and PyEval_CallMethod are deprecated. Since they are officially part of the

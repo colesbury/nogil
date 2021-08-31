@@ -378,6 +378,20 @@ _PyEval_ReleaseLock(PyThreadState *tstate)
 }
 
 void
+_PyEval_TakeGIL(PyThreadState *tstate)
+{
+    _PyThreadState_SET(tstate);
+    take_gil(tstate);
+}
+
+void
+_PyEval_DropGIL(PyThreadState *tstate)
+{
+    _PyThreadState_SET(NULL);
+    _PyEval_ReleaseLock(tstate);
+}
+
+void
 PyEval_AcquireThread(PyThreadState *tstate)
 {
     _Py_EnsureTstateNotNULL(tstate);
