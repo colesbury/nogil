@@ -2,6 +2,7 @@
 
 #include "Python.h"
 #include "pycore_accu.h"
+#include "pycore_list.h"
 
 static PyObject *
 join_list_unicode(PyObject *lst)
@@ -44,7 +45,7 @@ flush_accumulator(_PyAccu *acc)
             Py_DECREF(joined);
             return -1;
         }
-        ret = PyList_Append(acc->large, joined);
+        ret = _PyList_AppendPrivate(acc->large, joined);
         Py_DECREF(joined);
         return ret;
     }
@@ -57,7 +58,7 @@ _PyAccu_Accumulate(_PyAccu *acc, PyObject *unicode)
     Py_ssize_t nsmall;
     assert(PyUnicode_Check(unicode));
 
-    if (PyList_Append(acc->small, unicode))
+    if (_PyList_AppendPrivate(acc->small, unicode))
         return -1;
     nsmall = PyList_GET_SIZE(acc->small);
     /* Each item in a list of unicode objects has an overhead (in 64-bit
