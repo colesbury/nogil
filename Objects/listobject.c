@@ -40,7 +40,7 @@ min_realloc_size(size_t allocated)
 _Py_NO_INLINE static int
 list_ensure_capacity(PyListObject *self, Py_ssize_t minsize)
 {
-    assert(_PyMutex_is_locked(&self->mutex));
+    // assert(_PyMutex_is_locked(&self->mutex));
 
     Py_ssize_t allocated = self->allocated;
     if (allocated >= minsize) {
@@ -373,6 +373,23 @@ app1(PyListObject *self, PyObject *v)
     Py_SET_SIZE(self, n+1); // release?
     Py_INCREF(v);
     _PyMutex_unlock(&self->mutex);
+    return 0;
+}
+
+int
+_PyList_AppendPrivate(PyObject *op, PyObject *v)
+{
+    PyListObject *self = (PyListObject *)op;
+    Py_ssize_t n = Py_SIZE(self);
+    if (_PY_UNLIKELY(self->allocated <= n)) {
+        if (list_ensure_capacity(self, n+1) < 0) {
+            return -1;
+        }
+    }
+
+    self->ob_item[n] = v;
+    Py_SET_SIZE(self, n+1); // release?
+    Py_INCREF(v);
     return 0;
 }
 
