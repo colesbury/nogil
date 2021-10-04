@@ -51,7 +51,7 @@ _Py_TryIncrefStackFast(PyObject *op) {
     return 0;
 }
 
-static inline _Py_ALWAYS_INLINE PyObject **
+static _Py_ALWAYS_INLINE PyObject **
 _PyObject_GET_DICT_PTR(PyObject *obj)
 {
     Py_ssize_t dictoffset;
@@ -75,7 +75,7 @@ _PyObject_GET_DICT_PTR(PyObject *obj)
     return (PyObject **) ((char *)obj + dictoffset);
 }
 
-static inline _Py_ALWAYS_INLINE PyObject *
+static _Py_ALWAYS_INLINE PyObject *
 _PyObject_GET_DICT(PyObject *obj)
 {
     PyObject **dictptr = _PyObject_GET_DICT_PTR(obj);

@@ -562,9 +562,9 @@ extern "C" {
 #if defined(_MSC_VER)
 #  define _Py_ALWAYS_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
-#  define _Py_ALWAYS_INLINE __attribute__ ((always_inline))
+#  define _Py_ALWAYS_INLINE inline __attribute__ ((always_inline))
 #else
-#  define _Py_ALWAYS_INLINE
+#  define _Py_ALWAYS_INLINE inline
 #endif
 
 /**************************************************************************

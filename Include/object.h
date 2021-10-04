@@ -3,11 +3,6 @@
 
 #include "pyatomic.h"
 
-#if defined(WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
-
 #if defined(__GNUC__) || defined(__clang__)
 #define _PY_UNLIKELY(x)     __builtin_expect((x),0)
 #define _PY_LIKELY(x)       __builtin_expect((x),1)
@@ -527,7 +522,7 @@ _Py_REF_IS_QUEUED(uint32_t shared)
 #endif
 
 
-_Py_ALWAYS_INLINE static inline void
+static _Py_ALWAYS_INLINE void
 _Py_INCREF(PyObject *op)
 {
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
@@ -549,7 +544,7 @@ _Py_INCREF(PyObject *op)
 
 #define Py_INCREF(op) _Py_INCREF(_PyObject_CAST(op))
 
-_Py_ALWAYS_INLINE static inline void
+static _Py_ALWAYS_INLINE void
 _Py_INCREF_STACK(PyObject *op)
 {
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
@@ -611,7 +606,7 @@ _Py_TryIncrefFast(PyObject *op) {
     return 0;
 }
 
-_Py_ALWAYS_INLINE static inline void _Py_DECREF(
+static _Py_ALWAYS_INLINE void _Py_DECREF(
 #ifdef Py_REF_DEBUG
     const char *filename, int lineno,
 #endif
@@ -649,7 +644,7 @@ _Py_ALWAYS_INLINE static inline void _Py_DECREF(
 #  define Py_DECREF(op) _Py_DECREF(_PyObject_CAST(op))
 #endif
 
-_Py_ALWAYS_INLINE static inline void _Py_DECREF_STACK(
+static _Py_ALWAYS_INLINE void _Py_DECREF_STACK(
 #ifdef Py_REF_DEBUG
     const char *filename, int lineno,
 #endif

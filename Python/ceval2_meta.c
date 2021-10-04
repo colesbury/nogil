@@ -24,7 +24,6 @@
 #include "pycore_generator.h"
 
 #include <ctype.h>
-#include <alloca.h>
 
 static struct ThreadState *current_thread_state(void);
 
@@ -1168,7 +1167,7 @@ vm_load_build_class(struct ThreadState *ts, PyObject *builtins)
     }
 }
 
-static PyObject * _Py_NO_INLINE
+_Py_NO_INLINE static PyObject *
 vm_call_function_ex(struct ThreadState *ts)
 {
     PyObject *callable = AS_OBJ(ts->regs[-1]);
@@ -1180,7 +1179,7 @@ vm_call_function_ex(struct ThreadState *ts)
     return res;
 }
 
-PyObject * _Py_NO_INLINE
+_Py_NO_INLINE PyObject *
 vm_call_cfunction_slow(struct ThreadState *ts, Register acc)
 {
     const int flags_ex = ACC_FLAG_VARARGS|ACC_FLAG_VARKEYWORDS;

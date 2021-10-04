@@ -75,6 +75,8 @@ PyAPI_FUNC(Py_ssize_t) _PyGC_CollectIfEnabled(void);
 
 #ifdef __cplusplus
 #define _Py_ALIGN_AS alignas
+#elif defined(_MSC_VER)
+#define _Py_ALIGN_AS(n) __declspec(align(n))
 #else
 #define _Py_ALIGN_AS _Alignas
 #endif

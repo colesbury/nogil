@@ -466,8 +466,7 @@ next:
 static PyObject *
 pydict_get(PyDictObject *mp, PyObject *key, Py_hash_t hash);
 
-__attribute__((noinline))
-static PyObject *
+_Py_NO_INLINE static PyObject *
 value_for_key_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash)
 {
     if (hash == -1) {
@@ -486,8 +485,7 @@ value_for_key_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash)
     return value;
 }
 
-__attribute__((noinline, cold))
-static PyObject *
+_Py_NO_INLINE static PyObject *
 value_for_key_retry(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *garbage)
 {
     Py_DECREF(garbage);
@@ -674,8 +672,7 @@ prepare_insert(PyDictObject *mp, Py_hash_t hash)
     return insert(mp->ma_keys, hash);
 }
 
-__attribute__((noinline))
-static PyObject *
+_Py_NO_INLINE static PyObject *
 pydict_get_slow_blah(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyDictKeysObject *keys, PyDictKeyEntry *entry)
 {
     PyObject *entry_key = _Py_atomic_load_ptr(&entry->me_key);
@@ -941,8 +938,7 @@ PyDict_GetItemWithError(PyObject *op, PyObject *key)
     return _PyDict_GetItem_KnownHash(op, key, hash);
 }
 
-__attribute__((noinline))
-static PyObject *
+_Py_NO_INLINE static PyObject *
 PyDict_GetItemWithError2_slow(PyDictObject *mp, PyObject *key)
 {
     Py_hash_t hash = compute_hash(key);
@@ -1529,8 +1525,7 @@ dict_length(PyDictObject *mp)
     return mp->ma_used;
 }
 
-__attribute__((noinline))
- static PyObject *
+_Py_NO_INLINE static PyObject *
 dict_lookup_missing(PyDictObject *mp, PyObject *key)
 {
     if (!PyDict_CheckExact(mp)) {
@@ -1550,8 +1545,7 @@ dict_lookup_missing(PyDictObject *mp, PyObject *key)
     return _PyErr_SetKeyError2(key);
 }
 
-__attribute__((noinline))
-static PyObject *
+ _Py_NO_INLINE static PyObject *
 dict_subscript_slow(PyDictObject *mp, PyObject *key)
 {
     Py_hash_t hash = compute_hash(key);

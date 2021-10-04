@@ -164,9 +164,11 @@ struct _ts {
 
     uintptr_t eval_breaker;
     void *opcode_targets[256];
+#ifdef HAVE_COMPUTED_GOTOS
     void *trace_target;
     void *trace_cfunc_target;
     void **opcode_targets_base;
+#endif
 
     Py_ssize_t *type_refcnts;
     Py_ssize_t max_type_refcnts;

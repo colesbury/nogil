@@ -5,7 +5,9 @@
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
-#if HAVE_SSE2
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif HAVE_SSE2
 #include <x86intrin.h>
 #elif HAVE_NEON
 #include <arm_neon.h>
@@ -96,7 +98,9 @@ ctrl_has_empty(dict_ctrl ctrl)
     return ctrl_match_empty(ctrl) != 0;
 }
 
+#ifdef _Py_MEMORY_SANITIZER
 __attribute__((no_sanitize("thread")))
+#endif
 static inline dict_ctrl
 load_ctrl(PyDictKeysObject *keys, Py_ssize_t ix)
 {
@@ -135,7 +139,13 @@ static inline int
 bitmask_lsb(dict_bitmask bitmask)
 {
 #ifdef HAVE_SSE2
+#if defined(_MSC_VER)
+    unsigned long ret;
+    _BitScanForward(&ret, bitmask);
+    return (int)ret;
+#else
     return __builtin_ctz(bitmask);
+#endif
 #elif HAVE_NEON
     return __builtin_ctzll(bitmask) >> 2;
 #else

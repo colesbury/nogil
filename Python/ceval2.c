@@ -55,7 +55,7 @@
 
 #include <ctype.h>
 
-#if 1
+#if 1 && defined(__GNUC__)
 #define DEBUG_LABEL(name) __asm__ volatile("." #name ":")
 #else
 #define DEBUG_LABEL(name)
@@ -256,19 +256,24 @@ _OWNING_REF(Register r, intptr_t tid)
 #define SImm(idx) ((int8_t)UImm(idx))
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
-#define PY_THREAD_STATE() ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
-#define EVAL_BREAKER (&PY_THREAD_STATE()->eval_breaker)
-
-#define CHECK_EVAL_BREAKER() do {                                   \
-    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(EVAL_BREAKER))) {      \
-        goto eval_breaker;                                          \
-    }                                                               \
+#define CHECK_EVAL_BREAKER() do {                                       \
+    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(&tstate->eval_breaker))) { \
+        goto eval_breaker;                                              \
+    }                                                                   \
 } while (0)
+
+#ifdef HAVE_COMPUTED_GOTOS
+#define DISPATCH_NARROW() goto *opcode_targets[opcode]
+#define DISPATCH_NOTRACE() goto *opcode_targets_base[opcode];
+#else
+#define DISPATCH_NARROW() goto dispatch
+#define DISPATCH_NOTRACE() goto dispatch_notrace
+#endif
 
 #define NEXT_INSTRUCTION() \
     opcode = *pc; \
     /* __asm__ volatile("# computed goto " #name); */ \
-    goto *opcode_targets[opcode]
+    DISPATCH_NARROW();
 
 #define JUMP_BY(arg)      \
     pc += (arg);          \
@@ -305,7 +310,7 @@ struct probe_result {
 static inline struct probe_result
 dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
 
-_Py_ALWAYS_INLINE static inline uint16_t
+_Py_ALWAYS_INLINE static uint16_t
 load_uimm16(const uint8_t *addr)
 {
     uint16_t r;
@@ -313,7 +318,7 @@ load_uimm16(const uint8_t *addr)
     return r;
 }
 
-_Py_ALWAYS_INLINE static inline uint32_t
+_Py_ALWAYS_INLINE static uint32_t
 load_uimm32(const uint8_t *addr)
 {
     uint32_t r;
@@ -321,10 +326,13 @@ load_uimm32(const uint8_t *addr)
     return r;
 }
 
-PyObject*
+#if defined(__GNUC__)
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
+#endif
+PyObject*
 _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
 {
+#ifdef HAVE_COMPUTED_GOTOS
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
@@ -332,12 +340,16 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         ts->ts->trace_cfunc_target = &&TRACE_CFUNC_HEADER;
         ts->ts->opcode_targets_base = opcode_targets_base;
     }
+    void **opcode_targets = ts->ts->opcode_targets;
+    #define tstate ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
+#else
+    PyThreadState *tstate = ts->ts;
+#endif
 
     const uint8_t *pc = initial_pc;
     intptr_t opcode;
     Register acc = initial_acc;
     Register *regs = ts->regs;
-    void **opcode_targets = ts->ts->opcode_targets;
     PyObject **constants = THIS_CODE()->co_constants;
     #define metadata ((intptr_t *)(char *)constants)
     uintptr_t tid = _Py_ThreadId();
@@ -348,10 +360,22 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     CHECK_EVAL_BREAKER();
 
     // GCC likes to get too clever
+#ifdef HAVE_COMPUTED_GOTOS
     BREAK_LIVE_RANGE(opcode_targets);
+#endif
 
     // Dispatch to the first instruction
     NEXT_INSTRUCTION();
+
+#ifndef HAVE_COMPUTED_GOTOS
+    dispatch:
+    if (UNLIKELY(tstate->use_tracing)) {
+        goto LABEL(TRACE);
+    }
+
+    dispatch_notrace:
+    #include "opcode_dispatch.h"
+#endif
 
     #endif // WIDE_OP
     TARGET(LOAD_CONST) {
@@ -2715,6 +2739,19 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     #ifndef WIDE_OP
     TARGET(TRACE) {
+#ifndef HAVE_COMPUTED_GOTOS
+        static bool trace_cfunc[128] = {
+            [CFUNC_HEADER] = 1,
+            [CFUNC_HEADER_NOARGS] = 1,
+            [CFUNC_HEADER_O] = 1,
+            [CMETHOD_O] = 1,
+            [FUNC_TPCALL_HEADER] = 1,
+        };
+        if (trace_cfunc[opcode]) {
+            goto LABEL(TRACE_CFUNC_HEADER);
+        }
+#endif
+
         int err;
         const uint8_t *last_pc = ts->pc;
         CALL_VM(err = vm_trace_handler(ts, last_pc, acc));
@@ -2722,12 +2759,12 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         opcode = *pc;
-        goto *opcode_targets_base[opcode];
+        DISPATCH_NOTRACE();
     }
 
     TARGET(WIDE) {
-        opcode = pc[1];
-        goto *opcode_targets[128 + opcode];
+        opcode = 128 + pc[1];
+        DISPATCH_NOTRACE();
     }
 
     #undef WIDTH_PREFIX
@@ -2792,12 +2829,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
     _unknown_opcode:
     {
-        // CALL_VM(acc = vm_unknown_opcode(opcode));
 #ifdef Py_DEBUG
         printf("unimplemented opcode: %zd\n", opcode);
 #endif
-        abort();
-        __builtin_unreachable();
+        Py_UNREACHABLE();
     }
 //
 
@@ -2826,7 +2861,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         NEXT_INSTRUCTION();
     }
 
-    __builtin_unreachable();
+    Py_UNREACHABLE();
 }
 
 

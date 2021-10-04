@@ -4551,6 +4551,7 @@ update_use_tracing(PyThreadState *tstate)
     /* Flag that tracing or profiling is turned on */
     tstate->use_tracing = use_tracing;
 
+#ifdef HAVE_COMPUTED_GOTOS
     static bool trace_cfunc[128] = {
         [CFUNC_HEADER] = 1,
         [CFUNC_HEADER_NOARGS] = 1,
@@ -4573,6 +4574,7 @@ update_use_tracing(PyThreadState *tstate)
             tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
         }
     }
+#endif
 }
 
 void
