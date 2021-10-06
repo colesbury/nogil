@@ -353,7 +353,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         use_environment=0,
         utf8_mode=0,
         dev_mode=0,
-        disable_gil=0,
+        disable_gil=1,
         coerce_c_locale=0,
     )
 
@@ -370,7 +370,7 @@ class InitConfigTests(EmbeddingTestsMixin, unittest.TestCase):
         'use_environment': 1,
         'dev_mode': 0,
         '_use_peg_parser': 1,
-        'disable_gil': 0,
+        'disable_gil': 1,
 
         'install_signal_handlers': 1,
         'use_hash_seed': 0,
