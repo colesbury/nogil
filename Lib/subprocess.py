@@ -307,9 +307,6 @@ def _args_from_interpreter_flags():
         if sys.flags.no_user_site:
             args.append('-s')
 
-    if sys.flags.nogil:
-        args.extend(('-X', 'nogil'))
-
     # -W options
     warnopts = sys.warnoptions[:]
     bytes_warning = sys.flags.bytes_warning
