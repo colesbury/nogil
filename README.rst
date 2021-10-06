@@ -27,13 +27,6 @@ Install::
 The optional ``--prefix=PREFIX`` specifies the destination directory for the Python installation. The optional ``--enable-optimizations`` enables profile guided optimizations (PGO). This slows down the build process, but makes the compiled Python a bit faster.
 
 
-Usage
--------------------
-
-To reduce the risk of issues with Python-based tools, **the GIL is enabled by default**. To run with the GIL disabled, use the environment variable PYTHONGIL=0. You can check if the GIL is enabled from Python by accessing ``sys.flags.nogil``::
-
-    PYTHONGIL=0 python3 -c "import sys; print(sys.flags.nogil)"
-
 Packages
 -------------------
 
@@ -41,3 +34,44 @@ Use ``pip install <package>`` as usual to install packages. Please file an issue
 
 The proof-of-concept comes with a modified bundled "pip" that includes an `alternative package index <https://d1yxz45j0ypngg.cloudfront.net/>`_. The alternative package index includes C extensions that are either slow to build from source or require some modifications for compatibility.
 
+
+GIL control
+-------------------
+
+The GIL is disabled by default, but if you wish, you can enable it at runtime using the environment variable ``PYTHONGIL=1``. You can check if the GIL is disabled from Python by accessing ``sys.flags.nogil``::
+
+    python3 -c "import sys; print(sys.flags.nogil)"  # True
+    PYTHONGIL=1 python3 -c "import sys; print(sys.flags.nogil)"  # False
+
+Example
+-------------------
+
+You can use the existing Python APIs, such as the `threading <https://docs.python.org/3/library/threading.html>`_ module and the  `ThreadPoolExecutor <https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor>`_ class.
+
+Here is an example based on Larry Hastings's `Gilectomy benchmark <https://github.com/larryhastings/gilectomy/blob/gilectomy/x.py>`_::
+
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+
+    print(f"nogil={getattr(sys.flags, 'nogil', False)}")
+
+    def fib(n):
+        if n < 2: return 1
+        return fib(n-1) + fib(n-2)
+
+    threads = 8
+    if len(sys.argv) > 1:
+        threads = int(sys.argv[1])
+
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        for _ in range(threads):
+            executor.submit(lambda: print(fib(34)))
+
+Run it with, e.g.::
+
+    time python3 fib.py 1   # 1 thread, 1x work
+    time python3 fib.py 20  # 20 threads, 20x work
+    
+The program parallelizes well up to the number of available cores. On a 20 core Intel Xeon E5-2698 v4  one thread takes 1.50 seconds and 20 threads take 1.52 seconds [1].
+
+[1] Turbo boost was `disabled <https://askubuntu.com/questions/619875/disabling-intel-turbo-boost-in-ubuntu>`_ to measure the scaling of the program without the effects of CPU frequency scaling. Additionally, you may get more reliable measurements by using `taskset <https://man7.org/linux/man-pages/man1/taskset.1.html>`_ to avoid virtual "hyperthreading" cores.
