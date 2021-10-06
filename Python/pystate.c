@@ -189,7 +189,7 @@ _PyThreadState_GC_Stop(PyThreadState *tstate)
     struct _gc_runtime_state *gc = &tstate->interp->gc;
 
     HEAD_LOCK(runtime);
-    if (!runtime->stop_the_world) {
+    if (gc->gc_thread_countdown == 0) {
         HEAD_UNLOCK(runtime);
         return;
     }
