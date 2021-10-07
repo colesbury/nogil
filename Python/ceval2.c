@@ -326,7 +326,7 @@ load_uimm32(const uint8_t *addr)
     return r;
 }
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 __attribute__((optimize("-fno-tree-loop-distribute-patterns")))
 #endif
 PyObject*
@@ -2866,7 +2866,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 
 
 // Search for the key `name` in the dict `op` at the offset `guess`.
-_Py_ALWAYS_INLINE static inline struct probe_result
+static _Py_ALWAYS_INLINE struct probe_result
 dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
 {
     assert(PyDict_CheckExact(dict));

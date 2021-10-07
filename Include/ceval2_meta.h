@@ -94,7 +94,7 @@ PACK_OBJ(PyObject *o)
 
 #define PACK_INCREF(op) _PACK_INCREF(op, _Py_ThreadId())
 
-static inline _Py_ALWAYS_INLINE Register
+static _Py_ALWAYS_INLINE Register
 _PACK_INCREF(PyObject *obj, intptr_t tid)
 {
     Register r;
