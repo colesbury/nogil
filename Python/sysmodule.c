@@ -33,7 +33,6 @@ Data members:
 
 #include "osdefs.h"
 #include <locale.h>
-#include <time.h>
 
 #ifdef MS_WINDOWS
 #define WIN32_LEAN_AND_MEAN
@@ -1989,51 +1988,6 @@ sys_getandroidapilevel_impl(PyObject *module)
 }
 #endif   /* ANDROID_API_LEVEL */
 
-static double
-diff(struct timespec start, struct timespec end)
-{
-  struct timespec temp;
-  if ((end.tv_nsec-start.tv_nsec)<0) {
-    temp.tv_sec = end.tv_sec-start.tv_sec-1;
-    temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
-  } else {
-    temp.tv_sec = end.tv_sec-start.tv_sec;
-    temp.tv_nsec = end.tv_nsec-start.tv_nsec;
-  }
-  return (double)temp.tv_sec + temp.tv_nsec * 1e-9;
-}
-
-PyObject* bar(int a, int b, int c, int d) {
-    Py_RETURN_NONE;
-}
-
-static PyObject *
-sys_fib(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *keywords)
-{
-    return Py_None;
-}
-
-static PyObject *
-sys_microbench(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *keywords)
-{
-    if (nargs < 1) {
-        Py_RETURN_NONE;
-    }
-    int N = PyLong_AsLong(args[0]);
-    struct timespec time1, time2;
-    clock_gettime(CLOCK_MONOTONIC, &time1);
-    for (int i = 0; i < N; i++) {
-        PyObject *obj = PyDict_New();
-        if (obj) {
-            Py_DECREF(obj);
-        }
-    }
-    clock_gettime(CLOCK_MONOTONIC, &time2);
-    double time = diff(time1, time2);
-    time = (time/N)*1e3; // convert to ms
-    return PyFloat_FromDouble(time);
-}
-
 static PyObject *
 sys_FunctionTypes(PyObject *module)
 {
@@ -2055,10 +2009,6 @@ static PyMethodDef sys_methods[] = {
     {"audit",           (PyCFunction)(void(*)(void))sys_audit, METH_FASTCALL, audit_doc },
     {"breakpointhook",  (PyCFunction)(void(*)(void))sys_breakpointhook,
      METH_FASTCALL | METH_KEYWORDS, breakpointhook_doc},
-    {"microbench",  (PyCFunction)(void(*)(void))sys_microbench,
-     METH_FASTCALL | METH_KEYWORDS, NULL},
-    {"fib",  (PyCFunction)(void(*)(void))sys_fib,
-     METH_FASTCALL | METH_KEYWORDS, NULL},
     {"FunctionTypes",  (PyCFunction)(void(*)(void))sys_FunctionTypes, METH_NOARGS, NULL},
     {"CodeTypes",  (PyCFunction)(void(*)(void))sys_CodeTypes, METH_NOARGS, NULL},
     SYS__CLEAR_TYPE_CACHE_METHODDEF
