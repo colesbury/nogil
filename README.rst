@@ -11,10 +11,10 @@ Overview
 This is a proof-of-concept implementation of CPython that supports multithreading without the global interpreter lock (GIL). An overview of the  design is described in the `Python Multithreading without GIL <https://docs.google.com/document/d/18CXhDb1ygxg-YXNBJNzfzZsDFosB5e6BfnXLlejd9l0/edit>`__ Google doc.
 
 
-Installation
+Installation from source
 -------------------
 
-The proof-of-concept works best on Linux x86-64. It also builds on Linux ARM64 and Windows (64-bit), but you will have to recompile extension modules yourself for these platforms. I plan to fix the macOS build soon.
+The proof-of-concept works best on Linux x86-64. It also builds on Linux ARM64, Windows (64-bit), and macOS, but you will have to recompile extension modules yourself for these platforms.
 
 The build process has not changed from upstream CPython. See https://devguide.python.org/ for instructions on how to build from source, or follow the steps below.
 
@@ -26,6 +26,10 @@ Install::
     
 The optional ``--prefix=PREFIX`` specifies the destination directory for the Python installation. The optional ``--enable-optimizations`` enables profile guided optimizations (PGO). This slows down the build process, but makes the compiled Python a bit faster.
 
+Docker
+-------------------
+
+A pre-built Docker image `colesbury/python-nogil <https://hub.docker.com/r/colesbury/python-nogil>`_ is available on Docker Hub.
 
 Packages
 -------------------
