@@ -34,18 +34,11 @@ def write_targets(opcode, f):
     targets[255] = 'debug_regs'
     for opname, bytecode in opcode.opmap.items():
         targets[bytecode.opcode] = opname
+    for opname, bytecode in opcode.opmap.items():
+        if len(bytecode.imm) != 0 and opname != 'WIDE':
+            targets[bytecode.opcode + 128] = f"WIDE_{opname}"
     f.write("static void *opcode_targets_base[256] = {\n")
     f.write(",\n".join(["    &&%s" % s for s in targets]))
-    f.write("\n};\n")
-
-    targets[255] = '_unknown_opcode'
-    targets[opcode.opmap['WIDE'].opcode] = '_unknown_opcode'
-    for opname, bytecode in opcode.opmap.items():
-        if len(bytecode.imm) == 0:
-            targets[bytecode.opcode] = '_unknown_opcode'
-
-    f.write("static void *wide_opcode_targets_base[256] = {\n")
-    f.write(",\n".join(["    &&%s" % (f'WIDE_{s}' if s != '_unknown_opcode' else '_unknown_opcode') for s in targets]))
     f.write("\n};\n")
 
 

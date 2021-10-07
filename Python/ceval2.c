@@ -328,7 +328,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
         memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
-        memcpy(ts->ts->opcode_targets + 128, wide_opcode_targets_base, 128 * sizeof(*wide_opcode_targets_base));
         ts->ts->trace_target = &&TRACE;
         ts->ts->trace_cfunc_target = &&TRACE_CFUNC_HEADER;
         ts->ts->opcode_targets_base = opcode_targets_base;
