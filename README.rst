@@ -14,9 +14,9 @@ This is a proof-of-concept implementation of CPython that supports multithreadin
 Installation
 -------------------
 
-The proof-of-concept supports Linux on x86-64 and ARM64. I plan to fix the Windows and macOS builds soon.
+The proof-of-concept works best on Linux x86-64. It also builds on Linux ARM64 and Windows (64-bit), but you will have to recompile extension modules yourself for these platforms. I plan to fix the macOS build soon.
 
-The build process is has not changed from upstream CPython. See https://devguide.python.org/ for instructions on how to build from source, or follow the steps below.
+The build process has not changed from upstream CPython. See https://devguide.python.org/ for instructions on how to build from source, or follow the steps below.
 
 Install::
 
