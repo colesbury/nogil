@@ -39,8 +39,8 @@ typedef enum {
     ONCE_INITIALIZED = 4,
 } _PyMutex_State;
 
-void _PyMutex_lock_slow(_PyMutex *m);
-void _PyMutex_unlock_slow(_PyMutex *m);
+PyAPI_FUNC(void) _PyMutex_lock_slow(_PyMutex *m);
+PyAPI_FUNC(void) _PyMutex_unlock_slow(_PyMutex *m);
 
 void _PyRawMutex_lock_slow(_PyRawMutex *m);
 void _PyRawMutex_unlock_slow(_PyRawMutex *m);

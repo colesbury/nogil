@@ -35,33 +35,33 @@ _PyParkingLot_InitThread(void);
 void
 _PyParkingLot_DeinitThread(Waiter *waiter);
 
-Waiter *
+PyAPI_FUNC(Waiter *)
 _PyParkingLot_ThisWaiter(void);
 
-void
+PyAPI_FUNC(void)
 _PySemaphore_Signal(Waiter *waiter, const char *msg, void *data);
 
-int
+PyAPI_FUNC(int)
 _PySemaphore_Wait(Waiter *waiter, int64_t ns);
 
-int
+PyAPI_FUNC(int)
 _PyParkingLot_ParkInt32(const int32_t *key, int32_t expected);
 
-int
+PyAPI_FUNC(int)
 _PyParkingLot_Park(const void *key, uintptr_t expected,
                    _PyTime_t start_time, int64_t ns);
 
-void
+PyAPI_FUNC(void)
 _PyParkingLot_UnparkAll(const void *key);
 
-void
+PyAPI_FUNC(void)
 _PyParkingLot_BeginUnpark(const void *key, struct Waiter **out,
                           int *more_waiters, int *should_be_fair);
 
-void
+PyAPI_FUNC(void)
 _PyParkingLot_FinishUnpark(const void *key, struct Waiter *waiter);
 
-void
+PyAPI_FUNC(void)
 _PyParkingLot_AfterFork(void);
 
 
