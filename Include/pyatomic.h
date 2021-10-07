@@ -133,6 +133,14 @@ static inline void
 _Py_atomic_store_ptr(volatile void *address, void *value);
 
 
+// FIXME: rename to _Py_atomic_store_uint8_relaxed
+static inline void
+_Py_atomic_store_uint8(volatile uint8_t* address, uint8_t value);
+
+// FIXME: rename to _Py_atomic_store_ssize_relaxed
+static inline void
+_Py_atomic_store_ssize(volatile Py_ssize_t* address, Py_ssize_t value);
+
 static inline void
 _Py_atomic_store_int32_relaxed(volatile int32_t *address, int32_t value);
 

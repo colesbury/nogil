@@ -226,7 +226,82 @@ _Py_atomic_store_uintptr(volatile uintptr_t *address, uintptr_t value)
 static inline void
 _Py_atomic_store_ptr(volatile void *address, void *value)
 {
-    _InterlockedExchangePointer((volatile PVOID*)address, (PVOID)value);
+    _InterlockedExchangePointer((void * volatile *)address, (void *)value);
+}
+
+
+// FIXME: rename to _Py_atomic_store_uint8_relaxed
+static inline void
+_Py_atomic_store_uint8(volatile uint8_t* address, uint8_t value)
+{
+    *address = value;
+}
+
+// FIXME: rename to _Py_atomic_store_ssize_relaxed
+static inline void
+_Py_atomic_store_ssize(volatile Py_ssize_t* address, Py_ssize_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_int32_relaxed(volatile int32_t* address, int32_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_int64_relaxed(volatile int64_t* address, int64_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_intptr_relaxed(volatile intptr_t* address, intptr_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_uint32_relaxed(volatile uint32_t* address, uint32_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_uint64_relaxed(volatile uint64_t* address, uint64_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_uint64_release(volatile uint64_t* address, uint64_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_uintptr_relaxed(volatile uintptr_t* address, uintptr_t value)
+{
+    *address = value;
+}
+
+static inline void
+_Py_atomic_store_ptr_relaxed(volatile void* address, void* value)
+{
+    *(void * volatile *)address = value;
+}
+
+static inline void
+_Py_atomic_store_ptr_release(volatile void* address, void* value)
+{
+    *(void * volatile *)address = value;
+}
+
+static inline void
+_Py_atomic_store_ssize_relaxed(volatile Py_ssize_t* address, Py_ssize_t value)
+{
+    *address = value;
 }
 
 static inline void
