@@ -162,6 +162,14 @@ typedef Py_ssize_t Py_ssize_clean_t;
 #   define PY_FORMAT_SIZE_T "z"
 #endif
 
+#if defined(__SSE2__)
+#define HAVE_SSE2 1
+#elif defined(_MSC_VER) && (defined(_M_X64) || (defined(_M_IX86) && _M_IX86_FP >= 2))
+#define HAVE_SSE2 1
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+#define HAVE_NEON 1
+#endif
+
 /* Py_LOCAL can be used instead of static to get the fastest possible calling
  * convention for functions that are local to a given module.
  *
@@ -340,6 +348,20 @@ extern "C" {
 #define _Py_COMP_DIAG_POP
 #endif
 
+/* _Py_LIKELY and _PY_UNLIKELY
+ * Provides the compiler with branch prediction information.
+ *
+ * Usage:
+ *   if (_PY_UNLIKELY(x == NULL)) { ... }
+ */
+#if defined(__GNUC__)
+#  define _PY_LIKELY(x)       __builtin_expect((x),1)
+#  define _PY_UNLIKELY(x)     __builtin_expect((x),0)
+#else
+#  define _PY_LIKELY(x)       (x)
+#  define _PY_UNLIKELY(x)     (x)
+#endif
+
 /* _Py_HOT_FUNCTION
  * The hot attribute on a function is used to inform the compiler that the
  * function is a hot spot of the compiled program. The function is optimized
@@ -407,6 +429,14 @@ extern "C" {
 #  define Py_NO_INLINE __declspec(noinline)
 #else
 #  define Py_NO_INLINE
+#endif
+
+#if defined(_MSC_VER)
+#  define _Py_ALWAYS_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#  define _Py_ALWAYS_INLINE inline __attribute__ ((always_inline))
+#else
+#  define _Py_ALWAYS_INLINE inline
 #endif
 
 /**************************************************************************
@@ -602,6 +632,12 @@ extern char * _getpty(int *, int, mode_t, int);
 #define Py_ALIGNED(x)
 #endif
 
+#ifdef _MSC_VER
+#define Py_DECL_THREAD __declspec(thread)
+#else
+#define Py_DECL_THREAD __thread
+#endif
+
 /* Eliminate end-of-loop code not reached warnings from SunPro C
  * when using do{...}while(0) macros
  */
@@ -720,10 +756,39 @@ extern char * _getpty(int *, int, mode_t, int);
 #      define _Py_ADDRESS_SANITIZER
 #    endif
 #  endif
+#  if __has_feature(thread_sanitizer)
+#    if !defined(_Py_THREAD_SANITIZER)
+#      define _Py_THREAD_SANITIZER
+#    endif
+#  endif
 #elif defined(__GNUC__)
 #  if defined(__SANITIZE_ADDRESS__)
 #    define _Py_ADDRESS_SANITIZER
 #  endif
+#  if defined(__SANITIZE_THREAD__)
+#    define _Py_THREAD_SANITIZER
+#  endif
 #endif
+
+#if defined(_Py_MEMORY_SANITIZER)
+#  define _Py_NO_SANITIZE_MEMORY __attribute__((no_sanitize_memory))
+#else
+#  define _Py_NO_SANITIZE_MEMORY
+#endif
+
+#if defined(_Py_ADDRESS_SANITIZER)
+#  define _Py_NO_SANITIZE_ADDRESS __attribute__((no_sanitize("address")))
+#else
+#  define _Py_NO_SANITIZE_ADDRESS
+#endif
+
+// TSAN is supported since GCC 5.1, but __SANITIZE_THREAD__ macro is provided
+// only since GCC 7.
+#if defined(_Py_THREAD_SANITIZER) || (__GNUC__ > 5 || (__GNUC__ == 5 && __GNUC_MINOR__ >= 1))
+#  define _Py_NO_SANITIZE_THREAD __attribute__((no_sanitize_thread))
+#else
+#  define _Py_NO_SANITIZE_THREAD
+#endif
+
 
 #endif /* Py_PYPORT_H */
