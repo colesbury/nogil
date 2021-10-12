@@ -125,6 +125,7 @@
 #ifndef PY_NO_SHORT_FLOAT_REPR
 
 #include "float.h"
+#include "lock.h"
 
 #define MALLOC PyMem_Malloc
 #define FREE PyMem_Free
@@ -169,12 +170,6 @@ typedef uint64_t ULLong;
 #ifdef DEBUG
 #define Bug(x) {fprintf(stderr, "%s\n", x); exit(1);}
 #endif
-
-#ifndef PRIVATE_MEM
-#define PRIVATE_MEM 2304
-#endif
-#define PRIVATE_mem ((PRIVATE_MEM+sizeof(double)-1)/sizeof(double))
-static double private_mem[PRIVATE_mem], *pmem_next = private_mem;
 
 #ifdef __cplusplus
 extern "C" {
@@ -330,82 +325,6 @@ Bigint {
 
 typedef struct Bigint Bigint;
 
-#ifndef Py_USING_MEMORY_DEBUGGER
-
-/* Memory management: memory is allocated from, and returned to, Kmax+1 pools
-   of memory, where pool k (0 <= k <= Kmax) is for Bigints b with b->maxwds ==
-   1 << k.  These pools are maintained as linked lists, with freelist[k]
-   pointing to the head of the list for pool k.
-
-   On allocation, if there's no free slot in the appropriate pool, MALLOC is
-   called to get more memory.  This memory is not returned to the system until
-   Python quits.  There's also a private memory pool that's allocated from
-   in preference to using MALLOC.
-
-   For Bigints with more than (1 << Kmax) digits (which implies at least 1233
-   decimal digits), memory is directly allocated using MALLOC, and freed using
-   FREE.
-
-   XXX: it would be easy to bypass this memory-management system and
-   translate each call to Balloc into a call to PyMem_Malloc, and each
-   Bfree to PyMem_Free.  Investigate whether this has any significant
-   performance on impact. */
-
-static Bigint *freelist[Kmax+1];
-
-/* Allocate space for a Bigint with up to 1<<k digits */
-
-static Bigint *
-Balloc(int k)
-{
-    int x;
-    Bigint *rv;
-    unsigned int len;
-
-    if (k <= Kmax && (rv = freelist[k]))
-        freelist[k] = rv->next;
-    else {
-        x = 1 << k;
-        len = (sizeof(Bigint) + (x-1)*sizeof(ULong) + sizeof(double) - 1)
-            /sizeof(double);
-        if (k <= Kmax && pmem_next - private_mem + len <= (Py_ssize_t)PRIVATE_mem) {
-            rv = (Bigint*)pmem_next;
-            pmem_next += len;
-        }
-        else {
-            rv = (Bigint*)MALLOC(len*sizeof(double));
-            if (rv == NULL)
-                return NULL;
-        }
-        rv->k = k;
-        rv->maxwds = x;
-    }
-    rv->sign = rv->wds = 0;
-    return rv;
-}
-
-/* Free a Bigint allocated with Balloc */
-
-static void
-Bfree(Bigint *v)
-{
-    if (v) {
-        if (v->k > Kmax)
-            FREE((void*)v);
-        else {
-            v->next = freelist[v->k];
-            freelist[v->k] = v;
-        }
-    }
-}
-
-#else
-
-/* Alternative versions of Balloc and Bfree that use PyMem_Malloc and
-   PyMem_Free directly in place of the custom memory allocation scheme above.
-   These are provided for the benefit of memory debugging tools like
-   Valgrind. */
-
 /* Allocate space for a Bigint with up to 1<<k digits */
 
 static Bigint *
@@ -416,13 +335,10 @@ Balloc(int k)
     unsigned int len;
 
     x = 1 << k;
-    len = (sizeof(Bigint) + (x-1)*sizeof(ULong) + sizeof(double) - 1)
-        /sizeof(double);
-
+    len = (sizeof(Bigint) + (x-1)*sizeof(ULong) + sizeof(double) - 1)/sizeof(double);
     rv = (Bigint*)MALLOC(len*sizeof(double));
     if (rv == NULL)
         return NULL;
-
     rv->k = k;
     rv->maxwds = x;
     rv->sign = rv->wds = 0;
@@ -438,8 +354,6 @@ Bfree(Bigint *v)
         FREE((void*)v);
     }
 }
-
-#endif /* Py_USING_MEMORY_DEBUGGER */
 
 #define Bcopy(x,y) memcpy((char *)&x->sign, (char *)&y->sign,   \
                           y->wds*sizeof(Long) + 2*sizeof(int))
@@ -679,6 +593,7 @@ mult(Bigint *a, Bigint *b)
 
 /* p5s is a linked list of powers of 5 of the form 5**(2**i), i >= 2 */
 
+static _PyMutex dtoa_mutex;
 static Bigint *p5s;
 
 /* multiply the Bigint b by 5**k.  Returns a pointer to the result, or NULL on
@@ -700,13 +615,15 @@ pow5mult(Bigint *b, int k)
 
     if (!(k >>= 2))
         return b;
+
+    _PyMutex_lock(&dtoa_mutex);
     p5 = p5s;
     if (!p5) {
         /* first time */
         p5 = i2b(625);
         if (p5 == NULL) {
             Bfree(b);
-            return NULL;
+            goto err;
         }
         p5s = p5;
         p5->next = 0;
@@ -717,7 +634,7 @@ pow5mult(Bigint *b, int k)
             Bfree(b);
             b = b1;
             if (b == NULL)
-                return NULL;
+                goto err;
         }
         if (!(k >>= 1))
             break;
@@ -726,14 +643,20 @@ pow5mult(Bigint *b, int k)
             p51 = mult(p5,p5);
             if (p51 == NULL) {
                 Bfree(b);
-                return NULL;
+                goto err;
             }
             p51->next = 0;
             p5->next = p51;
         }
         p5 = p51;
     }
+
+    _PyMutex_unlock(&dtoa_mutex);
     return b;
+
+err:
+    _PyMutex_unlock(&dtoa_mutex);
+    return NULL;
 }
 
 #else
