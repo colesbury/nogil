@@ -33,7 +33,7 @@ Waiter *
 _PyParkingLot_InitThread(void);
 
 void
-_PyParkingLot_DeinitThread(Waiter *waiter);
+_PyParkingLot_DeinitThread(void);
 
 PyAPI_FUNC(Waiter *)
 _PyParkingLot_ThisWaiter(void);

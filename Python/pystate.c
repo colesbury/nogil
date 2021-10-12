@@ -1347,7 +1347,7 @@ tstate_delete_common(PyThreadState *tstate,
     // thread be stuck in a parking lot lock? Will it have some sort of dead
     // waiter? ruh roh.
     if (is_current) {
-        _PyParkingLot_DeinitThread(tstate->waiter);
+        _PyParkingLot_DeinitThread();
     }
 
     PyMem_RawFree(tstate);

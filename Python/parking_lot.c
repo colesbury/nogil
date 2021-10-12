@@ -3,6 +3,7 @@
 #include "pycore_pystate.h"
 #include "condvar.h"
 
+#include "lock.h"
 #include "parking_lot.h"
 #include "pyatomic.h"
 
@@ -27,7 +28,7 @@ _PyParkingLot_InitThread(void)
         return this_waiter;
     }
     Waiter *waiter = PyMem_RawMalloc(sizeof(Waiter));
-    if (!waiter) {
+    if (waiter == NULL) {
         return NULL;
     }
     memset(waiter, 0, sizeof(Waiter));
@@ -49,9 +50,10 @@ _PyParkingLot_InitThread(void)
 }
 
 void
-_PyParkingLot_DeinitThread(Waiter *waiter)
+_PyParkingLot_DeinitThread(void)
 {
-    if (!waiter) {
+    Waiter *waiter = this_waiter;
+    if (waiter == NULL) {
         return;
     }
 
@@ -60,10 +62,7 @@ _PyParkingLot_DeinitThread(Waiter *waiter)
         return;
     }
 
-    if (waiter == this_waiter) {
-        this_waiter = NULL;
-    }
-
+    this_waiter = NULL;
     PyMUTEX_FINI(&waiter->mutex);
     PyCOND_FINI(&waiter->cond);
     PyMem_RawFree(waiter);
@@ -72,6 +71,9 @@ _PyParkingLot_DeinitThread(Waiter *waiter)
 struct Waiter *
 _PyParkingLot_ThisWaiter(void)
 {
+    if (this_waiter == NULL) {
+        return _PyParkingLot_InitThread();
+    }
     return this_waiter;
 }
 
