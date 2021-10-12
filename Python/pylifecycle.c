@@ -729,6 +729,11 @@ pycore_interp_init(PyThreadState *tstate)
     PyStatus status;
     PyObject *sysmod = NULL;
 
+    status = _PyUnicode_InitIntern();
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
+    }
+
     status = pycore_init_types(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         goto done;
