@@ -43,6 +43,7 @@ struct _dtoa_runtime_state {
 struct _dtoa_runtime_state {
     /* p5s is a linked list of powers of 5 of the form 5**(2**i), i >= 2 */
     // XXX This should be freed during runtime fini.
+    _PyMutex mutex;
     struct Bigint *p5s;
     struct Bigint *freelist[Bigint_Kmax+1];
     double preallocated[Bigint_PREALLOC_SIZE];
