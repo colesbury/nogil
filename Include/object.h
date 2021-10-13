@@ -404,7 +404,8 @@ you can count such references to the type object.)
 */
 
 #ifdef Py_REF_DEBUG
-PyAPI_DATA(Py_ssize_t) _Py_RefTotal;
+PyAPI_FUNC(void) _Py_IncRefTotal(void);
+PyAPI_FUNC(void) _Py_DecRefTotal(void);
 PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
                                       PyObject *op);
 #endif /* Py_REF_DEBUG */
@@ -469,7 +470,7 @@ _Py_INCREF(PyObject *op)
     }
 
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     if (op->ob_tid == _Py_ThreadId()) {
         refcnt += (1 << _Py_REF_LOCAL_SHIFT);
@@ -496,7 +497,7 @@ static inline void _Py_DECREF(
     }
 
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
     if (op->ob_tid == _Py_ThreadId()) {
         refcnt -= (1 << _Py_REF_LOCAL_SHIFT);

@@ -317,7 +317,7 @@ static inline void
 dictkeys_incref(PyDictKeysObject *dk)
 {
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     dk->dk_refcnt++;
 }
@@ -327,7 +327,7 @@ dictkeys_decref(PyDictKeysObject *dk)
 {
     assert(dk->dk_refcnt > 0);
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal--;
+    _Py_DecRefTotal();
 #endif
     if (--dk->dk_refcnt == 0) {
         free_keys_object(dk);
@@ -576,7 +576,7 @@ static PyDictKeysObject *new_keys_object(Py_ssize_t size)
         }
     }
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
     dk->dk_refcnt = 1;
     dk->dk_size = size;
@@ -710,7 +710,7 @@ clone_combined_dict(PyDictObject *orig)
        we have it now; calling dictkeys_incref would be an error as
        keys->dk_refcnt is already set to 1 (after memcpy). */
 #ifdef Py_REF_DEBUG
-    _Py_RefTotal++;
+    _Py_IncRefTotal();
 #endif
 
     return (PyObject *)new;
@@ -1271,7 +1271,7 @@ dictresize(PyDictObject *mp, Py_ssize_t minsize)
         assert(oldkeys->dk_lookup != lookdict_split);
         assert(oldkeys->dk_refcnt == 1);
 #ifdef Py_REF_DEBUG
-        _Py_RefTotal--;
+        _Py_DecRefTotal();
 #endif
 #if PyDict_MAXFREELIST > 0
         if (oldkeys->dk_size == PyDict_MINSIZE &&
