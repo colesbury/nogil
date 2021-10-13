@@ -1669,6 +1669,7 @@ AC_MSG_RESULT($with_trace_refs)
 
 if test "$with_trace_refs" = "yes"
 then
+  AC_MSG_ERROR([--with-trace-refs is not supported in nogil mode])
   AC_DEFINE(Py_TRACE_REFS, 1, [Define if you want to enable tracing references for debugging purpose])
 fi
 

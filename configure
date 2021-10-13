@@ -7376,6 +7376,7 @@ $as_echo "$with_trace_refs" >&6; }
 
 if test "$with_trace_refs" = "yes"
 then
+  as_fn_error $? "--with-trace-refs is not supported in nogil mode" "$LINENO" 5
 
 $as_echo "#define Py_TRACE_REFS 1" >>confdefs.h
 
