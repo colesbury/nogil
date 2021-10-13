@@ -1278,18 +1278,18 @@ fi],
 
 # Check for --with-trace-refs
 # --with-trace-refs
-AC_MSG_CHECKING(for --with-trace-refs)
-AC_ARG_WITH(trace-refs,
-  AS_HELP_STRING(
-    [--with-trace-refs],
-    [enable tracing references for debugging purpose (default is no)]),,
-  with_trace_refs=no)
-AC_MSG_RESULT($with_trace_refs)
-
-if test "$with_trace_refs" = "yes"
-then
-  AC_DEFINE(Py_TRACE_REFS, 1, [Define if you want to enable tracing references for debugging purpose])
-fi
+# AC_MSG_CHECKING(for --with-trace-refs)
+# AC_ARG_WITH(trace-refs,
+#   AS_HELP_STRING(
+#     [--with-trace-refs],
+#     [enable tracing references for debugging purpose (default is no)]),,
+#   with_trace_refs=no)
+# AC_MSG_RESULT($with_trace_refs)
+#
+# if test "$with_trace_refs" = "yes"
+# then
+#   AC_DEFINE(Py_TRACE_REFS, 1, [Define if you want to enable tracing references for debugging purpose])
+# fi
 
 # Check for --with-assertions.
 # This allows enabling assertions without Py_DEBUG.
