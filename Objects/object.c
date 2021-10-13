@@ -287,7 +287,7 @@ PyObject_CallFinalizerFromDealloc(PyObject *self)
      * never happened. */
 #ifdef Py_TRACE_REFS
     if (_Py_tracemalloc_config.tracing) {
-        _PyTraceMalloc_NewReference(op);
+        _PyTraceMalloc_NewReference(self);
     }
 #endif
 
