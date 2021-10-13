@@ -232,6 +232,21 @@ _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit)
     }
 }
 
+intptr_t
+_PyRuntimeState_GetRefTotal(_PyRuntimeState *runtime)
+{
+    Py_ssize_t total = runtime->ref_total;
+
+    HEAD_LOCK(runtime);
+    PyInterpreterState *interp = runtime->interpreters.head;
+    for (PyThreadState *p = interp->tstate_head; p != NULL; p = p->next) {
+        total += p->ref_total;
+    }
+    HEAD_UNLOCK(runtime);
+
+    return total;
+}
+
 PyStatus
 _PyInterpreterState_Enable(_PyRuntimeState *runtime)
 {
@@ -685,6 +700,8 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->context = NULL;
     tstate->context_ver = 1;
 
+    tstate->ref_total = 0;
+
     if (init) {
         _PyThreadState_Init(tstate);
     }
@@ -935,6 +952,10 @@ tstate_delete_common(PyThreadState *tstate,
     if (tstate->next) {
         tstate->next->prev = tstate->prev;
     }
+#ifdef Py_REF_DEBUG
+    runtime->ref_total += tstate->ref_total;
+    tstate->ref_total = 0;
+#endif
     HEAD_UNLOCK(runtime);
 
     if (is_current) {
