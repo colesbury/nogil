@@ -116,6 +116,9 @@ typedef struct pyruntimestate {
     void *open_code_userdata;
     _Py_AuditHookEntry *audit_hook_head;
 
+    /* Used for types for now */
+    _PyMutex mutex;
+
     Py_ssize_t ref_total;
 
     // XXX Consolidate globals found via the check-c-globals script.

@@ -159,6 +159,8 @@ struct _ts {
     /* Unique thread state id. */
     uint64_t id;
 
+    struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
+
     /* XXX signal handlers should also be here */
 
 };
