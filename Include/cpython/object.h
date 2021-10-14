@@ -293,6 +293,14 @@ typedef struct _heaptypeobject {
     /* here are optional user slots, followed by the members. */
 } PyHeapTypeObject;
 
+#define MCACHE_SIZE_EXP         12
+
+struct method_cache_entry {
+    unsigned int version;
+    PyObject *name;             /* reference to exactly a str or None */
+    PyObject *value;            /* borrowed */
+};
+
 /* access macro to the members which are floating "behind" the object */
 #define PyHeapType_GET_MEMBERS(etype) \
     ((PyMemberDef *)(((char *)etype) + Py_TYPE(etype)->tp_basicsize))
