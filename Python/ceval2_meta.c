@@ -860,8 +860,8 @@ vm_raise(struct ThreadState *ts, PyObject *exc)
     return -1;
 }
 
-const uint8_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD)
+int
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc)
 {
     static const char *CANNOT_CATCH_MSG = (
         "catching classes that do not inherit from "
@@ -875,7 +875,7 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t 
             if (!PyExceptionClass_Check(item)) {
                 _PyErr_SetString(ts->ts, PyExc_TypeError,
                                  CANNOT_CATCH_MSG);
-                return NULL;
+                return -1;
             }
         }
     }
@@ -883,21 +883,11 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t 
         if (!PyExceptionClass_Check(tp)) {
             _PyErr_SetString(ts->ts, PyExc_TypeError,
                              CANNOT_CATCH_MSG);
-            return NULL;
+            return -1;
         }
     }
     assert(exc == vm_handled_exc(ts));
-    int res = PyErr_GivenExceptionMatches(exc, tp);
-    if (res > 0) {
-        /* Exception matches -- Do nothing */;
-        return pc + OP_SIZE_JUMP_IF_NOT_EXC_MATCH;
-    }
-    else if (res == 0) {
-        return pc + opD;
-    }
-    else {
-        return NULL;
-    }
+    return PyErr_GivenExceptionMatches(exc, tp);
 }
 
 PyObject *

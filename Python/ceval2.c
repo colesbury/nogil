@@ -2550,13 +2550,17 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         PyObject *type = AS_OBJ(acc);
         PyObject *exc = AS_OBJ(regs[link_reg + 1]);
         assert(regs[link_reg].as_int64 == -1 && "link reg should be -1");
-        const uint8_t *target;
-        CALL_VM(target = vm_exc_match(ts, type, exc, pc, JumpImm(1)));
-        if (UNLIKELY(target == NULL)) {
+        int res;
+        CALL_VM(res = vm_exc_match(ts, type, exc));
+        if (UNLIKELY(res < 0)) {
             goto error;
         }
-        pc = target;
-        BREAK_LIVE_RANGE(pc);
+        if (res) {
+            pc += OP_SIZE(JUMP_IF_NOT_EXC_MATCH);
+        }
+        else {
+            pc += JumpImm(1);
+        }
         DECREF(acc);
         acc.as_int64 = 0;
         NEXT_INSTRUCTION();

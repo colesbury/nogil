@@ -293,8 +293,8 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
-const uint8_t *
-vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc, const uint8_t *pc, int opD);
+int
+vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc);
 
 void vm_free_threadstate(struct ThreadState *ts);
 int vm_for_iter_exc(struct ThreadState *ts);
