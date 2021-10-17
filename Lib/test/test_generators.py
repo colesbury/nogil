@@ -5,6 +5,7 @@ import sys
 import unittest
 import weakref
 import inspect
+import threading
 
 from test import support
 
@@ -160,6 +161,30 @@ class GeneratorTest(unittest.TestCase):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises((TypeError, pickle.PicklingError)):
                 pickle.dumps(g, proto)
+
+    def test_thread_non_creator_throw(self):
+        # Create a generator in a seperate thread, but call "throw" from
+        # the main thread. This previously crashed in "nogil Python.
+        gen = None
+
+        def generator():
+            try:
+                while 1:
+                    yield "generator"
+            except ValueError:
+                return "done"
+
+        def make_generator():
+            nonlocal gen
+            gen = generator()
+            self.assertEqual(next(gen), "generator")
+
+        t = threading.Thread(target=make_generator)
+        t.start()
+        t.join()
+
+        with self.assertRaisesRegex(StopIteration, "done"):
+            gen.throw(ValueError(123))
 
 
 class ExceptionTest(unittest.TestCase):
