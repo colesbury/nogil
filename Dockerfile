@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN set -ex \
 	\
-	&& wget -O python.tar.gz "https://github.com/colesbury/nogil/archive/refs/heads/nogil.tar.gz" \
+	&& wget -O python.tar.gz "https://github.com/colesbury/nogil/tarball/d0f1ef4af22aba53fe4c0b271032f6a532ff9098" \
 	&& mkdir -p /usr/src/python \
 	&& tar -xC /usr/src/python --strip-components=1 -f python.tar.gz \
 	&& rm python.tar.gz \
