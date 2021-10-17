@@ -30,15 +30,16 @@ else:
 def write_targets(opcode, f):
     """Write C code contents to the target file object.
     """
-    targets = ['_unknown_opcode'] * 256
-    targets[255] = 'debug_regs'
+    targets = ['&&_unknown_opcode'] * 256
+    targets[0] = 'NULL'
+    targets[255] = '&&debug_regs'
     for opname, bytecode in opcode.opmap.items():
-        targets[bytecode.opcode] = opname
+        targets[bytecode.opcode] = f'&&{opname}'
     for opname, bytecode in opcode.opmap.items():
         if len(bytecode.imm) != 0 and opname != 'WIDE':
-            targets[bytecode.opcode + 128] = f"WIDE_{opname}"
+            targets[bytecode.opcode + 128] = f"&&WIDE_{opname}"
     f.write("static void *opcode_targets_base[256] = {\n")
-    f.write(",\n".join(["    &&%s" % s for s in targets]))
+    f.write(",\n".join(["    %s" % s for s in targets]))
     f.write("\n};\n")
 
 

@@ -637,7 +637,7 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
 {
     int err = 0;
 
-    uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
+    uintptr_t b = _Py_atomic_load_uintptr(&tstate->opcode_targets[0]);
     if ((b & EVAL_PLEASE_STOP) != 0) {
         if (!tstate->cant_stop_wont_stop) {
             _PyThreadState_Unsignal(tstate, EVAL_PLEASE_STOP);
@@ -759,7 +759,7 @@ _PyEval_EvalFrameDefault(PyFrameObject *f, int throwflag)
     _PyRuntimeState * const runtime = &_PyRuntime;
     PyThreadState * const tstate = _PyRuntimeState_GetThreadState(runtime);
     struct _ceval_runtime_state * const ceval = &runtime->ceval;
-    uintptr_t * const eval_breaker = &tstate->eval_breaker;
+    uintptr_t * const eval_breaker = &tstate->opcode_targets[0];
     PyCodeObject *co;
 
     /* when tracing we set things up so that
@@ -4564,14 +4564,14 @@ update_use_tracing(PyThreadState *tstate)
     for (int i = 0; i < 128; i++) {
         if (use_tracing) {
             if (trace_cfunc[i]) {
-                tstate->opcode_targets[i] = tstate->trace_cfunc_target;
+                tstate->opcode_targets[i] = (uintptr_t)tstate->trace_cfunc_target;
             }
             else {
-                tstate->opcode_targets[i] = tstate->trace_target;
+                tstate->opcode_targets[i] = (uintptr_t)tstate->trace_target;
             }
         }
         else {
-            tstate->opcode_targets[i] = tstate->opcode_targets_base[i];
+            tstate->opcode_targets[i] = (uintptr_t)tstate->opcode_targets_base[i];
         }
     }
 #endif

@@ -173,7 +173,7 @@ drop_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)
     MUTEX_UNLOCK(gil->mutex);
 
 #ifdef FORCE_SWITCHING
-    if (tstate && (_Py_atomic_load_uintptr(&tstate->eval_breaker) & EVAL_DROP_GIL)) {
+    if (tstate && (_Py_atomic_load_uintptr(&tstate->opcode_targets[0]) & EVAL_DROP_GIL)) {
         MUTEX_LOCK(gil->switch_mutex);
         /* Not switched yet => wait */
         _PyThreadState_Unsignal(tstate, EVAL_DROP_GIL);

@@ -600,6 +600,7 @@ vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
 {
     assert(PyErr_Occurred());
     assert(ts->regs > ts->stack);
+    assert(ts->ts == PyThreadState_GET());
 
     // Clear the accumulator, unless the exception happened during FUNC_HEADER,
     // in which case the accumulator stores a representation of the number of

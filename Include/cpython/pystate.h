@@ -162,8 +162,8 @@ struct _ts {
 
     struct Waiter *waiter;
 
-    uintptr_t eval_breaker;
-    void *opcode_targets[256];
+    // opcode_targets[0] is the eval_breaker
+    uintptr_t opcode_targets[256];
 #ifdef HAVE_COMPUTED_GOTOS
     void *trace_target;
     void *trace_cfunc_target;

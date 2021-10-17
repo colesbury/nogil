@@ -257,7 +257,7 @@ _OWNING_REF(Register r, intptr_t tid)
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
 #define CHECK_EVAL_BREAKER() do {                                       \
-    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(&tstate->eval_breaker))) { \
+    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(&opcode_targets[0]))) {    \
         goto eval_breaker;                                              \
     }                                                                   \
 } while (0)
@@ -335,12 +335,14 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 #ifdef HAVE_COMPUTED_GOTOS
     #include "opcode_targets2.h"
     if (UNLIKELY(!ts->ts->opcode_targets[0])) {
-        memcpy(ts->ts->opcode_targets, opcode_targets_base, sizeof(opcode_targets_base));
+        memcpy(ts->ts->opcode_targets + 1,
+               opcode_targets_base + 1,
+               sizeof(opcode_targets_base) - sizeof(void*));
         ts->ts->trace_target = &&TRACE;
         ts->ts->trace_cfunc_target = &&TRACE_CFUNC_HEADER;
         ts->ts->opcode_targets_base = opcode_targets_base;
     }
-    void **opcode_targets = ts->ts->opcode_targets;
+    uintptr_t *opcode_targets = ts->ts->opcode_targets;
     #define tstate ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
 #else
     PyThreadState *tstate = ts->ts;
@@ -354,15 +356,8 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #define metadata ((intptr_t *)(char *)constants)
     uintptr_t tid = _Py_ThreadId();
 
-    // TODO: we can't check EVAL_BREAKER here because acc is argcount (not an object)
-    // and if the EVAL_BREAKER triggers an error that would corrupt things. Maybe we
-    // should do it in FUNC_HEADER?
+    // Check the eval breaker (signals, GIL, stop-the-world, etc.)
     CHECK_EVAL_BREAKER();
-
-    // GCC likes to get too clever
-#ifdef HAVE_COMPUTED_GOTOS
-    BREAK_LIVE_RANGE(opcode_targets);
-#endif
 
     // Dispatch to the first instruction
     NEXT_INSTRUCTION();

@@ -1,5 +1,5 @@
 static void *opcode_targets_base[256] = {
-    &&_unknown_opcode,
+    NULL,
     &&CLEAR_ACC,
     &&CLEAR_FAST,
     &&ALIAS,
