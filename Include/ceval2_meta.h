@@ -293,6 +293,9 @@ int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
 int vm_resize_stack(struct ThreadState *ts, Py_ssize_t needed);
 
+Py_ssize_t
+vm_jump_side_table(struct ThreadState *ts, const uint8_t *pc);
+
 int
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc);
 

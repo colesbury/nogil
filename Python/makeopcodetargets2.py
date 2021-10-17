@@ -36,7 +36,7 @@ def write_targets(opcode, f):
     for opname, bytecode in opcode.opmap.items():
         targets[bytecode.opcode] = f'&&{opname}'
     for opname, bytecode in opcode.opmap.items():
-        if len(bytecode.imm) != 0 and opname != 'WIDE':
+        if bytecode.has_wide:
             targets[bytecode.opcode + 128] = f"&&WIDE_{opname}"
     f.write("static void *opcode_targets_base[256] = {\n")
     f.write(",\n".join(["    %s" % s for s in targets]))
@@ -52,7 +52,7 @@ def write_switch(opcode, f):
     for opname, bytecode in opcode.opmap.items():
         f.write(f"  case {opname}: goto {opname};\n");
     for opname, bytecode in opcode.opmap.items():
-        if len(bytecode.imm) != 0 and opname != 'WIDE':
+        if bytecode.has_wide:
             f.write(f"  case 128+{opname}: goto WIDE_{opname};\n");
 
     f.write(f"  default: goto _unknown_opcode;\n");

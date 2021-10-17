@@ -29,6 +29,16 @@ struct _PyHandlerTable {
     ExceptionHandler entries[];
 };
 
+typedef struct {
+    uint32_t from;  /* address of JUMP_SIDE_TABLE instruction */
+    int32_t delta;  /* jump delta */
+} JumpEntry;
+
+struct _PyJumpSideTable {
+    Py_ssize_t size;
+    JumpEntry entries[];
+};
+
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
 

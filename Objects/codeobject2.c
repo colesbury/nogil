@@ -82,7 +82,7 @@ align_up(Py_ssize_t size, Py_ssize_t align)
 PyCodeObject2 *
 PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
             Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t nfreevars,
-            Py_ssize_t nexc_handlers)
+            Py_ssize_t nexc_handlers, Py_ssize_t jump_table_size)
 {
     assert(sizeof(PyCodeObject2) % sizeof(void*) == 0);
     Py_ssize_t instr_aligned_size = align_up(instr_size, sizeof(void*));
@@ -94,7 +94,9 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
         ncells * sizeof(Py_ssize_t) +
         nfreevars * 2 * sizeof(Py_ssize_t) +
         sizeof(struct _PyHandlerTable) +
-        nexc_handlers * sizeof(ExceptionHandler));
+        nexc_handlers * sizeof(ExceptionHandler) +
+        sizeof (struct _PyJumpSideTable) +
+        jump_table_size * sizeof(JumpEntry));
 
     PyCodeObject2 *co = (PyCodeObject2 *)_PyObject_GC_Malloc(total_size);
     if (co == NULL) {
@@ -127,6 +129,10 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
 
     co->co_exc_handlers = (struct _PyHandlerTable *)ptr;
     co->co_exc_handlers->size = nexc_handlers;
+    ptr += sizeof(*co->co_exc_handlers) + nexc_handlers * sizeof(ExceptionHandler);
+
+    co->co_jump_table = (struct _PyJumpSideTable *)ptr;
+    co->co_jump_table->size = jump_table_size;
     return co;
 }
 
@@ -156,6 +162,7 @@ code.__new__ as code_new
     firstlineno: int = 0
     linetable: object(subclass_of="&PyBytes_Type") = None
     eh_table: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
+    jump_table: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     freevars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     cellvars: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
     free2reg: object(subclass_of="&PyTuple_Type", c_default="NULL") = ()
@@ -170,13 +177,14 @@ code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
               int ndefaultargs, int nmeta, int flags, PyObject *code,
               PyObject *consts, PyObject *varnames, PyObject *filename,
               PyObject *name, int firstlineno, PyObject *linetable,
-              PyObject *eh_table, PyObject *freevars, PyObject *cellvars,
-              PyObject *free2reg, PyObject *cell2reg)
-/*[clinic end generated code: output=8fdd3733847ba082 input=939e6a46666f2e43]*/
+              PyObject *eh_table, PyObject *jump_table, PyObject *freevars,
+              PyObject *cellvars, PyObject *free2reg, PyObject *cell2reg)
+/*[clinic end generated code: output=81c120af9984b30c input=ef688bd1f889035e]*/
 {
     Py_ssize_t ncells = cell2reg ? PyTuple_GET_SIZE(cell2reg) : 0;
     Py_ssize_t ncaptured = free2reg ? PyTuple_GET_SIZE(free2reg) : 0;
     Py_ssize_t nexc_handlers = eh_table ? PyTuple_GET_SIZE(eh_table) : 0;
+    Py_ssize_t jump_table_size = jump_table ? PyTuple_GET_SIZE(jump_table) : 0;
 
     PyCodeObject2 *co = PyCode2_New(
         code ? PyBytes_GET_SIZE(code) : 0,
@@ -184,7 +192,8 @@ code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
         nmeta,
         ncells,
         ncaptured,
-        nexc_handlers);
+        nexc_handlers,
+        jump_table_size);
     if (co == NULL) {
         return NULL;
     }
@@ -558,6 +567,7 @@ code_richcompare(PyObject *self, PyObject *other, int op)
     COMPARE_INT(co_nmeta);
     COMPARE_INT(co_firstlineno);
     COMPARE_INT(co_exc_handlers->size);
+    COMPARE_INT(co_exc_handlers->size);
     #undef COMPARE_INT
 
     #define RICH_COMPARE(name) do { \
@@ -683,6 +693,28 @@ code_getexc_handlers(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
+code_get_jump_table(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
+{
+    Py_ssize_t size = co->co_jump_table->size;
+    PyObject *t = PyTuple_New(size);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i != size; i++) {
+        JumpEntry *j = &co->co_jump_table->entries[i];
+        PyObject *entry = Py_BuildValue("(nn)",
+            (Py_ssize_t)j->from,
+            (Py_ssize_t)j->delta);
+        if (entry == NULL) {
+            Py_DECREF(t);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(t, i, entry);
+    }
+    return t;
+}
+
+static PyObject *
 code_getcell2reg(PyCodeObject2 *co, PyObject *Py_UNUSED(args))
 {
     PyObject *t = PyTuple_New(co->co_ncells);
@@ -759,6 +791,7 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
 {
     PyObject *co = NULL;
     PyObject *eh_table = NULL;
+    PyObject *jump_table = NULL;
     PyObject *free2reg = NULL, *cell2reg = NULL;
     
     #define DEFAULT(arg, value) do {                    \
@@ -772,6 +805,9 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
 
     eh_table = code_getexc_handlers(self, NULL);
     if (eh_table == NULL) goto cleanup;
+
+    jump_table = code_get_jump_table(self, NULL);
+    if (jump_table == NULL) goto cleanup;
 
     free2reg = code_getfree2reg(self, NULL);
     if (free2reg == NULL) goto cleanup;
@@ -797,6 +833,7 @@ code_replace_impl(PyCodeObject2 *self, int co_argcount,
         co_firstlineno,
         co_lnotab,
         eh_table,
+        jump_table,
         co_freevars,
         co_cellvars,
         free2reg,
@@ -807,6 +844,7 @@ cleanup:
     Py_XDECREF(free2reg);
     Py_XDECREF(co_code);
     Py_XDECREF(co_consts);
+    Py_XDECREF(jump_table);
     Py_XDECREF(eh_table);
     return co;
 }
@@ -845,6 +883,7 @@ static PyGetSetDef code_getset[] = {
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
     {"co_names", (getter)code_getnames, (setter)NULL, "names", NULL},
     {"co_exc_handlers", (getter)code_getexc_handlers, (setter)NULL, "exception handlers", NULL},
+    {"co_jump_table", (getter)code_get_jump_table, (setter)NULL, "jump side table", NULL},
     {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "cell variables", NULL},
     {"co_free2reg", (getter)code_getfree2reg, (setter)NULL, "free variables", NULL},
     {NULL} /* sentinel */

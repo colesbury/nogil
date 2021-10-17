@@ -71,6 +71,7 @@ enum {
 #define ACC_ARGCOUNT(acc) ((acc.as_int64) & ACC_MASK_ARGS)
 
 struct _PyHandlerTable;
+struct _PyJumpSideTable;
 
 typedef struct _PyCodeObject2 {
     PyObject_HEAD
@@ -94,6 +95,7 @@ typedef struct _PyCodeObject2 {
     Py_ssize_t *co_free2reg;
 
     struct _PyHandlerTable *co_exc_handlers;
+    struct _PyJumpSideTable *co_jump_table;
 
     PyObject *co_weakreflist;
     /* Scratch space for extra data relating to the code object.
@@ -115,7 +117,7 @@ typedef struct _PyCodeObject2 {
 PyAPI_FUNC(PyCodeObject2 *)
 PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
             Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t ncaptured,
-            Py_ssize_t nexc_handlers);
+            Py_ssize_t nexc_handlers, Py_ssize_t jump_table_size);
 
 
 /* Return the line number associated with the specified bytecode index

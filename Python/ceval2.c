@@ -275,10 +275,15 @@ _OWNING_REF(Register r, intptr_t tid)
     /* __asm__ volatile("# computed goto " #name); */ \
     DISPATCH_NARROW();
 
-#define JUMP_BY(arg)      \
-    pc += (arg);          \
-    CHECK_EVAL_BREAKER(); \
-    NEXT_INSTRUCTION()
+#define JUMP_BY(arg) do {        \
+    Py_ssize_t offset = arg;     \
+    if (UNLIKELY(offset == 0)) { \
+        goto jump_side_table;    \
+    }                            \
+    pc += offset;                \
+    CHECK_EVAL_BREAKER();        \
+    NEXT_INSTRUCTION();          \
+} while(0)
 
 #define JUMP_TO(arg)      \
     pc = (arg);           \
@@ -391,7 +396,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         else if (LIKELY(value == Py_False || value == Py_None)) {
             acc.as_int64 = 0;
             JUMP_BY(JumpImm(0));
-            NEXT_INSTRUCTION();
         }
         else {
             int res;
@@ -400,15 +404,13 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 goto error;
             }
             if (res == 0) {
-                pc += JumpImm(0);
+                CLEAR(acc);
+                JUMP_BY(JumpImm(0));
             }
             else {
-                pc += OP_SIZE(POP_JUMP_IF_FALSE);
+                CLEAR(acc);
+                DISPATCH(POP_JUMP_IF_FALSE);
             }
-            DECREF(acc);
-            acc.as_int64 = 0;
-            CHECK_EVAL_BREAKER();
-            NEXT_INSTRUCTION();
         }
     }
 
@@ -429,15 +431,13 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 goto error;
             }
             if (res == 1) {
-                pc += JumpImm(0);
+                CLEAR(acc);
+                JUMP_BY(JumpImm(0));
             }
             else {
-                pc += OP_SIZE(POP_JUMP_IF_TRUE);
+                CLEAR(acc);
+                DISPATCH(POP_JUMP_IF_TRUE);
             }
-            DECREF(acc);
-            acc.as_int64 = 0;
-            CHECK_EVAL_BREAKER();
-            NEXT_INSTRUCTION();
         }
     }
 
@@ -456,13 +456,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 goto error;
             }
             if (res == 0) {
-                pc += JumpImm(0);
+                JUMP_BY(JumpImm(0));
             }
             else {
-                pc += OP_SIZE(JUMP_IF_FALSE);
+                DISPATCH(JUMP_IF_FALSE);
             }
-            CHECK_EVAL_BREAKER();
-            NEXT_INSTRUCTION();
         }
     }
 
@@ -482,13 +480,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
                 goto error;
             }
             if (res == 1) {
-                pc += JumpImm(0);
+                JUMP_BY(JumpImm(0));
             }
             else {
-                pc += OP_SIZE(JUMP_IF_TRUE);
+                DISPATCH(JUMP_IF_TRUE);
             }
-            CHECK_EVAL_BREAKER();
-            NEXT_INSTRUCTION();
         }
     }
 
@@ -2551,14 +2547,13 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         if (res) {
-            pc += OP_SIZE(JUMP_IF_NOT_EXC_MATCH);
+            CLEAR(acc);
+            DISPATCH(JUMP_IF_NOT_EXC_MATCH);
         }
         else {
-            pc += JumpImm(1);
+            CLEAR(acc);
+            JUMP_BY(JumpImm(1));
         }
-        DECREF(acc);
-        acc.as_int64 = 0;
-        NEXT_INSTRUCTION();
     }
 
     TARGET(END_EXCEPT) {
@@ -2823,6 +2818,12 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         if (UNLIKELY(err != 0)) {
             goto error;
         }
+        NEXT_INSTRUCTION();
+    }
+
+    jump_side_table: {
+        CALL_VM(pc += vm_jump_side_table(ts, pc));
+        CHECK_EVAL_BREAKER();
         NEXT_INSTRUCTION();
     }
 

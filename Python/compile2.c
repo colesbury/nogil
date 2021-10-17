@@ -191,6 +191,7 @@ struct compiler_unit {
     struct growable_table cellvars;
     struct growable_table freevars;
     struct growable_table defaults;
+    struct growable_table jump_table;
     PyObject *metadata;  /* hints for global loads */
 
     PyObject *private;        /* for private name mangling */
@@ -556,6 +557,7 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     u->freevars.unit_size = sizeof(struct freevar);
     u->defaults.unit_size = sizeof(struct freevar);
     u->cellvars.unit_size = sizeof(struct cellvar);
+    u->jump_table.unit_size = sizeof(JumpEntry);
     u->unreachable = false;
     u->scope_type = scope_type;
     u->argcount = 0;
@@ -1045,16 +1047,23 @@ emit_bwd_jump(struct compiler *c, int opcode, uint32_t target)
     }
     Py_ssize_t offset = (Py_ssize_t)target - (Py_ssize_t)c->unit->instr.offset;
     assert(offset <= 0 && offset >= INT32_MIN);
-    if (offset > INT16_MIN) {
-        uint8_t *pc = next_instr(c, 3);
-        pc[0] = opcode;
-        write_uint16(&pc[1], (uint16_t)offset);
+    if (offset == 0) {
+        JumpEntry *e;
+        e = TABLE_NEXT(c, &c->unit->jump_table);
+        e->from = c->unit->instr.offset;
+        e->delta = 0;
     }
-    else {
+    int wide = (offset <= INT16_MIN);
+    if (wide) {
         uint8_t *pc = next_instr(c, 6);
         pc[0] = WIDE;
         pc[1] = opcode;
         write_uint32(&pc[2], (uint32_t)offset);
+    }
+    else {
+        uint8_t *pc = next_instr(c, 3);
+        pc[0] = opcode;
+        write_uint16(&pc[1], (uint16_t)offset);
     }
     if (opcode == JUMP) {
         c->unit->unreachable = true;
@@ -1121,19 +1130,28 @@ emit_label(struct compiler *c, struct bc_label *label)
     assert(!label->emitted);
     uint32_t pos = c->unit->instr.offset;
     Py_ssize_t delta = (Py_ssize_t)pos - (Py_ssize_t)label->offset;
-    if (delta > INT16_MAX) {
-        PyErr_Format(PyExc_RuntimeError, "jump too big: %d", (int)delta);
-        COMPILER_ERROR(c);
-    }
     if (delta <= 0) {
         // forward jumps should go forward
         PyErr_Format(PyExc_RuntimeError, "negative jmp: %d", (int)delta);
         COMPILER_ERROR(c);
     }
-    assert(delta >= 0);
     uint8_t *jmp =  &c->unit->instr.arr[label->offset];
     if (label->has_reg && jmp[0] == WIDE) {
         write_uint32(&jmp[6], delta);
+    }
+    else if (delta > INT16_MAX) {
+        assert(jmp[0] != WIDE);
+        if (label->has_reg) {
+            write_uint16(&jmp[2], 0);
+        }
+        else {
+            write_uint16(&jmp[1], 0);
+        }
+
+        JumpEntry *e;
+        e = TABLE_NEXT(c, &c->unit->jump_table);
+        e->from = label->offset;
+        e->delta = (int32_t)delta;
     }
     else if (label->has_reg) {
         write_int16(&jmp[2], delta);
@@ -5348,7 +5366,19 @@ cmp_exception_handler(const void *a, const void *b)
 {
     const ExceptionHandler *h1 = a;
     const ExceptionHandler *h2 = b;
-    return h1->handler - h2->handler;
+    if (h1->handler < h2->handler) return -1;
+    if (h1->handler > h2->handler) return 1;
+    return 0;
+}
+
+static int
+cmp_jump_entries(const void *a, const void *b)
+{
+    const JumpEntry *e1 = a;
+    const JumpEntry *e2 = b;
+    if (e1->from < e2->from) return -1;
+    if (e1->from > e2->from) return 1;
+    return 0;
 }
 
 static PyCodeObject2 *
@@ -5361,6 +5391,7 @@ makecode(struct compiler *c)
     Py_ssize_t ncells = c->unit->cellvars.offset;
     Py_ssize_t ncaptures = c->unit->freevars.offset + c->unit->defaults.offset;
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
+    Py_ssize_t jump_table_size = c->unit->jump_table.offset;
     Py_ssize_t header_size;
     uint8_t header[OP_SIZE_WIDE_FUNC_HEADER + OP_SIZE_COROGEN_HEADER];
 
@@ -5369,7 +5400,8 @@ makecode(struct compiler *c)
 
     co = PyCode2_New(
         instr_size, nconsts, metaslots,
-        ncells, ncaptures, nexc_handlers);
+        ncells, ncaptures, nexc_handlers,
+        jump_table_size);
     if (co == NULL) {
         COMPILER_ERROR(c);
     }
@@ -5419,6 +5451,16 @@ makecode(struct compiler *c)
         co->co_exc_handlers->entries[i].start += header_size;
         co->co_exc_handlers->entries[i].handler += header_size;
         co->co_exc_handlers->entries[i].handler_end += header_size;
+    }
+
+    // sort jump table by 'from' address
+    struct growable_table *jt = &c->unit->jump_table;
+    qsort(jt->arr, jt->offset, jt->unit_size, cmp_jump_entries);
+
+    // copy jump table into code object and add FUNC_HEADER size to offsets
+    memcpy(&co->co_jump_table->entries, jt->arr, jt->offset * jt->unit_size);
+    for (Py_ssize_t i = 0; i < co->co_jump_table->size; i++) {
+        co->co_jump_table->entries[i].from += header_size;
     }
 
     // cell variables

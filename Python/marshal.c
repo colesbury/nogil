@@ -567,6 +567,7 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_long(co->co_ncells, p);
         w_long(co->co_nfreevars, p);
         w_long(co->co_exc_handlers->size, p);
+        w_long(co->co_jump_table->size, p);
         for (Py_ssize_t i = 0; i < co->co_nconsts; i++) {
             w_object(co->co_constants[i], p);
         }
@@ -584,6 +585,12 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
             w_long(handler->handler, p);
             w_long(handler->handler_end, p);
             w_long(handler->reg, p);
+        }
+        struct _PyJumpSideTable *jump_table = co->co_jump_table;
+        for (Py_ssize_t i = 0; i < jump_table->size; i++) {
+            JumpEntry *j = &jump_table->entries[i];
+            w_long((long)j->from, p);
+            w_long((long)j->delta, p);
         }
         w_long(co->co_firstlineno, p);
         w_object(co->co_varnames, p);
@@ -1489,6 +1496,7 @@ r_object(RFILE *p)
             int ncells;
             int nfreevars;
             int nexc_handlers;
+            int jump_table_size;
             PyCodeObject2 *co = NULL;
 
             idx = r_ref_reserve(flag, p);
@@ -1523,8 +1531,11 @@ r_object(RFILE *p)
             if (PyErr_Occurred()) goto code2_error;
             nexc_handlers = (int)r_long(p);
             if (PyErr_Occurred()) goto code2_error;
+            jump_table_size = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
 
-            co = PyCode2_New(size, nconsts, nmeta, ncells, nfreevars, nexc_handlers);
+            co = PyCode2_New(size, nconsts, nmeta, ncells, nfreevars,
+                             nexc_handlers, jump_table_size);
             if (co == NULL)
                 break;
 
@@ -1565,6 +1576,14 @@ r_object(RFILE *p)
                 handler->handler_end = r_long(p);
                 if (PyErr_Occurred()) goto code2_error;
                 handler->reg = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            struct _PyJumpSideTable *jump_table = co->co_jump_table;
+            for (Py_ssize_t i = 0; i < jump_table->size; i++) {
+                JumpEntry *j = &jump_table->entries[i];
+                j->from = (uint32_t) r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                j->delta = (int32_t) r_long(p);
                 if (PyErr_Occurred()) goto code2_error;
             }
 

@@ -32,6 +32,10 @@ class Bytecode:
         return 1
 
     @property
+    def has_wide(self):
+        return len(self.imm) > 0 and self.name not in ('WIDE', 'JUMP_SIDE_TABLE')
+
+    @property
     def wide_size(self):
         return 2 + sum(self.imm_size(i, wide=True) for i in range(len(self.imm)))
 

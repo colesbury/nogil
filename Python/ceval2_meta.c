@@ -861,6 +861,31 @@ vm_raise(struct ThreadState *ts, PyObject *exc)
     return -1;
 }
 
+// Search the jump side table for the jump target of the current
+// program counter.
+Py_ssize_t
+vm_jump_side_table(struct ThreadState *ts, const uint8_t *pc)
+{
+    PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
+    PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+    // The current address
+    uint32_t addr = (uint32_t)(pc - func->func_base.first_instr);
+
+    // Based on the binary search described in:
+    // http://pvk.ca/Blog/2015/11/29/retrospective-on-binary-search-and-on-compression-slash-compilation/
+    JumpEntry* low = &code->co_jump_table->entries[0];
+    for (Py_ssize_t n = code->co_jump_table->size; n > 1; n -= n / 2) {
+        JumpEntry *e = &low[n / 2];
+        if (e->from <= addr) {
+            low = e;
+        }
+    }
+
+    assert(low->from == addr);
+    return low->delta;
+}
+
 int
 vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc)
 {
@@ -887,7 +912,7 @@ vm_exc_match(struct ThreadState *ts, PyObject *tp, PyObject *exc)
             return -1;
         }
     }
-    assert(exc == vm_handled_exc(ts));
+
     return PyErr_GivenExceptionMatches(exc, tp);
 }
 
