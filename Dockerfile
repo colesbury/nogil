@@ -1,6 +1,8 @@
-# Copied from https://github.com/docker-library/python/blob/master/3.9/bullseye/Dockerfile
+# Copied from
+#  https://github.com/docker-library/python/blob/master/3.9/bullseye/Dockerfile
+# and modified.
 
-FROM buildpack-deps:bullseye
+FROM nvidia/cuda:11.0-devel-ubuntu20.04
 
 # ensure local python is preferred over distribution python
 ENV PATH /usr/local/bin:$PATH
@@ -9,16 +11,34 @@ ENV PATH /usr/local/bin:$PATH
 # > At the moment, setting "LANG=C" on a Linux system *fundamentally breaks Python 3*, and that's not OK.
 ENV LANG C.UTF-8
 
-# extra dependencies (over what buildpack-deps already includes)
+# Don't ask questions during build.
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-		libbluetooth-dev \
-		tk-dev \
-		uuid-dev \
+	build-essential \
+	bzip2 \
+	libbluetooth-dev \
+	libbz2-dev \
+	libcurl4-openssl-dev \
+	libdb-dev \
+	libffi-dev \
+	libgdbm-dev \
+	liblzma-dev \
+	libncurses5-dev \
+	libncursesw5-dev \
+	libpng-dev \
+	libreadline-dev \
+	libsqlite3-dev \
+	libssl-dev \
+	tk-dev \
+	uuid-dev \
+	wget \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN set -ex \
 	\
-	&& wget -O python.tar.gz "https://github.com/colesbury/nogil/tarball/d0f1ef4af22aba53fe4c0b271032f6a532ff9098" \
+	&& wget --no-verbose -O python.tar.gz "https://github.com/colesbury/nogil/tarball/d0f1ef4af22aba53fe4c0b271032f6a532ff9098" \
 	&& mkdir -p /usr/src/python \
 	&& tar -xC /usr/src/python --strip-components=1 -f python.tar.gz \
 	&& rm python.tar.gz \
@@ -53,6 +73,14 @@ RUN cd /usr/local/bin \
 	&& ln -s pydoc3 pydoc \
 	&& ln -s python3 python \
 	&& ln -s python3-config python-config \
-  && ln -s pip3 pip
+	&& ln -s pip3 pip
 
 CMD ["python3"]
+
+
+# Docker commands:
+#   docker rm nogil -v
+#   docker build -t nogil .
+#   docker run --gpus all --rm --name nogil nogil
+# or
+#   docker run --gpus all -it --entrypoint /bin/bash nogil
