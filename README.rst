@@ -29,7 +29,7 @@ The optional ``--prefix=PREFIX`` specifies the destination directory for the Pyt
 Docker
 -------------------
 
-A pre-built Docker image `colesbury/python-nogil <https://hub.docker.com/r/colesbury/python-nogil>`_ is available on Docker Hub.
+A pre-built Docker image `colesbury/python-nogil <https://hub.docker.com/r/colesbury/python-nogil>`_ is available on Docker Hub. For CUDA support, use  `colesbury/python-nogil-cuda <https://hub.docker.com/r/colesbury/python-nogil-cuda>`_.
 
 Packages
 -------------------
