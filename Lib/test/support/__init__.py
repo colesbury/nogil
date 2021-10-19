@@ -1467,6 +1467,27 @@ def disable_gc():
         if have_gc:
             gc.enable()
 
+@contextlib.contextmanager
+def collect_in_thread(period=0.005):
+    """
+    Ensure GC collections happen in a different thread, at a high frequency.
+    """
+    please_stop = False
+
+    def collect():
+        import gc
+        while not please_stop:
+            time.sleep(period)
+            gc.collect()
+
+    with disable_gc():
+        t = threading.Thread(target=collect)
+        t.start()
+        try:
+            yield
+        finally:
+            please_stop = True
+            t.join()
 
 def python_is_optimized():
     """Find if Python was built with optimizations."""
@@ -2721,19 +2742,22 @@ def run_in_subinterp(code):
 
 
 def check_free_after_iterating(test, iter, cls, args=()):
-    class A(cls):
-        def __del__(self):
-            nonlocal done
-            done = True
-            try:
-                next(it)
-            except StopIteration:
-                pass
-
     done = False
-    it = iter(A(*args))
+
+    def wrapper():
+        class A(cls):
+            def __del__(self):
+                nonlocal done
+                done = True
+                try:
+                    next(it)
+                except StopIteration:
+                    pass
+        it = iter(A(*args))
+        test.assertRaises(StopIteration, next, it)
+
+    wrapper()
     # Issue 26494: Shouldn't crash
-    test.assertRaises(StopIteration, next, it)
     # The sequence should be deallocated just after the end of iterating
     gc_collect()
     test.assertTrue(done)

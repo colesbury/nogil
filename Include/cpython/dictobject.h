@@ -23,12 +23,7 @@ typedef struct {
 
     PyDictKeysObject *ma_keys;
 
-    /* If ma_values is NULL, the table is "combined": keys and values
-       are stored in ma_keys.
-
-       If ma_values is not NULL, the table is split:
-       keys are stored in ma_keys and values are stored in ma_values */
-    PyObject **ma_values;
+    _PyMutex ma_mutex;
 } PyDictObject;
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,
@@ -38,13 +33,16 @@ PyAPI_FUNC(PyObject *) _PyDict_GetItemIdWithError(PyObject *dp,
 PyAPI_FUNC(PyObject *) _PyDict_GetItemStringWithError(PyObject *, const char *);
 PyAPI_FUNC(PyObject *) PyDict_SetDefault(
     PyObject *mp, PyObject *key, PyObject *defaultobj);
+PyAPI_FUNC(PyObject *) _PyDict_SetDefault(PyObject *d, PyObject *key,
+                                          PyObject *defaultobj,
+                                          int incref, int *is_insert);
 PyAPI_FUNC(int) _PyDict_SetItem_KnownHash(PyObject *mp, PyObject *key,
                                           PyObject *item, Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItem_KnownHash(PyObject *mp, PyObject *key,
                                           Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItemIf(PyObject *mp, PyObject *key,
-                                  int (*predicate)(PyObject *value));
-PyDictKeysObject *_PyDict_NewKeysForClass(void);
+                                  int (*predicate)(PyObject *value, void *data),
+                                  void *data);
 PyAPI_FUNC(PyObject *) PyObject_GenericGetDict(PyObject *, void *);
 PyAPI_FUNC(int) _PyDict_Next(
     PyObject *mp, Py_ssize_t *pos, PyObject **key, PyObject **value, Py_hash_t *hash);
@@ -60,7 +58,7 @@ PyAPI_FUNC(Py_ssize_t) _PyDict_SizeOf(PyDictObject *);
 PyAPI_FUNC(PyObject *) _PyDict_Pop(PyObject *, PyObject *, PyObject *);
 PyObject *_PyDict_Pop_KnownHash(PyObject *, PyObject *, Py_hash_t, PyObject *);
 PyObject *_PyDict_FromKeys(PyObject *, PyObject *, PyObject *);
-#define _PyDict_HasSplitTable(d) ((d)->ma_values != NULL)
+// PyAPI_FUNC(int) _PyDict_HasSplitTable(PyDictObject *mp);
 
 /* Like PyDict_Merge, but override can be 0, 1 or 2.  If override is 0,
    the first occurrence of a key wins, if override is 1, the last occurrence
@@ -75,7 +73,6 @@ PyAPI_FUNC(int) _PyDict_DelItemId(PyObject *mp, struct _Py_Identifier *key);
 PyAPI_FUNC(void) _PyDict_DebugMallocStats(FILE *out);
 
 int _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr, PyObject *name, PyObject *value);
-PyObject *_PyDict_LoadGlobal(PyDictObject *, PyDictObject *, PyObject *);
 
 /* _PyDictView */
 
