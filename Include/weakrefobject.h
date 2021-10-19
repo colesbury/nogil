@@ -71,7 +71,7 @@ PyAPI_FUNC(PyObject *) PyWeakref_LockObject(PyObject *ref);
 #ifndef Py_LIMITED_API
 PyAPI_FUNC(Py_ssize_t) _PyWeakref_GetWeakrefCount(struct _PyWeakrefControl *ctrl);
 
-PyAPI_FUNC(void) _PyWeakref_DetachRef(PyWeakReference *self);
+PyAPI_FUNC(void) _PyWeakref_DetachRefFromGC(PyWeakReference *self);
 #endif
 
 /* Explanation for the Py_REFCNT() check: when a weakref's target is part
