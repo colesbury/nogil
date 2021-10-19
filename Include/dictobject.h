@@ -1,5 +1,10 @@
 #ifndef Py_DICTOBJECT_H
 #define Py_DICTOBJECT_H
+
+#ifndef Py_LIMITED_API
+#include "lock.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,6 +26,7 @@ PyAPI_DATA(PyTypeObject) PyDict_Type;
 PyAPI_FUNC(PyObject *) PyDict_New(void);
 PyAPI_FUNC(PyObject *) PyDict_GetItem(PyObject *mp, PyObject *key);
 PyAPI_FUNC(PyObject *) PyDict_GetItemWithError(PyObject *mp, PyObject *key);
+PyAPI_FUNC(PyObject *) PyDict_GetItemWithError2(PyObject *mp, PyObject *key);
 PyAPI_FUNC(int) PyDict_SetItem(PyObject *mp, PyObject *key, PyObject *item);
 PyAPI_FUNC(int) PyDict_DelItem(PyObject *mp, PyObject *key);
 PyAPI_FUNC(void) PyDict_Clear(PyObject *mp);
@@ -64,9 +70,9 @@ PyAPI_DATA(PyTypeObject) PyDictKeys_Type;
 PyAPI_DATA(PyTypeObject) PyDictValues_Type;
 PyAPI_DATA(PyTypeObject) PyDictItems_Type;
 
-#define PyDictKeys_Check(op) PyObject_TypeCheck(op, &PyDictKeys_Type)
-#define PyDictValues_Check(op) PyObject_TypeCheck(op, &PyDictValues_Type)
-#define PyDictItems_Check(op) PyObject_TypeCheck(op, &PyDictItems_Type)
+#define PyDictKeys_Check(op) Py_IS_TYPE(op, &PyDictKeys_Type)
+#define PyDictValues_Check(op) Py_IS_TYPE(op, &PyDictValues_Type)
+#define PyDictItems_Check(op) Py_IS_TYPE(op, &PyDictItems_Type)
 /* This excludes Values, since they are not sets. */
 # define PyDictViewSet_Check(op) \
     (PyDictKeys_Check(op) || PyDictItems_Check(op))

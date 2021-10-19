@@ -2868,7 +2868,7 @@ type_new(PyTypeObject *metatype, PyObject *args, PyObject *kwds)
     fixup_slot_dispatchers(type);
 
     if (type->tp_dictoffset) {
-        et->ht_cached_keys = _PyDict_NewKeysForClass();
+        et->ht_cached_keys = 0;
     }
 
     if (set_names(type) < 0)
@@ -3079,7 +3079,7 @@ PyType_FromModuleAndSpec(PyObject *module, PyType_Spec *spec, PyObject *bases)
         goto fail;
 
     if (type->tp_dictoffset) {
-        res->ht_cached_keys = _PyDict_NewKeysForClass();
+        res->ht_cached_keys = 0;
     }
 
     if (weaklistoffset) {
@@ -3487,9 +3487,6 @@ type_setattro(PyTypeObject *type, PyObject *name, PyObject *value)
     return res;
 }
 
-extern void
-_PyDictKeys_DecRef(PyDictKeysObject *keys);
-
 static void
 type_dealloc(PyTypeObject *type)
 {
@@ -3518,7 +3515,7 @@ type_dealloc(PyTypeObject *type)
     Py_XDECREF(et->ht_qualname);
     Py_XDECREF(et->ht_slots);
     if (et->ht_cached_keys) {
-        _PyDictKeys_DecRef(et->ht_cached_keys);
+        // FIXME(sgross): cached keys
     }
     Py_XDECREF(et->ht_module);
     Py_TYPE(type)->tp_free((PyObject *)type);
@@ -3723,7 +3720,6 @@ type_traverse(PyTypeObject *type, visitproc visit, void *arg)
 static int
 type_clear(PyTypeObject *type)
 {
-    PyDictKeysObject *cached_keys;
     /* Because of type_is_gc(), the collector only calls this
        for heaptypes. */
     _PyObject_ASSERT((PyObject *)type, type->tp_flags & Py_TPFLAGS_HEAPTYPE);
@@ -3758,11 +3754,11 @@ type_clear(PyTypeObject *type)
     */
 
     PyType_Modified(type);
-    cached_keys = ((PyHeapTypeObject *)type)->ht_cached_keys;
-    if (cached_keys != NULL) {
-        ((PyHeapTypeObject *)type)->ht_cached_keys = NULL;
-        _PyDictKeys_DecRef(cached_keys);
-    }
+    // cached_keys = ((PyHeapTypeObject *)type)->ht_cached_keys;
+    // if (cached_keys != NULL) {
+    //     ((PyHeapTypeObject *)type)->ht_cached_keys = NULL;
+    //     _PyDictKeys_DecRef(cached_keys);
+    // }
     if (type->tp_dict) {
         PyDict_Clear(type->tp_dict);
     }

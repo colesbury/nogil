@@ -96,6 +96,30 @@ static inline void _PyObject_GC_UNTRACK_impl(const char *filename, int lineno,
 
 #define _PyObject_FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
 
+/* Tries to increment an object's reference count
+ *
+ * This is a specialized version of _Py_TryIncref that only succeeds if the
+ * object is immortal or local to this thread. It does not handle the case
+ * where the  reference count modification requires an atomic operation. This
+ * allows call sites to specialize for the immortal/local case.
+ */
+static _Py_ALWAYS_INLINE int
+_Py_TryIncrefFast(PyObject *op) {
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_Py_REF_IS_IMMORTAL(local)) {
+        return 1;
+    }
+    if (_PY_LIKELY(_Py_ThreadLocal(op))) {
+        local += (1 << _Py_REF_LOCAL_SHIFT);
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#ifdef Py_REF_DEBUG
+        _Py_IncRefTotal();
+#endif
+        return 1;
+    }
+    return 0;
+}
+
 static _Py_ALWAYS_INLINE int
 _Py_TryIncRefShared_impl(PyObject *op)
 {

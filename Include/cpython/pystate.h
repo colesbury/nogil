@@ -126,6 +126,8 @@ struct _ts {
     _PyEventRc *done_event; /* Set when thread is about to exit */
     int daemon;
 
+    uint64_t pydict_next_version; /* Dict version counter */
+
     int coroutine_origin_tracking_depth;
 
     PyObject *async_gen_firstiter;

@@ -667,6 +667,8 @@ class PyCodeObjectPtr(PyObjectPtr):
 
 
 class PyDictObjectPtr(PyObjectPtr):
+    DK_SPLIT = 0x3
+
     """
     Class wrapping a gdb.Value that's a PyDictObject* i.e. a dict instance
     within the process being debugged.
@@ -679,11 +681,22 @@ class PyDictObjectPtr(PyObjectPtr):
         analogous to dict.iteritems()
         '''
         keys = self.field('ma_keys')
-        values = self.field('ma_values')
+        if int(self.field('ma_used')) == 0:
+            return
+        try:
+            values = self.field('ma_values')
+            if long(values) == 0:
+                values = None
+        except RuntimeError:
+            if keys['dk_type'] == self.DK_SPLIT:
+                tp = gdb.lookup_type('PyDictObjectWithValues').pointer()
+                values = self._gdbval.cast(tp).dereference()['dv_values']
+            else:
+                values = None
         entries, nentries = self._get_entries(keys)
         for i in safe_range(nentries):
             ep = entries[i]
-            if long(values):
+            if values is not None:
                 pyop_value = PyObjectPtr.from_pyobject_ptr(values[i])
             else:
                 pyop_value = PyObjectPtr.from_pyobject_ptr(ep['me_value'])
@@ -724,22 +737,27 @@ class PyDictObjectPtr(PyObjectPtr):
 
     def _get_entries(self, keys):
         dk_nentries = int(keys['dk_nentries'])
-        dk_size = int(keys['dk_size'])
         try:
             # <= Python 3.5
-            return keys['dk_entries'], dk_size
+            return keys['dk_entries'], int(keys['dk_size'])
         except RuntimeError:
-            # >= Python 3.6
             pass
-
-        if dk_size <= 0xFF:
-            offset = dk_size
-        elif dk_size <= 0xFFFF:
-            offset = 2 * dk_size
-        elif dk_size <= 0xFFFFFFFF:
-            offset = 4 * dk_size
-        else:
-            offset = 8 * dk_size
+        try:
+            # <= Python 3.9
+            dk_size = int(keys['dk_size'])
+            if dk_size <= 0xFF:
+                offset = dk_size
+            elif dk_size <= 0xFFFF:
+                offset = 2 * dk_size
+            elif dk_size <= 0xFFFFFFFF:
+                offset = 4 * dk_size
+            else:
+                offset = 8 * dk_size
+        except RuntimeError:
+            # >= Python 3.10
+            dk_ix_size = int(keys['dk_ix_size'])
+            dk_size = 2 ** int(keys['dk_size_shift'])
+            offset = dk_size * dk_ix_size
 
         ent_addr = keys['dk_indices'].address
         ent_addr = ent_addr.cast(_type_unsigned_char_ptr()) + offset

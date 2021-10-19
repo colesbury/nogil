@@ -1147,9 +1147,20 @@ class SizeofTest(unittest.TestCase):
         # empty dict
         check({}, size('nQ2P'))
         # dict
-        check({"a": 1}, size('nQ2P') + calcsize('2nP2n') + 8 + (8*2//3)*calcsize('n2P'))
+        def dictsize(n, is_string, index_type='b'):
+            usable = n - (n // 8)
+            ctrl_size = max(n + 1, 16)
+            hash_size = n if not is_string else 0
+            index_size = usable + 1
+            return (size('nQ2P') +
+                    calcsize('nBnPn') +
+                    ctrl_size * calcsize('B') +
+                    hash_size * calcsize('n') +
+                    n * calcsize('2P') +
+                    index_size * calcsize(index_type))
+        check({"a": 1}, dictsize(7, is_string=True))
         longdict = {1:1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8}
-        check(longdict, size('nQ2P') + calcsize('2nP2n') + 16 + (16*2//3)*calcsize('n2P'))
+        check(longdict, dictsize(15, is_string=False))
         # dictionary-keyview
         check({}.keys(), size('P'))
         # dictionary-valueview
@@ -1308,15 +1319,16 @@ class SizeofTest(unittest.TestCase):
                   '5P')
         class newstyleclass(object): pass
         # Separate block for PyDictKeysObject with 8 keys and 5 entries
-        check(newstyleclass, s + calcsize("2nP2n0P") + 8 + 5*calcsize("n2P"))
-        # dict with shared keys
-        check(newstyleclass().__dict__, size('nQ2P') + 5*self.P)
+        check(newstyleclass, s)
+        # empty dict
+        check(newstyleclass().__dict__, size('nQ2P'))
         o = newstyleclass()
         o.a = o.b = o.c = o.d = o.e = o.f = o.g = o.h = 1
+        check(o.__dict__, dictsize(15, is_string=True))
         # Separate block for PyDictKeysObject with 16 keys and 10 entries
-        check(newstyleclass, s + calcsize("2nP2n0P") + 16 + 10*calcsize("n2P"))
+        check(newstyleclass, s)
         # dict with shared keys
-        check(newstyleclass().__dict__, size('nQ2P') + 10*self.P)
+        check(newstyleclass().__dict__, size('nQ2P'))
         # unicode
         # each tuple contains a string and its expected character size
         # don't put any static strings here, as they may contain

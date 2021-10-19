@@ -12,7 +12,7 @@ import random
 
 from test import support
 from test.support import script_helper, ALWAYS_EQ
-from test.support import gc_collect
+from test.support import collect_in_thread, gc_collect
 
 # Used in ReferencesTestCase.test_ref_created_during_del() .
 ref_from_del = None
@@ -74,28 +74,6 @@ class TestBase(unittest.TestCase):
 
     def callback(self, ref):
         self.cbcalled += 1
-
-
-@contextlib.contextmanager
-def collect_in_thread(period=0.005):
-    """
-    Ensure GC collections happen in a different thread, at a high frequency.
-    """
-    please_stop = False
-
-    def collect():
-        while not please_stop:
-            time.sleep(period)
-            gc.collect()
-
-    with support.disable_gc():
-        t = threading.Thread(target=collect)
-        t.start()
-        try:
-            yield
-        finally:
-            please_stop = True
-            t.join()
 
 
 class ReferencesTestCase(TestBase):

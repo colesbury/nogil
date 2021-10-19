@@ -844,7 +844,6 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
     const _Py_CODEUNIT *first_instr;
     PyObject *names;
     PyObject *consts;
-    _PyOpcache *co_opcache;
 
 #ifdef LLTRACE
     _Py_IDENTIFIER(__ltrace__);
@@ -2443,83 +2442,24 @@ main_loop:
         case TARGET(LOAD_GLOBAL): {
             PyObject *name;
             PyObject *v;
-            if (PyDict_CheckExact(f->f_globals)
-                && PyDict_CheckExact(f->f_builtins))
-            {
-                OPCACHE_CHECK();
-                if (co_opcache != NULL && co_opcache->optimized > 0) {
-                    _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
-
-                    if (lg->globals_ver ==
-                            ((PyDictObject *)f->f_globals)->ma_version_tag
-                        && lg->builtins_ver ==
-                           ((PyDictObject *)f->f_builtins)->ma_version_tag)
-                    {
-                        PyObject *ptr = lg->ptr;
-                        OPCACHE_STAT_GLOBAL_HIT();
-                        assert(ptr != NULL);
-                        Py_INCREF(ptr);
-                        PUSH(ptr);
-                        DISPATCH();
-                    }
-                }
-
-                name = GETITEM(names, oparg);
-                v = _PyDict_LoadGlobal((PyDictObject *)f->f_globals,
-                                       (PyDictObject *)f->f_builtins,
-                                       name);
-                if (v == NULL) {
-                    if (!_PyErr_OCCURRED()) {
-                        /* _PyDict_LoadGlobal() returns NULL without raising
-                         * an exception if the key doesn't exist */
-                        format_exc_check_arg(tstate, PyExc_NameError,
-                                             NAME_ERROR_MSG, name);
-                    }
+            /* namespace 1: globals */
+            name = GETITEM(names, oparg);
+            v = PyObject_GetItem(f->f_globals, name);
+            if (v == NULL) {
+                if (!_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
                     goto error;
                 }
+                _PyErr_Clear(tstate);
 
-                if (co_opcache != NULL) {
-                    _PyOpcache_LoadGlobal *lg = &co_opcache->u.lg;
-
-                    if (co_opcache->optimized == 0) {
-                        /* Wasn't optimized before. */
-                        OPCACHE_STAT_GLOBAL_OPT();
-                    } else {
-                        OPCACHE_STAT_GLOBAL_MISS();
-                    }
-
-                    co_opcache->optimized = 1;
-                    lg->globals_ver =
-                        ((PyDictObject *)f->f_globals)->ma_version_tag;
-                    lg->builtins_ver =
-                        ((PyDictObject *)f->f_builtins)->ma_version_tag;
-                    lg->ptr = v; /* borrowed */
-                }
-
-                Py_INCREF(v);
-            }
-            else {
-                /* Slow-path if globals or builtins is not a dict */
-
-                /* namespace 1: globals */
-                name = GETITEM(names, oparg);
-                v = PyObject_GetItem(f->f_globals, name);
+                /* namespace 2: builtins */
+                v = PyObject_GetItem(f->f_builtins, name);
                 if (v == NULL) {
-                    if (!_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                        goto error;
+                    if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
+                        format_exc_check_arg(
+                                    tstate, PyExc_NameError,
+                                    NAME_ERROR_MSG, name);
                     }
-                    _PyErr_Clear(tstate);
-
-                    /* namespace 2: builtins */
-                    v = PyObject_GetItem(f->f_builtins, name);
-                    if (v == NULL) {
-                        if (_PyErr_ExceptionMatches(tstate, PyExc_KeyError)) {
-                            format_exc_check_arg(
-                                        tstate, PyExc_NameError,
-                                        NAME_ERROR_MSG, name);
-                        }
-                        goto error;
-                    }
+                    goto error;
                 }
             }
             PUSH(v);
