@@ -3,7 +3,7 @@ import unittest.mock
 from test.support import (verbose, refcount_test,
                           cpython_only, start_threads,
                           temp_dir, TESTFN, unlink,
-                          import_module)
+                          import_module, collect_in_thread)
 from test.support.script_helper import assert_python_ok, make_script
 
 import gc
@@ -399,6 +399,22 @@ class GCTests(unittest.TestCase):
             sys.setswitchinterval(old_switchinterval)
         gc.collect()
         self.assertEqual(len(C.inits), len(C.dels))
+
+    def test_gc_critical_lock(self):
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class Key:
+            value: int
+
+        d = {}
+        for i in range(1000):
+            d[Key(i)] = i
+
+        with collect_in_thread():
+            for _ in range(10):
+                for i in range(1000):
+                    d[Key(i)] = i * 10
 
     def test_boom(self):
         class Boom:
