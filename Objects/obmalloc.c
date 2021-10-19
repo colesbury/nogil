@@ -584,7 +584,6 @@ static PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
     if (basicsize > PY_SSIZE_T_MAX - sizeof(PyGC_Head)) {
         return _PyErr_NoMemory(tstate);
     }
@@ -605,10 +604,6 @@ _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 
     g->_gc_next = 0;
     g->_gc_prev = 0;
-
-    if (_PyGC_ShouldCollect(gcstate)) {
-        _PyGC_Collect(tstate);
-    }
 
     PyObject *op = _PyObject_FROM_GC(g);
     return op;
@@ -675,10 +670,7 @@ void
 PyObject_GC_Del(void *op)
 {
     PyGC_Head *g = _Py_AS_GC(op);
-    if (_PY_UNLIKELY(g->_gc_next != 0)) {
-        assert(_PyThreadState_GET()->interp->gc.collecting);
-        gc_list_remove(g);
-    }
+    assert(g->_gc_next == 0);
     PyMemAllocatorEx *a = &allocators[PYMEM_DOMAIN_GC];
     a->free(a->ctx, g);
 }

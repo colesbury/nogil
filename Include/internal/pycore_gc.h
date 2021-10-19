@@ -158,6 +158,11 @@ struct _gc_runtime_state {
        A value of 100 means to collect every time the number of live
        objects doubles. */
     int gc_scale;
+    /* Number of threads that must park themselves to stop-the-world.
+       Protected by HEAD_LOCK(runtime). */
+    Py_ssize_t gc_thread_countdown;
+    /* Signalled when all threads stops thesmelves for GC */
+    _PyRawEvent gc_stop_event;
     /* This is the number of objects that survived the last full
        collection. It approximates the number of long lived objects
        tracked by the GC.
@@ -179,7 +184,8 @@ static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
 {
     Py_ssize_t live = _Py_atomic_load_ssize_relaxed(&gcstate->gc_live);
-    return !gcstate->collecting && gcstate->enabled && live >= gcstate->gc_threshold;
+    Py_ssize_t threshold = _Py_atomic_load_ssize_relaxed(&gcstate->gc_threshold);
+    return (live >= threshold && gcstate->enabled);
 }
 
 /* Remove `node` from the gc list it's currently in. */

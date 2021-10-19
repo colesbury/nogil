@@ -364,7 +364,8 @@ static void mi_page_to_full(mi_page_t* page, mi_page_queue_t* pq) {
 
   if (page->tag == mi_heap_tag_gc) {
     PyThreadState *tstate = _PyThreadState_GET();
-    mi_atomic_addi64(&tstate->interp->gc.gc_live, page->capacity);
+    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
+    mi_atomic_addi64(&gcstate->gc_live, page->capacity);
   }
 }
 
@@ -894,6 +895,16 @@ void* _mi_malloc_generic(mi_heap_t* heap, size_t size) mi_attr_noexcept
     heap = mi_get_default_heap();
   }
   mi_assert_internal(mi_heap_is_initialized(heap));
+
+  if (heap->tag == mi_heap_tag_gc) {
+    PyThreadState *tstate = _PyThreadState_GET();
+    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
+    if (_PyGC_ShouldCollect(gcstate) &&
+        !_Py_atomic_load_int_relaxed(&gcstate->collecting))
+    {
+        _PyGC_Collect(tstate);
+    }
+  }
 
   // call potential deferred free routines
   _mi_deferred_free(heap, false);

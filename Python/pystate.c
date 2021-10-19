@@ -220,6 +220,205 @@ _PyThreadState_Detach(PyThreadState *tstate)
 }
 
 void
+_PyThreadState_GC_Stop(PyThreadState *tstate)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    struct _gc_runtime_state *gc = &tstate->interp->gc;
+    int gc_pending;
+
+    assert(tstate->status == _Py_THREAD_ATTACHED);
+
+    HEAD_LOCK(runtime);
+    gc_pending = (gc->gc_thread_countdown > 0);
+    HEAD_UNLOCK(runtime);
+
+    if (!gc_pending) {
+        // We might be processing a stale EVAL_PLEASE_STOP, in which
+        // case there is nothing to do. This can happen if a thread
+        // asks us to stop for a previous GC at the same time we detach.
+        return;
+    }
+
+    _Py_qsbr_offline(((PyThreadStateImpl *)tstate)->qsbr);
+
+    if (tstate->critical_section != 0) {
+        _Py_critical_section_end_all(tstate);
+    }
+
+    _Py_atomic_store_int32(&tstate->status, _Py_THREAD_GC);
+
+    HEAD_LOCK(runtime);
+    // Decrease gc_thread_countdown. If we're the last thread to stop,
+    // notify the thread that requested the stop-the-world.
+    gc->gc_thread_countdown--;
+    assert(gc->gc_thread_countdown >= 0);
+    if (gc->gc_thread_countdown == 0) {
+        _PyRawEvent_Notify(&gc->gc_stop_event);
+    }
+    HEAD_UNLOCK(runtime);
+
+    _PyThreadState_GC_Park(tstate);
+}
+
+void
+_PyThreadState_GC_Park(PyThreadState *tstate)
+{
+    assert(!tstate->cant_stop_wont_stop);
+
+    int count = 0;
+    for (;;) {
+        // Wait until we're switched out of GC to DETACHED.
+        _PyParkingLot_ParkInt32(&tstate->status, _Py_THREAD_GC);
+
+        // Once we're back in DETACHED we can re-attach
+        if (_PyThreadState_Attach(tstate)) {
+            // We gucci
+            return;
+        }
+
+        count++;
+    }
+}
+
+static void
+assert_all_stopped(_PyRuntimeState *runtime, PyThreadState *this_tstate)
+{
+    // Check that all threads (other than this thread) are in _Py_THREAD_GC
+    // state.
+#ifdef Py_DEBUG
+    PyThreadState *t;
+    HEAD_LOCK(runtime);
+    for_each_thread(t) {
+        if (t == this_tstate) {
+            assert(_PyThreadState_GetStatus(t) == _Py_THREAD_ATTACHED);
+        }
+        else {
+            assert(_PyThreadState_GetStatus(t) == _Py_THREAD_GC);
+        }
+    }
+    HEAD_UNLOCK(runtime);
+#endif
+}
+
+static int
+park_detached_threads(_PyRuntimeState *runtime, PyThreadState *this_tstate)
+{
+    int num_parked = 0;
+
+    PyThreadState *t;
+    for_each_thread(t) {
+        int status = _PyThreadState_GetStatus(t);
+
+        if (status == _Py_THREAD_DETACHED &&
+            !_Py_atomic_load_int32_relaxed(&t->cant_stop_wont_stop) &&
+            _Py_atomic_compare_exchange_int32(
+                &t->status,
+                _Py_THREAD_DETACHED,
+                _Py_THREAD_GC)) {
+
+            num_parked++;
+        }
+        else if (status == _Py_THREAD_ATTACHED && t != this_tstate) {
+            _PyThreadState_Signal(t, EVAL_PLEASE_STOP);
+        }
+    }
+
+    return num_parked;
+}
+
+void
+_PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime)
+{
+    PyThreadState *this_tstate = PyThreadState_Get();
+    struct _gc_runtime_state *gc = &this_tstate->interp->gc;
+
+    assert(_PyMutex_is_locked(&runtime->stoptheworld_mutex));
+
+    HEAD_LOCK(runtime);
+    if (runtime->stop_the_world) {
+        // TODO(sgross): document how the re-entrant stop the world can happen.
+        assert(_PyRuntimeState_GetFinalizing(runtime) == this_tstate);
+        runtime->stop_the_world++;
+        HEAD_UNLOCK(runtime);
+        return;
+    }
+
+    runtime->stop_the_world = 1;
+    gc->gc_thread_countdown = 0;
+
+    PyThreadState *t;
+    for_each_thread(t) {
+#ifdef Py_DEBUG
+        int s = _PyThreadState_GetStatus(t);
+        assert(s == _Py_THREAD_ATTACHED || s == _Py_THREAD_DETACHED);
+#endif
+        gc->gc_thread_countdown++;
+    }
+
+    // Don't wait our own thread
+    assert(this_tstate->status == _Py_THREAD_ATTACHED);
+    gc->gc_thread_countdown--;
+
+    // Switch threads that are detached to the GC stopped state
+    int parked = park_detached_threads(runtime, this_tstate);
+    gc->gc_thread_countdown -= parked;
+
+    assert(gc->gc_thread_countdown >= 0);
+    int stopped_all_threads = gc->gc_thread_countdown == 0;
+    HEAD_UNLOCK(runtime);
+
+    // We're done if we successfully transitioned all other threads to
+    // _Py_THREAD_GC (or if we are the only thread).
+    while (!stopped_all_threads) {
+        // Otherwise we need to wait until the remaining threads stop themselves.
+        int64_t wait_ns = 1000*1000;
+        if (_PyRawEvent_TimedWait(&gc->gc_stop_event, wait_ns)) {
+            assert(gc->gc_thread_countdown == 0);
+            assert_all_stopped(runtime, this_tstate);
+            _PyRawEvent_Reset(&gc->gc_stop_event);
+            break;
+        }
+
+        // Ask nicely: park_detached_threads sets eval_breaker to trigger this soon.
+        HEAD_LOCK(runtime);
+        int num_detached = park_detached_threads(runtime, this_tstate);
+        gc->gc_thread_countdown -= num_detached;
+        assert(gc->gc_thread_countdown >= 0);
+        stopped_all_threads = (num_detached > 0) && (gc->gc_thread_countdown == 0);
+        HEAD_UNLOCK(runtime);
+    }
+}
+
+void
+_PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime)
+{
+    assert(_PyMutex_is_locked(&runtime->stoptheworld_mutex));
+
+    HEAD_LOCK(runtime);
+    if (runtime->stop_the_world > 1) {
+        assert(_PyRuntimeState_GetFinalizing(runtime) == PyThreadState_GET());
+        runtime->stop_the_world--;
+        HEAD_UNLOCK(runtime);
+        return;
+    }
+
+    runtime->stop_the_world = 0;
+    PyThreadState *t;
+    for_each_thread(t) {
+        int status = _PyThreadState_GetStatus(t);
+        if (status == _Py_THREAD_GC &&
+            _Py_atomic_compare_exchange_int32(
+                &t->status,
+                _Py_THREAD_GC,
+                _Py_THREAD_DETACHED)) {
+
+            _PyParkingLot_UnparkAll(&t->status);
+        }
+    }
+    HEAD_UNLOCK(runtime);
+}
+
+void
 _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 {
     // TODO: use atomic bitwise instructions when available
@@ -746,6 +945,7 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
     tstate->stackcheck_counter = 0;
     tstate->tracing = 0;
     tstate->use_tracing = 0;
+    tstate->cant_stop_wont_stop = 0;
     tstate->gilstate_counter = 0;
     tstate->async_exc = NULL;
     tstate->thread_id = PyThread_get_thread_ident();
@@ -800,6 +1000,9 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
     if (tstate->next)
         tstate->next->prev = tstate;
     interp->tstate_head = tstate;
+    if (runtime->stop_the_world) {
+        tstate->status = _Py_THREAD_GC;
+    }
     HEAD_UNLOCK(runtime);
 
     return tstate;
@@ -1065,6 +1268,20 @@ tstate_delete_common(PyThreadState *tstate,
     runtime->ref_total += tstate->ref_total;
     tstate->ref_total = 0;
 #endif
+
+    if (runtime->stop_the_world &&
+        tstate->status != _Py_THREAD_GC &&
+        tstate != _PyRuntimeState_GetFinalizing(&_PyRuntime)) {
+        // If another thread is waiting for us to stop, decrease gc_thread_countdown
+        // and potentially notify them.
+        struct _gc_runtime_state *gc = &tstate->interp->gc;
+        gc->gc_thread_countdown--;
+        assert(gc->gc_thread_countdown >= 0);
+        if (gc->gc_thread_countdown == 0) {
+            _PyRawEvent_Notify(&gc->gc_stop_event);
+        }
+    }
+
     HEAD_UNLOCK(runtime);
 
     // Notify threads waiting on Thread.join(). This should happen after the
@@ -1224,7 +1441,7 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
     if (newts) {
         int attached = _PyThreadState_Attach(newts);
         if (!attached) {
-            // _PyThreadState_GC_Park(newts);
+            _PyThreadState_GC_Park(newts);
         }
 
         assert(_Py_atomic_load_int32(&newts->status) == _Py_THREAD_ATTACHED);
