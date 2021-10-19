@@ -62,6 +62,9 @@ typedef struct pyruntimestate {
     /* Is Python fully initialized? Set to 1 by Py_Initialize() */
     int initialized;
 
+    /* Is Python stopping all threads? */
+    int stop_the_world;
+
     /* Set by Py_FinalizeEx(). Only reset to NULL if Py_Initialize()
        is called again.
 
@@ -119,6 +122,8 @@ typedef struct pyruntimestate {
     /* Used for types for now */
     _PyMutex mutex;
 
+    _PyMutex stoptheworld_mutex;
+
     Py_ssize_t ref_total;
 
     // XXX Consolidate globals found via the check-c-globals script.
@@ -137,6 +142,9 @@ PyAPI_FUNC(void) _PyRuntimeState_Fini(_PyRuntimeState *runtime);
 #ifdef HAVE_FORK
 PyAPI_FUNC(void) _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime);
 #endif
+
+PyAPI_FUNC(void) _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime);
+PyAPI_FUNC(void) _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime);
 
 PyAPI_FUNC(Py_ssize_t) _PyRuntimeState_GetRefTotal(_PyRuntimeState *runtime);
 

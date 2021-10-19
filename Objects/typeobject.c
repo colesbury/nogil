@@ -1320,8 +1320,7 @@ subtype_dealloc(PyObject *self)
            finalizers since they might rely on part of the object
            being finalized that has already been destroyed. */
         if (type->tp_weaklistoffset && !base->tp_weaklistoffset) {
-            /* Modeled after GET_WEAKREFS_LISTPTR() */
-            _PyObject_ClearWeakRefsFromGC(self);
+            _PyObject_ClearWeakRefsFromDealloc(self);
         }
     }
 

@@ -26,6 +26,10 @@ enum {
     EVAL_EXPLICIT_MERGE = 1U << 5
 };
 
+#define for_each_thread(t)                                                      \
+    for (PyInterpreterState *i = _PyRuntime.interpreters.head; i; i = i->next)  \
+        for (t = i->tstate_head; t; t = t->next)
+
 /* Check if the current thread is the main thread.
    Use _Py_IsMainInterpreter() to check if it's the main interpreter. */
 static inline int
@@ -170,6 +174,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_UnlinkExcept(_PyRuntimeState *runtime
                                                         PyThreadState *tstate,
                                                         int already_dead);
 PyAPI_FUNC(void) _PyThreadState_DeleteGarbage(PyThreadState *garbage);
+PyAPI_FUNC(void) _PyThreadState_GC_Park(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_GC_Stop(PyThreadState *tstate);
 PyAPI_FUNC(void) _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit);
 PyAPI_FUNC(void) _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit);
 
