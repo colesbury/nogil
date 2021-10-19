@@ -1867,6 +1867,12 @@ Py_FinalizeEx(void)
     runtime->initialized = 0;
     runtime->core_initialized = 0;
 
+    /* Wait until all daemon threads exit. Release the stoptheworld_mutex
+       afterwards because we're going to attempt further stop-the-worlds
+       via GC calls. */
+    _PyRuntimeState_StopTheWorld(runtime);
+    _PyMutex_unlock(&runtime->stoptheworld_mutex);
+
     /* Destroy the state of all threads of the interpreter, except of the
        current thread. In practice, only daemon threads should still be alive,
        except if wait_for_thread_shutdown() has been cancelled by CTRL+C.

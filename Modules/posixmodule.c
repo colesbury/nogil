@@ -572,11 +572,18 @@ PyOS_BeforeFork(void)
     run_at_forkers(_PyInterpreterState_GET()->before_forkers, 1);
 
     _PyImport_AcquireLock();
+
+    // Stop all other threads still attached to the Python VM.
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
+    HEAD_LOCK(&_PyRuntime);
 }
 
 void
 PyOS_AfterFork_Parent(void)
 {
+    HEAD_UNLOCK(&_PyRuntime);
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+
     if (_PyImport_ReleaseLock() <= 0)
         Py_FatalError("failed releasing import lock after fork");
 
@@ -606,6 +613,12 @@ PyOS_AfterFork_Child(void)
     tstate->native_thread_id = PyThread_get_thread_native_id();
 #endif
 
+    // re-creates runtime->interpreters.mutex (HEAD_UNLOCK)
+    status = _PyRuntimeState_ReInitThreads(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto fatal_error;
+    }
+
     status = _PyEval_ReInitThreads(tstate);
     if (_PyStatus_EXCEPTION(status)) {
         goto fatal_error;
@@ -619,12 +632,9 @@ PyOS_AfterFork_Child(void)
     _PySignal_AfterFork();
     _Py_queue_after_fork();
 
-    status = _PyRuntimeState_ReInitThreads(runtime);
-    if (_PyStatus_EXCEPTION(status)) {
-        goto fatal_error;
-    }
-
     PyThreadState *garbage = _PyThreadState_UnlinkExcept(runtime, tstate, 1);
+
+    _PyRuntimeState_StartTheWorld(runtime);
 
     status = _PyInterpreterState_DeleteExceptMain(runtime);
     if (_PyStatus_EXCEPTION(status)) {
