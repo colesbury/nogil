@@ -1837,7 +1837,7 @@ def _signature_is_functionlike(obj):
     kwdefaults = getattr(obj, '__kwdefaults__', _void) # ... and not None here
     annotations = getattr(obj, '__annotations__', None)
 
-    return (isinstance(code, types.CodeType) and
+    return (isinstance(code, types.CodeTypes) and
             isinstance(name, str) and
             (defaults is None or isinstance(defaults, tuple)) and
             (kwdefaults is None or isinstance(kwdefaults, dict)) and
