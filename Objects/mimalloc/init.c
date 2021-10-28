@@ -26,6 +26,7 @@ const mi_page_t _mi_page_empty = {
   #if MI_ENCODE_FREELIST
   { 0, 0 },
   #endif
+  ATOMIC_VAR_INIT(0), // use_qsbr
   0,       // debug_offset
   0,       // used
   0,       // xblock_size
@@ -166,6 +167,7 @@ static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])
   tld->segments.stats = &tld->stats;
   tld->segments.os = &tld->os;
   tld->os.stats = &tld->stats;
+  llist_init(&tld->page_list);
 }
 
 static void mi_heap_main_init(void) {

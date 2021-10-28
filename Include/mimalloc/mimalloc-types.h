@@ -11,6 +11,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #include <stddef.h>   // ptrdiff_t
 #include <stdint.h>   // uintptr_t, uint16_t, etc
 #include "mimalloc-atomic.h"  // _Atomic
+#include "pycore_llist.h"
 
 #ifdef _MSC_VER
 #pragma warning(disable:4214) // bitfield is not int
@@ -273,6 +274,7 @@ typedef struct mi_page_s {
   #ifdef MI_ENCODE_FREELIST
   uintptr_t             keys[2];           // two random keys to encode the free lists (see `_mi_block_next`)
   #endif
+  _Atomic(uint8_t)      use_qsbr;          // delay page freeing using qsbr
   int8_t                debug_offset;      // offset for filling in debug bytes (0xDD, 0xD0)
   uint16_t              used;              // number of blocks in use (including blocks in `local_free` and `thread_free`)
   uint32_t              xblock_size;       // size available in each block (always `>0`)
@@ -283,6 +285,8 @@ typedef struct mi_page_s {
   
   struct mi_page_s*     next;              // next page owned by this thread with the same `block_size`
   struct mi_page_s*     prev;              // previous page owned by this thread with the same `block_size`
+  struct llist_node     qsbr_node;
+  uintptr_t             qsbr_epoch;
 } mi_page_t;
 
 
@@ -549,6 +553,7 @@ struct mi_tld_s {
   mi_heap_t*          heaps;         // list of heaps in this thread (so we can abandon all when the thread terminates)
   mi_heap_t*          default_heaps[MI_NUM_HEAPS];
   mi_segments_tld_t   segments;      // segment tld
+  struct llist_node   page_list;     // free pages
   mi_os_tld_t         os;            // os tld
   mi_stats_t          stats;         // statistics
   _Atomic(uintptr_t)  refcount;      // used by pystate.c

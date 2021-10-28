@@ -785,6 +785,7 @@ static void mi_segment_page_clear(mi_segment_t* segment, mi_page_t* page, bool a
   mi_assert_internal(mi_page_all_free(page));
   mi_assert_internal(page->is_committed);
   mi_assert_internal(mi_page_not_in_queue(page, tld));
+  mi_assert_internal(page->qsbr_node.next == NULL && page->qsbr_node.prev == NULL);
 
   size_t inuse = page->capacity * mi_page_block_size(page);
   _mi_stat_decrease(&tld->stats->page_committed, inuse);
