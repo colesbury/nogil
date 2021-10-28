@@ -9,6 +9,7 @@
 #include "pycore_pylifecycle.h"
 #include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_qsbr.h"
 #include "pycore_sysmodule.h"
 #include "pycore_refcnt.h"
 
@@ -186,12 +187,13 @@ _PyThreadState_Attach(PyThreadState *tstate)
             &tstate->status,
             _Py_THREAD_DETACHED,
             _Py_THREAD_ATTACHED)) {
+        // online for QSBR too
+        _Py_qsbr_online(((PyThreadStateImpl *)tstate)->qsbr);
 
         // resume previous critical section
         if (tstate->critical_section != 0) {
             _Py_critical_section_resume(tstate);
         }
-
         return 1;
     }
     return 0;
@@ -200,6 +202,8 @@ _PyThreadState_Attach(PyThreadState *tstate)
 static void
 _PyThreadState_Detach(PyThreadState *tstate)
 {
+    _Py_qsbr_offline(((PyThreadStateImpl *)tstate)->qsbr);
+
     if (tstate->critical_section != 0) {
         _Py_critical_section_end_all(tstate);
     }
@@ -706,6 +710,12 @@ new_threadstate(PyInterpreterState *interp, int init)
 
     tstate->ref_total = 0;
 
+    tstate_impl->qsbr = _Py_qsbr_register(&_PyRuntime.qsbr_shared, tstate);
+    if (tstate_impl->qsbr == NULL) {
+        PyMem_RawFree(tstate);
+        return NULL;
+    }
+
     if (init) {
         _PyThreadState_Init(tstate);
     }
@@ -947,6 +957,13 @@ tstate_delete_common(PyThreadState *tstate,
     {
         PyThread_tss_set(&gilstate->autoTSSkey, NULL);
     }
+
+    PyThreadStateImpl *tstate_impl = (PyThreadStateImpl *)tstate;
+    if (is_current) {
+        _Py_qsbr_offline(tstate_impl->qsbr);
+    }
+    _Py_qsbr_unregister(tstate_impl->qsbr);
+    tstate_impl->qsbr = NULL;
 
     _PyRuntimeState *runtime = interp->runtime;
     HEAD_LOCK(runtime);
