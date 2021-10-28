@@ -56,11 +56,17 @@ static inline uintptr_t mi_atomic_exchange(volatile _Atomic(uintptr_t)* p, uintp
 // Atomically read a value. Memory ordering is relaxed.
 static inline uintptr_t mi_atomic_read_relaxed(const volatile _Atomic(uintptr_t)* p);
 
+// Atomically read a value. Memory ordering is relaxed.
+static inline uint8_t mi_atomic_read8_relaxed(const volatile _Atomic(uint8_t)* p);
+
 // Atomically read a value. Memory ordering is acquire.
 static inline uintptr_t mi_atomic_read(const volatile _Atomic(uintptr_t)* p);
 
 // Atomically write a value. Memory ordering is release.
 static inline void mi_atomic_write(volatile _Atomic(uintptr_t)* p, uintptr_t x);
+
+// Atomically write a value. Memory ordering is relaxed.
+static inline void mi_atomic_write8_relaxed(volatile _Atomic(uint8_t)* p, uint8_t x);
 
 // Yield
 static inline void mi_atomic_yield(void);
@@ -154,12 +160,18 @@ static inline uintptr_t mi_atomic_read(volatile _Atomic(uintptr_t) const* p) {
 static inline uintptr_t mi_atomic_read_relaxed(volatile _Atomic(uintptr_t) const* p) {
   return *p;
 }
+static inline uint8_t mi_atomic_read8_relaxed(volatile _Atomic(uint8_t) const* p) {
+  return *p;
+}
 static inline void mi_atomic_write(volatile _Atomic(uintptr_t)* p, uintptr_t x) {
   #if defined(_M_IX86) || defined(_M_X64)
   *p = x;
   #else
   mi_atomic_exchange(p,x);
   #endif
+}
+static inline void mi_atomic_write8_relaxed(volatile _Atomic(uint8_t)* p, uint8_t x) {
+  *p = x;
 }
 static inline void mi_atomic_yield(void) {
   YieldProcessor();
@@ -215,11 +227,19 @@ static inline uintptr_t mi_atomic_read_relaxed(const volatile _Atomic(uintptr_t)
   MI_USING_STD
   return atomic_load_explicit((volatile _Atomic(uintptr_t)*) p, memory_order_relaxed);
 }
+static inline uint8_t mi_atomic_read8_relaxed(const volatile _Atomic(uint8_t)* p) {
+  MI_USING_STD
+  return atomic_load_explicit((volatile _Atomic(uint8_t)*) p, memory_order_relaxed);
+}
 static inline uintptr_t mi_atomic_read(const volatile _Atomic(uintptr_t)* p) {
   MI_USING_STD
   return atomic_load_explicit((volatile _Atomic(uintptr_t)*) p, memory_order_acquire);
 }
 static inline void mi_atomic_write(volatile _Atomic(uintptr_t)* p, uintptr_t x) {
+  MI_USING_STD
+  return atomic_store_explicit(p, x, memory_order_release);
+}
+static inline void mi_atomic_write8_relaxed(volatile _Atomic(uint8_t)* p, uint8_t x) {
   MI_USING_STD
   return atomic_store_explicit(p, x, memory_order_release);
 }

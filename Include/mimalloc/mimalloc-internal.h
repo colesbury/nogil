@@ -426,6 +426,16 @@ static inline mi_page_t* _mi_ptr_page(void* p) {
   return _mi_segment_page_of(_mi_ptr_segment(p), p);
 }
 
+static inline void _mi_page_use_qsbr(mi_page_t* page) {
+  if (!mi_atomic_read8_relaxed(&page->use_qsbr)) {
+    mi_atomic_write8_relaxed(&page->use_qsbr, true);
+  }
+}
+
+static inline void _mi_ptr_use_qsbr(void* p) {
+  _mi_page_use_qsbr(_mi_ptr_page(p));
+}
+
 // Get the block size of a page (special cased for huge objects)
 static inline size_t mi_page_block_size(const mi_page_t* page) {
   const size_t bsize = page->xblock_size;
