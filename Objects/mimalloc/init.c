@@ -4,10 +4,11 @@ This is free software; you can redistribute it and/or modify it under the
 terms of the MIT license. A copy of the license can be found in the file
 "LICENSE" at the root of this distribution.
 -----------------------------------------------------------------------------*/
+#include "Python.h"
+
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 
-#include "Python.h"
 #include "pycore_gc.h"
 
 #include <string.h>  // memcpy, memset
@@ -32,7 +33,10 @@ const mi_page_t _mi_page_empty = {
   #endif
   MI_ATOMIC_VAR_INIT(0), // xthread_free
   MI_ATOMIC_VAR_INIT(0), // xheap
-  NULL, NULL
+  NULL, NULL,
+  MI_ATOMIC_VAR_INIT(0), // use_qsbr
+  { 0, 0 }, // qsbr_node
+  0         // qsbr_epoch
   #if MI_INTPTR_SIZE==8
   , { 0 }  // padding
   #endif
@@ -180,6 +184,7 @@ static void _mi_thread_init_ex(mi_tld_t* tld, mi_heap_t heaps[])
   tld->segments.stats = &tld->stats;
   tld->segments.os = &tld->os;
   tld->os.stats = &tld->stats;
+  llist_init(&tld->page_list);
 }
 
 static void mi_heap_main_init(void) {

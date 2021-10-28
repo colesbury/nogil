@@ -11,9 +11,16 @@ terms of the MIT license. A copy of the license can be found in the file
   exported is `mi_malloc_generic`.
 ----------------------------------------------------------- */
 
+#include "Python.h"
+
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 #include "mimalloc-atomic.h"
+
+#include "pycore_interp.h"
+#include "pycore_llist.h"
+#include "pycore_pystate.h"
+#include "pycore_qsbr.h"
 
 /* -----------------------------------------------------------
   Definition of page queues for each block size
@@ -218,6 +225,9 @@ void _mi_page_free_collect(mi_page_t* page, bool force) {
       page->free = page->local_free;
       page->local_free = NULL;
       page->is_zero = false;
+      if (page->qsbr_node.next != NULL) {
+        llist_remove(&page->qsbr_node);
+      }
     }
     else if (force) {
       // append -- only on shutdown (force) as this is a linear operation
@@ -230,10 +240,34 @@ void _mi_page_free_collect(mi_page_t* page, bool force) {
       page->free = page->local_free;
       page->local_free = NULL;
       page->is_zero = false;
+      if (page->qsbr_node.next != NULL) {
+        llist_remove(&page->qsbr_node);
+      }
     }
   }
 
   mi_assert_internal(!force || page->local_free == NULL);
+}
+
+static void _mi_page_uncollect(mi_page_t* page) {
+  if (page->free == NULL) {
+    return;
+  }
+
+  if (page->local_free == NULL) {
+    page->local_free = page->free;
+    page->free = NULL;
+    return;
+  }
+
+  mi_block_t* tail = page->local_free;
+  mi_block_t* next;
+  while ((next = mi_block_next(page, tail)) != NULL) {
+    tail = next;
+  }
+  mi_block_set_next(page, tail, page->free);
+  page->free = NULL;
+  page->is_zero = false;
 }
 
 
@@ -372,6 +406,11 @@ void _mi_page_abandon(mi_page_t* page, mi_page_queue_t* pq) {
 
   mi_heap_t* pheap = mi_page_heap(page);
 
+  // remove from qbsr queue
+  if (page->qsbr_node.next) {
+    llist_remove(&page->qsbr_node);
+  }
+
   // remove from our page list
   mi_segments_tld_t* segments_tld = &pheap->tld->segments;
   mi_page_queue_remove(pq, page);
@@ -400,6 +439,7 @@ void _mi_page_free(mi_page_t* page, mi_page_queue_t* pq, bool force) {
   mi_assert_internal(pq == mi_page_queue_of(page));
   mi_assert_internal(mi_page_all_free(page));
   mi_assert_internal(mi_page_thread_free_flag(page)!=MI_DELAYED_FREEING);
+  mi_assert_internal(page->qsbr_node.next == NULL && page->qsbr_node.prev == NULL);
 
   // no more aligned blocks in here
   mi_page_set_has_aligned(page, false);
@@ -414,6 +454,17 @@ void _mi_page_free(mi_page_t* page, mi_page_queue_t* pq, bool force) {
   // and free it
   mi_page_set_heap(page,NULL);
   _mi_segment_page_free(page, force, segments_tld);
+}
+
+static void _mi_page_qsbr_enqueue(mi_page_t* page) {
+  page->retire_expire = 0;
+  mi_assert_internal(page->qsbr_node.next == NULL);
+  mi_assert_internal(page->qsbr_node.prev == NULL);
+
+  page->qsbr_epoch = _Py_qsbr_advance(&_PyRuntime.qsbr_shared);
+  mi_tld_t *tld = mi_page_heap(page)->tld;
+  llist_insert_tail(&tld->page_list, &page->qsbr_node);
+  _mi_page_uncollect(page);
 }
 
 // Retire parameters
@@ -454,7 +505,12 @@ void _mi_page_retire(mi_page_t* page) mi_attr_noexcept {
       return; // dont't free after all
     }
   }
-  _mi_page_free(page, pq, false);
+  if (page->use_qsbr) {
+    _mi_page_qsbr_enqueue(page);
+  }
+  else {
+    _mi_page_free(page, pq, false);
+  }
 }
 
 // free retired pages: we don't need to look at the entire queues
@@ -469,7 +525,12 @@ void _mi_heap_collect_retired(mi_heap_t* heap, bool force) {
       if (mi_page_all_free(page)) {
         page->retire_expire--;
         if (force || page->retire_expire == 0) {
-          _mi_page_free(pq->first, pq, force);
+          if (page->use_qsbr) {
+            _mi_page_qsbr_enqueue(page);
+          }
+          else {
+            _mi_page_free(pq->first, pq, force);
+          }
         }
         else {
           // keep retired, update min/max
@@ -675,6 +736,8 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   #endif
   page->tag = heap->tag;
   page->debug_offset = heap->debug_offset;
+  // TODO(sgross): only if running with nogil
+  page->use_qsbr = (page->tag == mi_heap_tag_gc || page->tag == mi_heap_tag_obj);
 
   mi_assert_internal(page->is_committed);
   mi_assert_internal(!page->is_reset);
@@ -684,6 +747,8 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   mi_assert_internal(page->xthread_free == 0);
   mi_assert_internal(page->next == NULL);
   mi_assert_internal(page->prev == NULL);
+  mi_assert_internal(page->qsbr_node.next == NULL);
+  mi_assert_internal(page->qsbr_node.prev == NULL);
   mi_assert_internal(page->retire_expire == 0);
   mi_assert_internal(!mi_page_has_aligned(page));
   #if (MI_ENCODE_FREELIST)
@@ -701,6 +766,30 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
 /* -----------------------------------------------------------
   Find pages with free blocks
 -------------------------------------------------------------*/
+
+static void _mi_qsbr_poll(mi_heap_t* heap)
+{
+  struct llist_node *head = &heap->tld->page_list;
+  if (llist_empty(head)) {
+    return;
+  }
+
+  PyThreadStateImpl *tstate = (PyThreadStateImpl *)PyThreadState_GET();
+  struct llist_node *node = head->next;
+    while (node != head) {
+    mi_page_t *page = llist_data(node, mi_page_t, qsbr_node);
+    if (!_Py_qsbr_poll(tstate->qsbr, page->qsbr_epoch)) {
+      return;
+    }
+
+    struct llist_node *next = node->next;
+    llist_remove(node);
+
+    _mi_page_free(page, mi_page_queue_of(page), false);
+
+    node = next;
+  }
+}
 
 // Find a page with free blocks of `page->block_size`.
 static mi_page_t* mi_page_queue_find_free_ex(mi_heap_t* heap, mi_page_queue_t* pq, bool first_try)
@@ -739,6 +828,7 @@ static mi_page_t* mi_page_queue_find_free_ex(mi_heap_t* heap, mi_page_queue_t* p
   mi_heap_stat_counter_increase(heap, searches, count);
 
   if (page == NULL) {
+    _mi_qsbr_poll(heap); // some pages might be safe to free now
     _mi_heap_collect_retired(heap, false); // perhaps make a page available?
     page = mi_page_fresh(heap, pq);
     if (page == NULL && first_try) {
@@ -749,6 +839,10 @@ static mi_page_t* mi_page_queue_find_free_ex(mi_heap_t* heap, mi_page_queue_t* p
   else {
     mi_assert(pq->first == page);
     page->retire_expire = 0;
+    if (page->qsbr_node.next) {
+      llist_remove(&page->qsbr_node);
+      page->qsbr_epoch = 0;
+    }
   }
   mi_assert_internal(page == NULL || mi_page_immediate_available(page));
   return page;
@@ -774,6 +868,10 @@ static inline mi_page_t* mi_find_free_page(mi_heap_t* heap, size_t size) {
 
     if (mi_page_immediate_available(page)) {
       page->retire_expire = 0;
+      if (page->qsbr_node.next) {
+        llist_remove(&page->qsbr_node);
+        page->qsbr_epoch = 0;
+      }
       return page; // fast path
     }
   }
@@ -867,6 +965,7 @@ static mi_page_t* mi_find_page(mi_heap_t* heap, size_t size, size_t huge_alignme
       return NULL;
     }
     else {
+      _mi_qsbr_poll(heap);
       return mi_large_huge_page_alloc(heap,size,huge_alignment);
     }
   }

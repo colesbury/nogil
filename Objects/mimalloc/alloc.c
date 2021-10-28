@@ -11,6 +11,8 @@ terms of the MIT license. A copy of the license can be found in the file
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 #include "mimalloc-atomic.h"
+#include "pyport.h"
+#include "pyatomic.h"
 
 
 #include <string.h>  // memset, strlen
@@ -543,6 +545,47 @@ void mi_free(void* p) mi_attr_noexcept
   mi_segment_t* const segment = mi_checked_ptr_segment(p,"mi_free");
   const bool          is_local= (_mi_thread_id() == mi_atomic_load_relaxed(&segment->thread_id));
   mi_page_t* const    page    = _mi_segment_page_of(segment, p);
+
+  if mi_likely(is_local) {                       // thread-local free?
+    if mi_likely(page->flags.full_aligned == 0)  // and it is not a full page (full pages need to move from the full bin), nor has aligned blocks (aligned blocks need to be unaligned)
+    {
+      mi_block_t* const block = (mi_block_t*)p;
+      if mi_unlikely(mi_check_is_double_free(page, block)) return;
+      mi_check_padding(page, block);
+      mi_stat_free(page, block);
+      #if (MI_DEBUG!=0) && !MI_TRACK_ENABLED
+      _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
+      #endif
+      mi_track_free(p);
+      mi_block_set_next(page, block, page->local_free);
+      page->local_free = block;
+      if mi_unlikely(--page->used == 0) {   // using this expression generates better code than: page->used--; if (mi_page_all_free(page))
+        _mi_page_retire(page);
+      }
+    }
+    else {
+      // page is full or contains (inner) aligned blocks; use generic path
+      _mi_free_generic(segment, page, true, p);
+    }
+  }
+  else {
+    // not thread-local; use generic path
+    _mi_free_generic(segment, page, false, p);
+  }
+}
+
+// Free a block
+// fast path written carefully to prevent spilling on the stack
+void mi_free_qsbr(void* p) mi_attr_noexcept
+{
+  if mi_unlikely(p == NULL) return;
+  mi_segment_t* const segment = mi_checked_ptr_segment(p,"mi_free");
+  const bool          is_local= (_mi_thread_id() == mi_atomic_load_relaxed(&segment->thread_id));
+  mi_page_t* const    page    = _mi_segment_page_of(segment, p);
+
+  if (!_Py_atomic_load_uint8_relaxed(&page->use_qsbr)) {
+    _Py_atomic_store_uint8_relaxed(&page->use_qsbr, 1);
+  }
 
   if mi_likely(is_local) {                       // thread-local free?
     if mi_likely(page->flags.full_aligned == 0)  // and it is not a full page (full pages need to move from the full bin), nor has aligned blocks (aligned blocks need to be unaligned)

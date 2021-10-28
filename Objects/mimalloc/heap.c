@@ -91,7 +91,7 @@ static bool mi_heap_page_collect(mi_heap_t* heap, mi_page_queue_t* pq, mi_page_t
   mi_assert_internal(mi_heap_page_is_valid(heap, pq, page, NULL, NULL));
   mi_collect_t collect = *((mi_collect_t*)arg_collect);
   _mi_page_free_collect(page, collect >= MI_FORCE);
-  if (mi_page_all_free(page)) {
+  if (mi_page_all_free(page) && !page->use_qsbr) {
     // no more used blocks, free the page.
     // note: this will free retired pages as well.
     _mi_page_free(page, pq, collect >= MI_FORCE);
