@@ -415,6 +415,7 @@ PYTHON_OBJS=	\
 		Python/pyrefcnt.o \
 		Python/pythonrun.o \
 		Python/pytime.o \
+		Python/qsbr.o \
 		Python/bootstrap_hash.o \
 		Python/specialize.o \
 		Python/structmember.o \

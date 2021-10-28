@@ -68,6 +68,8 @@ typedef struct PyThreadStateImpl {
     PyThreadState tstate;
 
     struct brc_state brc;
+
+    struct qsbr *qsbr;
 } PyThreadStateImpl;
 
 

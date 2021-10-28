@@ -21,6 +21,7 @@
 #include "pycore_pylifecycle.h"   // _PyErr_Print()
 #include "pycore_pymem.h"         // _PyObject_DebugMallocStats()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_qsbr.h"          // _Py_qsbr_init()
 #include "pycore_runtime.h"       // _Py_ID()
 #include "pycore_runtime_init.h"  // _PyRuntimeState_INIT
 #include "pycore_sliceobject.h"   // _PySlice_Fini()
@@ -616,6 +617,11 @@ pycore_init_runtime(_PyRuntimeState *runtime,
     }
 
     status = _PyInterpreterState_Enable(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = _Py_qsbr_init(&runtime->qsbr_shared);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }
