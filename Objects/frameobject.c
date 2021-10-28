@@ -594,11 +594,12 @@ frame_dealloc(PyFrameObject *f)
     Py_CLEAR(f->f_trace);
 
     co = f->f_code;
-    if (co->co_zombieframe == NULL) {
+    if (!_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL) {
         co->co_zombieframe = f;
     }
 #if PyFrame_MAXFREELIST > 0
-    else if (numfree < PyFrame_MAXFREELIST) {
+    else if (!_PyRuntime.preconfig.disable_gil &&
+             numfree < PyFrame_MAXFREELIST) {
         ++numfree;
         f->f_back = free_list;
         free_list = f;
@@ -772,12 +773,14 @@ frame_alloc(PyCodeObject *code)
 {
     PyFrameObject *f;
 
-    f = code->co_zombieframe;
-    if (f != NULL) {
-        code->co_zombieframe = NULL;
-        _Py_NewReference((PyObject *)f);
-        assert(f->f_code == code);
-        return f;
+    if (!_PyRuntime.preconfig.disable_gil) {
+        f = code->co_zombieframe;
+        if (f != NULL) {
+            code->co_zombieframe = NULL;
+            _Py_NewReference((PyObject *)f);
+            assert(f->f_code == code);
+            return f;
+        }
     }
 
     Py_ssize_t ncells = PyTuple_GET_SIZE(code->co_cellvars);
