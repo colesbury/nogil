@@ -199,6 +199,7 @@
     <ClInclude Include="..\Include\internal\pycore_pylifecycle.h" />
     <ClInclude Include="..\Include\internal\pycore_pymem.h" />
     <ClInclude Include="..\Include\internal\pycore_pystate.h" />
+    <ClInclude Include="..\Include\internal\pycore_qsbr.h" />
     <ClInclude Include="..\Include\internal\pycore_refcnt.h" />
     <ClInclude Include="..\Include\internal\pycore_runtime.h" />
     <ClInclude Include="..\Include\internal\pycore_sysmodule.h" />
@@ -500,6 +501,7 @@
     <ClCompile Include="..\Python\dtoa.c" />
     <ClCompile Include="..\Python\Python-ast.c" />
     <ClCompile Include="..\Python\pythonrun.c" />
+    <ClCompile Include="..\Python\qsbr.c" />
     <ClCompile Include="..\Python\structmember.c" />
     <ClCompile Include="..\Python\symtable.c" />
     <ClCompile Include="..\Python\sysmodule.c" />

@@ -152,11 +152,15 @@ struct brc_state {
     _PyObjectQueue *local_queue;
 };
 
+struct qsbr;
+
 typedef struct PyThreadStateImpl {
     // semi-public fields are in PyThreadState
     PyThreadState tstate;
 
     struct brc_state brc;
+
+    struct qsbr *qsbr;
 } PyThreadStateImpl;
 
 PyAPI_FUNC(void) _PyThreadState_Init(

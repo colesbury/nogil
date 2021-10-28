@@ -15,6 +15,7 @@
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
 #include "pycore_pylifecycle.h"   // _PyErr_Print()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_qsbr.h"          // _Py_qsbr_init()
 #include "pycore_sysmodule.h"     // _PySys_ClearAuditHooks()
 #include "pycore_traceback.h"     // _Py_DumpTracebackThreads()
 
@@ -510,6 +511,11 @@ pycore_init_runtime(_PyRuntimeState *runtime,
     }
 
     status = _PyInterpreterState_Enable(runtime);
+    if (_PyStatus_EXCEPTION(status)) {
+        return status;
+    }
+
+    status = _Py_qsbr_init(&runtime->qsbr_shared);
     if (_PyStatus_EXCEPTION(status)) {
         return status;
     }

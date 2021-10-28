@@ -24,6 +24,7 @@
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
 #include "pycore_import.h"        // _PyImport_ReInitLock()
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
+#include "pycore_refcnt.h"
 #include "parking_lot.h"
 #include "structmember.h"         // PyMemberDef
 #ifndef MS_WINDOWS

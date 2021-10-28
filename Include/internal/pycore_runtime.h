@@ -44,6 +44,9 @@ typedef struct _Py_AuditHookEntry {
     void *userData;
 } _Py_AuditHookEntry;
 
+/* See pycore_qsbr.h for full definition */
+struct qsbr;
+
 /* Full Python runtime state */
 
 typedef struct pyruntimestate {
@@ -85,6 +88,17 @@ typedef struct pyruntimestate {
         PyThread_type_lock mutex;
         struct _xidregitem *head;
     } xidregistry;
+
+    struct qsbr_shared {
+        /* always odd, incremented by two */
+        uint64_t s_wr;
+
+        /* Minimum observed read sequence. */
+        uint64_t s_rd_seq;
+
+        struct qsbr *head;
+        uintptr_t n_free;
+    } qsbr_shared;
 
     unsigned long main_thread;
     PyThreadState *main_tstate;
