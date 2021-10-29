@@ -283,10 +283,18 @@ static PyTypeObject Locktype = {
 typedef struct {
     PyObject_HEAD
     PyThread_type_lock rlock_lock;
-    unsigned long rlock_owner;
+    uintptr_t rlock_owner;
     unsigned long rlock_count;
     PyObject *in_weakreflist;
 } rlockobject;
+
+static int
+rlock_is_owned(rlockobject *self)
+{
+    uintptr_t tid = _Py_ThreadId();
+    uintptr_t owner_tid = _Py_atomic_load_uintptr_relaxed(&self->rlock_owner);
+    return owner_tid == tid && self->rlock_count > 0;
+}
 
 static void
 rlock_dealloc(rlockobject *self)
@@ -309,14 +317,12 @@ static PyObject *
 rlock_acquire(rlockobject *self, PyObject *args, PyObject *kwds)
 {
     _PyTime_t timeout;
-    unsigned long tid;
     PyLockStatus r = PY_LOCK_ACQUIRED;
 
     if (lock_acquire_parse_args(args, kwds, &timeout) < 0)
         return NULL;
 
-    tid = PyThread_get_thread_ident();
-    if (self->rlock_count > 0 && tid == self->rlock_owner) {
+    if (rlock_is_owned(self)) {
         unsigned long count = self->rlock_count + 1;
         if (count <= self->rlock_count) {
             PyErr_SetString(PyExc_OverflowError,
@@ -329,7 +335,7 @@ rlock_acquire(rlockobject *self, PyObject *args, PyObject *kwds)
     r = acquire_timed(self->rlock_lock, timeout);
     if (r == PY_LOCK_ACQUIRED) {
         assert(self->rlock_count == 0);
-        self->rlock_owner = tid;
+        _Py_atomic_store_uintptr_relaxed(&self->rlock_owner, _Py_ThreadId());
         self->rlock_count = 1;
     }
     else if (r == PY_LOCK_INTR) {
@@ -358,15 +364,13 @@ the lock is taken and its internal counter initialized to 1.");
 static PyObject *
 rlock_release(rlockobject *self, PyObject *Py_UNUSED(ignored))
 {
-    unsigned long tid = PyThread_get_thread_ident();
-
-    if (self->rlock_count == 0 || self->rlock_owner != tid) {
+    if (!rlock_is_owned(self)) {
         PyErr_SetString(PyExc_RuntimeError,
-                        "cannot release un-acquired lock");
+                        "cannot release un-acquired lock1");
         return NULL;
     }
     if (--self->rlock_count == 0) {
-        self->rlock_owner = 0;
+        _Py_atomic_store_uintptr_relaxed(&self->rlock_owner, 0);
         PyThread_release_lock(self->rlock_lock);
     }
     Py_RETURN_NONE;
@@ -387,11 +391,11 @@ to be available for other threads.");
 static PyObject *
 rlock_acquire_restore(rlockobject *self, PyObject *args)
 {
-    unsigned long owner;
+    unsigned long long owner;
     unsigned long count;
     int r = 1;
 
-    if (!PyArg_ParseTuple(args, "(kk):_acquire_restore", &count, &owner))
+    if (!PyArg_ParseTuple(args, "(kK):_acquire_restore", &count, &owner))
         return NULL;
 
     if (!PyThread_acquire_lock(self->rlock_lock, 0)) {
@@ -404,7 +408,7 @@ rlock_acquire_restore(rlockobject *self, PyObject *args)
         return NULL;
     }
     assert(self->rlock_count == 0);
-    self->rlock_owner = owner;
+    _Py_atomic_store_uintptr_relaxed(&self->rlock_owner, (uintptr_t)owner);
     self->rlock_count = count;
     Py_RETURN_NONE;
 }
@@ -417,7 +421,7 @@ For internal use by `threading.Condition`.");
 static PyObject *
 rlock_release_save(rlockobject *self, PyObject *Py_UNUSED(ignored))
 {
-    unsigned long owner;
+    uintptr_t owner;
     unsigned long count;
 
     if (self->rlock_count == 0) {
@@ -429,9 +433,9 @@ rlock_release_save(rlockobject *self, PyObject *Py_UNUSED(ignored))
     owner = self->rlock_owner;
     count = self->rlock_count;
     self->rlock_count = 0;
-    self->rlock_owner = 0;
+    _Py_atomic_store_uintptr_relaxed(&self->rlock_owner, 0);
     PyThread_release_lock(self->rlock_lock);
-    return Py_BuildValue("kk", count, owner);
+    return Py_BuildValue("kK", count, (unsigned long long)owner);
 }
 
 PyDoc_STRVAR(rlock_release_save_doc,
@@ -441,11 +445,9 @@ For internal use by `threading.Condition`.");
 
 
 static PyObject *
-rlock_is_owned(rlockobject *self, PyObject *Py_UNUSED(ignored))
+rlock__is_owned(rlockobject *self, PyObject *Py_UNUSED(ignored))
 {
-    unsigned long tid = PyThread_get_thread_ident();
-
-    if (self->rlock_count > 0 && self->rlock_owner == tid) {
+    if (rlock_is_owned(self)) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
@@ -479,9 +481,11 @@ rlock_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static PyObject *
 rlock_repr(rlockobject *self)
 {
-    return PyUnicode_FromFormat("<%s %s object owner=%ld count=%lu at %p>",
+    uintptr_t owner = _Py_atomic_load_uintptr_relaxed(&self->rlock_owner);
+
+    return PyUnicode_FromFormat("<%s %s object owner=%p count=%llu at %p>",
         self->rlock_count ? "locked" : "unlocked",
-        Py_TYPE(self)->tp_name, self->rlock_owner,
+        Py_TYPE(self)->tp_name, (const void *)owner,
         self->rlock_count, self);
 }
 
@@ -508,7 +512,7 @@ static PyMethodDef rlock_methods[] = {
      METH_VARARGS | METH_KEYWORDS, rlock_acquire_doc},
     {"release",      (PyCFunction)rlock_release,
      METH_NOARGS, rlock_release_doc},
-    {"_is_owned",     (PyCFunction)rlock_is_owned,
+    {"_is_owned",     (PyCFunction)rlock__is_owned,
      METH_NOARGS, rlock_is_owned_doc},
     {"_acquire_restore", (PyCFunction)rlock_acquire_restore,
      METH_VARARGS, rlock_acquire_restore_doc},
@@ -1281,7 +1285,7 @@ t_bootstrap(void *boot_raw)
     tstate->thread_id = PyThread_get_thread_ident();
     _PyThreadState_Init(tstate);
     PyEval_AcquireThread(tstate);
-    tstate->interp->num_threads++;
+    _Py_atomic_add_ssize(&tstate->interp->num_threads, 1);
     res = PyObject_Call(boot->func, boot->args, boot->keyw);
     if (res == NULL) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit))
@@ -1298,7 +1302,7 @@ t_bootstrap(void *boot_raw)
     Py_DECREF(boot->args);
     Py_XDECREF(boot->keyw);
     PyMem_DEL(boot_raw);
-    tstate->interp->num_threads--;
+    _Py_atomic_add_ssize(&tstate->interp->num_threads, -1);
     PyThreadState_Clear(tstate);
     _PyThreadState_DeleteCurrent(tstate);
 
@@ -1498,7 +1502,9 @@ static PyObject *
 thread__count(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
-    return PyLong_FromLong(interp->num_threads);
+    Py_ssize_t num_threads = _Py_atomic_load_ssize(&interp->num_threads);
+
+    return PyLong_FromSsize_t(num_threads);
 }
 
 PyDoc_STRVAR(_count_doc,
