@@ -272,9 +272,11 @@ PyEval_ReleaseLock(void)
 void
 _PyEval_ReleaseLock(PyThreadState *tstate)
 {
-    struct _ceval_runtime_state *ceval = &tstate->interp->runtime->ceval;
-    struct _ceval_state *ceval2 = &tstate->interp->ceval;
-    drop_gil(ceval, ceval2, tstate);
+    if (!_PyRuntime.preconfig.disable_gil) {
+        struct _ceval_runtime_state *ceval = &tstate->interp->runtime->ceval;
+        struct _ceval_state *ceval2 = &tstate->interp->ceval;
+        drop_gil(ceval, ceval2, tstate);
+    }
 }
 
 void
@@ -1230,23 +1232,10 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
     f->f_stacktop = NULL;       /* remains NULL unless yield suspends frame */
     f->f_executing = 1;
 
-    if (co->co_opcache_flag < OPCACHE_MIN_RUNS) {
-        co->co_opcache_flag++;
-        if (co->co_opcache_flag == OPCACHE_MIN_RUNS) {
-            if (_PyCode_InitOpcache(co) < 0) {
-                goto exit_eval_frame;
-            }
-#if OPCACHE_STATS
-            opcache_code_objects_extra_mem +=
-                PyBytes_Size(co->co_code) / sizeof(_Py_CODEUNIT) +
-                sizeof(_PyOpcache) * co->co_opcache_size;
-            opcache_code_objects++;
-#endif
-        }
-    }
-
 #ifdef LLTRACE
-    lltrace = _PyDict_GetItemId(f->f_globals, &PyId___ltrace__) != NULL;
+    if (!_PyRuntime.preconfig.disable_gil) {
+        lltrace = _PyDict_GetItemId(f->f_globals, &PyId___ltrace__) != NULL;
+    }
 #endif
 
     if (throwflag) /* support for generator.throw() */
