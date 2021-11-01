@@ -10,6 +10,9 @@
    Similarly, PyList_GetItem does not increment the returned item's reference
    count.
 */
+#ifndef Py_LIMITED_API
+#include "lock.h"
+#endif
 
 #ifndef Py_LISTOBJECT_H
 #define Py_LISTOBJECT_H
@@ -29,6 +32,7 @@ PyAPI_FUNC(PyObject *) PyList_New(Py_ssize_t size);
 PyAPI_FUNC(Py_ssize_t) PyList_Size(PyObject *);
 
 PyAPI_FUNC(PyObject *) PyList_GetItem(PyObject *, Py_ssize_t);
+PyAPI_FUNC(PyObject *) PyList_Item(PyObject *, Py_ssize_t);
 PyAPI_FUNC(int) PyList_SetItem(PyObject *, Py_ssize_t, PyObject *);
 PyAPI_FUNC(int) PyList_Insert(PyObject *, Py_ssize_t, PyObject *);
 PyAPI_FUNC(int) PyList_Append(PyObject *, PyObject *);
