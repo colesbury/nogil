@@ -657,6 +657,9 @@
     <ClInclude Include="..\Include\internal\pycore_interp.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_list.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_llist.h">
       <Filter>Include\internal</Filter>
     </ClInclude>
