@@ -823,6 +823,11 @@ _Py_HandlePending(PyThreadState *tstate)
     struct _ceval_runtime_state *ceval = &runtime->ceval;
     struct _ceval_state *interp_ceval_state = &tstate->interp->ceval;
 
+    /* don't handle signals or pending calls if we can't stop */
+    if (tstate->cant_stop_wont_stop) {
+        return 0;
+    }
+
     /* load eval breaker */
     uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
 

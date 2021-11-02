@@ -596,6 +596,78 @@ static PyType_Spec rlock_type_spec = {
     .slots = rlock_type_slots,
 };
 
+/* Critical lock objects */
+
+typedef struct {
+    PyObject_HEAD
+    _PyMutex mutex;
+    uintptr_t owner;
+} critlockobject;
+
+static PyObject *
+critlock_acquire(critlockobject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyThreadState *tstate = PyThreadState_Get();
+
+    /* Once the object is locked, this thread should not be supsended for a
+     * stop-the-world until after the lock is released.
+     */
+    _PyMutex_lock(&self->mutex);
+    self->owner = (uintptr_t)tstate;
+    tstate->cant_stop_wont_stop = 1;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+critlock_release(critlockobject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyThreadState *tstate = PyThreadState_Get();
+
+    /* The unlock call may block in the parking lot while actual mutex is
+     * still held, so cant_stop_wont_stop can't be cleared until after
+     * the lock is released.
+     */
+    self->owner = 0;
+    _PyMutex_unlock(&self->mutex);
+    tstate->cant_stop_wont_stop = 0;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+critlock_repr(critlockobject *self)
+{
+    return PyUnicode_FromFormat("<%s %s object owner=%p at %p>",
+        _PyMutex_is_locked(&self->mutex) ? "locked" : "unlocked",
+        Py_TYPE(self)->tp_name,
+        self->owner,
+        self);
+}
+
+static PyMethodDef critlock_methods[] = {
+    {"__enter__",    (PyCFunction)(void(*)(void))critlock_acquire,
+     METH_NOARGS,    NULL},
+    {"__exit__",    (PyCFunction)critlock_release,
+     METH_VARARGS,   NULL},
+    {NULL,           NULL}              /* sentinel */
+};
+
+static PyType_Slot critlock_type_slots[] = {
+    {Py_tp_repr, (reprfunc)critlock_repr},
+    {Py_tp_methods, critlock_methods},
+    {Py_tp_alloc, PyType_GenericAlloc},
+    {Py_tp_new, PyType_GenericNew},
+    {0, 0},
+};
+
+static PyType_Spec critlock_type_spec = {
+    .name = "_thread.CriticalLock",
+    .basicsize = sizeof(critlockobject),
+    .flags = (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE),
+    .slots = critlock_type_slots,
+};
+
 static lockobject *
 newlockobject(PyObject *module)
 {
@@ -1629,6 +1701,17 @@ thread_module_exec(PyObject *module)
         return -1;
     }
     Py_DECREF(rlock_type);
+
+    // CriticalLock
+    PyTypeObject *critlock_type = (PyTypeObject *)PyType_FromSpec(&critlock_type_spec);
+    if (critlock_type == NULL) {
+        return -1;
+    }
+    if (PyModule_AddType(module, critlock_type) < 0) {
+        Py_DECREF(critlock_type);
+        return -1;
+    }
+    Py_DECREF(critlock_type);
 
     // Local dummy
     state->local_dummy_type = (PyTypeObject *)PyType_FromSpec(&local_dummy_type_spec);

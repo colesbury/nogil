@@ -141,6 +141,11 @@ struct _ts {
      * or most recently, executing _PyEval_EvalFrameDefault. */
     _PyCFrame *cframe;
 
+    /* The thread will not stop for GC or other stop-the-world requests.
+     * Used for *short* critical sections that to prevent deadlocks between
+     * finalizers and stopped threads. */
+    int cant_stop_wont_stop;
+
     Py_tracefunc c_profilefunc;
     Py_tracefunc c_tracefunc;
     PyObject *c_profileobj;
