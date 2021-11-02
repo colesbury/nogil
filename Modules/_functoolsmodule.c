@@ -790,6 +790,7 @@ typedef struct lru_cache_object {
     PyObject *cache_info_type;
     PyObject *dict;
     PyObject *weakreflist;
+    _PyRecursiveMutex rlock;
 } lru_cache_object;
 
 static PyTypeObject lru_cache_type;
@@ -868,7 +869,9 @@ uncached_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwd
     PyObject *result;
 
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result)
         return NULL;
     return result;
@@ -899,7 +902,9 @@ infinite_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwd
         return NULL;
     }
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result) {
         Py_DECREF(key);
         return NULL;
@@ -1003,7 +1008,9 @@ bounded_lru_cache_wrapper(lru_cache_object *self, PyObject *args, PyObject *kwds
         return NULL;
     }
     self->misses++;
+    _PyRecursiveMutex_unlock(&self->rlock);
     result = PyObject_Call(self->func, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
     if (!result) {
         Py_DECREF(key);
         return NULL;
@@ -1250,7 +1257,10 @@ lru_cache_dealloc(lru_cache_object *obj)
 static PyObject *
 lru_cache_call(lru_cache_object *self, PyObject *args, PyObject *kwds)
 {
-    return self->wrapper(self, args, kwds);
+    _PyRecursiveMutex_lock(&self->rlock);
+    PyObject *result = self->wrapper(self, args, kwds);
+    _PyRecursiveMutex_unlock(&self->rlock);
+    return result;
 }
 
 static PyObject *
@@ -1266,23 +1276,34 @@ lru_cache_descr_get(PyObject *self, PyObject *obj, PyObject *type)
 static PyObject *
 lru_cache_cache_info(lru_cache_object *self, PyObject *unused)
 {
-    if (self->maxsize == -1) {
+    Py_ssize_t hits, misses, maxsize, size;
+
+    _PyRecursiveMutex_lock(&self->rlock);
+    hits = self->hits;
+    misses = self->misses;
+    maxsize = self->maxsize;
+    size = PyDict_GET_SIZE(self->cache);
+    _PyRecursiveMutex_unlock(&self->rlock);
+
+    if (maxsize == -1) {
         return PyObject_CallFunction(self->cache_info_type, "nnOn",
-                                     self->hits, self->misses, Py_None,
-                                     PyDict_GET_SIZE(self->cache));
+                                     hits, misses, Py_None,
+                                     size);
     }
     return PyObject_CallFunction(self->cache_info_type, "nnnn",
-                                 self->hits, self->misses, self->maxsize,
-                                 PyDict_GET_SIZE(self->cache));
+                                 hits, misses, maxsize,
+                                 size);
 }
 
 static PyObject *
 lru_cache_cache_clear(lru_cache_object *self, PyObject *unused)
 {
+    _PyRecursiveMutex_lock(&self->rlock);
     lru_list_elem *list = lru_cache_unlink_list(self);
     self->hits = self->misses = 0;
     PyDict_Clear(self->cache);
     lru_cache_clear_list(list);
+    _PyRecursiveMutex_unlock(&self->rlock);
     Py_RETURN_NONE;
 }
 
