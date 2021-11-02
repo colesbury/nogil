@@ -104,6 +104,7 @@ static struct PyModuleDef _randommodule;
 
 typedef struct {
     PyObject_HEAD
+    _PyMutex mutex;
     int index;
     uint32_t state[N];
 } RandomObject;
@@ -177,7 +178,9 @@ static PyObject *
 _random_Random_random_impl(RandomObject *self)
 /*[clinic end generated code: output=117ff99ee53d755c input=afb2a59cbbb00349]*/
 {
+    _PyMutex_lock(&self->mutex);
     uint32_t a=genrand_uint32(self)>>5, b=genrand_uint32(self)>>6;
+    _PyMutex_unlock(&self->mutex);
     return PyFloat_FromDouble((a*67108864.0+b)*(1.0/9007199254740992.0));
 }
 
@@ -211,6 +214,7 @@ init_by_array(RandomObject *self, uint32_t init_key[], size_t key_length)
     size_t i, j, k;       /* was signed in the original code. RDH 12/16/2002 */
     uint32_t *mt;
 
+    _PyMutex_lock(&self->mutex);
     mt = self->state;
     init_genrand(self, 19650218U);
     i=1; j=0;
@@ -230,7 +234,7 @@ init_by_array(RandomObject *self, uint32_t init_key[], size_t key_length)
     }
 
     mt[0] = 0x80000000U; /* MSB is 1; assuring non-zero initial array */
-}
+    _PyMutex_unlock(&self->mutex);}
 
 /*
  * The rest is Python-specific code, neither part of, nor derived from, the
@@ -398,6 +402,8 @@ _random_Random_getstate_impl(RandomObject *self)
     state = PyTuple_New(N+1);
     if (state == NULL)
         return NULL;
+
+    _PyMutex_lock(&self->mutex);
     for (i=0; i<N ; i++) {
         element = PyLong_FromUnsignedLong(self->state[i]);
         if (element == NULL)
@@ -408,9 +414,11 @@ _random_Random_getstate_impl(RandomObject *self)
     if (element == NULL)
         goto Fail;
     PyTuple_SET_ITEM(state, i, element);
+    _PyMutex_unlock(&self->mutex);
     return state;
 
 Fail:
+    _PyMutex_unlock(&self->mutex);
     Py_DECREF(state);
     return NULL;
 }
@@ -460,9 +468,12 @@ _random_Random_setstate(RandomObject *self, PyObject *state)
         PyErr_SetString(PyExc_ValueError, "invalid state");
         return NULL;
     }
+
+    _PyMutex_lock(&self->mutex);
     self->index = (int)index;
     for (i = 0; i < N; i++)
         self->state[i] = new_state[i];
+    _PyMutex_unlock(&self->mutex);
 
     Py_RETURN_NONE;
 }
@@ -496,8 +507,13 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
     if (k == 0)
         return PyLong_FromLong(0);
 
-    if (k <= 32)  /* Fast path */
-        return PyLong_FromUnsignedLong(genrand_uint32(self) >> (32 - k));
+    if (k <= 32)  {
+        /* Fast path */
+        _PyMutex_lock(&self->mutex);
+        r = genrand_uint32(self);
+        _PyMutex_unlock(&self->mutex);
+        return PyLong_FromUnsignedLong(r >> (32 - k));
+    }
 
     words = (k - 1) / 32 + 1;
     wordarray = (uint32_t *)PyMem_Malloc(words * 4);
@@ -508,6 +524,7 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
 
     /* Fill-out bits of long integer, by 32-bit words, from least significant
        to most significant. */
+    _PyMutex_lock(&self->mutex);
 #if PY_LITTLE_ENDIAN
     for (i = 0; i < words; i++, k -= 32)
 #else
@@ -519,6 +536,7 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
             r >>= (32 - k);  /* Drop least significant bits */
         wordarray[i] = r;
     }
+    _PyMutex_unlock(&self->mutex);
 
     result = _PyLong_FromByteArray((unsigned char *)wordarray, words * 4,
                                    PY_LITTLE_ENDIAN, 0 /* unsigned */);
