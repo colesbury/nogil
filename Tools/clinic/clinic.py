@@ -349,6 +349,9 @@ class CRenderData:
         # The C statements required to clean up after the impl call.
         self.cleanup = []
 
+        self.lock_statement = []
+        self.unlock_statement = []
+
 
 class FormatCounterFormatter(string.Formatter):
     """
@@ -749,7 +752,9 @@ class CLanguage(Language):
             # just imagine--your code is here in the middle
             fields.append(normalize_snippet("""
                     {modifications}
+                    {lock_statement}
                     {return_value} = {c_basename}_impl({impl_arguments});
+                    {unlock_statement}
                     {return_conversion}
 
                 {exit_label}
@@ -773,7 +778,7 @@ class CLanguage(Language):
                 """)
             parser_definition = parser_prototype
 
-            if default_return_converter:
+            if default_return_converter and not f.lock:
                 parser_definition = parser_prototype + '\n' + normalize_snippet("""
                     {{
                         return {c_basename}_impl({impl_arguments});
@@ -792,7 +797,7 @@ class CLanguage(Language):
                     {c_basename}({impl_parameters})
                     """)
 
-                if default_return_converter:
+                if default_return_converter and not f.lock:
                     # maps perfectly to METH_O, doesn't need a return converter.
                     # so we skip making a parse function
                     # and call directly into the impl function.
@@ -1234,6 +1239,10 @@ class CLanguage(Language):
         selfless = parameters[1:]
         assert isinstance(f_self.converter, self_converter), "No self parameter in " + repr(f.full_name) + "!"
 
+        if f.lock is not None:
+            data.lock_statement.append('_PyRecursiveMutex_lock(&{self_name}->{lock_name});')
+            data.unlock_statement.append('_PyRecursiveMutex_unlock(&{self_name}->{lock_name});')
+
         last_group = 0
         first_optional = len(selfless)
         positional = selfless and selfless[-1].is_positional_only()
@@ -1327,6 +1336,10 @@ class CLanguage(Language):
         template_dict['cleanup'] = format_escape("".join(data.cleanup))
         template_dict['return_value'] = data.return_value
 
+        template_dict['lock_name'] = f.lock
+        template_dict['lock_statement'] = "\n".join(data.lock_statement)
+        template_dict['unlock_statement'] = "\n".join(data.unlock_statement)
+
         # used by unpack tuple code generator
         ignore_self = -1 if isinstance(converters[0], self_converter) else 0
         unpack_min = first_optional
@@ -1349,6 +1362,8 @@ class CLanguage(Language):
                 initializers=template_dict['initializers'],
                 modifications=template_dict['modifications'],
                 cleanup=template_dict['cleanup'],
+                lock_statement=template_dict['lock_statement'],
+                unlock_statement=template_dict['unlock_statement'],
                 )
 
             # Only generate the "exit:" label
@@ -2210,7 +2225,7 @@ class Function:
                  module, cls=None, c_basename=None,
                  full_name=None,
                  return_converter, return_annotation=inspect.Signature.empty,
-                 docstring=None, kind=CALLABLE, coexist=False,
+                 docstring=None, kind=CALLABLE, coexist=False, lock=None,
                  docstring_only=False):
         self.parameters = parameters or collections.OrderedDict()
         self.return_annotation = return_annotation
@@ -2224,6 +2239,7 @@ class Function:
         self.docstring = docstring or ''
         self.kind = kind
         self.coexist = coexist
+        self.lock = lock
         self.self_converter = None
         # docstring_only means "don't generate a machine-readable
         # signature, just a normal docstring".  it's True for
@@ -4173,10 +4189,12 @@ class DSLParser:
                 return
 
         line, _, returns = line.partition('->')
+        line, _, lock = line.partition(' @ ')
 
         full_name, _, c_basename = line.partition(' as ')
         full_name = full_name.strip()
         c_basename = c_basename.strip() or None
+        lock = lock.strip() or None
 
         if not is_legal_py_identifier(full_name):
             fail("Illegal function name: {}".format(full_name))
@@ -4228,7 +4246,7 @@ class DSLParser:
         if not module:
             fail("Undefined module used in declaration of " + repr(full_name.strip()) + ".")
         self.function = Function(name=function_name, full_name=full_name, module=module, cls=cls, c_basename=c_basename,
-                                 return_converter=return_converter, kind=self.kind, coexist=self.coexist)
+                                 return_converter=return_converter, kind=self.kind, coexist=self.coexist, lock=lock)
         self.block.signatures.append(self.function)
 
         # insert a self converter automatically
