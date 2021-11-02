@@ -1,5 +1,6 @@
 #include "Python.h"
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
+#include "pycore_critical_section.h"  // Py_BEGIN_CRITICAL_SECTION
 #include "pycore_dict.h"          // _PyDict_Pop_KnownHash()
 #include "pycore_long.h"          // _PyLong_GetZero()
 #include "pycore_moduleobject.h"  // _PyModule_GetState()
@@ -813,6 +814,7 @@ typedef struct lru_cache_object {
     PyObject *cache_info_type;
     PyObject *dict;
     PyObject *weakreflist;
+    PyMutex mutex;
 } lru_cache_object;
 
 static PyObject *
@@ -1279,7 +1281,11 @@ lru_cache_dealloc(lru_cache_object *obj)
 static PyObject *
 lru_cache_call(lru_cache_object *self, PyObject *args, PyObject *kwds)
 {
-    return self->wrapper(self, args, kwds);
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    result = self->wrapper(self, args, kwds);
+    Py_END_CRITICAL_SECTION;
+    return result;
 }
 
 static PyObject *
@@ -1301,15 +1307,22 @@ static PyObject *
 _functools__lru_cache_wrapper_cache_info_impl(PyObject *self)
 /*[clinic end generated code: output=cc796a0b06dbd717 input=f05e5b6ebfe38645]*/
 {
+    Py_ssize_t hits, misses, maxsize, size;
     lru_cache_object *_self = (lru_cache_object *) self;
-    if (_self->maxsize == -1) {
+
+    Py_BEGIN_CRITICAL_SECTION(&_self->mutex);
+    hits = _self->hits;
+    misses = _self->misses;
+    maxsize = _self->maxsize;
+    size = PyDict_GET_SIZE(_self->cache);
+    Py_END_CRITICAL_SECTION;
+
+    if (maxsize == -1) {
         return PyObject_CallFunction(_self->cache_info_type, "nnOn",
-                                     _self->hits, _self->misses, Py_None,
-                                     PyDict_GET_SIZE(_self->cache));
+                                     hits, misses, Py_None, size);
     }
     return PyObject_CallFunction(_self->cache_info_type, "nnnn",
-                                 _self->hits, _self->misses, _self->maxsize,
-                                 PyDict_GET_SIZE(_self->cache));
+                                 hits, misses, maxsize, size);
 }
 
 /*[clinic input]
@@ -1323,10 +1336,12 @@ _functools__lru_cache_wrapper_cache_clear_impl(PyObject *self)
 /*[clinic end generated code: output=58423b35efc3e381 input=6ca59dba09b12584]*/
 {
     lru_cache_object *_self = (lru_cache_object *) self;
+    Py_BEGIN_CRITICAL_SECTION(&_self->mutex);
     lru_list_elem *list = lru_cache_unlink_list(_self);
     _self->hits = _self->misses = 0;
     PyDict_Clear(_self->cache);
     lru_cache_clear_list(list);
+    Py_END_CRITICAL_SECTION;
     Py_RETURN_NONE;
 }
 
