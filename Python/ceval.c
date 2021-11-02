@@ -745,6 +745,11 @@ eval_handle_breaker(PyThreadState *tstate)
     _PyRuntimeState * const runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
 
+    /* don't handle signals or pending calls if we can't stop */
+    if (tstate->cant_stop_wont_stop) {
+        return 0;
+    }
+
     /* load eval breaker */
     uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
 

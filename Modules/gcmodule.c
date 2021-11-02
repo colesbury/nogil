@@ -2272,6 +2272,7 @@ _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
         gcstate->enabled &&
         gcstate->generations[0].threshold &&
         !gcstate->collecting &&
+        !tstate->cant_stop_wont_stop &&
         !_PyErr_Occurred(tstate))
     {
         gcstate->collecting = 1;

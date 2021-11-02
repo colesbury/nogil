@@ -73,6 +73,11 @@ struct _ts {
     int tracing;
     int use_tracing;
 
+    /* The thread will not stop for GC or other stop-the-world requests.
+     * Used for *short* critical sections that to prevent deadlocks between
+     * finalizers and stopped threads. */
+    int32_t cant_stop_wont_stop;
+
     Py_tracefunc c_profilefunc;
     Py_tracefunc c_tracefunc;
     PyObject *c_profileobj;

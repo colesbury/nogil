@@ -6,6 +6,7 @@
 #include "pycore_pylifecycle.h"
 #include "pycore_interp.h"        // _PyInterpreterState.num_threads
 #include "pycore_pystate.h"       // _PyThreadState_Init()
+#include "lock.h"
 #include <stddef.h>               // offsetof()
 
 static PyObject *ThreadError;
@@ -565,6 +566,106 @@ static PyTypeObject RLocktype = {
     0,                                  /* tp_init */
     PyType_GenericAlloc,                /* tp_alloc */
     rlock_new                           /* tp_new */
+};
+
+/* Recursive lock objects */
+
+typedef struct {
+    PyObject_HEAD
+    _PyMutex mutex;
+    uintptr_t owner;
+} critlockobject;
+
+static PyObject *
+critlock_acquire(critlockobject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyThreadState *tstate = PyThreadState_Get();
+
+    /* Once the object is locked, this thread should not be supsended for a
+     * stop-the-world until after the lock is released.
+     */
+    _PyMutex_lock(&self->mutex);
+    self->owner = (uintptr_t)tstate;
+    tstate->cant_stop_wont_stop = 1;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+critlock_release(critlockobject *self, PyObject *Py_UNUSED(ignored))
+{
+    PyThreadState *tstate = PyThreadState_Get();
+
+    /* The unlock call may block in the parking lot while actual mutex is
+     * still held, so cant_stop_wont_stop can't be cleared until after
+     * the lock is released.
+     */
+    self->owner = 0;
+    _PyMutex_unlock(&self->mutex);
+    tstate->cant_stop_wont_stop = 0;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+critlock_repr(critlockobject *self)
+{
+    return PyUnicode_FromFormat("<%s %s object value=%p at %p>",
+        _PyMutex_is_locked(&self->mutex) ? "locked" : "unlocked",
+        Py_TYPE(self)->tp_name,
+        self->mutex.v,
+        self);
+}
+
+static PyMethodDef critlock_methods[] = {
+    {"__enter__",    (PyCFunction)(void(*)(void))critlock_acquire,
+     METH_NOARGS,    NULL},
+    {"__exit__",    (PyCFunction)critlock_release,
+     METH_VARARGS,   NULL},
+    {NULL,           NULL}              /* sentinel */
+};
+
+
+static PyTypeObject CriticalLock_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "_thread.CriticalLock",             /*tp_name*/
+    sizeof(critlockobject),             /*tp_basicsize*/
+    0,                                  /*tp_itemsize*/
+    /* methods */
+    0,                                  /*tp_dealloc*/
+    0,                                  /*tp_vectorcall_offset*/
+    0,                                  /*tp_getattr*/
+    0,                                  /*tp_setattr*/
+    0,                                  /*tp_as_async*/
+    (reprfunc)critlock_repr,            /*tp_repr*/
+    0,                                  /*tp_as_number*/
+    0,                                  /*tp_as_sequence*/
+    0,                                  /*tp_as_mapping*/
+    0,                                  /*tp_hash*/
+    0,                                  /*tp_call*/
+    0,                                  /*tp_str*/
+    0,                                  /*tp_getattro*/
+    0,                                  /*tp_setattro*/
+    0,                                  /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT,                 /* tp_flags */
+    0,                                  /*tp_doc*/
+    0,                                  /*tp_traverse*/
+    0,                                  /*tp_clear*/
+    0,                                  /*tp_richcompare*/
+    0,                                  /*tp_weaklistoffset*/
+    0,                                  /*tp_iter*/
+    0,                                  /*tp_iternext*/
+    critlock_methods,                   /*tp_methods*/
+    0,                                  /* tp_members */
+    0,                                  /* tp_getset */
+    0,                                  /* tp_base */
+    0,                                  /* tp_dict */
+    0,                                  /* tp_descr_get */
+    0,                                  /* tp_descr_set */
+    0,                                  /* tp_dictoffset */
+    0,                                  /* tp_init */
+    PyType_GenericAlloc,                /* tp_alloc */
+    PyType_GenericNew                   /* tp_new */
 };
 
 static lockobject *
@@ -1611,6 +1712,11 @@ PyInit__thread(void)
 
     Py_INCREF(&RLocktype);
     if (PyModule_AddObject(m, "RLock", (PyObject *)&RLocktype) < 0)
+        return NULL;
+
+    Py_INCREF(&CriticalLock_Type);
+    PyType_Ready(&CriticalLock_Type);
+    if (PyModule_AddObject(m, "CriticalLock", (PyObject *)&CriticalLock_Type) < 0)
         return NULL;
 
     Py_INCREF(&localtype);
