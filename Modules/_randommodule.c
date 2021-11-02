@@ -68,6 +68,7 @@
 
 #include "Python.h"
 #include "pycore_byteswap.h"      // _Py_bswap32()
+#include "lock.h"
 #ifdef HAVE_PROCESS_H
 #  include <process.h>            // getpid()
 #endif
@@ -98,6 +99,7 @@ static struct PyModuleDef _randommodule;
 
 typedef struct {
     PyObject_HEAD
+    _PyRecursiveMutex lock;
     int index;
     uint32_t state[N];
 } RandomObject;
@@ -171,7 +173,9 @@ static PyObject *
 _random_Random_random_impl(RandomObject *self)
 /*[clinic end generated code: output=117ff99ee53d755c input=afb2a59cbbb00349]*/
 {
+    _PyRecursiveMutex_lock(&self->lock);
     uint32_t a=genrand_uint32(self)>>5, b=genrand_uint32(self)>>6;
+    _PyRecursiveMutex_unlock(&self->lock);
     return PyFloat_FromDouble((a*67108864.0+b)*(1.0/9007199254740992.0));
 }
 
@@ -363,7 +367,10 @@ static PyObject *
 _random_Random_seed_impl(RandomObject *self, PyObject *n)
 /*[clinic end generated code: output=0fad1e16ba883681 input=78d6ef0d52532a54]*/
 {
-    return random_seed(self, n);
+    _PyRecursiveMutex_lock(&self->lock);
+    PyObject *res = random_seed(self, n);
+    _PyRecursiveMutex_unlock(&self->lock);
+    return res;
 }
 
 /*[clinic input]
@@ -385,6 +392,8 @@ _random_Random_getstate_impl(RandomObject *self)
     state = PyTuple_New(N+1);
     if (state == NULL)
         return NULL;
+
+    _PyRecursiveMutex_lock(&self->lock);
     for (i=0; i<N ; i++) {
         element = PyLong_FromUnsignedLong(self->state[i]);
         if (element == NULL)
@@ -395,9 +404,11 @@ _random_Random_getstate_impl(RandomObject *self)
     if (element == NULL)
         goto Fail;
     PyTuple_SET_ITEM(state, i, element);
+    _PyRecursiveMutex_unlock(&self->lock);
     return state;
 
 Fail:
+    _PyRecursiveMutex_unlock(&self->lock);
     Py_DECREF(state);
     return NULL;
 }
@@ -447,9 +458,12 @@ _random_Random_setstate(RandomObject *self, PyObject *state)
         PyErr_SetString(PyExc_ValueError, "invalid state");
         return NULL;
     }
+
+    _PyRecursiveMutex_lock(&self->lock);
     self->index = (int)index;
     for (i = 0; i < N; i++)
         self->state[i] = new_state[i];
+    _PyRecursiveMutex_unlock(&self->lock);
 
     Py_RETURN_NONE;
 }
@@ -483,8 +497,13 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
     if (k == 0)
         return PyLong_FromLong(0);
 
-    if (k <= 32)  /* Fast path */
-        return PyLong_FromUnsignedLong(genrand_uint32(self) >> (32 - k));
+    if (k <= 32)  {
+        /* Fast path */
+        _PyRecursiveMutex_lock(&self->lock);
+        r = genrand_uint32(self);
+        _PyRecursiveMutex_unlock(&self->lock);
+        return PyLong_FromUnsignedLong(r >> (32 - k));
+    }
 
     words = (k - 1) / 32 + 1;
     wordarray = (uint32_t *)PyMem_Malloc(words * 4);
@@ -495,6 +514,7 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
 
     /* Fill-out bits of long integer, by 32-bit words, from least significant
        to most significant. */
+    _PyRecursiveMutex_lock(&self->lock);
 #if PY_LITTLE_ENDIAN
     for (i = 0; i < words; i++, k -= 32)
 #else
@@ -506,6 +526,7 @@ _random_Random_getrandbits_impl(RandomObject *self, int k)
             r >>= (32 - k);  /* Drop least significant bits */
         wordarray[i] = r;
     }
+    _PyRecursiveMutex_unlock(&self->lock);
 
     result = _PyLong_FromByteArray((unsigned char *)wordarray, words * 4,
                                    PY_LITTLE_ENDIAN, 0 /* unsigned */);
