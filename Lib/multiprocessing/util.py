@@ -175,6 +175,8 @@ def register_after_fork(obj, func):
 # Finalization using weakrefs
 #
 
+import _thread
+_finalizer_registry_lock = _thread.CriticalLock()
 _finalizer_registry = {}
 _finalizer_counter = itertools.count()
 
@@ -200,7 +202,8 @@ class Finalize(object):
         self._key = (exitpriority, next(_finalizer_counter))
         self._pid = os.getpid()
 
-        _finalizer_registry[self._key] = self
+        with _finalizer_registry_lock:
+            _finalizer_registry[self._key] = self
 
     def __call__(self, wr=None,
                  # Need to bind these locally because the globals can have
@@ -211,7 +214,8 @@ class Finalize(object):
         Run the callback unless it has already been called or cancelled
         '''
         try:
-            del _finalizer_registry[self._key]
+            with _finalizer_registry_lock:
+                del _finalizer_registry[self._key]
         except KeyError:
             sub_debug('finalizer no longer registered')
         else:
@@ -231,7 +235,8 @@ class Finalize(object):
         Cancel finalization of the object
         '''
         try:
-            del _finalizer_registry[self._key]
+            with _finalizer_registry_lock:
+                del _finalizer_registry[self._key]
         except KeyError:
             pass
         else:
@@ -242,7 +247,8 @@ class Finalize(object):
         '''
         Return whether this finalizer is still waiting to invoke callback
         '''
-        return self._key in _finalizer_registry
+        with _finalizer_registry_lock:
+            return self._key in _finalizer_registry
 
     def __repr__(self):
         try:
@@ -284,15 +290,18 @@ def _run_finalizers(minpriority=None):
         f = lambda p : p[0] is not None and p[0] >= minpriority
 
     # Careful: _finalizer_registry may be mutated while this function
+    with _finalizer_registry_lock:
+        registry = list(_finalizer_registry)
     # is running (either by a GC run or by another thread).
 
     # list(_finalizer_registry) should be atomic, while
     # list(_finalizer_registry.items()) is not.
-    keys = [key for key in list(_finalizer_registry) if f(key)]
+    keys = [key for key in registry if f(key)]
     keys.sort(reverse=True)
 
     for key in keys:
-        finalizer = _finalizer_registry.get(key)
+        with _finalizer_registry_lock:
+            finalizer = _finalizer_registry.get(key)
         # key may have been removed from the registry
         if finalizer is not None:
             sub_debug('calling %s', finalizer)
@@ -303,7 +312,8 @@ def _run_finalizers(minpriority=None):
                 traceback.print_exc()
 
     if minpriority is None:
-        _finalizer_registry.clear()
+        with _finalizer_registry_lock:
+            _finalizer_registry.clear()
 
 #
 # Clean up on exit
