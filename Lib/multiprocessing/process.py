@@ -60,7 +60,9 @@ def parent_process():
 
 def _cleanup():
     # check for processes which have finished
-    for p in list(_children):
+    # FIXME(sgross): set.copy() is effectively atomic, but list(set) is
+    # not. Revert to list(_children) when that that's properly atomic.
+    for p in _children.copy():
         if p._popen.poll() is not None:
             _children.discard(p)
 

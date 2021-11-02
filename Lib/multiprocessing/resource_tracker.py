@@ -20,6 +20,7 @@ import signal
 import sys
 import threading
 import warnings
+import _thread
 
 from . import spawn
 from . import util
@@ -54,7 +55,7 @@ if os.name == 'posix':
 class ResourceTracker(object):
 
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = _thread.CriticalLock()
         self._fd = None
         self._pid = None
 
