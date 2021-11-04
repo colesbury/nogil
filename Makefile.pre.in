@@ -349,6 +349,7 @@ PYTHON_OBJS=	\
 		Python/codecs.o \
 		Python/compile.o \
 		Python/context.o \
+		Python/critical_section.o \
 		Python/dynamic_annotations.o \
 		Python/errors.o \
 		Python/frozenmain.o \
@@ -1154,6 +1155,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/internal/pycore_code.h \
 		$(srcdir)/Include/internal/pycore_condvar.h \
 		$(srcdir)/Include/internal/pycore_context.h \
+		$(srcdir)/Include/internal/pycore_critical_section.h \
 		$(srcdir)/Include/internal/pycore_dtoa.h \
 		$(srcdir)/Include/internal/pycore_fileutils.h \
 		$(srcdir)/Include/internal/pycore_getopt.h \
