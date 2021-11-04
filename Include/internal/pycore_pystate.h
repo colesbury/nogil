@@ -70,7 +70,11 @@ extern Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 static inline PyThreadState*
 _PyThreadState_GET(void)
 {
+#if defined(Py_BUILD_CORE_MODULE)
+    return _PyThreadState_UncheckedGet();
+#else
     return _Py_current_tstate;
+#endif
 }
 
 static inline void

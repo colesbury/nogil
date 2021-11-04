@@ -165,6 +165,9 @@
     <ClInclude Include="..\Include\internal\pycore_context.h">
       <Filter>Include</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_critical_section.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_dtoa.h">
       <Filter>Include</Filter>
     </ClInclude>
@@ -1062,6 +1065,9 @@
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\compile.c">
+      <Filter>Python</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Python\critical_section.c">
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\dynamic_annotations.c">

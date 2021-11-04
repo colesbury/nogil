@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "pycore_ceval.h"
+#include "pycore_critical_section.h"
 #include "pycore_initconfig.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
@@ -185,6 +186,12 @@ _PyThreadState_Attach(PyThreadState *tstate)
             &tstate->status,
             _Py_THREAD_DETACHED,
             _Py_THREAD_ATTACHED)) {
+
+        // resume previous critical section
+        if (tstate->critical_section != 0) {
+            _Py_critical_section_resume(tstate);
+        }
+
         return 1;
     }
     return 0;
@@ -193,6 +200,10 @@ _PyThreadState_Attach(PyThreadState *tstate)
 static void
 _PyThreadState_Detach(PyThreadState *tstate)
 {
+    if (tstate->critical_section != 0) {
+        _Py_critical_section_end_all(tstate);
+    }
+
     _Py_atomic_store_int32(&tstate->status, _Py_THREAD_DETACHED);
 }
 
@@ -637,6 +648,8 @@ new_threadstate(PyInterpreterState *interp, int init)
     tstate->trash_delete_later = NULL;
     tstate->on_delete = NULL;
     tstate->on_delete_data = NULL;
+
+    tstate->critical_section = 0;
 
     tstate->coroutine_origin_tracking_depth = 0;
 

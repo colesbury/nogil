@@ -53,7 +53,7 @@ struct _ts {
     struct _ts *next;
     PyInterpreterState *interp;
 
-    /* thread status */
+    /* thread status (attached, detached, gc) */
     int32_t status;
 
     /* Borrowed reference to the current frame (it can be NULL) */
@@ -101,6 +101,8 @@ struct _ts {
 
     int trash_delete_nesting;
     PyObject *trash_delete_later;
+
+    uintptr_t critical_section;
 
     /* Called when a thread state is deleted normally, but not when it
      * is destroyed after fork().
