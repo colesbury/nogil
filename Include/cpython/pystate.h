@@ -172,6 +172,8 @@ struct _ts {
     int trash_delete_nesting;
     PyObject *trash_delete_later;
 
+    uintptr_t critical_section;
+
     /* Called when a thread state is deleted normally, but not when it
      * is destroyed after fork().
      * Pain:  to prevent rare but fatal shutdown errors (issue 18808),

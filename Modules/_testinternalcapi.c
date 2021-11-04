@@ -15,6 +15,7 @@
 #include "pycore_atomic_funcs.h" // _Py_atomic_int_get()
 #include "pycore_bitutils.h"     // _Py_bswap32()
 #include "pycore_compile.h"      // _PyCompile_CodeGen, _PyCompile_OptimizeCfg
+#include "pycore_critical_section.h"
 #include "pycore_fileutils.h"    // _Py_normpath
 #include "pycore_frame.h"        // _PyInterpreterFrame
 #include "pycore_gc.h"           // PyGC_Head
@@ -244,6 +245,34 @@ test_hashtable(PyObject *self, PyObject *Py_UNUSED(args))
     Py_RETURN_NONE;
 }
 
+static PyObject *
+test_critical_sections(PyObject *self, PyObject *Py_UNUSED(args))
+{
+    PyThreadState *tstate = PyThreadState_GET();
+    _PyMutex m1, m2;
+    memset(&m1, 0, sizeof(m1));
+    memset(&m2, 0, sizeof(m2));
+
+    struct _Py_critical_section c;
+    _Py_critical_section_begin(&c, &m1);
+    assert(_PyMutex_is_locked(&m1));
+
+    /* nested critical section re-using lock */
+    struct _Py_critical_section c2;
+    _Py_critical_section_begin(&c2, &m1);
+    assert(_PyMutex_is_locked(&m1));
+    assert(_Py_critical_section_is_active(tstate->critical_section));
+    assert(!_Py_critical_section_is_active(c2.prev));
+    _Py_critical_section_end(&c2);
+
+    /* mutex is re-locked */
+    assert(_PyMutex_is_locked(&m1));
+
+    _Py_critical_section_end(&c);
+    assert(!_PyMutex_is_locked(&m1));
+
+    Py_RETURN_NONE;
+}
 
 static PyObject *
 test_get_config(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(args))
@@ -634,6 +663,7 @@ static PyMethodDef TestMethods[] = {
     _TESTINTERNALCAPI_COMPILER_CODEGEN_METHODDEF
     _TESTINTERNALCAPI_OPTIMIZE_CFG_METHODDEF
     {"get_interp_settings", get_interp_settings, METH_VARARGS, NULL},
+    {"test_critical_sections", test_critical_sections, METH_NOARGS},
     {NULL, NULL} /* sentinel */
 };
 
