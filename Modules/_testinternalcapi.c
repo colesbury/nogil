@@ -13,6 +13,7 @@
 
 #include "Python.h"
 #include "pycore_byteswap.h"     // _Py_bswap32()
+#include "pycore_critical_section.h"
 #include "pycore_initconfig.h"   // _Py_GetConfigsAsDict()
 #include "pycore_hashtable.h"    // _Py_hashtable_new()
 #include "pycore_gc.h"           // PyGC_Head
@@ -195,12 +196,41 @@ test_hashtable(PyObject *self, PyObject *Py_UNUSED(args))
     Py_RETURN_NONE;
 }
 
+static PyObject *
+test_critical_sections(PyObject *self, PyObject *Py_UNUSED(args))
+{
+    PyThreadState *tstate = PyThreadState_GET();
+    _PyMutex m1, m2;
+    memset(&m1, 0, sizeof(m1));
+    memset(&m2, 0, sizeof(m2));
+
+    struct _Py_critical_section c;
+    _Py_critical_section_begin(&c, &m1);
+    assert(_PyMutex_is_locked(&m1));
+
+    /* nested critical section re-using lock */
+    struct _Py_critical_section c2;
+    _Py_critical_section_begin(&c2, &m1);
+    assert(_PyMutex_is_locked(&m1));
+    assert(_Py_critical_section_is_active(tstate->critical_section));
+    assert(!_Py_critical_section_is_active(c2.prev));
+    _Py_critical_section_end(&c2);
+
+    /* mutex is re-locked */
+    assert(_PyMutex_is_locked(&m1));
+
+    _Py_critical_section_end(&c);
+    assert(!_PyMutex_is_locked(&m1));
+
+    Py_RETURN_NONE;
+}
 
 static PyMethodDef TestMethods[] = {
     {"get_configs", get_configs, METH_NOARGS},
     {"get_recursion_depth", get_recursion_depth, METH_NOARGS},
     {"test_bswap", test_bswap, METH_NOARGS},
     {"test_hashtable", test_hashtable, METH_NOARGS},
+    {"test_critical_sections", test_critical_sections, METH_NOARGS},
     {NULL, NULL} /* sentinel */
 };
 
