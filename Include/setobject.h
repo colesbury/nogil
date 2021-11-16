@@ -59,6 +59,7 @@ typedef struct {
     setentry *table;
     Py_hash_t hash;             /* Only used by frozenset objects */
     Py_ssize_t finger;          /* Search finger for pop() */
+    _PyMutex mutex;
 
     setentry smalltable[PySet_MINSIZE];
     PyObject *weakreflist;      /* List of weak references */
