@@ -291,6 +291,7 @@ class _ExecutorManagerThread(threading.Thread):
 
         # A list of the ctx.Process instances used as workers.
         self.processes = executor._processes
+        self.processes_lock = executor._processes_lock
 
         # A ctx.Queue that will be filled with _CallItems derived from
         # _WorkItems for processing by the process workers.
@@ -373,7 +374,8 @@ class _ExecutorManagerThread(threading.Thread):
         assert not self.thread_wakeup._closed
         wakeup_reader = self.thread_wakeup._reader
         readers = [result_reader, wakeup_reader]
-        worker_sentinels = [p.sentinel for p in self.processes.values()]
+        with self.processes_lock:
+            worker_sentinels = [p.sentinel for p in self.processes.values()]
         ready = mp.connection.wait(readers + worker_sentinels)
 
         cause = None
@@ -402,7 +404,8 @@ class _ExecutorManagerThread(threading.Thread):
             # Clean shutdown of a worker using its PID
             # (avoids marking the executor broken)
             assert self.is_shutting_down()
-            p = self.processes.pop(result_item)
+            with self.processes_lock:
+                p = self.processes.pop(result_item)
             p.join()
             if not self.processes:
                 self.join_executor_internals()
@@ -459,8 +462,9 @@ class _ExecutorManagerThread(threading.Thread):
 
         # Terminate remaining workers forcibly: the queues or their
         # locks may be in a dirty state and block forever.
-        for p in self.processes.values():
-            p.terminate()
+        with self.processes_lock:
+            for p in self.processes.values():
+                p.terminate()
 
         # clean up resources
         self.join_executor_internals()
@@ -514,12 +518,14 @@ class _ExecutorManagerThread(threading.Thread):
             self.thread_wakeup.close()
         # If .join() is not called on the created processes then
         # some ctx.Queue methods may deadlock on Mac OS X.
-        for p in self.processes.values():
-            p.join()
+        with self.processes_lock:
+            for p in self.processes.values():
+                p.join()
 
     def get_n_children_alive(self):
         # This is an upper bound on the number of children alive.
-        return sum(p.is_alive() for p in self.processes.values())
+        with self.processes_lock:
+            return sum(p.is_alive() for p in self.processes.values())
 
 
 _system_limits_checked = False
@@ -614,6 +620,7 @@ class ProcessPoolExecutor(_base.Executor):
 
         # Map of pids to processes
         self._processes = {}
+        self._processes_lock = threading.Lock()
 
         # Shutdown is a two-step process.
         self._shutdown_thread = False
@@ -673,7 +680,8 @@ class ProcessPoolExecutor(_base.Executor):
                       self._initializer,
                       self._initargs))
             p.start()
-            self._processes[p.pid] = p
+            with self._processes_lock:
+                self._processes[p.pid] = p
 
     def submit(self, fn, /, *args, **kwargs):
         with self._shutdown_lock:
@@ -745,7 +753,8 @@ class ProcessPoolExecutor(_base.Executor):
         if self._result_queue is not None and wait:
             self._result_queue.close()
         self._result_queue = None
-        self._processes = None
+        with self._processes_lock:
+            self._processes = None
         self._executor_manager_thread_wakeup = None
 
     shutdown.__doc__ = _base.Executor.shutdown.__doc__
