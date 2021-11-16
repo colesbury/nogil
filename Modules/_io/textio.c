@@ -628,6 +628,7 @@ typedef PyObject *
 typedef struct
 {
     PyObject_HEAD
+    _PyRecursiveMutex rlock;
     int ok; /* initialized? */
     int detached;
     Py_ssize_t chunk_size;
@@ -1295,7 +1296,7 @@ textiowrapper_change_encoding(textio *self, PyObject *encoding,
 }
 
 /*[clinic input]
-_io.TextIOWrapper.reconfigure
+_io.TextIOWrapper.reconfigure @ rlock
     *
     encoding: object = None
     errors: object = None
@@ -1314,7 +1315,7 @@ _io_TextIOWrapper_reconfigure_impl(textio *self, PyObject *encoding,
                                    PyObject *errors, PyObject *newline_obj,
                                    PyObject *line_buffering_obj,
                                    PyObject *write_through_obj)
-/*[clinic end generated code: output=52b812ff4b3d4b0f input=671e82136e0f5822]*/
+/*[clinic end generated code: output=52b812ff4b3d4b0f input=2aa993e368cffe59]*/
 {
     int line_buffering;
     int write_through;
@@ -1474,12 +1475,12 @@ textiowrapper_closed_get(textio *self, void *context);
 
 
 /*[clinic input]
-_io.TextIOWrapper.detach
+_io.TextIOWrapper.detach @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_detach_impl(textio *self)
-/*[clinic end generated code: output=7ba3715cd032d5f2 input=e5a71fbda9e1d9f9]*/
+/*[clinic end generated code: output=7ba3715cd032d5f2 input=ca6fc2f973fa0ad4]*/
 {
     PyObject *buffer, *res;
     CHECK_ATTACHED(self);
@@ -1566,14 +1567,14 @@ _textiowrapper_writeflush(textio *self)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.write
+_io.TextIOWrapper.write @ rlock
     text: unicode
     /
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_write_impl(textio *self, PyObject *text)
-/*[clinic end generated code: output=d2deb0d50771fcec input=fdf19153584a0e44]*/
+/*[clinic end generated code: output=d2deb0d50771fcec input=be35d5a8084a42af]*/
 {
     PyObject *ret;
     PyObject *b;
@@ -1879,14 +1880,14 @@ textiowrapper_read_chunk(textio *self, Py_ssize_t size_hint)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.read
+_io.TextIOWrapper.read @ rlock
     size as n: Py_ssize_t(accept={int, NoneType}) = -1
     /
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_read_impl(textio *self, Py_ssize_t n)
-/*[clinic end generated code: output=7e651ce6cc6a25a6 input=123eecbfe214aeb8]*/
+/*[clinic end generated code: output=7e651ce6cc6a25a6 input=4cd72fb9b9bf259c]*/
 {
     PyObject *result = NULL, *chunks = NULL;
 
@@ -2256,14 +2257,14 @@ _textiowrapper_readline(textio *self, Py_ssize_t limit)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.readline
+_io.TextIOWrapper.readline @ rlock
     size: Py_ssize_t = -1
     /
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_readline_impl(textio *self, Py_ssize_t size)
-/*[clinic end generated code: output=344afa98804e8b25 input=56c7172483b36db6]*/
+/*[clinic end generated code: output=344afa98804e8b25 input=d90106aefc6e9fe8]*/
 {
     CHECK_ATTACHED(self);
     return _textiowrapper_readline(self, size);
@@ -2402,7 +2403,7 @@ _textiowrapper_encoder_setstate(textio *self, cookie_type *cookie)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.seek
+_io.TextIOWrapper.seek @ rlock
     cookie as cookieObj: object
     whence: int = 0
     /
@@ -2410,7 +2411,7 @@ _io.TextIOWrapper.seek
 
 static PyObject *
 _io_TextIOWrapper_seek_impl(textio *self, PyObject *cookieObj, int whence)
-/*[clinic end generated code: output=0a15679764e2d04d input=0458abeb3d7842be]*/
+/*[clinic end generated code: output=0a15679764e2d04d input=87bf0b1e3569700d]*/
 {
     PyObject *posobj;
     cookie_type cookie;
@@ -2599,12 +2600,12 @@ _io_TextIOWrapper_seek_impl(textio *self, PyObject *cookieObj, int whence)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.tell
+_io.TextIOWrapper.tell @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_tell_impl(textio *self)
-/*[clinic end generated code: output=4f168c08bf34ad5f input=9a2caf88c24f9ddf]*/
+/*[clinic end generated code: output=4f168c08bf34ad5f input=7815da381813690e]*/
 {
     PyObject *res;
     PyObject *posobj = NULL;
@@ -2832,14 +2833,14 @@ fail:
 }
 
 /*[clinic input]
-_io.TextIOWrapper.truncate
+_io.TextIOWrapper.truncate @ rlock
     pos: object = None
     /
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_truncate_impl(textio *self, PyObject *pos)
-/*[clinic end generated code: output=90ec2afb9bb7745f input=56ec8baa65aea377]*/
+/*[clinic end generated code: output=90ec2afb9bb7745f input=35b46079f65f8d18]*/
 {
     PyObject *res;
 
@@ -2922,72 +2923,72 @@ textiowrapper_repr(textio *self)
 /* Inquiries */
 
 /*[clinic input]
-_io.TextIOWrapper.fileno
+_io.TextIOWrapper.fileno @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_fileno_impl(textio *self)
-/*[clinic end generated code: output=21490a4c3da13e6c input=c488ca83d0069f9b]*/
+/*[clinic end generated code: output=21490a4c3da13e6c input=d132668b7a49ad33]*/
 {
     CHECK_ATTACHED(self);
     return PyObject_CallMethodNoArgs(self->buffer, &_Py_ID(fileno));
 }
 
 /*[clinic input]
-_io.TextIOWrapper.seekable
+_io.TextIOWrapper.seekable @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_seekable_impl(textio *self)
-/*[clinic end generated code: output=ab223dbbcffc0f00 input=8b005ca06e1fca13]*/
+/*[clinic end generated code: output=ab223dbbcffc0f00 input=0b2390a0ed24baa5]*/
 {
     CHECK_ATTACHED(self);
     return PyObject_CallMethodNoArgs(self->buffer, &_Py_ID(seekable));
 }
 
 /*[clinic input]
-_io.TextIOWrapper.readable
+_io.TextIOWrapper.readable @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_readable_impl(textio *self)
-/*[clinic end generated code: output=72ff7ba289a8a91b input=0704ea7e01b0d3eb]*/
+/*[clinic end generated code: output=72ff7ba289a8a91b input=b6c69b672a17cc0c]*/
 {
     CHECK_ATTACHED(self);
     return PyObject_CallMethodNoArgs(self->buffer, &_Py_ID(readable));
 }
 
 /*[clinic input]
-_io.TextIOWrapper.writable
+_io.TextIOWrapper.writable @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_writable_impl(textio *self)
-/*[clinic end generated code: output=a728c71790d03200 input=c41740bc9d8636e8]*/
+/*[clinic end generated code: output=a728c71790d03200 input=0e55046843fae4df]*/
 {
     CHECK_ATTACHED(self);
     return PyObject_CallMethodNoArgs(self->buffer, &_Py_ID(writable));
 }
 
 /*[clinic input]
-_io.TextIOWrapper.isatty
+_io.TextIOWrapper.isatty @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_isatty_impl(textio *self)
-/*[clinic end generated code: output=12be1a35bace882e input=fb68d9f2c99bbfff]*/
+/*[clinic end generated code: output=12be1a35bace882e input=c5bafd2eeac3a9e7]*/
 {
     CHECK_ATTACHED(self);
     return PyObject_CallMethodNoArgs(self->buffer, &_Py_ID(isatty));
 }
 
 /*[clinic input]
-_io.TextIOWrapper.flush
+_io.TextIOWrapper.flush @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_flush_impl(textio *self)
-/*[clinic end generated code: output=59de9165f9c2e4d2 input=928c60590694ab85]*/
+/*[clinic end generated code: output=59de9165f9c2e4d2 input=e235ac8788fa7e21]*/
 {
     CHECK_ATTACHED(self);
     CHECK_CLOSED(self);
@@ -2998,12 +2999,12 @@ _io_TextIOWrapper_flush_impl(textio *self)
 }
 
 /*[clinic input]
-_io.TextIOWrapper.close
+_io.TextIOWrapper.close @ rlock
 [clinic start generated code]*/
 
 static PyObject *
 _io_TextIOWrapper_close_impl(textio *self)
-/*[clinic end generated code: output=056ccf8b4876e4f4 input=9c2114315eae1948]*/
+/*[clinic end generated code: output=056ccf8b4876e4f4 input=67b185864ae9a5ef]*/
 {
     PyObject *res;
     int r;
@@ -3280,7 +3281,7 @@ PyTypeObject PyTextIOWrapper_Type = {
     0,                          /* tp_dict */
     0,                          /* tp_descr_get */
     0,                          /* tp_descr_set */
-    offsetof(textio, dict), /*tp_dictoffset*/
+    offsetof(textio, dict),     /* tp_dictoffset */
     _io_TextIOWrapper___init__, /* tp_init */
     0,                          /* tp_alloc */
     PyType_GenericNew,          /* tp_new */
