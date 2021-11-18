@@ -13,6 +13,7 @@
 #include "pycore_sysmodule.h"
 #include "pycore_refcnt.h"
 
+#include "ceval_meta.h"
 #include "lock.h"
 #include "parking_lot.h"
 #include "mimalloc.h"
@@ -422,10 +423,11 @@ void
 _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 {
     // TODO: use atomic bitwise instructions when available
+    uintptr_t *eval_breaker = &tstate->eval_breaker;
     for (;;) {
-        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(eval_breaker);
         uintptr_t newv = v | bit;
-        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+        if (_Py_atomic_compare_exchange_uintptr(eval_breaker, v, newv)) {
             break;
         }
     }
@@ -434,10 +436,11 @@ _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 void
 _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit)
 {
+    uintptr_t *eval_breaker = &tstate->eval_breaker;
     for (;;) {
-        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(eval_breaker);
         uintptr_t newv = v & ~bit;
-        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+        if (_Py_atomic_compare_exchange_uintptr(eval_breaker, v, newv)) {
             break;
         }
     }
@@ -937,7 +940,6 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
     tstate->interp = interp;
 
     tstate->status = _Py_THREAD_DETACHED;
-    tstate->eval_breaker = 0;
     tstate->frame = NULL;
     tstate->recursion_depth = 0;
     tstate->overflowed = 0;
@@ -988,6 +990,14 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
         PyMem_RawFree(tstate);
         return NULL;
     }
+
+    // FIXME: leaks thread-state
+    struct ThreadState *ts = vm_new_threadstate(tstate);
+    if (ts == NULL) {
+        PyMem_RawFree(tstate);
+        return NULL;
+    }
+    vm_push_thread_stack(tstate, ts);
 
     if (init) {
         _PyThreadState_Init(tstate);
@@ -1527,6 +1537,12 @@ PyThreadState_GetID(PyThreadState *tstate)
     return tstate->id;
 }
 
+Py_ssize_t
+_PyThreadState_GetRecursionDepth(PyThreadState *tstate)
+{
+    return vm_stack_depth(tstate);
+}
+
 
 /* Asynchronously raise an exception in a thread.
    Requested by Just van Rossum and Alex Martelli.
@@ -1622,6 +1638,10 @@ _PyThread_CurrentFrames(void)
         return NULL;
     }
 
+    _PyMutex_lock(&_PyRuntime.stoptheworld_mutex);
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
+    tstate->cant_stop_wont_stop++;
+
     /* for i in all interpreters:
      *     for t in all of i's thread states:
      *          if t's frame isn't NULL, map t's id to its frame
@@ -1630,23 +1650,23 @@ _PyThread_CurrentFrames(void)
      */
     _PyRuntimeState *runtime = tstate->interp->runtime;
     HEAD_LOCK(runtime);
-    PyInterpreterState *i;
-    for (i = runtime->interpreters.head; i != NULL; i = i->next) {
-        PyThreadState *t;
-        for (t = i->tstate_head; t != NULL; t = t->next) {
-            PyFrameObject *frame = t->frame;
-            if (frame == NULL) {
-                continue;
-            }
-            PyObject *id = PyLong_FromUnsignedLong(t->thread_id);
-            if (id == NULL) {
+    PyThreadState *t;
+    for_each_thread(t) {
+        PyFrameObject *frame = vm_frame(t);
+        if (frame == NULL) {
+            if (_PyErr_Occurred(tstate)) {
                 goto fail;
             }
-            int stat = PyDict_SetItem(result, id, (PyObject *)frame);
-            Py_DECREF(id);
-            if (stat < 0) {
-                goto fail;
-            }
+            continue;
+        }
+        PyObject *id = PyLong_FromUnsignedLong(t->thread_id);
+        if (id == NULL) {
+            goto fail;
+        }
+        int stat = PyDict_SetItem(result, id, (PyObject *)frame);
+        Py_DECREF(id);
+        if (stat < 0) {
+            goto fail;
         }
     }
     goto done;
@@ -1656,6 +1676,9 @@ fail:
 
 done:
     HEAD_UNLOCK(runtime);
+    tstate->cant_stop_wont_stop--;
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+    _PyMutex_unlock(&_PyRuntime.stoptheworld_mutex);
     return result;
 }
 

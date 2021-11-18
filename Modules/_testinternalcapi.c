@@ -73,9 +73,10 @@ static PyObject*
 get_recursion_depth(PyObject *self, PyObject *Py_UNUSED(args))
 {
     PyThreadState *tstate = PyThreadState_Get();
+    Py_ssize_t recursion_depth = _PyThreadState_GetRecursionDepth(tstate);
 
     /* subtract one to ignore the frame of the get_recursion_depth() call */
-    return PyLong_FromLong(tstate->recursion_depth - 1);
+    return PyLong_FromSsize_t(recursion_depth - 1);
 }
 
 

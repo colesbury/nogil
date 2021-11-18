@@ -8,6 +8,7 @@
 #include "pycore_pystate.h"    // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
 #include "pycore_traceback.h"
+#include "ceval_meta.h"
 
 #ifndef __STDC__
 #ifndef MS_WINDOWS
@@ -111,6 +112,48 @@ _PyErr_CreateException(PyObject *exception_type, PyObject *value)
     return exc;
 }
 
+static void
+_PyErr_SetContext(PyObject *value, PyObject *exc_value)
+{
+    if (exc_value == NULL || exc_value == Py_None) {
+        return;
+    }
+    if (exc_value == value) {
+        return;
+    }
+
+    /* Avoid creating new reference cycles through the
+       context chain, while taking care not to hang on
+       pre-existing ones.
+       This is O(chain length) but context chains are
+       usually very short. Sensitive readers may try
+       to inline the call to PyException_GetContext. */
+    PyObject *o = exc_value, *context;
+    PyObject *slow_o = o;  /* Floyd's cycle detection algo */
+    int slow_update_toggle = 0;
+    while ((context = PyException_GetContext(o))) {
+        Py_DECREF(context);
+        if (context == value) {
+            PyException_SetContext(o, NULL);
+            break;
+        }
+        o = context;
+        if (o == slow_o) {
+            /* pre-existing cycle - all exceptions on the
+                path were visited and checked.  */
+            break;
+        }
+        if (slow_update_toggle) {
+            slow_o = PyException_GetContext(slow_o);
+            Py_DECREF(slow_o);
+        }
+        slow_update_toggle = !slow_update_toggle;
+    }
+
+    Py_INCREF(exc_value);
+    PyException_SetContext(value, exc_value);
+}
+
 void
 _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
 {
@@ -127,10 +170,9 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
     }
 
     Py_XINCREF(value);
-    exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
+    exc_value = vm_handled_exc(PyThreadState_GET());
+    /* Implicit exception chaining */
     if (exc_value != NULL && exc_value != Py_None) {
-        /* Implicit exception chaining */
-        Py_INCREF(exc_value);
         if (value == NULL || !PyExceptionInstance_Check(value)) {
             /* We must normalize the value right now */
             PyObject *fixed_value;
@@ -149,40 +191,10 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
             value = fixed_value;
         }
 
-        /* Avoid creating new reference cycles through the
-           context chain, while taking care not to hang on
-           pre-existing ones.
-           This is O(chain length) but context chains are
-           usually very short. Sensitive readers may try
-           to inline the call to PyException_GetContext. */
-        if (exc_value != value) {
-            PyObject *o = exc_value, *context;
-            PyObject *slow_o = o;  /* Floyd's cycle detection algo */
-            int slow_update_toggle = 0;
-            while ((context = PyException_GetContext(o))) {
-                Py_DECREF(context);
-                if (context == value) {
-                    PyException_SetContext(o, NULL);
-                    break;
-                }
-                o = context;
-                if (o == slow_o) {
-                    /* pre-existing cycle - all exceptions on the
-                       path were visited and checked.  */
-                    break;
-                }
-                if (slow_update_toggle) {
-                    slow_o = PyException_GetContext(slow_o);
-                    Py_DECREF(slow_o);
-                }
-                slow_update_toggle = !slow_update_toggle;
-            }
-            PyException_SetContext(value, exc_value);
-        }
-        else {
-            Py_DECREF(exc_value);
-        }
+        _PyErr_SetContext(value, exc_value);
     }
+
+    // exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
     if (value != NULL && PyExceptionInstance_Check(value))
         tb = PyException_GetTraceback(value);
     Py_XINCREF(exception);
@@ -480,26 +492,36 @@ void
 PyErr_GetExcInfo(PyObject **p_type, PyObject **p_value, PyObject **p_traceback)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    _PyErr_GetExcInfo(tstate, p_type, p_value, p_traceback);
+    PyObject *exc = vm_handled_exc(tstate);
+    if (exc == NULL) {
+        *p_type = NULL;
+        *p_value = NULL;
+        *p_traceback = NULL;
+    }
+    else {
+        *p_type = (PyObject *)Py_TYPE(exc);
+        Py_INCREF(*p_type);
+        *p_value = exc;
+        Py_INCREF(*p_value);
+        *p_traceback = PyException_GetTraceback(exc);
+    }
 }
 
 void
-PyErr_SetExcInfo(PyObject *p_type, PyObject *p_value, PyObject *p_traceback)
+PyErr_SetExcInfo(PyObject *type, PyObject *value, PyObject *traceback)
 {
-    PyObject *oldtype, *oldvalue, *oldtraceback;
     PyThreadState *tstate = _PyThreadState_GET();
+    _PyErr_NormalizeException(tstate, &type, &value, &traceback);
 
-    oldtype = tstate->exc_info->exc_type;
-    oldvalue = tstate->exc_info->exc_value;
-    oldtraceback = tstate->exc_info->exc_traceback;
+    if (value) {
+        PyException_SetTraceback(value, traceback ? traceback : Py_None);
+    }
 
-    tstate->exc_info->exc_type = p_type;
-    tstate->exc_info->exc_value = p_value;
-    tstate->exc_info->exc_traceback = p_traceback;
+    vm_set_handled_exc(tstate, value);
 
-    Py_XDECREF(oldtype);
-    Py_XDECREF(oldvalue);
-    Py_XDECREF(oldtraceback);
+    Py_XDECREF(type);
+    Py_XDECREF(value);
+    Py_XDECREF(traceback);
 }
 
 /* Like PyErr_Restore(), but if an exception is already set,
@@ -554,24 +576,10 @@ _PyErr_ChainStackItem(_PyErr_StackItem *exc_info)
 {
     PyThreadState *tstate = _PyThreadState_GET();
     assert(_PyErr_Occurred(tstate));
+    assert(exc_info != NULL);
 
-    int exc_info_given;
-    if (exc_info == NULL) {
-        exc_info_given = 0;
-        exc_info = tstate->exc_info;
-    } else {
-        exc_info_given = 1;
-    }
     if (exc_info->exc_type == NULL || exc_info->exc_type == Py_None) {
         return;
-    }
-
-    _PyErr_StackItem *saved_exc_info;
-    if (exc_info_given) {
-        /* Temporarily set the thread state's exc_info since this is what
-           _PyErr_SetObject uses for implicit exception chaining. */
-        saved_exc_info = tstate->exc_info;
-        tstate->exc_info = exc_info;
     }
 
     PyObject *exc, *val, *tb;
@@ -586,15 +594,31 @@ _PyErr_ChainStackItem(_PyErr_StackItem *exc_info)
         PyException_SetTraceback(val2, tb2);
     }
 
-    /* _PyErr_SetObject sets the context from PyThreadState. */
+    _PyErr_SetContext(val, val2);
+    _PyErr_Restore(tstate, exc, val, tb);
+}
+
+void
+_PyErr_ChainExceptionsFrom(struct ThreadState *ts)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    assert(_PyErr_Occurred(tstate));
+
+    PyObject *exc2 = vm_handled_exc2(ts);
+    if (exc2 == NULL) {
+        return;
+    }
+
+    PyObject *exc, *val, *tb;
+    _PyErr_Fetch(tstate, &exc, &val, &tb);
+    vm_push_thread_stack(tstate, ts);
     _PyErr_SetObject(tstate, exc, val);
-    Py_DECREF(exc);  // since _PyErr_Occurred was true
+    vm_pop_thread_stack(tstate);
+
+    Py_DECREF(exc);
     Py_XDECREF(val);
     Py_XDECREF(tb);
 
-    if (exc_info_given) {
-        tstate->exc_info = saved_exc_info;
-    }
 }
 
 static PyObject *
@@ -1466,7 +1490,7 @@ _PyErr_WriteUnraisableMsg(const char *err_msg_str, PyObject *obj)
     }
 
     if (exc_tb == NULL) {
-        PyFrameObject *frame = tstate->frame;
+        PyFrameObject *frame = vm_frame(tstate);
         if (frame != NULL) {
             exc_tb = _PyTraceBack_FromFrame(NULL, frame);
             if (exc_tb == NULL) {

@@ -186,7 +186,7 @@ _PyEvent_IsSet(_PyEvent *e)
 static inline _PyEventRc *
 _PyEventRc_New(void)
 {
-    _PyEventRc *erc = PyMem_RawCalloc(1, sizeof(_PyEventRc));
+    _PyEventRc *erc = (_PyEventRc *)PyMem_RawCalloc(1, sizeof(_PyEventRc));
     if (erc != NULL) {
         erc->refcount = 1;
     }

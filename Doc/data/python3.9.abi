@@ -6531,9 +6531,6 @@
       <data-member access='public' layout-offset-in-bits='928'>
         <var-decl name='f_executing' type-id='type-id-1' visibility='default' filepath='./Include/cpython/frameobject.h' line='44' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='960'>
-        <var-decl name='f_blockstack' type-id='type-id-413' visibility='default' filepath='./Include/cpython/frameobject.h' line='45' column='1'/>
-      </data-member>
       <data-member access='public' layout-offset-in-bits='2880'>
         <var-decl name='f_localsplus' type-id='type-id-414' visibility='default' filepath='./Include/cpython/frameobject.h' line='46' column='1'/>
       </data-member>
@@ -7015,7 +7012,6 @@
         <var-decl name='builtins_ver' type-id='type-id-238' visibility='default' filepath='./Include/internal/pycore_code.h' line='10' column='1'/>
       </data-member>
     </class-decl>
-    <typedef-decl name='_PyOpcache_LoadGlobal' type-id='type-id-435' filepath='./Include/internal/pycore_code.h' line='11' column='1' id='type-id-434'/>
     <class-decl name='_addr_pair' size-in-bits='64' is-struct='yes' visibility='default' filepath='./Include/cpython/code.h' line='138' column='1' id='type-id-436'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='ap_lower' type-id='type-id-8' visibility='default' filepath='./Include/cpython/code.h' line='139' column='1'/>
@@ -12255,9 +12251,6 @@
     <function-decl name='_PyCoro_GetAwaitableIter' mangled-name='_PyCoro_GetAwaitableIter' filepath='./Include/genobject.h' line='60' column='1' visibility='default' binding='global' size-in-bits='64'>
       <return type-id='type-id-4'/>
     </function-decl>
-    <function-decl name='_PyGen_yf' mangled-name='_PyGen_yf' filepath='./Include/genobject.h' line='47' column='1' visibility='default' binding='global' size-in-bits='64'>
-      <return type-id='type-id-4'/>
-    </function-decl>
     <function-decl name='_PyErr_ExceptionMatches' mangled-name='_PyErr_ExceptionMatches' filepath='./Include/internal/pycore_pyerrors.h' line='38' column='1' visibility='default' binding='global' size-in-bits='64'>
       <return type-id='type-id-4'/>
     </function-decl>
@@ -12322,9 +12315,6 @@
       <return type-id='type-id-4'/>
     </function-decl>
     <function-decl name='_PyThreadState_Swap' mangled-name='_PyThreadState_Swap' filepath='./Include/internal/pycore_pystate.h' line='117' column='1' visibility='default' binding='global' size-in-bits='64'>
-      <return type-id='type-id-4'/>
-    </function-decl>
-    <function-decl name='_PyCode_InitOpcache' mangled-name='_PyCode_InitOpcache' filepath='./Include/internal/pycore_code.h' line='21' column='1' visibility='default' binding='global' size-in-bits='64'>
       <return type-id='type-id-4'/>
     </function-decl>
     <function-decl name='PyTraceBack_Here' mangled-name='PyTraceBack_Here' filepath='./Include/traceback.h' line='9' column='1' visibility='default' binding='global' size-in-bits='64'>
@@ -14957,9 +14947,6 @@
       <return type-id='type-id-4'/>
     </function-decl>
     <function-decl name='_PyArg_Fini' mangled-name='_PyArg_Fini' filepath='./Include/modsupport.h' line='136' column='1' visibility='default' binding='global' size-in-bits='64'>
-      <return type-id='type-id-4'/>
-    </function-decl>
-    <function-decl name='_PyAsyncGen_Fini' mangled-name='_PyAsyncGen_Fini' filepath='./Include/internal/pycore_pylifecycle.h' line='69' column='1' visibility='default' binding='global' size-in-bits='64'>
       <return type-id='type-id-4'/>
     </function-decl>
     <function-decl name='_PyContext_Fini' mangled-name='_PyContext_Fini' filepath='./Include/internal/pycore_context.h' line='40' column='1' visibility='default' binding='global' size-in-bits='64'>

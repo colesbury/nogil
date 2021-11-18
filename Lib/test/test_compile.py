@@ -154,7 +154,7 @@ if 1:
         s256 = "".join(["\n"] * 256 + ["spam"])
         co = compile(s256, 'fn', 'exec')
         self.assertEqual(co.co_firstlineno, 257)
-        self.assertEqual(co.co_lnotab, bytes())
+        self.assertEqual(co.co_lnotab, b'\x02\x00')
 
     def test_literals_with_leading_zeroes(self):
         for arg in ["077787", "0xj", "0x.", "0e",  "090000000000000",
@@ -219,7 +219,7 @@ if 1:
             g = +9223372036854775807  # 1 << 63 - 1
             h = -9223372036854775807  # 1 << 63 - 1
 
-            for variable in self.test_32_63_bit_values.__code__.co_consts:
+            for variable in self.test_32_63_bit_values.__code__.co_consts[2:10]:
                 if variable is not None:
                     self.assertIsInstance(variable, int)
 
@@ -618,10 +618,10 @@ if 1:
         # Merge constants in tuple or frozenset
         f1, f2 = lambda: "not a name", lambda: ("not a name",)
         f3 = lambda x: x in {("not a name",)}
-        self.assertIs(f1.__code__.co_consts[1],
-                      f2.__code__.co_consts[1][0])
-        self.assertIs(next(iter(f3.__code__.co_consts[1])),
-                      f2.__code__.co_consts[1])
+        self.assertIs(f1.__code__.co_consts[2],
+                      f2.__code__.co_consts[2][0])
+        self.assertIs(next(iter(f3.__code__.co_consts[2])),
+                      f2.__code__.co_consts[2])
 
         # {0} is converted to a constant frozenset({0}) by the peephole
         # optimizer
@@ -726,10 +726,12 @@ if 1:
 
         for func in funcs:
             opcodes = list(dis.get_instructions(func))
-            self.assertEqual(2, len(opcodes))
-            self.assertEqual('LOAD_CONST', opcodes[0].opname)
-            self.assertEqual(None, opcodes[0].argval)
-            self.assertEqual('RETURN_VALUE', opcodes[1].opname)
+            self.assertEqual(3, len(opcodes))
+            self.assertEqual('FUNC_HEADER', opcodes[0].opname)
+            self.assertEqual(0, opcodes[0].argval)
+            self.assertEqual('LOAD_CONST', opcodes[1].opname)
+            self.assertEqual(None, opcodes[1].argval)
+            self.assertEqual('RETURN_VALUE', opcodes[2].opname)
 
     def test_false_while_loop(self):
         def break_in_while():
@@ -745,10 +747,12 @@ if 1:
         # Check that we did not raise but we also don't generate bytecode
         for func in funcs:
             opcodes = list(dis.get_instructions(func))
-            self.assertEqual(2, len(opcodes))
-            self.assertEqual('LOAD_CONST', opcodes[0].opname)
-            self.assertEqual(None, opcodes[0].argval)
-            self.assertEqual('RETURN_VALUE', opcodes[1].opname)
+            self.assertEqual(3, len(opcodes))
+            self.assertEqual('FUNC_HEADER', opcodes[0].opname)
+            self.assertEqual(0, opcodes[0].argval)
+            self.assertEqual('LOAD_CONST', opcodes[1].opname)
+            self.assertEqual(None, opcodes[1].argval)
+            self.assertEqual('RETURN_VALUE', opcodes[2].opname)
 
     def test_big_dict_literal(self):
         # The compiler has a flushing point in "compiler_dict" that calls compiles

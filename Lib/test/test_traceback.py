@@ -335,6 +335,7 @@ class TracebackFormatTests(unittest.TestCase):
         ])
 
     # issue 26823 - Shrink recursive tracebacks
+    @support.swap_attr(sys, 'tracebacklimit', 4000)
     def _check_recursive_traceback_display(self, render_exc):
         # Always show full diffs when this test fails
         # Note that rearranging things may require adjusting
@@ -384,7 +385,7 @@ class TracebackFormatTests(unittest.TestCase):
 
         # Check the recursion count is roughly as expected
         rec_limit = sys.getrecursionlimit()
-        self.assertIn(int(re.search(r"\d+", actual[-2]).group()), range(rec_limit-60, rec_limit))
+        self.assertIn(int(re.search(r"\d+", actual[-2]).group()), range(rec_limit-60, rec_limit * 4))
 
         # Check a known (limited) number of recursive invocations
         def g(count=10):
@@ -962,6 +963,24 @@ class MiscTracebackCases(unittest.TestCase):
             (__file__, lineno+1, 'extract', 'return traceback.extract_stack()'),
             ])
         self.assertEqual(len(result[0]), 4)
+
+    def test_varargs_traceback(self):
+        def inner(args):
+            pass
+        def outer():
+            bad = 3
+            inner(*bad)
+
+        try:
+            outer()
+        except:
+            _, _, tb = sys.exc_info()
+
+        # There shouldn't be a frame "def inner(args)" in the traceback.
+        s = list(traceback.walk_tb(tb))
+        self.assertEqual(len(s), 2)
+        for frame, _lineno in s:
+            self.assertNotEqual(frame.f_code.co_name, "inner")
 
 
 class TestFrame(unittest.TestCase):

@@ -668,25 +668,17 @@ id(a)''')
 
     def test_frames(self):
         gdb_output = self.get_stack_trace('''
+import sys
 def foo(a, b, c):
-    pass
-
-foo(3, 4, 5)
-id(foo.__code__)''',
+    id(sys._getframe(0))
+foo(3, 4, 5)''',
                                           breakpoint='builtin_id',
-                                          cmds_after_breakpoint=['print (PyFrameObject*)(((PyCodeObject*)v)->co_zombieframe)']
+                                          cmds_after_breakpoint=['print v']
                                           )
-        if sys.flags.nogil:
-            # nogil mode doesn't use zombie frames
-            self.assertTrue(re.match(r'.*\s+\$1 =\s+0x0.*',
-                                    gdb_output,
-                                    re.DOTALL),
-                            'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
-        else:
-            self.assertTrue(re.match(r'.*\s+\$1 =\s+Frame 0x-?[0-9a-f]+, for file <string>, line 3, in foo \(\)\s+.*',
-                                    gdb_output,
-                                    re.DOTALL),
-                            'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
+        self.assertTrue(re.match(r'.*\s+\$1 =\s+Frame 0x-?[0-9a-f]+, for file <string>, line 4, in foo \(\)\s+.*',
+                                gdb_output,
+                                re.DOTALL),
+                        'Unexpected gdb representation: %r\n%s' % (gdb_output, gdb_output))
 
 @unittest.skipIf(python_is_optimized(),
                  "Python was compiled with optimizations")
@@ -729,6 +721,23 @@ class PyListTests(DebuggerTests):
                            '   2    \n'
                            '   3    def foo(a, b, c):\n',
                            bt)
+
+SAMPLE_WITH_C_CALL = """
+
+from _testcapi import pyobject_fastcall
+
+def foo(a, b, c):
+    bar(a, b, c)
+
+def bar(a, b, c):
+    pyobject_fastcall(baz, (a, b, c))
+
+def baz(*args):
+    id(42)
+
+foo(1, 2, 3)
+
+"""
 
 class StackNavigationTests(DebuggerTests):
     @unittest.skipUnless(HAS_PYUP_PYDOWN, "test requires py-up/py-down commands")
@@ -888,8 +897,8 @@ id(42)
         # Various optimizations multiply the code paths by which these are
         # called, so test a variety of calling conventions.
         for func_name, args, expected_frame in (
-            ('meth_varargs', '', 1),
-            ('meth_varargs_keywords', '', 1),
+            ('meth_varargs', '', 2),
+            ('meth_varargs_keywords', '', 2),
             ('meth_o', '[]', 1),
             ('meth_noargs', '', 1),
             ('meth_fastcall', '', 1),

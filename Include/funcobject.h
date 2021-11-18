@@ -19,12 +19,9 @@ extern "C" {
  */
 
 typedef struct {
-    PyObject_HEAD
-    PyObject *func_code;        /* A code object, the __code__ attribute */
-    PyObject *func_globals;     /* A dictionary (other mappings won't do) */
-    PyObject *func_defaults;    /* NULL or a tuple */
-    PyObject *func_kwdefaults;  /* NULL or a dict */
-    PyObject *func_closure;     /* NULL or a tuple of cell objects */
+    PyFuncBase func_base;
+    PyObject *globals;
+    PyObject *builtins;
     PyObject *func_doc;         /* The __doc__ attribute, can be anything */
     PyObject *func_name;        /* The __name__ attribute, a string object */
     PyObject *func_dict;        /* The __dict__ attribute, a dict or NULL */
@@ -33,12 +30,11 @@ typedef struct {
     PyObject *func_annotations; /* Annotations, a dict or NULL */
     PyObject *func_qualname;    /* The qualified name */
     vectorcallfunc vectorcall;
-
-    /* Invariant:
-     *     func_closure contains the bindings for func_code->co_freevars, so
-     *     PyTuple_Size(func_closure) == PyCode_GetNumFree(func_code)
-     *     (func_closure may be NULL if PyCode_GetNumFree(func_code) == 0).
-     */
+    Py_ssize_t num_defaults;
+    PyObject **freevars;        /* captured (free) variables */
+    int retains_code : 1;
+    int retains_globals : 1;
+    int retains_builtins : 1;
 } PyFunctionObject;
 
 PyAPI_DATA(PyTypeObject) PyFunction_Type;
@@ -46,6 +42,7 @@ PyAPI_DATA(PyTypeObject) PyFunction_Type;
 #define PyFunction_Check(op) Py_IS_TYPE(op, &PyFunction_Type)
 
 PyAPI_FUNC(PyObject *) PyFunction_New(PyObject *, PyObject *);
+PyAPI_FUNC(PyObject *) PyFunction_NewWithBuiltins(PyObject *, PyObject *, PyObject *);
 PyAPI_FUNC(PyObject *) PyFunction_NewWithQualName(PyObject *, PyObject *, PyObject *);
 PyAPI_FUNC(PyObject *) PyFunction_GetCode(PyObject *);
 PyAPI_FUNC(PyObject *) PyFunction_GetGlobals(PyObject *);
@@ -65,22 +62,26 @@ PyAPI_FUNC(PyObject *) _PyFunction_Vectorcall(
     PyObject *const *stack,
     size_t nargsf,
     PyObject *kwnames);
+PyAPI_FUNC(int)
+_PyFunction_SetDefaults(PyObject *func, PyObject *const *defs, int defcount);
 #endif
 
 /* Macros for direct access to these values. Type checks are *not*
    done, so use with care. */
+#define _PyFunction_GET_CODE(func) \
+        (PyCode_FromFirstInstr(((PyFuncBase *)func) -> first_instr))
 #define PyFunction_GET_CODE(func) \
-        (((PyFunctionObject *)func) -> func_code)
+        ((PyObject *)_PyFunction_GET_CODE(func))
 #define PyFunction_GET_GLOBALS(func) \
-        (((PyFunctionObject *)func) -> func_globals)
+        (((PyFunctionObject *)func) -> globals)
 #define PyFunction_GET_MODULE(func) \
         (((PyFunctionObject *)func) -> func_module)
 #define PyFunction_GET_DEFAULTS(func) \
-        (((PyFunctionObject *)func) -> func_defaults)
+        (PyFunction_GetDefaults(func))
 #define PyFunction_GET_KW_DEFAULTS(func) \
-        (((PyFunctionObject *)func) -> func_kwdefaults)
+        (PyFunction_GetKwDefaults(func))
 #define PyFunction_GET_CLOSURE(func) \
-        (((PyFunctionObject *)func) -> func_closure)
+        (PyFunction_GetClosure(func))
 #define PyFunction_GET_ANNOTATIONS(func) \
         (((PyFunctionObject *)func) -> func_annotations)
 

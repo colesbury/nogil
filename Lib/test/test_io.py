@@ -2121,6 +2121,11 @@ class BufferedRWPairTest(unittest.TestCase):
         reader.close = lambda: None
         writer.close = lambda: None
 
+        with support.catch_unraisable_exception():
+            # Ignore BufferedRWPair unraisable exception
+            pair = None
+            support.gc_collect()
+
     def test_isatty(self):
         class SelectableIsAtty(MockRawIO):
             def __init__(self, isatty):

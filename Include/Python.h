@@ -8,6 +8,10 @@
 #include "pyconfig.h"
 #include "pymacconfig.h"
 
+// [do not upstream]: improved cython performance by avoiding slower
+// PyEval_EvalCodeEx calls in favor of PyObject_Call.
+#define CYTHON_FAST_PYCALL 0
+
 #include <limits.h>
 
 #ifndef UCHAR_MAX
@@ -105,13 +109,13 @@
 #include "structseq.h"
 #include "namespaceobject.h"
 #include "picklebufobject.h"
+#include "pystate.h"
 
 #include "codecs.h"
 #include "pyerrors.h"
 
 #include "cpython/initconfig.h"
 #include "pythread.h"
-#include "pystate.h"
 #include "context.h"
 
 #include "pyarena.h"

@@ -18,6 +18,7 @@ struct _frame {
     PyObject_VAR_HEAD
     struct _frame *f_back;      /* previous frame, or NULL */
     PyCodeObject *f_code;       /* code segment */
+    struct ThreadState *f_ts;
     PyObject *f_builtins;       /* builtin symbol table (PyDictObject) */
     PyObject *f_globals;        /* global symbol table (PyDictObject) */
     PyObject *f_locals;         /* local symbol table (any mapping) */
@@ -42,7 +43,16 @@ struct _frame {
     int f_lineno;               /* Current line number */
     int f_iblock;               /* index in f_blockstack */
     char f_executing;           /* whether the frame is still executing */
-    PyTryBlock f_blockstack[CO_MAXBLOCKS]; /* for try and loop blocks */
+    Py_ssize_t f_offset;        /* offset from the bottom of the stack */
+
+    /* tracing stuff */
+    int instr_lb;
+    int instr_ub;
+    int instr_prev;
+    int last_line;
+    unsigned int seen_func_header : 1;
+    unsigned int traced_func : 1;
+
     PyObject *f_localsplus[1];  /* locals+stack, dynamically sized */
 };
 
@@ -59,6 +69,8 @@ PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
 /* only internal use */
 PyFrameObject* _PyFrame_New_NoTrack(PyThreadState *, PyCodeObject *,
                                     PyObject *, PyObject *);
+
+PyFrameObject* _PyFrame_NewFake(PyCodeObject *, PyObject *);
 
 
 /* The rest of the interface is specific for frame objects */

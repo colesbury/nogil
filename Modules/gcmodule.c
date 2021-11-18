@@ -25,6 +25,7 @@
 
 #include "Python.h"
 #include "pycore_context.h"
+#include "pycore_generator.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"      // PyInterpreterState.gc
 #include "pycore_object.h"
@@ -32,6 +33,7 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "pycore_refcnt.h"
+#include "pycore_stackwalk.h"
 #include "pycore_gc.h"
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
@@ -486,7 +488,7 @@ validate_list(PyGC_Head *head, enum flagstates flags)
 static int
 validate_refcount_visitor(PyGC_Head* gc, void *arg)
 {
-    assert(_Py_GC_REFCNT(FROM_GC(gc)) > 0);
+    assert(_Py_GC_REFCNT(FROM_GC(gc)) >= 0);
     return 0;
 }
 
@@ -558,6 +560,83 @@ visit_decref(PyObject *op, void *arg)
     return 0;
 }
 
+static int
+visit_decref_unreachable(PyObject *op, void *data);
+
+static int
+visit_reachable(PyObject *op, PyGC_Head *reachable);
+
+static int
+visit_incref(PyObject *op, void *data)
+{
+    if (_PyObject_IS_GC(op)) {
+        PyGC_Head *gc = AS_GC(op);
+        if (_PyGC_TRACKED(gc)) {
+            gc_add_refs(gc, 1);
+        }
+    }
+    return 0;
+}
+
+int
+_PyGC_VisitorType(visitproc visit)
+{
+    if (visit == visit_decref || visit == visit_decref_unreachable)  {
+        return _Py_GC_VISIT_DECREF;
+    }
+    else if (visit == visit_incref)  {
+        return _Py_GC_VISIT_INCREF;
+    }
+    else {
+        return _Py_GC_VISIT_REACHABLE;
+    }
+}
+
+void
+_PyGC_TraverseStack(struct ThreadState *ts, visitproc visit, void *arg)
+{
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    int visit_type = _PyGC_VisitorType(visit);
+
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk_thread(&w)) {
+        Register *regs = w.regs;
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot = &regs[-1];
+        if (regs[-1].as_int64 != 0 && PyFunction_Check(AS_OBJ(regs[-1]))) {
+            // include PyFrameObject (if it exists)
+            bot = &regs[-2];
+        }
+        for (; bot != top; bot++) {
+            Register r = *bot;
+            if (r.as_int64 == 0) {
+                continue;
+            }
+            if ((r.as_int64 & NON_OBJECT_TAG) == NON_OBJECT_TAG) {
+                // skip things that aren't objects
+                continue;
+            }
+
+            if (visit_type == _Py_GC_VISIT_DECREF && !IS_RC(r)) {
+                continue;
+            }
+            else if (visit == _Py_GC_VISIT_INCREF && IS_RC(r)) {
+                continue;
+            }
+
+            visit(AS_OBJ(r), arg);
+        }
+
+        // don't visit the frame header
+        max = regs - FRAME_EXTRA;
+    }
+}
+
 // Compute the number of external references to objects in the heap
 // by subtracting internal references from the refcount.
 static int
@@ -598,6 +677,23 @@ update_refs(PyGC_Head *gc, void *args)
     gc->_gc_next = (uintptr_t)list;
     list->_gc_prev = (uintptr_t)gc;
     return 0;
+}
+
+static void
+visit_thread_stacks(void)
+{
+    HEAD_LOCK(&_PyRuntime);
+    PyThreadState *t;
+    for_each_thread(t) {
+        // Visit all deferred refcount items on the thread's stack to ensure
+        // they're not collected.
+        struct ThreadState *ts = vm_active(t);
+        while (ts != NULL) {
+            _PyGC_TraverseStack(ts, visit_incref, NULL);
+            ts = ts->prev;
+        }
+    }
+    HEAD_UNLOCK(&_PyRuntime);
 }
 
 /* A traversal callback for subtract_refs. */
@@ -645,8 +741,6 @@ visit_reachable(PyObject *op, PyGC_Head *reachable)
     }
 
     PyGC_Head *gc = AS_GC(op);
-    const Py_ssize_t gc_refs = gc_get_refs(gc);
-
     // Ignore untracked objects and objects in other generation.
     // NOTE: there is a combination of bugs we have to beware of here. After
     // a fork, we lost track of the heaps from other threads. They're not properly
@@ -654,6 +748,15 @@ visit_reachable(PyObject *op, PyGC_Head *reachable)
     if (gc->_gc_next == 0) {
         return 0;
     }
+
+    if (gc_get_refs(gc) < 0) {
+        printf("gc_get_refs(gc): %zd\n", gc_get_refs(gc));
+    }
+
+    _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) >= 0,
+                              "refcount is too small");
+
+    const Py_ssize_t gc_refs = gc_get_refs(gc);
 
     if (gc_is_unreachable(gc)) {
         // printf("clearing unreachable of %p\n", gc);
@@ -738,7 +841,7 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              */
             PyObject *op = FROM_GC(gc);
             traverseproc traverse = Py_TYPE(op)->tp_traverse;
-            _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) > 0,
+            _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) >= 0,
                                       "refcount is too small");
             // NOTE: visit_reachable may change gc->_gc_next when
             // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
@@ -868,14 +971,51 @@ incref_merge(PyObject *op)
     assert(_PyRuntime.stop_the_world);
 
     _PyRef_UnpackLocal(op->ob_ref_local, &local_refcount, &immortal);
-
-    op->ob_ref_shared += ((local_refcount + 1) << _Py_REF_LOCAL_SHIFT);
-    op->ob_ref_shared |= _Py_REF_MERGED_MASK;
-
     assert(!immortal && "immortal objects should not be in garbage");
 
+    _Py_INC_REFTOTAL;
+    op->ob_ref_shared += ((local_refcount + 1) << _Py_REF_SHARED_SHIFT);
+    op->ob_ref_shared |= _Py_REF_MERGED_MASK;
     op->ob_ref_local = 0;
     op->ob_tid = 0;
+}
+
+static int
+incref_unreachable(PyObject *obj)
+{
+    if (obj && _PyObject_IS_GC(obj) && gc_is_unreachable(AS_GC(obj))) {
+        _Py_INC_REFTOTAL;
+        obj->ob_ref_shared += (1 << _Py_REF_SHARED_SHIFT);
+        return 1;
+    }
+    return 0;
+}
+
+static void
+upgrade_deferred_rc(struct ThreadState *ts)
+{
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk_thread(&w)) {
+        Register *regs = w.regs;
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot = &regs[-1];
+        for (; bot != top; bot++) {
+            Register r = *bot;
+            if ((r.as_int64 & NON_OBJECT_TAG) != NO_REFCOUNT_TAG) {
+                continue;
+            }
+            PyObject *obj = AS_OBJ(r);
+            if (incref_unreachable(obj)) {
+                bot->as_int64 &= ~NO_REFCOUNT_TAG;
+            }
+        }
+    }
 }
 
 /* Clear all weakrefs to unreachable objects, and if such a weakref has a
@@ -911,6 +1051,33 @@ clear_weakrefs(PyGC_Head *unreachable, PyGC_Head *wrcb_to_call)
         /* Add one to the refcount to prevent deallocation while we're holding
          * on to it in a list. */
         incref_merge(op);
+
+        if (PyGen_CheckExact(op) ||
+            PyCoro_CheckExact(op) ||
+            PyAsyncGen_CheckExact(op))
+        {
+            // Ensure any non-refcounted pointers to cyclic trash are converted
+            // to refcounted pointers. This prevents bugs where the generator is
+            // freed after its function object.
+            PyGenObject *gen = (PyGenObject *)op;
+            upgrade_deferred_rc(&gen->base.thread);
+            if (!gen->retains_code && incref_unreachable(gen->code)) {
+                gen->retains_code = 1;
+            }
+        }
+        else if (PyFunction_Check(op)) {
+            PyFunctionObject *func = (PyFunctionObject *)op;
+            PyCodeObject *co = _PyFunction_GET_CODE(func);
+            if (!func->retains_code && incref_unreachable((PyObject *)co)) {
+                func->retains_code = 1;
+            }
+            if (!func->retains_builtins && incref_unreachable(func->builtins)) {
+                func->retains_builtins = 1;
+            }
+            if (!func->retains_globals && incref_unreachable(func->globals)) {
+                func->retains_globals = 1;
+            }
+        }
 
         if (PyWeakref_Check(op)) {
             /* A weakref inside the unreachable set must be cleared.  If we
@@ -1385,6 +1552,7 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
     validate_tracked_heap(_PyGC_PREV_MASK_UNREACHABLE, 0);
 
     gc_list_init(&young);
+    visit_thread_stacks();
     visit_heap(update_refs, &young);
     deduce_unreachable(&young, &unreachable);
 
@@ -1501,7 +1669,7 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
         invoke_gc_callback(tstate, "stop", m, n);
     }
 
-    _Py_atomic_store_int32(&gcstate->collecting, 0);
+    _Py_atomic_store_int(&gcstate->collecting, 0);
     return n + m;
 }
 

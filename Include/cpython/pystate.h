@@ -55,9 +55,21 @@ typedef struct mi_heap_s mi_heap_t;
 
 // _PyEventRc is defined in lock.h
 typedef struct _PyEventRc _PyEventRc;
+typedef union _Register Register;
 
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
+    Register *regs;
+#ifdef HAVE_COMPUTED_GOTOS
+    const void *opcode_targets[127];
+#endif
+    const uint8_t *pc;
+    Register *stack;
+    Register *maxstack;
+    struct ThreadState *active;
+    uintptr_t eval_breaker;
+    PyObject **cargs;
+
     /* See Python/ceval.c for comments explaining most fields */
 
     struct _ts *prev;
@@ -66,8 +78,6 @@ struct _ts {
 
     /* thread status (attached, detached, gc) */
     int32_t status;
-
-    uintptr_t eval_breaker;
 
     /* Borrowed reference to the current frame (it can be NULL) */
     PyFrameObject *frame;
@@ -143,6 +153,12 @@ struct _ts {
     /* Unique thread state id. */
     uint64_t id;
 
+#ifdef HAVE_COMPUTED_GOTOS
+    void *trace_target;
+    void *trace_cfunc_target;
+    void **opcode_targets_base;
+#endif
+
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
 
     /* XXX signal handlers should also be here */
@@ -159,6 +175,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_Prealloc(PyInterpreterState *, _PyEve
 PyAPI_FUNC(PyThreadState *) _PyThreadState_UncheckedGet(void);
 
 PyAPI_FUNC(PyObject *) _PyThreadState_GetDict(PyThreadState *tstate);
+
+PyAPI_FUNC(Py_ssize_t) _PyThreadState_GetRecursionDepth(PyThreadState *tstate);
 
 /* PyGILState */
 

@@ -33,6 +33,7 @@ PyAPI_FUNC(void) _PyModule_ClearDict(PyObject *);
 PyAPI_FUNC(int) _PyModule_IsInitialized(PyObject *);
 PyAPI_FUNC(void) _PyModule_SetInitialized(PyObject *self, int initialized);
 PyAPI_FUNC(int) _PyModuleSpec_IsInitializing(PyObject *);
+PyAPI_FUNC(PyObject *) _PyModule_MissingAttr(PyObject *m, PyObject *name);
 #endif
 PyAPI_FUNC(struct PyModuleDef*) PyModule_GetDef(PyObject*);
 PyAPI_FUNC(void*) PyModule_GetState(PyObject*);

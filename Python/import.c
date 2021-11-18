@@ -1072,7 +1072,7 @@ PyImport_ExecCodeModuleObject(PyObject *name, PyObject *co, PyObject *pathname,
 static void
 update_code_filenames(PyCodeObject *co, PyObject *oldname, PyObject *newname)
 {
-    PyObject *constants, *tmp;
+    PyObject *tmp;
     Py_ssize_t i, n;
 
     if (PyUnicode_Compare(co->co_filename, oldname))
@@ -1081,10 +1081,9 @@ update_code_filenames(PyCodeObject *co, PyObject *oldname, PyObject *newname)
     Py_INCREF(newname);
     Py_XSETREF(co->co_filename, newname);
 
-    constants = co->co_consts;
-    n = PyTuple_GET_SIZE(constants);
+    n = co->co_nconsts;
     for (i = 0; i < n; i++) {
-        tmp = PyTuple_GET_ITEM(constants, i);
+        tmp = co->co_constants[i];
         if (PyCode_Check(tmp))
             update_code_filenames((PyCodeObject *)tmp,
                                   oldname, newname);
@@ -1124,7 +1123,12 @@ _imp__fix_co_filename_impl(PyObject *module, PyCodeObject *code,
 /*[clinic end generated code: output=1d002f100235587d input=895ba50e78b82f05]*/
 
 {
-    update_compiled_module(code, path);
+    if (PyCode_Check(code)) {
+        update_compiled_module((PyCodeObject *)code, path);
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "not a code object");
+    }
 
     Py_RETURN_NONE;
 }
@@ -1399,7 +1403,7 @@ PyImport_ImportFrozenModuleObject(PyObject *name)
     co = PyMarshal_ReadObjectFromString((const char *)p->code, size);
     if (co == NULL)
         return -1;
-    if (!PyCode_Check(co)) {
+    if (!PyCode_Check(co) && !PyCode_Check(co)) {
         _PyErr_Format(tstate, PyExc_TypeError,
                       "frozen object %R is not a code object",
                       name);

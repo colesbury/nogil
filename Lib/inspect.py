@@ -1462,11 +1462,12 @@ def getclosurevars(func):
     global_vars = {}
     builtin_vars = {}
     unbound_names = set()
-    for name in code.co_names:
-        if name in ("None", "True", "False"):
+    for instr in dis.get_instructions(func):
+        if instr.opname not in ("LOAD_GLOBAL", "LOAD_NAME"):
             # Because these used to be builtins instead of keywords, they
             # may still show up as name references. We ignore them.
             continue
+        name = code.co_consts[instr.imm[0]]
         try:
             global_vars[name] = global_ns[name]
         except KeyError:
@@ -1666,13 +1667,7 @@ def getgeneratorstate(generator):
       GEN_SUSPENDED: Currently suspended at a yield expression.
       GEN_CLOSED: Execution has completed.
     """
-    if generator.gi_running:
-        return GEN_RUNNING
-    if generator.gi_frame is None:
-        return GEN_CLOSED
-    if generator.gi_frame.f_lasti == -1:
-        return GEN_CREATED
-    return GEN_SUSPENDED
+    return generator._genstate
 
 
 def getgeneratorlocals(generator):
@@ -1708,13 +1703,7 @@ def getcoroutinestate(coroutine):
       CORO_SUSPENDED: Currently suspended at an await expression.
       CORO_CLOSED: Execution has completed.
     """
-    if coroutine.cr_running:
-        return CORO_RUNNING
-    if coroutine.cr_frame is None:
-        return CORO_CLOSED
-    if coroutine.cr_frame.f_lasti == -1:
-        return CORO_CREATED
-    return CORO_SUSPENDED
+    return coroutine._corostate
 
 
 def getcoroutinelocals(coroutine):

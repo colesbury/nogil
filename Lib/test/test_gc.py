@@ -224,15 +224,16 @@ class GCTests(unittest.TestCase):
         exec("def f(): pass\n", d)
         gc.collect()
         del d
-        self.assertEqual(gc.collect(), 2)
+        self.assertEqual(gc.collect(), 3)
 
     @refcount_test
     def test_frame(self):
         def f():
             frame = sys._getframe()
+            locals = frame.f_locals
         gc.collect()
         f()
-        self.assertEqual(gc.collect(), 1)
+        self.assertEqual(gc.collect(), 2)
 
     def test_saveall(self):
         # Verify that cyclic garbage like lists show up in gc.garbage if the
@@ -1151,7 +1152,7 @@ class GCCallbackTests(unittest.TestCase):
         p.stderr.close()
         # Verify that stderr has a useful error message:
         self.assertRegex(stderr,
-            br'gcmodule\.c:[0-9]+: .*Assertion "gc_get_refs\(gc\) > 0" failed.')
+            br'gcmodule\.c:[0-9]+: .*Assertion "gc_get_refs\(gc\) >= 0" failed.')
         self.assertRegex(stderr,
             br'refcount is too small')
         # "address : 0x7fb5062efc18"

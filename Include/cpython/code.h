@@ -12,56 +12,49 @@ typedef uint16_t _Py_CODEUNIT;
 #  define _Py_OPARG(word) ((word) >> 8)
 #endif
 
-typedef struct _PyOpcache _PyOpcache;
+struct _PyHandlerTable;
+struct _PyJumpSideTable;
 
-/* Bytecode object */
-struct PyCodeObject {
+typedef struct PyCodeObject {
     PyObject_HEAD
-    int co_argcount;            /* #arguments, except *args */
-    int co_posonlyargcount;     /* #positional only arguments */
-    int co_kwonlyargcount;      /* #keyword only arguments */
-    int co_nlocals;             /* #local variables */
-    int co_stacksize;           /* #entries needed for evaluation stack */
-    int co_flags;               /* CO_..., see below */
-    int co_firstlineno;         /* first source line number */
-    PyObject *co_code;          /* instruction opcodes */
-    PyObject *co_consts;        /* list (constants used) */
-    PyObject *co_names;         /* list of strings (names used) */
-    PyObject *co_varnames;      /* tuple of strings (local variable names) */
-    PyObject *co_freevars;      /* tuple of strings (free variable names) */
-    PyObject *co_cellvars;      /* tuple of strings (cell variable names) */
-    /* The rest aren't used in either hash or comparisons, except for co_name,
-       used in both. This is done to preserve the name and line number
-       for tracebacks and debuggers; otherwise, constant de-duplication
-       would collapse identical functions/lambdas defined on different lines.
-    */
-    Py_ssize_t *co_cell2arg;    /* Maps cell vars which are arguments. */
-    PyObject *co_filename;      /* unicode (where it was loaded from) */
-    PyObject *co_name;          /* unicode (name, for reference) */
-    PyObject *co_lnotab;        /* string (encoding addr<->lineno mapping) See
-                                   Objects/lnotab_notes.txt for details. */
-    void *co_zombieframe;       /* for optimization only (see frameobject.c) */
-    PyObject *co_weakreflist;   /* to support weakrefs to code objects */
+    uint32_t co_packed_flags;
+    int co_flags; // unused???
+    Py_ssize_t co_argcount;     /* number of arguments excluding kwd-only, *args, and **kwargs */
+    Py_ssize_t co_nlocals;      /* number of local variables (including arguments) */
+
+    Py_ssize_t co_ndefaultargs;
+    Py_ssize_t co_posonlyargcount;
+    Py_ssize_t co_kwonlyargcount;
+    Py_ssize_t co_totalargcount; /* number of arguments including kwd-only, but not *args and **kwargs */
+
+    Py_ssize_t co_framesize;    /* maximum stack usage */
+    Py_ssize_t co_size;         /* size of instructions (in bytes) */
+    Py_ssize_t co_nconsts;      /* number of constants */
+    Py_ssize_t co_ncells;
+    Py_ssize_t co_nfreevars;    /* number of captured free variables (including default args) */
+
+    PyObject **co_constants;    /* pointer to constants array */
+    Py_ssize_t *co_cell2reg;
+    Py_ssize_t *co_free2reg;
+
+    struct _PyHandlerTable *co_exc_handlers;
+    struct _PyJumpSideTable *co_jump_table;
+
+    PyObject *co_weakreflist;
     /* Scratch space for extra data relating to the code object.
        Type is a void* to keep the format private in codeobject.c to force
        people to go through the proper APIs. */
     void *co_extra;
 
-    /* Per opcodes just-in-time cache
-     *
-     * To reduce cache size, we use indirect mapping from opcode index to
-     * cache object:
-     *   cache = co_opcache[co_opcache_map[next_instr - first_instr] - 1]
-     */
-
-    // co_opcache_map is indexed by (next_instr - first_instr).
-    //  * 0 means there is no cache for this opcode.
-    //  * n > 0 means there is cache in co_opcache[n-1].
-    unsigned char *co_opcache_map;
-    _PyOpcache *co_opcache;
-    int co_opcache_flag;  // used to determine when create a cache.
-    unsigned char co_opcache_size;  // length of co_opcache.
-};
+    Py_ssize_t co_nmeta;
+    int co_firstlineno;
+    PyObject *co_varnames;      /* tuple of strings (local variable names) */
+    PyObject *co_freevars;      /* tuple of strings (free variable names) */
+    PyObject *co_cellvars;      /* tuple of strings (cell variable names) */
+    PyObject *co_filename;      /* unicode (where it was loaded from) */
+    PyObject *co_name;          /* unicode (name, for reference) */
+    PyObject *co_lnotab;        /* string (encoding addr<->lineno mapping) See */
+} PyCodeObject;
 
 /* Masks for co_flags above */
 #define CO_OPTIMIZED    0x0001
@@ -106,18 +99,22 @@ struct PyCodeObject {
 */
 #define PY_PARSER_REQUIRES_FUTURE_KEYWORD
 
-#define CO_MAXBLOCKS 20 /* Max static block nesting within a function */
-
 PyAPI_DATA(PyTypeObject) PyCode_Type;
 
 #define PyCode_Check(op) Py_IS_TYPE(op, &PyCode_Type)
-#define PyCode_GetNumFree(op) (PyTuple_GET_SIZE((op)->co_freevars))
+#define PyCode_GetNumFree(op) ((op)->co_nfreevars)
 
 /* Public interface */
 PyAPI_FUNC(PyCodeObject *) PyCode_New(
         int, int, int, int, int, PyObject *, PyObject *,
         PyObject *, PyObject *, PyObject *, PyObject *,
         PyObject *, PyObject *, int, PyObject *);
+
+// FIXME(sgross): rename
+PyAPI_FUNC(PyCodeObject *)
+PyCode_New2(Py_ssize_t instr_size, Py_ssize_t nconsts,
+            Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t ncaptured,
+            Py_ssize_t nexc_handlers, Py_ssize_t jump_table_size);
 
 PyAPI_FUNC(PyCodeObject *) PyCode_NewWithPosOnlyArgs(
         int, int, int, int, int, int, PyObject *, PyObject *,
@@ -133,6 +130,30 @@ PyCode_NewEmpty(const char *filename, const char *funcname, int firstlineno);
    in this code object.  If you just need the line number of a frame,
    use PyFrame_GetLineNumber() instead. */
 PyAPI_FUNC(int) PyCode_Addr2Line(PyCodeObject *, int);
+
+static inline PyCodeObject *
+PyCode_FromFirstInstr(const uint8_t *first_instr)
+{
+    return (PyCodeObject *)((char *)first_instr - sizeof(PyCodeObject));
+}
+
+static inline uint8_t *
+PyCode_FirstInstr(PyCodeObject *code)
+{
+    return (uint8_t *)((char *)code + sizeof(PyCodeObject));
+}
+
+static inline Py_ssize_t
+PyCode_NumFreevars(PyCodeObject *code)
+{
+    return code->co_nfreevars - code->co_ndefaultargs;
+}
+
+static inline Py_ssize_t
+PyCode_NumKwargs(PyCodeObject *code)
+{
+    return code->co_totalargcount - code->co_argcount;
+}
 
 /* for internal use only */
 typedef struct _addr_pair {

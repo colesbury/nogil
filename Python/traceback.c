@@ -3,6 +3,9 @@
 
 #include "Python.h"
 
+#include "ceval_meta.h"
+#include "pycore_stackwalk.h"
+
 #include "code.h"
 #include "frameobject.h"          // PyFrame_GetBack()
 #include "structmember.h"         // PyMemberDef
@@ -773,12 +776,16 @@ done:
 
    This function is signal safe. */
 
+
+
 static void
-dump_frame(int fd, PyFrameObject *frame)
+dump_frame(int fd, PyFunctionObject *func, int lineno)
 {
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    PyCodeObject *code;
+
+    code = _PyFunction_GET_CODE(func);
     PUTS(fd, "  File ");
-    if (code->co_filename != NULL
+    if (code != NULL && code->co_filename != NULL
         && PyUnicode_Check(code->co_filename))
     {
         PUTS(fd, "\"");
@@ -789,7 +796,6 @@ dump_frame(int fd, PyFrameObject *frame)
     }
 
     /* PyFrame_GetLineNumber() was introduced in Python 2.7.0 and 3.2.0 */
-    int lineno = PyCode_Addr2Line(code, frame->f_lasti);
     PUTS(fd, ", line ");
     if (lineno >= 0) {
         _Py_DumpDecimal(fd, (unsigned long)lineno);
@@ -799,7 +805,7 @@ dump_frame(int fd, PyFrameObject *frame)
     }
     PUTS(fd, " in ");
 
-    if (code->co_name != NULL
+    if (code != NULL && code->co_name != NULL
        && PyUnicode_Check(code->co_name)) {
         _Py_DumpASCII(fd, code->co_name);
     }
@@ -808,48 +814,41 @@ dump_frame(int fd, PyFrameObject *frame)
     }
 
     PUTS(fd, "\n");
-    Py_DECREF(code);
 }
 
 static void
 dump_traceback(int fd, PyThreadState *tstate, int write_header)
 {
-    PyFrameObject *frame;
     unsigned int depth;
 
     if (write_header) {
         PUTS(fd, "Stack (most recent call first):\n");
     }
 
-    // Use a borrowed reference. Avoid Py_INCREF/Py_DECREF, since this function
-    // can be called in a signal handler by the faulthandler module which must
-    // not modify Python objects.
-    frame = tstate->frame;
-    if (frame == NULL) {
-        PUTS(fd, "<no Python frame>\n");
-        return;
+    depth = 0;
+    if (tstate->active == NULL) {
+        goto done;
     }
 
-    depth = 0;
-    while (1) {
+    struct stack_walk w;
+    vm_stack_walk_init(&w, vm_active(tstate));
+    while (vm_stack_walk(&w)) {
         if (MAX_FRAME_DEPTH <= depth) {
             PUTS(fd, "  ...\n");
             break;
         }
-        if (!PyFrame_Check(frame)) {
-            break;
-        }
-        dump_frame(fd, frame);
-        PyFrameObject *back = frame->f_back;
 
-        if (back == NULL) {
-            break;
-        }
-        frame = back;
+        PyFunctionObject *func = (PyFunctionObject *)AS_OBJ(w.regs[-1]);
+        int lineno = vm_stack_walk_lineno(&w);
+        dump_frame(fd, func, lineno);
         depth++;
     }
-}
 
+done:
+    if (depth == 0) {
+        PUTS(fd, "<no Python frame>\n");
+    }
+}
 /* Dump the traceback of a Python thread into fd. Use write() to write the
    traceback and retry if write() is interrupted by a signal (failed with
    EINTR), but don't call the Python signal handler.

@@ -1284,7 +1284,6 @@ finalize_interp_types(PyThreadState *tstate, int is_main_interp)
     if (is_main_interp) {
         _Py_HashRandomization_Fini();
         _PyArg_Fini();
-        _PyAsyncGen_Fini();
         _PyContext_Fini();
     }
 
@@ -2350,6 +2349,15 @@ _Py_FatalErrorFormat(const char *func, const char *format, ...)
     fflush(stream);
 
     fatal_error(stream, 0, NULL, NULL, -1);
+}
+
+void _Py_NO_RETURN
+_Py_FatalError_TstateNULL(const char *func)
+{
+    _Py_FatalErrorFunc(func,
+                       "the function must be called with the GIL held, "
+                       "but the GIL is released "
+                       "(the current Python thread state is NULL)");
 }
 
 

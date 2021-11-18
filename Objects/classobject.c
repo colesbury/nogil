@@ -1,6 +1,7 @@
 /* Class object implementation (dead now except for methods) */
 
 #include "Python.h"
+#include "opcode.h"
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"       // _PyThreadState_GET()
@@ -95,6 +96,8 @@ method_vectorcall(PyObject *method, PyObject *const *args,
    function.
 */
 
+static const uint8_t method_header[4] = { METHOD_HEADER, 0, 0, 0 };
+
 PyObject *
 PyMethod_New(PyObject *func, PyObject *self)
 {
@@ -106,6 +109,7 @@ PyMethod_New(PyObject *func, PyObject *self)
     if (im == NULL) {
         return NULL;
     }
+    im->func_base.first_instr = &method_header[0];
     im->im_weakreflist = NULL;
     Py_INCREF(func);
     im->im_func = func;
@@ -349,7 +353,8 @@ PyTypeObject PyMethod_Type = {
     PyObject_GenericSetAttr,                    /* tp_setattro */
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
-    Py_TPFLAGS_HAVE_VECTORCALL,                 /* tp_flags */
+    Py_TPFLAGS_HAVE_VECTORCALL |
+    Py_TPFLAGS_FUNC_INTERFACE,                  /* tp_flags */
     method_doc,                                 /* tp_doc */
     (traverseproc)method_traverse,              /* tp_traverse */
     0,                                          /* tp_clear */

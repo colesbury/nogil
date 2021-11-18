@@ -16,16 +16,12 @@ del _opcodes_all
 _have_code = (types.MethodType, types.FunctionType, types.CodeType,
               classmethod, staticmethod, type)
 
-FORMAT_VALUE = opmap['FORMAT_VALUE']
-FORMAT_VALUE_CONVERTERS = (
-    (None, ''),
-    (str, 'str'),
-    (repr, 'repr'),
-    (ascii, 'ascii'),
-)
 MAKE_FUNCTION = opmap['MAKE_FUNCTION']
 MAKE_FUNCTION_FLAGS = ('defaults', 'kwdefaults', 'annotations', 'closure')
 
+# Meaningless, but cloudpickle imports these (but doesn't use them)
+HAVE_ARGUMENT = None
+EXTENDED_ARG = None
 
 def _try_compile(source, name):
     """Attempts to compile the given source, first as an expression and
@@ -160,7 +156,7 @@ def _format_code_info(co):
     lines.append("Positional-only arguments: %s" % co.co_posonlyargcount)
     lines.append("Kw-only arguments: %s" % co.co_kwonlyargcount)
     lines.append("Number of locals:  %s" % co.co_nlocals)
-    lines.append("Stack size:        %s" % co.co_stacksize)
+    lines.append("Stack size:        %s" % (co.co_stacksize))
     lines.append("Flags:             %s" % pretty_flags(co.co_flags))
     if co.co_consts:
         lines.append("Constants:")
@@ -192,11 +188,11 @@ def show_code(co, *, file=None):
     print(code_info(co), file=file)
 
 _Instruction = collections.namedtuple("_Instruction",
-     "opname opcode arg argval argrepr offset starts_line is_jump_target")
+     "opname opcode imm argval argrepr offset starts_line is_jump_target")
 
 _Instruction.opname.__doc__ = "Human readable name for operation"
 _Instruction.opcode.__doc__ = "Numeric code for operation"
-_Instruction.arg.__doc__ = "Numeric argument to operation (if any), otherwise None"
+_Instruction.imm.__doc__ = "Immediate arguments"
 _Instruction.argval.__doc__ = "Resolved arg value (if known), otherwise same as arg"
 _Instruction.argrepr.__doc__ = "Human readable description of operation argument"
 _Instruction.offset.__doc__ = "Start index of operation within bytecode sequence"
@@ -250,9 +246,9 @@ class Instruction(_Instruction):
         # Column: Opcode name
         fields.append(self.opname.ljust(_OPNAME_WIDTH))
         # Column: Opcode argument
-        if self.arg is not None:
-            fields.append(repr(self.arg).rjust(_OPARG_WIDTH))
-            # Column: Opcode argument details
+        args = ' '.join(map(str, self.imm))
+        if args != '':
+            fields.append(args.rjust(_OPARG_WIDTH))
             if self.argrepr:
                 fields.append('(' + self.argrepr + ')')
         return ' '.join(fields).rstrip()
@@ -270,13 +266,13 @@ def get_instructions(x, *, first_line=None):
     the disassembled code object.
     """
     co = _get_code_object(x)
-    cell_names = co.co_cellvars + co.co_freevars
+    cell_names = [] # FIXME(sgross): # co.co_cellvars + co.co_freevars
     linestarts = dict(findlinestarts(co))
     if first_line is not None:
         line_offset = first_line - co.co_firstlineno
     else:
         line_offset = 0
-    return _get_instructions_bytes(co.co_code, co.co_varnames, co.co_names,
+    return _get_instructions_bytes(co.co_code, co.co_varnames,
                                    co.co_consts, cell_names, linestarts,
                                    line_offset)
 
@@ -308,8 +304,8 @@ def _get_name_info(name_index, name_list):
     return argval, argrepr
 
 
-def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
-                      cells=None, linestarts=None, line_offset=0):
+def _get_instructions_bytes(code, varnames=None, constants=None,
+                            cells=None, linestarts=None, line_offset=0):
     """Iterate over the instructions in a bytecode string.
 
     Generates a sequence of Instruction namedtuples giving the details of each
@@ -318,56 +314,91 @@ def _get_instructions_bytes(code, varnames=None, names=None, constants=None,
     arguments.
 
     """
+    def format_reg(reg):
+        if varnames is None or reg < len(varnames):
+            argval, argrepr = _get_name_info(reg, varnames)
+        else:
+            argrepr = '.t' + str(reg - len(varnames))
+        return argrepr
+
+    def get_const(idx):
+        return _get_const_info(idx, constants)[1]
+
+    def get_str(idx):
+        return _get_const_info(idx, constants)[0]
+
+    def get_repr(bytecode, *imm):
+        argvals = []
+        argreprs = []
+
+        for arg, fmt in zip(imm, bytecode.imm):
+            argval = arg
+            argrepr = None
+            if fmt == 'jump':
+                argval = offset + (arg if arg <= 0x7FFF else arg - 0x10000)
+                argrepr = "to " + repr(argval)
+            elif fmt == 'str' or fmt == 'const':
+                argval, argrepr = _get_const_info(arg, constants)
+            elif fmt == 'cell':
+                argval, argrepr = _get_name_info(arg, cells)
+            elif fmt == 'reg' or fmt == 'base':
+                argrepr = format_reg(arg)
+            elif fmt == 'intrinsic':
+                argrepr = intrinsics[arg].name
+            else:
+                argrepr = str(argval)
+
+            argvals.append(argval)
+            argreprs.append(argrepr)
+
+        if bytecode.name == 'CALL_FUNCTION':
+            argrepr = f'{format_reg(imm[0])} to {format_reg(imm[0]+imm[1])}'
+        elif bytecode.name == 'LOAD_ATTR':
+            argrepr = f"{argreprs[0]}.{argreprs[1]}"
+        elif bytecode.name == 'STORE_ATTR':
+            argrepr = f"{argreprs[0]}.{argreprs[1]}=acc"
+        elif bytecode.name == 'STORE_SUBSCR':
+            argrepr = f"{argreprs[0]}[{argreprs[1]}]=acc"
+        elif bytecode.name == 'BINARY_SUBSCR':
+            argrepr = f"{argreprs[0]}[acc]"
+        elif bytecode.name == 'MOVE' or bytecode.name == 'COPY':
+            argrepr = f"{argreprs[0]} <- {argreprs[1]}"
+        elif bytecode.name == 'UNPACK':
+            argrepr = f'{argreprs[0]} argcnt={argreprs[1]} after={argreprs[2]}'
+        else:
+            argrepr = '; '.join(argreprs)
+
+        if len(argvals) == 0:
+            argval = None
+        elif len(argvals) == 1:
+            argval = argvals[0]
+        else:
+            argval = tuple(argvals)
+
+        return argval, argrepr
+
+
     labels = findlabels(code)
     starts_line = None
-    for offset, op, arg in _unpack_opargs(code):
+    for offset, op, *imm in _unpack_opargs(code):
         if linestarts is not None:
             starts_line = linestarts.get(offset, None)
             if starts_line is not None:
                 starts_line += line_offset
         is_jump_target = offset in labels
-        argval = None
-        argrepr = ''
-        if arg is not None:
-            #  Set argval to the dereferenced value of the argument when
-            #  available, and argrepr to the string representation of argval.
-            #    _disassemble_bytes needs the string repr of the
-            #    raw name index for LOAD_GLOBAL, LOAD_CONST, etc.
-            argval = arg
-            if op in hasconst:
-                argval, argrepr = _get_const_info(arg, constants)
-            elif op in hasname:
-                argval, argrepr = _get_name_info(arg, names)
-            elif op in hasjrel:
-                argval = offset + 2 + arg
-                argrepr = "to " + repr(argval)
-            elif op in haslocal:
-                argval, argrepr = _get_name_info(arg, varnames)
-            elif op in hascompare:
-                argval = cmp_op[arg]
-                argrepr = argval
-            elif op in hasfree:
-                argval, argrepr = _get_name_info(arg, cells)
-            elif op == FORMAT_VALUE:
-                argval, argrepr = FORMAT_VALUE_CONVERTERS[arg & 0x3]
-                argval = (argval, bool(arg & 0x4))
-                if argval[1]:
-                    if argrepr:
-                        argrepr += ', '
-                    argrepr += 'with format'
-            elif op == MAKE_FUNCTION:
-                argrepr = ', '.join(s for i, s in enumerate(MAKE_FUNCTION_FLAGS)
-                                    if arg & (1<<i))
+        bytecode = opcodes[op]
+        argval, argrepr = get_repr(bytecode, *imm)
         yield Instruction(opname[op], op,
-                          arg, argval, argrepr,
+                          imm, argval, argrepr,
                           offset, starts_line, is_jump_target)
 
 def disassemble(co, lasti=-1, *, file=None):
     """Disassemble a code object."""
     cell_names = co.co_cellvars + co.co_freevars
     linestarts = dict(findlinestarts(co))
-    _disassemble_bytes(co.co_code, lasti, co.co_varnames, co.co_names,
-                       co.co_consts, cell_names, linestarts, file=file)
+    _disassemble_bytes(co.co_code, lasti, co.co_varnames,
+                       co.co_consts, cell_names, linestarts, co.co_cell2reg,
+                       co.co_free2reg, co.co_exc_handlers, file=file)
 
 def _disassemble_recursive(co, *, file=None, depth=None):
     disassemble(co, file=file)
@@ -380,8 +411,9 @@ def _disassemble_recursive(co, *, file=None, depth=None):
                 print("Disassembly of %r:" % (x,), file=file)
                 _disassemble_recursive(x, file=file, depth=depth)
 
-def _disassemble_bytes(code, lasti=-1, varnames=None, names=None,
-                       constants=None, cells=None, linestarts=None,
+def _disassemble_bytes(code, lasti=-1, varnames=None, constants=None,
+                       cells=None, linestarts=None, cell2reg=None,
+                       free2reg=None, exc_handlers=None,
                        *, file=None, line_offset=0):
     # Omit the line number column entirely if we have no line number info
     show_lineno = linestarts is not None
@@ -398,7 +430,7 @@ def _disassemble_bytes(code, lasti=-1, varnames=None, names=None,
         offset_width = len(str(maxoffset))
     else:
         offset_width = 4
-    for instr in _get_instructions_bytes(code, varnames, names,
+    for instr in _get_instructions_bytes(code, varnames,
                                          constants, cells, linestarts,
                                          line_offset=line_offset):
         new_source_line = (show_lineno and
@@ -409,6 +441,15 @@ def _disassemble_bytes(code, lasti=-1, varnames=None, names=None,
         is_current_instr = instr.offset == lasti
         print(instr._disassemble(lineno_width, is_current_instr, offset_width),
               file=file)
+    if cell2reg:
+        print(' ' * 2 + f'Cell variables: {list(cell2reg)}', file=file)
+    if free2reg:
+        print(' ' * 2 + f'Free variables: {list(free2reg)}', file=file)
+    if exc_handlers:
+        print(' ' * 2 + f'Exception handlers ({len(exc_handlers)}):', file=file)
+        print(f'    start  ->  (handler,  end)', file=file)
+        for start, handler, end, reg in exc_handlers:
+            print(f'     {start:4d}  ->      {handler:4d}, {end:4d}  [reg={reg}]', file=file)
 
 def _disassemble_str(source, **kwargs):
     """Compile the source string, then disassemble the code object."""
@@ -416,16 +457,46 @@ def _disassemble_str(source, **kwargs):
 
 disco = disassemble                     # XXX For backwards compatibility
 
+def signed(x):
+    return x if x < 32768 else (x - 65536)
+
+def decode_imm(code, offset, bytecode, wide):
+    sizes = {
+        'imm16': 2,
+        'jump': 4 if wide else 2,
+    }
+    offset += 1
+    if wide:
+        offset += 1
+    for imm in bytecode.imm:
+        signed = (imm == 'jump')
+        size = sizes.get(imm, 4 if wide else 1)
+        yield int.from_bytes(code[offset:offset+size], 'little', signed=signed)
+        offset += size
+
+
 def _unpack_opargs(code):
     extended_arg = 0
-    for i in range(0, len(code), 2):
+    i = 0
+    WIDE = opmap['WIDE']
+    while i < len(code):
+        wide = False
         op = code[i]
-        if op >= HAVE_ARGUMENT:
-            arg = code[i+1] | extended_arg
-            extended_arg = (arg << 8) if op == EXTENDED_ARG else 0
+        bytecode = opcodes[op]
+        if bytecode is None:
+            raise RuntimeError(f'bad opcode {op}')
+
+        if bytecode == WIDE:
+            wide = True
+            op = code[i+1]
+            bytecode = opcodes[op]
+            size = bytecode.wide_size
         else:
-            arg = None
-        yield (i, op, arg)
+            size = bytecode.size
+
+        imm = list(decode_imm(code, i, bytecode, wide))
+        yield (i, op, *imm)
+        i += size
 
 def findlabels(code):
     """Detect all offsets in a byte code which are jump targets.
@@ -434,14 +505,9 @@ def findlabels(code):
 
     """
     labels = []
-    for offset, op, arg in _unpack_opargs(code):
-        if arg is not None:
-            if op in hasjrel:
-                label = offset + 2 + arg
-            elif op in hasjabs:
-                label = arg
-            else:
-                continue
+    for offset, op, *imm in _unpack_opargs(code):
+        if opcodes[op].is_jump():
+            label = offset + imm[-1]
             if label not in labels:
                 labels.append(label)
     return labels
@@ -499,7 +565,7 @@ class Bytecode:
 
     def __iter__(self):
         co = self.codeobj
-        return _get_instructions_bytes(co.co_code, co.co_varnames, co.co_names,
+        return _get_instructions_bytes(co.co_code, co.co_varnames,
                                        co.co_consts, self._cell_names,
                                        self._linestarts,
                                        line_offset=self._line_offset)
@@ -528,10 +594,13 @@ class Bytecode:
             offset = -1
         with io.StringIO() as output:
             _disassemble_bytes(co.co_code, varnames=co.co_varnames,
-                               names=co.co_names, constants=co.co_consts,
+                               constants=co.co_consts,
                                cells=self._cell_names,
                                linestarts=self._linestarts,
                                line_offset=self._line_offset,
+                               cell2reg=co.co_cell2reg,
+                               free2reg=co.co_free2reg,
+                               exc_handlers=co.co_exc_handlers,
                                file=output,
                                lasti=offset)
             return output.getvalue()

@@ -313,6 +313,9 @@ Code can use PyType_HasFeature(type_ob, flag_value) to test whether the
 given type object has a specified feature.
 */
 
+/* Set if the type supports calling through PyFuncBase */
+#define Py_TPFLAGS_FUNC_INTERFACE (1UL << 8)
+
 /* Set if the type object is dynamically allocated */
 #define Py_TPFLAGS_HEAPTYPE (1UL << 9)
 
@@ -412,6 +415,11 @@ PyAPI_FUNC(void) _Py_IncRefTotal(void);
 PyAPI_FUNC(void) _Py_DecRefTotal(void);
 PyAPI_FUNC(void) _Py_NegativeRefcount(const char *filename, int lineno,
                                       PyObject *op);
+#define _Py_INC_REFTOTAL _Py_IncRefTotal()
+#define _Py_DEC_REFTOTAL _Py_DecRefTotal()
+#else
+#define _Py_INC_REFTOTAL
+#define _Py_DEC_REFTOTAL
 #endif /* Py_REF_DEBUG */
 
 
@@ -476,6 +484,7 @@ _Py_ThreadLocal(PyObject *op)
 
 #define _Py_REF_LOCAL_SHIFT     2
 #define _Py_REF_IMMORTAL_MASK   0x1
+#define _Py_REF_DEFERRED_MASK   0x2
 
 #define _Py_REF_SHARED_SHIFT    2
 #define _Py_REF_QUEUED_MASK     0x2

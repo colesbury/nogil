@@ -2751,7 +2751,7 @@ def check_free_after_iterating(test, iter, cls, args=()):
                 done = True
                 try:
                     next(it)
-                except StopIteration:
+                except (StopIteration, ValueError):
                     pass
         it = iter(A(*args))
         test.assertRaises(StopIteration, next, it)

@@ -2,6 +2,7 @@
 
 #include "Python.h"
 #include "pycore_llist.h"
+#include "pycore_object.h"
 #include "pycore_pystate.h"
 #include "pycore_refcnt.h"
 #include "lock.h"
@@ -80,8 +81,11 @@ _Py_queue_object(PyObject *ob, uintptr_t tid)
     PyThreadStateImpl *tstate_impl;
     Bucket *bucket = &buckets[tid % NUM_BUCKETS];
 
+    assert(!_PyObject_IS_DEFERRED_RC(ob) &&
+           "deferred refcounted objects should not be queued");
+
     if (tid == 0) {
-        if (_PyObject_IS_IMMORTAL(ob)/* || _PyObject_IS_DEFERRED_RC(ob)*/) {
+        if (_PyObject_IS_IMMORTAL(ob)) {
             // kind of awkward, but strings can be immortalized after they have
             // a bunch of references and the new interpreter still tries decrefing
             // the immortalized object.

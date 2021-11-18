@@ -75,6 +75,9 @@
     <ClInclude Include="..\Include\ceval.h">
       <Filter>Include</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\ceval_meta.h">
+      <Filter>Include</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\classobject.h">
       <Filter>Include</Filter>
     </ClInclude>
@@ -183,6 +186,9 @@
     <ClInclude Include="..\Include\internal\pycore_fileutils.h">
       <Filter>Include</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_generator.h">
+      <Filter>Include\internal</Filter>
+    </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_getopt.h">
       <Filter>Include</Filter>
     </ClInclude>
@@ -233,6 +239,9 @@
     </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_runtime.h">
       <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Include\internal\pycore_stackwalk.h">
+      <Filter>Include\internal</Filter>
     </ClInclude>
     <ClInclude Include="..\Include\internal\pycore_sysmodule.h">
       <Filter>Include</Filter>
@@ -501,13 +510,19 @@
     <ClInclude Include="..\Python\thread_nt.h">
       <Filter>Python</Filter>
     </ClInclude>
-    <ClInclude Include="..\Python\wordcode_helpers.h">
-      <Filter>Python</Filter>
-    </ClInclude>
     <ClInclude Include="..\Python\condvar.h">
       <Filter>Python</Filter>
     </ClInclude>
     <ClInclude Include="..\Python\ceval_gil.h">
+      <Filter>Python</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Python\ceval_intrinsics.h">
+      <Filter>Python</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Python\opcode_dispatch.h">
+      <Filter>Python</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Python\opcode_names.h">
       <Filter>Python</Filter>
     </ClInclude>
     <ClInclude Include="..\Include\pyhash.h">
@@ -1122,6 +1137,12 @@
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\ceval.c">
+      <Filter>Python</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Python\ceval_gil.c">
+      <Filter>Python</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Python\ceval_meta.c">
       <Filter>Python</Filter>
     </ClCompile>
     <ClCompile Include="..\Python\codecs.c">
