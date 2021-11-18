@@ -2456,6 +2456,11 @@ object_isinstance(PyObject *inst, PyObject *cls)
     int retval;
     _Py_IDENTIFIER(__class__);
 
+    if (cls == (PyObject *)&PyFunc_Type && Py_TYPE(inst) == &PyFunction_Type) {
+        // FIXME: faking PyFunc as PyFunction
+        return 1;
+    }
+
     if (PyType_Check(cls)) {
         retval = PyObject_TypeCheck(inst, (PyTypeObject *)cls);
         if (retval == 0) {

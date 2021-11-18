@@ -2915,6 +2915,9 @@ task_step_impl(TaskObj *task, PyObject *exc)
     Py_XDECREF(o);
     /* Check if `result` is a generator */
     res = PyObject_IsInstance(result, (PyObject*)&PyGen_Type);
+    if (res == 0) {
+        res = PyObject_IsInstance(result, (PyObject*)&PyGen2_Type);
+    }
     if (res < 0) {
         goto fail;
     }

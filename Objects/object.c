@@ -1796,13 +1796,16 @@ _PyTypes_Init(void)
     INIT_TYPE(&PyReversed_Type, "reversed");
     INIT_TYPE(&PyStdPrinter_Type, "StdPrinter");
     INIT_TYPE(&PyCode_Type, "code");
+    INIT_TYPE(&PyCode2_Type, "code");
     INIT_TYPE(&PyFrame_Type, "frame");
     INIT_TYPE(&PyCFunction_Type, "builtin function");
     INIT_TYPE(&PyCMethod_Type, "builtin method");
     INIT_TYPE(&PyMethod_Type, "method");
     INIT_TYPE(&PyFunction_Type, "function");
+    INIT_TYPE(&PyFunc_Type, "function");
     INIT_TYPE(&PyDictProxy_Type, "dict proxy");
     INIT_TYPE(&PyGen_Type, "generator");
+    INIT_TYPE(&PyGen2_Type, "generator");
     INIT_TYPE(&PyGetSetDescr_Type, "get-set descriptor");
     INIT_TYPE(&PyWrapperDescr_Type, "wrapper");
     INIT_TYPE(&_PyMethodWrapper_Type, "method wrapper");
@@ -1819,7 +1822,9 @@ _PyTypes_Init(void)
     INIT_TYPE(&PySeqIter_Type, "sequence iterator");
     INIT_TYPE(&PyPickleBuffer_Type, "pickle.PickleBuffer");
     INIT_TYPE(&PyCoro_Type, "coroutine");
+    INIT_TYPE(&PyCoro2_Type, "coroutine");
     INIT_TYPE(&_PyCoroWrapper_Type, "coroutine wrapper");
+    INIT_TYPE(&_PyCoroWrapper2_Type, "coroutine wrapper");
     INIT_TYPE(&_PyInterpreterID_Type, "interpreter ID");
     return _PyStatus_OK();
 

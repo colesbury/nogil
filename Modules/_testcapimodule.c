@@ -4866,6 +4866,23 @@ raise_SIGINT_then_send_None(PyObject *self, PyObject *args)
      */
     raise(SIGINT);
     return _PyGen_Send(gen, Py_None);
+    // PyGenObject2 *gen;
+
+    // if (!PyArg_ParseTuple(args, "O!", &PyGen2_Type, &gen))
+    //     return NULL;
+
+    // /* This is used in a test to check what happens if a signal arrives just
+    //    as we're in the process of entering a yield from chain (see
+    //    bpo-30039).
+
+    //    Needs to be done in C, because:
+    //    - we don't have a Python wrapper for raise()
+    //    - we need to make sure that the Python-level signal handler doesn't run
+    //      *before* we enter the generator frame, which is impossible in Python
+    //      because we check for signals before every bytecode operation.
+    //  */
+    // raise(SIGINT);
+    // return _PyGen2_Send(gen, Py_None);
 }
 
 
