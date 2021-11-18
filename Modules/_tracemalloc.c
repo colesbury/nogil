@@ -1,6 +1,8 @@
 #include "Python.h"
+#include "ceval_meta.h"
 #include "pycore_gc.h"            // PyGC_Head
 #include "pycore_pymem.h"         // _Py_tracemalloc_config
+#include "pycore_stackwalk.h"
 #include "pycore_traceback.h"
 #include "pycore_hashtable.h"
 #include "frameobject.h"          // PyFrame_GetBack()
@@ -300,26 +302,9 @@ hashtable_compare_traceback(const void *key1, const void *key2)
 
 
 static void
-tracemalloc_get_frame(PyFrameObject *pyframe, frame_t *frame)
+tracemalloc_set_filename(frame_t *frame, PyObject *filename)
 {
     frame->filename = unknown_filename;
-    int lineno = PyFrame_GetLineNumber(pyframe);
-    if (lineno < 0) {
-        lineno = 0;
-    }
-    frame->lineno = (unsigned int)lineno;
-
-    PyCodeObject *code = PyFrame_GetCode(pyframe);
-    PyObject *filename = code->co_filename;
-    Py_DECREF(code);
-
-    if (filename == NULL) {
-#ifdef TRACE_DEBUG
-        tracemalloc_error("failed to get the filename of the code object");
-#endif
-        return;
-    }
-
     if (!PyUnicode_Check(filename)) {
 #ifdef TRACE_DEBUG
         tracemalloc_error("filename is not a unicode string");
@@ -396,20 +381,25 @@ traceback_get_frames(traceback_t *traceback)
         return;
     }
 
-    PyFrameObject *pyframe = PyThreadState_GetFrame(tstate);
-    for (; pyframe != NULL;) {
-        if (traceback->nframe < _Py_tracemalloc_config.max_nframe) {
-            tracemalloc_get_frame(pyframe, &traceback->frames[traceback->nframe]);
-            assert(traceback->frames[traceback->nframe].filename != NULL);
-            traceback->nframe++;
-        }
-        if (traceback->total_nframe < UINT16_MAX) {
-            traceback->total_nframe++;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, vm_active(tstate));
+    while (vm_stack_walk(&w)) {
+        if (traceback->nframe >= _Py_tracemalloc_config.max_nframe) {
+            if (traceback->total_nframe < UINT16_MAX) {
+                traceback->total_nframe++;
+            }
+            continue;
         }
 
-        PyFrameObject *back = PyFrame_GetBack(pyframe);
-        Py_DECREF(pyframe);
-        pyframe = back;
+        PyFunctionObject *func = (PyFunctionObject *)AS_OBJ(w.regs[-1]);
+        PyCodeObject *code = _PyFunction_GET_CODE(func);
+
+        frame_t *frame = &traceback->frames[traceback->nframe];
+        frame->lineno = vm_stack_walk_lineno(&w);
+        tracemalloc_set_filename(frame, code->co_filename);
+
+        assert(traceback->frames[traceback->nframe].filename != NULL);
+        traceback->nframe++;
     }
 }
 

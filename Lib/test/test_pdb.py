@@ -80,8 +80,6 @@ def test_pdb_basic_commands():
     ...     for i in range(5):
     ...         print(i)
     ...     print(bar)
-    ...     for i in range(10):
-    ...         never_executed
     ...     print('after for')
     ...     print('...')
     ...     return foo.upper()
@@ -111,7 +109,6 @@ def test_pdb_basic_commands():
     ...     'step',       # stepping into the for loop
     ...     'until',      # continuing until out of the for loop
     ...     'next',       # executing the print(bar)
-    ...     'jump 8',     # jump over second for loop
     ...     'return',     # return out of function
     ...     'retval',     # display return value
     ...     'next',       # step to test_function3()
@@ -139,15 +136,13 @@ def test_pdb_basic_commands():
       3             for i in range(5):
       4                 print(i)
       5             print(bar)
-      6             for i in range(10):
-      7                 never_executed
-      8             print('after for')
-      9             print('...')
-     10             return foo.upper()
+      6             print('after for')
+      7             print('...')
+      8             return foo.upper()
     [EOF]
     (Pdb) bt
     ...
-      <doctest test.test_pdb.test_pdb_basic_commands[4]>(25)<module>()
+      <doctest test.test_pdb.test_pdb_basic_commands[4]>(24)<module>()
     -> test_function()
       <doctest test.test_pdb.test_pdb_basic_commands[3]>(3)test_function()
     -> ret = test_function_2('baz')
@@ -180,15 +175,12 @@ def test_pdb_basic_commands():
     (Pdb) next
     default
     > <doctest test.test_pdb.test_pdb_basic_commands[0]>(6)test_function_2()
-    -> for i in range(10):
-    (Pdb) jump 8
-    > <doctest test.test_pdb.test_pdb_basic_commands[0]>(8)test_function_2()
     -> print('after for')
     (Pdb) return
     after for
     ...
     --Return--
-    > <doctest test.test_pdb.test_pdb_basic_commands[0]>(10)test_function_2()->'BAZ'
+    > <doctest test.test_pdb.test_pdb_basic_commands[0]>(8)test_function_2()->'BAZ'
     -> return foo.upper()
     (Pdb) retval
     'BAZ'
@@ -804,7 +796,6 @@ def test_pdb_next_command_for_generator():
 
     >>> with PdbTestInput(['step',
     ...                    'step',
-    ...                    'step',
     ...                    'next',
     ...                    'next',
     ...                    'step',
@@ -813,9 +804,6 @@ def test_pdb_next_command_for_generator():
     ...     test_function()
     > <doctest test.test_pdb.test_pdb_next_command_for_generator[1]>(3)test_function()
     -> it = test_gen()
-    (Pdb) step
-    > <doctest test.test_pdb.test_pdb_next_command_for_generator[1]>(4)test_function()
-    -> try:
     (Pdb) step
     > <doctest test.test_pdb.test_pdb_next_command_for_generator[1]>(5)test_function()
     -> if next(it) != 0:
@@ -981,7 +969,6 @@ def test_pdb_return_command_for_generator():
 
     >>> with PdbTestInput(['step',
     ...                    'step',
-    ...                    'step',
     ...                    'return',
     ...                    'step',
     ...                    'step',
@@ -989,9 +976,6 @@ def test_pdb_return_command_for_generator():
     ...     test_function()
     > <doctest test.test_pdb.test_pdb_return_command_for_generator[1]>(3)test_function()
     -> it = test_gen()
-    (Pdb) step
-    > <doctest test.test_pdb.test_pdb_return_command_for_generator[1]>(4)test_function()
-    -> try:
     (Pdb) step
     > <doctest test.test_pdb.test_pdb_return_command_for_generator[1]>(5)test_function()
     -> if next(it) != 0:
@@ -1253,8 +1237,8 @@ def test_pdb_issue_20766():
     -> print('pdb %d: %s' % (i, sess._previous_sigint_handler))
     (Pdb) continue
     pdb 1: <built-in function default_int_handler>
-    > <doctest test.test_pdb.test_pdb_issue_20766[0]>(5)test_function()
-    -> sess.set_trace(sys._getframe())
+    > <doctest test.test_pdb.test_pdb_issue_20766[0]>(6)test_function()
+    -> print('pdb %d: %s' % (i, sess._previous_sigint_handler))
     (Pdb) continue
     pdb 2: <built-in function default_int_handler>
     """

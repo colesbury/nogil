@@ -126,7 +126,7 @@ class FailureTestCase(unittest.TestCase):
         def fooLacksEnterAndExit():
             foo = LacksEnterAndExit()
             with foo: pass
-        self.assertRaisesRegex(AttributeError, '__enter__', fooLacksEnterAndExit)
+        self.assertRaisesRegex(AttributeError, '__exit__', fooLacksEnterAndExit)
 
     def testExitAttributeError(self):
         class LacksExit(object):

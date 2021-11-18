@@ -12,17 +12,40 @@ extern "C" {
 #endif
 
 
-    /* Instruction opcodes for compiled code */
+// Instruction opcodes for compiled code
+//    name                   opcode   size   wide_size
+#define OPCODE_LIST(_) \\
 """.lstrip()
 
-footer = """
-/* EXCEPT_HANDLER is a special, implicit block type which is created when
-   entering an except handler. It is not an opcode but we define it here
-   as we want it to be available to both frameobject.c and ceval.c, while
-   remaining private.*/
-#define EXCEPT_HANDLER 257
+intrinsics_header = """
+#define INTRINSIC_LIST(_) \\
+"""
 
-#define HAS_ARG(op) ((op) >= HAVE_ARGUMENT)
+footer = """
+
+enum {
+#define OPCODE_NAME(Name, Code, ...) Name = Code,
+OPCODE_LIST(OPCODE_NAME)
+#undef OPCODE_NAME
+};
+
+enum {
+#define OPSIZE(Name, Code, Size, ...) OP_SIZE_##Name = Size,
+OPCODE_LIST(OPSIZE)
+#undef OPSIZE
+};
+
+enum {
+#define OPSIZE(Name, Code, Size, WideSize) OP_SIZE_WIDE_##Name = WideSize,
+OPCODE_LIST(OPSIZE)
+#undef OPSIZE
+};
+
+enum {
+#define INTRINSIC_CODE(Name, Code) Intrinsic_##Name = Code,
+INTRINSIC_LIST(INTRINSIC_CODE)
+#undef INTRINSIC_CODE
+};
 
 #ifdef __cplusplus
 }
@@ -33,22 +56,23 @@ footer = """
 
 def main(opcode_py, outfile='Include/opcode.h'):
     opcode = {}
-    if hasattr(tokenize, 'open'):
-        fp = tokenize.open(opcode_py)   # Python 3.2+
-    else:
-        fp = open(opcode_py)            # Python 2.7
-    with fp:
+    with tokenize.open(opcode_py) as fp:
         code = fp.read()
     exec(code, opcode)
-    opmap = opcode['opmap']
+    opcodes = [op for op in opcode['opcodes'] if op is not None]
+    intrinsics = [i for i in opcode['intrinsics'] if i is not None]
     with open(outfile, 'w') as fobj:
         fobj.write(header)
-        for name in opcode['opname']:
-            if name in opmap:
-                fobj.write("#define %-23s %3s\n" % (name, opmap[name]))
-            if name == 'POP_EXCEPT': # Special entry for HAVE_ARGUMENT
-                fobj.write("#define %-23s %3d\n" %
-                            ('HAVE_ARGUMENT', opcode['HAVE_ARGUMENT']))
+        for bytecode in opcodes:
+            name = bytecode.name + ","
+            terminator = ' \\' if bytecode != opcodes[-1] else ''
+            fobj.write("    _(%-24s %4d,   %3d,    %3d)%s\n" % (name, bytecode.opcode, bytecode.size, bytecode.wide_size, terminator))
+
+        fobj.write(intrinsics_header)
+        for intrinsic in intrinsics:
+            name = intrinsic.name + ","
+            terminator = ' \\' if intrinsic != intrinsics[-1] else ''
+            fobj.write("    _(%-28s %4d)%s\n" % (name, intrinsic.code, terminator))
         fobj.write(footer)
 
     print("%s regenerated from %s" % (outfile, opcode_py))

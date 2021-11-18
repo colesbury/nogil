@@ -13,6 +13,7 @@
 #include "pycore_object.h"
 #include "pycore_pystate.h"  // _PyThreadState_GET()
 #include "pycore_dict.h"
+#include "ceval_meta.h"
 #include "lock.h"
 #include "stringlib/eq.h"    // unicode_eq()
 
@@ -1033,22 +1034,22 @@ vm_try_load(PyObject *op, PyObject *key, intptr_t *meta)
     return value_for_entry(mp, tag, key, -1, entry);
 }
 
-// PyObject *
-// vm_load_global(struct ThreadState *ts, PyObject *key, intptr_t *meta)
-// {
-//     assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
-//     _Py_atomic_store_intptr_relaxed(meta, -1);
-//     PyFunc *func = (PyFunc *)AS_OBJ(ts->regs[-1]);
-//     PyObject *res = vm_try_load(func->globals, key, meta);
-//     if (res != NULL || PyErr_Occurred()) {
-//         return res;
-//     }
-//     res = vm_try_load(func->builtins, key, meta + 1);
-//     if (res != NULL || PyErr_Occurred()) {
-//         return res;
-//     }
-//     return vm_name_error(ts, key);
-// }
+PyObject *
+vm_load_global(PyThreadState *ts, PyObject *key, intptr_t *meta)
+{
+    assert(PyUnicode_CheckExact(key) && PyUnicode_CHECK_INTERNED(key));
+    _Py_atomic_store_intptr_relaxed(meta, -1);
+    PyFunctionObject *func = (PyFunctionObject *)AS_OBJ(ts->regs[-1]);
+    PyObject *res = vm_try_load(func->globals, key, meta);
+    if (res != NULL || PyErr_Occurred()) {
+        return res;
+    }
+    res = vm_try_load(func->builtins, key, meta + 1);
+    if (res != NULL || PyErr_Occurred()) {
+        return res;
+    }
+    return vm_err_name(ts, 0);
+}
 
 PyObject *
 _PyDict_GetItemIdWithError(PyObject *dp, struct _Py_Identifier *key)

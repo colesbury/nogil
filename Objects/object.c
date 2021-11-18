@@ -2249,6 +2249,7 @@ _PyObject_AssertFailed(PyObject *obj, const char *expr, const char *msg,
 void
 _Py_Dealloc(PyObject *op)
 {
+    assert(!_PyObject_IS_DEFERRED_RC(op));
     destructor dealloc = Py_TYPE(op)->tp_dealloc;
 #ifdef Py_TRACE_REFS
     _Py_ForgetReference(op);
@@ -2305,7 +2306,7 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
         refcount += (op->ob_ref_local >> _Py_REF_LOCAL_SHIFT);
         refcount += extra;
 
-        assert(refcount >= 0 /*|| _PyObject_IS_DEFERRED_RC(op)*/);
+        assert(refcount >= 0);
 
         new_shared = (((uint32_t)refcount) << _Py_REF_SHARED_SHIFT) |
                      _Py_REF_MERGED_MASK;

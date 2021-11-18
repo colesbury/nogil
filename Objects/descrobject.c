@@ -5,6 +5,7 @@
 #include "pycore_object.h"
 #include "pycore_pystate.h"      // _PyThreadState_GET()
 #include "pycore_tupleobject.h"
+#include "opcode.h"
 #include "structmember.h"         // PyMemberDef
 
 _Py_IDENTIFIER(getattr);
@@ -713,7 +714,8 @@ PyTypeObject PyMethodDescr_Type = {
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC |
     Py_TPFLAGS_HAVE_VECTORCALL |
-    Py_TPFLAGS_METHOD_DESCRIPTOR,               /* tp_flags */
+    Py_TPFLAGS_METHOD_DESCRIPTOR |
+    Py_TPFLAGS_FUNC_INTERFACE,                  /* tp_flags */
     0,                                          /* tp_doc */
     descr_traverse,                             /* tp_traverse */
     0,                                          /* tp_clear */
@@ -887,6 +889,7 @@ descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
 
     descr = (PyDescrObject *)PyType_GenericAlloc(descrtype, 0);
     if (descr != NULL) {
+        _PyObject_SET_DEFERRED_RC(descr);
         Py_XINCREF(type);
         descr->d_type = type;
         descr->d_name = PyUnicode_InternFromString(name);
@@ -901,11 +904,18 @@ descr_new(PyTypeObject *descrtype, PyTypeObject *type, const char *name)
     return descr;
 }
 
+static uint8_t cmethod_o = CMETHOD_O;
+static uint8_t cmethod_noargs = CMETHOD_NOARGS;
+static const uint8_t func_vector_call[] = {
+    CFUNC_HEADER, 0, 0, 0
+};
+
 PyObject *
 PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
 {
     /* Figure out correct vectorcall function to use */
     vectorcallfunc vectorcall;
+    const uint8_t *first_instr = &func_vector_call[0];
     switch (method->ml_flags & (METH_VARARGS | METH_FASTCALL | METH_NOARGS |
                                 METH_O | METH_KEYWORDS | METH_METHOD))
     {
@@ -923,9 +933,11 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
             break;
         case METH_NOARGS:
             vectorcall = method_vectorcall_NOARGS;
+            first_instr = &cmethod_noargs;
             break;
         case METH_O:
             vectorcall = method_vectorcall_O;
+            first_instr = &cmethod_o;
             break;
         case METH_METHOD | METH_FASTCALL | METH_KEYWORDS:
             vectorcall = method_vectorcall_FASTCALL_KEYWORDS_METHOD;
@@ -941,6 +953,7 @@ PyDescr_NewMethod(PyTypeObject *type, PyMethodDef *method)
     descr = (PyMethodDescrObject *)descr_new(&PyMethodDescr_Type,
                                              type, method->ml_name);
     if (descr != NULL) {
+        ((PyFuncBase *)descr)->first_instr = first_instr;
         descr->d_method = method;
         descr->vectorcall = vectorcall;
     }

@@ -205,7 +205,7 @@ class CAPITest(unittest.TestCase):
             """)
             rc, out, err = assert_python_failure('-c', code)
             self.assertRegex(err.replace(b'\r', b''),
-                             br'Fatal Python error: _Py_CheckFunctionResult: '
+                             br'Fatal Python error: vm_exception_unwind: '
                                 br'a function returned NULL '
                                 br'without setting an error\n'
                              br'Python runtime state: initialized\n'
@@ -234,7 +234,7 @@ class CAPITest(unittest.TestCase):
             """)
             rc, out, err = assert_python_failure('-c', code)
             self.assertRegex(err.replace(b'\r', b''),
-                             br'Fatal Python error: _Py_CheckFunctionResult: '
+                             br'Fatal Python error: vm_error_with_result: '
                                  br'a function returned a result '
                                  br'with an error set\n'
                              br'Python runtime state: initialized\n'
@@ -427,8 +427,9 @@ class CAPITest(unittest.TestCase):
 
             def __del__(self):
                 self.__class__ = A
-                A.refcnt_in_del = sys.getrefcount(A)
-                B.refcnt_in_del = sys.getrefcount(B)
+                a, b = sys.getrefcount(A), sys.getrefcount(B)
+                A.refcnt_in_del = a
+                B.refcnt_in_del = b
 
         subclass_instance = B()
         type_refcnt = sys.getrefcount(B)

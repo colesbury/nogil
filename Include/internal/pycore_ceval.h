@@ -29,8 +29,9 @@ PyAPI_FUNC(void) _PyEval_SetCoroutineOriginTrackingDepth(
     PyThreadState *tstate,
     int new_depth);
 
-/* Private function */
+/* Private functions */
 void _PyEval_Fini(void);
+int _PyEval_HandleBreaker(PyThreadState *tstate);
 
 static inline PyObject*
 _PyEval_EvalFrame(PyThreadState *tstate, PyFrameObject *f, int throwflag)
@@ -47,6 +48,10 @@ extern PyObject *_PyEval_EvalCode(
     PyObject *const *defs, Py_ssize_t defcount,
     PyObject *kwdefs, PyObject *closure,
     PyObject *name, PyObject *qualname);
+
+int
+vm_frame_info(PyFunctionObject **func, int *lineno, int depth,
+              int skip_importlib_frames);
 
 extern int _PyEval_ThreadsInitialized(struct pyruntimestate *runtime);
 extern PyStatus _PyEval_InitGIL(PyThreadState *tstate);

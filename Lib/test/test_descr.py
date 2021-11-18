@@ -4430,7 +4430,10 @@ order (MRO) for bases """
         c = C()
         c.__dict__[Evil()] = 0
 
-        self.assertEqual(c.attr, 1)
+        try:
+            self.assertEqual(c.attr, 1)
+        except AttributeError:
+            pass
         # this makes a crash more likely:
         support.gc_collect()
         self.assertNotHasAttr(c, 'attr')

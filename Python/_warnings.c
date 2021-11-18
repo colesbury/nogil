@@ -1,4 +1,6 @@
 #include "Python.h"
+#include "pycore_ceval.h"
+#include "pycore_generator.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"        // PyInterpreterState.warnings
 #include "pycore_pyerrors.h"
@@ -760,72 +762,6 @@ warn_explicit(PyObject *category, PyObject *message,
     return result;  /* Py_None or NULL. */
 }
 
-static int
-is_internal_frame(PyFrameObject *frame)
-{
-    static PyObject *importlib_string = NULL;
-    static PyObject *bootstrap_string = NULL;
-    int contains;
-
-    if (importlib_string == NULL) {
-        importlib_string = PyUnicode_FromString("importlib");
-        if (importlib_string == NULL) {
-            return 0;
-        }
-
-        bootstrap_string = PyUnicode_FromString("_bootstrap");
-        if (bootstrap_string == NULL) {
-            Py_DECREF(importlib_string);
-            return 0;
-        }
-        Py_INCREF(importlib_string);
-        Py_INCREF(bootstrap_string);
-    }
-
-    if (frame == NULL) {
-        return 0;
-    }
-
-    PyCodeObject *code = PyFrame_GetCode(frame);
-    PyObject *filename = code->co_filename;
-    Py_DECREF(code);
-
-    if (filename == NULL) {
-        return 0;
-    }
-    if (!PyUnicode_Check(filename)) {
-        return 0;
-    }
-
-    contains = PyUnicode_Contains(filename, importlib_string);
-    if (contains < 0) {
-        return 0;
-    }
-    else if (contains > 0) {
-        contains = PyUnicode_Contains(filename, bootstrap_string);
-        if (contains < 0) {
-            return 0;
-        }
-        else if (contains > 0) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-static PyFrameObject *
-next_external_frame(PyFrameObject *frame)
-{
-    do {
-        PyFrameObject *back = PyFrame_GetBack(frame);
-        Py_DECREF(frame);
-        frame = back;
-    } while (frame != NULL && is_internal_frame(frame));
-
-    return frame;
-}
-
 /* filename, module, and registry are new refs, globals is borrowed */
 /* Returns 0 on error (no new refs), 1 on success */
 static int
@@ -837,35 +773,24 @@ setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
 
     /* Setup globals, filename and lineno. */
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *f = PyThreadState_GetFrame(tstate);
-    // Stack level comparisons to Python code is off by one as there is no
-    // warnings-related stack level to avoid.
-    if (stack_level <= 0 || is_internal_frame(f)) {
-        while (--stack_level > 0 && f != NULL) {
-            PyFrameObject *back = PyFrame_GetBack(f);
-            Py_DECREF(f);
-            f = back;
-        }
-    }
-    else {
-        while (--stack_level > 0 && f != NULL) {
-            f = next_external_frame(f);
-        }
+    PyFunctionObject *func;
+    int err;
+
+    err = vm_frame_info(&func, lineno, stack_level, 1);
+    if (err < 0) {
+        return 0;
     }
 
-    if (f == NULL) {
+    if (func == NULL) {
         globals = _PyInterpreterState_GET()->sysdict;
         *filename = PyUnicode_FromString("sys");
         *lineno = 1;
     }
     else {
-        globals = f->f_globals;
-        PyCodeObject *code = PyFrame_GetCode(f);
+        PyCodeObject *code = _PyFunction_GET_CODE(func);
+        globals = func->globals;
         *filename = code->co_filename;
-        Py_DECREF(code);
         Py_INCREF(*filename);
-        *lineno = PyFrame_GetLineNumber(f);
-        Py_DECREF(f);
     }
 
     *module = NULL;
@@ -1334,7 +1259,7 @@ _PyErr_WarnUnawaitedCoroutine(PyObject *coro)
     if (!warned) {
         if (_PyErr_WarnFormat(coro, PyExc_RuntimeWarning, 1,
                               "coroutine '%S' was never awaited",
-                              ((PyCoroObject *)coro)->cr_qualname) < 0)
+                              ((PyGenObject *)coro)->qualname) < 0)
         {
             PyErr_WriteUnraisable(coro);
         }

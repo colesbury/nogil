@@ -11,6 +11,7 @@
 #include "Python.h"
 #include "longintrepr.h"
 #include "code.h"
+#include "pycore_code.h"
 #include "marshal.h"
 #include "pycore_hashtable.h"
 
@@ -54,6 +55,7 @@ module marshal
 #define TYPE_BINARY_COMPLEX     'y'
 #define TYPE_LONG               'l'
 #define TYPE_STRING             's'
+#define TYPE_SLICE              ':'
 #define TYPE_INTERNED           't'
 #define TYPE_REF                'r'
 #define TYPE_TUPLE              '('
@@ -509,22 +511,60 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
     else if (PyCode_Check(v)) {
         PyCodeObject *co = (PyCodeObject *)v;
         W_TYPE(TYPE_CODE, p);
-        w_long(co->co_argcount, p);
-        w_long(co->co_posonlyargcount, p);
-        w_long(co->co_kwonlyargcount, p);
-        w_long(co->co_nlocals, p);
-        w_long(co->co_stacksize, p);
+        w_long(co->co_size, p);
+        w_long(co->co_packed_flags, p);
         w_long(co->co_flags, p);
-        w_object(co->co_code, p);
-        w_object(co->co_consts, p);
-        w_object(co->co_names, p);
+        w_long(co->co_argcount, p);
+        w_long(co->co_nlocals, p);
+        w_long(co->co_ndefaultargs, p);
+        w_long(co->co_posonlyargcount, p);
+        w_long(co->co_totalargcount, p);
+        w_long(co->co_framesize, p);
+        w_long(co->co_nconsts, p);
+        w_long(co->co_nmeta, p);
+        w_long(co->co_ncells, p);
+        w_long(co->co_nfreevars, p);
+        w_long(co->co_exc_handlers->size, p);
+        w_long(co->co_jump_table->size, p);
+        for (Py_ssize_t i = 0; i < co->co_nconsts; i++) {
+            w_object(co->co_constants[i], p);
+        }
+        for (Py_ssize_t i = 0; i < co->co_ncells; i++) {
+            w_long(co->co_cell2reg[i], p);
+        }
+        for (Py_ssize_t i = 0, n = co->co_nfreevars; i < n; i++) {
+            w_long(co->co_free2reg[i*2], p);
+            w_long(co->co_free2reg[i*2+1], p);
+        }
+        struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
+        for (Py_ssize_t i = 0; i < exc_handlers->size; i++) {
+            ExceptionHandler *handler = &exc_handlers->entries[i];
+            w_long(handler->start, p);
+            w_long(handler->handler, p);
+            w_long(handler->handler_end, p);
+            w_long(handler->reg, p);
+        }
+        struct _PyJumpSideTable *jump_table = co->co_jump_table;
+        for (Py_ssize_t i = 0; i < jump_table->size; i++) {
+            JumpEntry *j = &jump_table->entries[i];
+            w_long((long)j->from, p);
+            w_long((long)j->delta, p);
+        }
+        w_long(co->co_firstlineno, p);
         w_object(co->co_varnames, p);
         w_object(co->co_freevars, p);
         w_object(co->co_cellvars, p);
         w_object(co->co_filename, p);
         w_object(co->co_name, p);
-        w_long(co->co_firstlineno, p);
         w_object(co->co_lnotab, p);
+        w_string((const char *)PyCode_FirstInstr(co), co->co_size, p);
+    }
+    else if (PySlice_Check(v)) {
+        PySliceObject *s = (PySliceObject *)v;
+        W_TYPE(TYPE_SLICE, p);
+        w_object(s->start, p);
+        w_object(s->stop, p);
+        w_object(s->step, p);
     }
     else if (PyObject_CheckBuffer(v)) {
         /* Write unknown bytes-like objects as a bytes object */
@@ -1301,101 +1341,164 @@ r_object(RFILE *p)
 
     case TYPE_CODE:
         {
-            int argcount;
-            int posonlyargcount;
-            int kwonlyargcount;
-            int nlocals;
-            int stacksize;
+            int size;
+            int packed_flags;
             int flags;
-            PyObject *code = NULL;
-            PyObject *consts = NULL;
-            PyObject *names = NULL;
-            PyObject *varnames = NULL;
-            PyObject *freevars = NULL;
-            PyObject *cellvars = NULL;
-            PyObject *filename = NULL;
-            PyObject *name = NULL;
-            int firstlineno;
-            PyObject *lnotab = NULL;
+            int argcount;
+            int nlocals;
+            int ndefaultargs;
+            int posonlyargcount;
+            int totalargcount;
+            int framesize;
+            int nconsts;
+            int nmeta;
+            int ncells;
+            int nfreevars;
+            int nexc_handlers;
+            int jump_table_size;
+            PyCodeObject *co = NULL;
 
             idx = r_ref_reserve(flag, p);
             if (idx < 0)
                 break;
 
-            v = NULL;
-
-            /* XXX ignore long->int overflows for now */
-            argcount = (int)r_long(p);
-            if (PyErr_Occurred())
-                goto code_error;
-            posonlyargcount = (int)r_long(p);
-            if (PyErr_Occurred()) {
-                goto code_error;
-            }
-            kwonlyargcount = (int)r_long(p);
-            if (PyErr_Occurred())
-                goto code_error;
-            nlocals = (int)r_long(p);
-            if (PyErr_Occurred())
-                goto code_error;
-            stacksize = (int)r_long(p);
-            if (PyErr_Occurred())
-                goto code_error;
+            size = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            packed_flags = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
             flags = (int)r_long(p);
-            if (PyErr_Occurred())
-                goto code_error;
-            code = r_object(p);
-            if (code == NULL)
-                goto code_error;
-            consts = r_object(p);
-            if (consts == NULL)
-                goto code_error;
-            names = r_object(p);
-            if (names == NULL)
-                goto code_error;
-            varnames = r_object(p);
-            if (varnames == NULL)
-                goto code_error;
-            freevars = r_object(p);
-            if (freevars == NULL)
-                goto code_error;
-            cellvars = r_object(p);
-            if (cellvars == NULL)
-                goto code_error;
-            filename = r_object(p);
-            if (filename == NULL)
-                goto code_error;
-            name = r_object(p);
-            if (name == NULL)
-                goto code_error;
-            firstlineno = (int)r_long(p);
-            if (firstlineno == -1 && PyErr_Occurred())
+            if (PyErr_Occurred()) goto code2_error;
+            argcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nlocals = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            ndefaultargs = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            posonlyargcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            totalargcount = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            framesize = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nconsts = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nmeta = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            ncells = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nfreevars = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            nexc_handlers = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            jump_table_size = (int)r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+
+            co = PyCode_New2(size, nconsts, nmeta, ncells, nfreevars,
+                             nexc_handlers, jump_table_size);
+            if (co == NULL)
                 break;
-            lnotab = r_object(p);
-            if (lnotab == NULL)
-                goto code_error;
 
-            v = (PyObject *) PyCode_NewWithPosOnlyArgs(
-                            argcount, posonlyargcount, kwonlyargcount,
-                            nlocals, stacksize, flags,
-                            code, consts, names, varnames,
-                            freevars, cellvars, filename, name,
-                            firstlineno, lnotab);
-            v = r_ref_insert(v, idx, flag, p);
+            co->co_packed_flags = packed_flags;
+            co->co_flags = flags;
+            co->co_argcount = argcount;
+            co->co_nlocals = nlocals;
+            co->co_ndefaultargs = ndefaultargs;
+            co->co_posonlyargcount = posonlyargcount;
+            co->co_totalargcount = totalargcount;
+            co->co_kwonlyargcount = totalargcount - argcount;
+            co->co_framesize = framesize;
 
-          code_error:
-            Py_XDECREF(code);
-            Py_XDECREF(consts);
-            Py_XDECREF(names);
-            Py_XDECREF(varnames);
-            Py_XDECREF(freevars);
-            Py_XDECREF(cellvars);
-            Py_XDECREF(filename);
-            Py_XDECREF(name);
-            Py_XDECREF(lnotab);
+            for (Py_ssize_t i = 0; i < nconsts; i++) {
+                PyObject *v = r_object(p);
+                if (v == NULL) goto code2_error;
+                co->co_constants[i] = v;
+            }
+            if (_PyCode_InternConstants(co) != 0) {
+                goto code2_error;
+            }
+            for (Py_ssize_t i = 0; i < ncells; i++) {
+                co->co_cell2reg[i] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            for (Py_ssize_t i = 0; i < nfreevars; i++) {
+                co->co_free2reg[i*2] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                co->co_free2reg[i*2+1] = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            struct _PyHandlerTable *exc_handlers = co->co_exc_handlers;
+            for (Py_ssize_t i = 0; i < exc_handlers->size; i++) {
+                ExceptionHandler *handler = &exc_handlers->entries[i];
+                handler->start = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->handler = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->handler_end = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                handler->reg = r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+            struct _PyJumpSideTable *jump_table = co->co_jump_table;
+            for (Py_ssize_t i = 0; i < jump_table->size; i++) {
+                JumpEntry *j = &jump_table->entries[i];
+                j->from = (uint32_t) r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+                j->delta = (int32_t) r_long(p);
+                if (PyErr_Occurred()) goto code2_error;
+            }
+
+            co->co_firstlineno = r_long(p);
+            if (PyErr_Occurred()) goto code2_error;
+            co->co_varnames = r_object(p);
+            if (co->co_varnames == NULL) goto code2_error;
+            co->co_freevars = r_object(p);
+            if (co->co_freevars == NULL) goto code2_error;
+            co->co_cellvars = r_object(p);
+            if (co->co_cellvars == NULL) goto code2_error;
+            co->co_filename = r_object(p);
+            if (co->co_filename == NULL) goto code2_error;
+            co->co_name = r_object(p);
+            if (co->co_name == NULL) goto code2_error;
+            co->co_lnotab = r_object(p);
+            if (co->co_lnotab == NULL) goto code2_error;
+
+            const char *code = r_string(co->co_size, p);
+            if (code == NULL) goto code2_error;
+            memcpy(PyCode_FirstInstr(co), code, co->co_size);
+
+            retval = r_ref_insert((PyObject *)co, idx, flag, p);
+            break;
+
+          code2_error:
+            Py_XDECREF(co);
+            retval = NULL;
+            break;
         }
-        retval = v;
         break;
+
+    case TYPE_SLICE: {
+        PyObject *start = NULL, *stop = NULL, *step = NULL;
+
+        idx = r_ref_reserve(flag, p);
+        if (idx < 0)
+            break;
+
+        start = r_object(p);
+        if (start == NULL) goto slice_error;
+        stop = r_object(p);
+        if (stop == NULL) goto slice_error;
+        step = r_object(p);
+        if (step == NULL) goto slice_error;
+        v = PySlice_New(start, stop, step);
+        v = r_ref_insert(v, idx, flag, p);
+        retval = v;
+
+      slice_error:
+        Py_XDECREF(start);
+        Py_XDECREF(stop);
+        Py_XDECREF(step);
+        break;
+    }
 
     case TYPE_REF:
         n = r_long(p);

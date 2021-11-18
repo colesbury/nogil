@@ -101,7 +101,7 @@ ENCODING = locale.getpreferredencoding()
 
 FRAME_INFO_OPTIMIZED_OUT = '(frame information optimized out)'
 UNABLE_READ_INFO_PYTHON_FRAME = 'Unable to read information on python frame'
-EVALFRAME = '_PyEval_EvalFrameDefault'
+EVALFRAME = '_PyEval_Fast'
 
 class NullPyObjectPtr(RuntimeError):
     pass
@@ -364,6 +364,7 @@ class PyObjectPtr(object):
 
         name_map = {'bool': PyBoolObjectPtr,
                     'classobj': PyClassObjectPtr,
+                    'function': PyFunctionObjectPtr,
                     'NoneType': PyNoneStructPtr,
                     'frame': PyFrameObjectPtr,
                     'set' : PySetObjectPtr,
@@ -1026,6 +1027,270 @@ class PyFrameObjectPtr(PyObjectPtr):
                      lineno,
                      self.co_name.proxyval(visited)))
 
+class PyFunctionObjectPtr(PyObjectPtr):
+    _typename = 'PyFunctionObject'
+    code_size = PyCodeObjectPtr.get_gdb_type().target().sizeof
+
+    def first_instr(self):
+        PyFuncBasePtr = gdb.lookup_type("PyFuncBase").pointer()
+        return self._gdbval.cast(PyFuncBasePtr)['first_instr']
+
+    def code(self):
+        ptr = self.first_instr() - self.code_size
+        return PyCodeObjectPtr.from_pyobject_ptr(ptr)
+
+
+class ThreadStatePtr:
+    def __init__(self, gdbval):
+        self._gdbval = gdbval
+
+        if not self.is_optimized_out():
+            self.stack = Registers(self._gdbval['regs'])
+            self.regs = Registers(self._gdbval['regs'])
+            self.pc = self._gdbval['pc']
+
+    def is_optimized_out(self):
+        return self._gdbval.is_optimized_out
+
+class Registers:
+    _typename = 'Register'
+
+    def __init__(self, gdbval):
+        self._gdbval = gdbval.cast(Registers.get_gdb_type())
+
+    def __getitem__(self, idx):
+        return Register(self._gdbval[idx])
+
+    @classmethod
+    def get_gdb_type(cls):
+        return gdb.lookup_type(cls._typename).pointer()
+
+class Register:
+    _typename = 'Register'
+
+    def __init__(self, gdbval):
+        self._gdbval = gdbval.cast(Register.get_gdb_type())
+        self.value = int(self._gdbval.cast(gdb.lookup_type("int64_t")))
+
+    def is_rc(self):
+        return (self.value & 1) == 0
+
+    def is_obj(self):
+        return (self.value & 3) != 3
+
+    def as_obj(self):
+        return PyObjectPtr.from_pyobject_ptr(gdb.Value(self.value & ~1))
+
+    def __repr__(self):
+        return f"Register(as_int64 = {self.value})"
+
+    @classmethod
+    def get_gdb_type(cls):
+        return gdb.lookup_type(cls._typename)
+
+
+CO_NEWLOCALS = 0x0002
+
+class InterpFrame:
+    def __init__(self, frame, ts, regs, pc):
+        self.frame = frame
+        self.ts = ts
+        self.regs = regs
+        self.pc = pc.cast(_type_char_ptr())
+        self.func = self.regs[-1].as_obj()
+        if isinstance(self.func, PyFunctionObjectPtr):
+            self.co = self.func.code()
+            self.is_python_frame = True
+            self.co_filename = self.co.pyop_field('co_filename')
+            self.co_flags = int_from_int(self.co.field('co_flags'))
+            self.co_name = self.co.pyop_field('co_name')
+            self.co_nlocals = int_from_int(self.co.field('co_nlocals'))
+            self.co_varnames = self.co.pyop_field('co_varnames')
+        else:
+            self.is_python_frame = False
+
+    def is_optimized_out(self):
+        return self.ts.is_optimized_out()
+
+    def is_valid(self):
+        return self.frame.is_valid()
+
+    def iter_locals(self):
+        '''
+        Yield a sequence of (name,value) pairs of PyObjectPtr instances, for
+        the local variables of this frame
+        '''
+        if self.is_optimized_out() or not self.is_python_frame:
+            return
+
+        if (self.co_flags & CO_NEWLOCALS) == 0:
+            return
+
+        for i in safe_range(self.co_nlocals):
+            r = self.regs[i]
+            if not r.is_obj():
+                continue
+            pyop_value = r.as_obj()
+            pyop_name = PyObjectPtr.from_pyobject_ptr(self.co_varnames[i])
+            yield (pyop_name, pyop_value)
+
+    def iter_globals(self):
+        '''
+        Yield a sequence of (name,value) pairs of PyObjectPtr instances, for
+        the global variables of this frame
+        '''
+        if self.is_optimized_out() or not self.is_python_frame:
+            return ()
+
+        return self.func.pyop_field('globals').iteritems()
+
+    def iter_builtins(self):
+        '''
+        Yield a sequence of (name,value) pairs of PyObjectPtr instances, for
+        the builtin variables
+        '''
+        if self.is_optimized_out() or not self.is_python_frame:
+            return ()
+
+        return self.func.pyop_field('builtins').iteritems()
+
+    def get_var_by_name(self, name):
+        '''
+        Look for the named local variable, returning a (PyObjectPtr, scope) pair
+        where scope is a string 'local', 'global', 'builtin'
+
+        If not found, return (None, None)
+        '''
+        for pyop_name, pyop_value in self.iter_locals():
+            if name == pyop_name.proxyval(set()):
+                return pyop_value, 'local'
+        for pyop_name, pyop_value in self.iter_globals():
+            if name == pyop_name.proxyval(set()):
+                return pyop_value, 'global'
+        for pyop_name, pyop_value in self.iter_builtins():
+            if name == pyop_name.proxyval(set()):
+                return pyop_value, 'builtin'
+        return None, None
+
+    def current_line_num(self):
+        if self.is_optimized_out() or not self.is_python_frame:
+            return None
+        try:
+            addrq = self.pc - self.func.first_instr()
+            return self.co.addr2line(addrq)
+        except Exception:
+            # bpo-34989: addr2line() is a complex function, it can fail in many
+            # ways. For example, it fails with a TypeError on "FakeRepr" if
+            # gdb fails to load debug symbols. Use a catch-all "except
+            # Exception" to make the whole function safe. The caller has to
+            # handle None anyway for optimized Python.
+            return None
+
+    def filename(self):
+        if self.is_python_frame:
+            return self.co_filename.proxyval(set())
+        return None
+
+    def current_line(self):
+        '''Get the text of the current source line as a string, with a trailing
+        newline character'''
+        if self.is_optimized_out():
+            return FRAME_INFO_OPTIMIZED_OUT
+
+        lineno = self.current_line_num()
+        if lineno is None:
+            return '(failed to get frame line number)'
+
+        filename = self.filename()
+        try:
+            with open(os_fsencode(filename), 'r') as fp:
+                lines = fp.readlines()
+        except IOError:
+            return None
+
+        try:
+            # Convert from 1-based current_line_num to 0-based list offset
+            return lines[lineno - 1]
+        except IndexError:
+            return None
+
+    def previous(self):
+        frame_delta = self.regs[-4]
+        frame_link = self.regs[-3]
+        prev_regs = Registers(self.regs._gdbval - frame_delta.value)
+        if frame_link.value == 0:
+            return None
+        return InterpFrame(self.frame, self.ts, prev_regs, frame_link._gdbval)
+
+    def write_repr(self, out, visited):
+        if self.is_optimized_out():
+            out.write(FRAME_INFO_OPTIMIZED_OUT)
+            return
+        if not self.is_python_frame:
+            out.write(str(self.func.proxyval(visited)))
+            return
+        lineno = self.current_line_num()
+        lineno = str(lineno) if lineno is not None else "?"
+        out.write('Frame 0x%x, for file %s, line %s, in %s ('
+                  % (self.as_address(),
+                     self.co_filename.proxyval(visited),
+                     lineno,
+                     self.co_name.proxyval(visited)))
+        first = True
+        for pyop_name, pyop_value in self.iter_locals():
+            if not first:
+                out.write(', ')
+            first = False
+
+            out.write(pyop_name.proxyval(visited))
+            out.write('=')
+            pyop_value.write_repr(out, visited)
+
+        out.write(')')
+
+    def as_address(self):
+        return long(self.regs._gdbval)
+
+    def print_summary(self):
+        if self.is_optimized_out():
+            sys.stdout.write('  %s\n' % FRAME_INFO_OPTIMIZED_OUT)
+            return
+        line = self.get_truncated_repr(MAX_OUTPUT_LEN)
+        write_unicode(sys.stdout, '#%i %s\n' % (self.frame.get_index(), line))
+        line = self.current_line()
+        if line is not None:
+            sys.stdout.write('    %s\n' % line.strip())
+
+    def print_traceback(self):
+        if self.is_optimized_out():
+            sys.stdout.write('  %s\n' % FRAME_INFO_OPTIMIZED_OUT)
+            return
+        visited = set()
+        if not self.is_python_frame:
+            sys.stdout.write('  %s\n' % str(self.func.proxyval(visited)))
+            return
+        lineno = self.current_line_num()
+        lineno = str(lineno) if lineno is not None else "?"
+        sys.stdout.write('  File "%s", line %s, in %s\n'
+                  % (self.co_filename.proxyval(visited),
+                     lineno,
+                     self.co_name.proxyval(visited)))
+
+    def get_truncated_repr(self, maxlen):
+        '''
+        Get a repr-like string for the data, but truncate it at "maxlen" bytes
+        (ending the object graph traversal as soon as you do)
+        '''
+        out = TruncatedStringIO(maxlen)
+        try:
+            self.write_repr(out, set())
+        except StringTruncated:
+            # Truncation occurred:
+            return out.getvalue() + '...(truncated)'
+
+        # No truncation occurred:
+        return out.getvalue()
+
 class PySetObjectPtr(PyObjectPtr):
     _typename = 'PySetObject'
 
@@ -1444,15 +1709,31 @@ class PyObjectPtrPrinter:
             proxyval = pyop.proxyval(set())
             return stringify(proxyval)
 
+class RegisterPrinter:
+    "Prints a (PyObject*)"
+
+    def __init__ (self, gdbval):
+        self.gdbval = gdbval
+
+    def to_string (self):
+        r = Register(self.gdbval)
+        if r.is_obj():
+            py_obj = r.as_obj()
+            if py_obj.safe_tp_name() != 'unknown':
+                return py_obj.get_truncated_repr(MAX_OUTPUT_LEN)
+        return repr(r)
+
 def pretty_printer_lookup(gdbval):
     type = gdbval.type.unqualified()
-    if type.code != gdb.TYPE_CODE_PTR:
-        return None
-
-    type = type.target().unqualified()
-    t = str(type)
-    if t in ("PyObject", "PyFrameObject", "PyUnicodeObject", "wrapperobject"):
-        return PyObjectPtrPrinter(gdbval)
+    if type.code == gdb.TYPE_CODE_PTR:
+        type = type.target().unqualified()
+        t = str(type)
+        if t in ("PyObject", "PyFrameObject", "PyUnicodeObject", "wrapperobject"):
+            return PyObjectPtrPrinter(gdbval)
+    elif type.strip_typedefs().code == gdb.TYPE_CODE_UNION:
+        t = str(type.strip_typedefs().unqualified())
+        if t == "union _Register":
+            return RegisterPrinter(gdbval)
 
 """
 During development, I've been manually invoking the code in this way:
@@ -1492,6 +1773,8 @@ class Frame(object):
     '''
     Wrapper for gdb.Frame, adding various methods
     '''
+    _selected_python_frame = None
+
     def __init__(self, gdbframe):
         self._gdbframe = gdbframe
 
@@ -1629,23 +1912,16 @@ class Frame(object):
         '''Is this frame "collect" within the garbage-collector?'''
         return self._gdbframe.name() == 'collect'
 
+    def is_valid(self):
+        return self._gdbframe.is_valid()
+
     def get_pyop(self):
         try:
-            f = self._gdbframe.read_var('f')
-            frame = PyFrameObjectPtr.from_pyobject_ptr(f)
-            if not frame.is_optimized_out():
-                return frame
-            # gdb is unable to get the "f" argument of PyEval_EvalFrameEx()
-            # because it was "optimized out". Try to get "f" from the frame
-            # of the caller, PyEval_EvalCodeEx().
-            orig_frame = frame
-            caller = self._gdbframe.older()
-            if caller:
-                f = caller.read_var('f')
-                frame = PyFrameObjectPtr.from_pyobject_ptr(f)
-                if not frame.is_optimized_out():
-                    return frame
-            return orig_frame
+            ts = self._gdbframe.read_var('ts')
+            ts = ThreadStatePtr(ts)
+            if ts.is_optimized_out():
+                return None
+            return InterpFrame(self, ts, ts.regs, ts.pc)
         except ValueError:
             return None
 
@@ -1657,22 +1933,51 @@ class Frame(object):
         return None
 
     @classmethod
+    def get_newest_frame(cls):
+        _gdbframe = gdb.newest_frame()
+        if _gdbframe:
+            return Frame(_gdbframe)
+        return None
+
+    @classmethod
+    def get_newest_python_frame(cls):
+        frame = cls.get_newest_frame()
+        if frame:
+            return frame.find_python_frame()
+        return None
+
+    def find_python_frame(self):
+        frame = self
+        while frame:
+            if frame.is_python_frame():
+                return frame.get_pyop()
+            frame = frame.older()
+        return None
+
+    @classmethod
     def get_selected_python_frame(cls):
         '''Try to obtain the Frame for the python-related code in the selected
         frame, or None'''
+        py_frame = cls._selected_python_frame
+        if py_frame is not None and py_frame.is_valid():
+            return py_frame
+
         try:
             frame = cls.get_selected_frame()
         except gdb.error:
             # No frame: Python didn't start yet
             return None
 
+        cls._selected_python_frame = frame.find_python_frame()
+        return cls._selected_python_frame
+
+    def has_python_frame(self):
+        frame = self
         while frame:
             if frame.is_python_frame():
-                return frame
+                return True
             frame = frame.older()
-
-        # Not found:
-        return None
+        return False
 
     @classmethod
     def get_selected_bytecode_frame(cls):
@@ -1687,43 +1992,6 @@ class Frame(object):
 
         # Not found:
         return None
-
-    def print_summary(self):
-        if self.is_evalframe():
-            pyop = self.get_pyop()
-            if pyop:
-                line = pyop.get_truncated_repr(MAX_OUTPUT_LEN)
-                write_unicode(sys.stdout, '#%i %s\n' % (self.get_index(), line))
-                if not pyop.is_optimized_out():
-                    line = pyop.current_line()
-                    if line is not None:
-                        sys.stdout.write('    %s\n' % line.strip())
-            else:
-                sys.stdout.write('#%i (unable to read python frame information)\n' % self.get_index())
-        else:
-            info = self.is_other_python_frame()
-            if info:
-                sys.stdout.write('#%i %s\n' % (self.get_index(), info))
-            else:
-                sys.stdout.write('#%i\n' % self.get_index())
-
-    def print_traceback(self):
-        if self.is_evalframe():
-            pyop = self.get_pyop()
-            if pyop:
-                pyop.print_traceback()
-                if not pyop.is_optimized_out():
-                    line = pyop.current_line()
-                    if line is not None:
-                        sys.stdout.write('    %s\n' % line.strip())
-            else:
-                sys.stdout.write('  (unable to read python frame information)\n')
-        else:
-            info = self.is_other_python_frame()
-            if info:
-                sys.stdout.write('  %s\n' % info)
-            else:
-                sys.stdout.write('  (not a python frame)\n')
 
 class PyList(gdb.Command):
     '''List the current Python source code, if any
@@ -1760,18 +2028,19 @@ class PyList(gdb.Command):
             start, end = map(int, m.groups())
 
         # py-list requires an actual PyEval_EvalFrameEx frame:
-        frame = Frame.get_selected_bytecode_frame()
+        frame = Frame.get_selected_python_frame()
+        while frame and not frame.is_python_frame:
+            frame = frame.previous()
         if not frame:
             print('Unable to locate gdb frame for python bytecode interpreter')
             return
 
-        pyop = frame.get_pyop()
-        if not pyop or pyop.is_optimized_out():
+        if frame.is_optimized_out():
             print(UNABLE_READ_INFO_PYTHON_FRAME)
             return
 
-        filename = pyop.filename()
-        lineno = pyop.current_line_num()
+        filename = frame.filename()
+        lineno = frame.current_line_num()
         if lineno is None:
             print('Unable to read python frame line number')
             return
@@ -1805,35 +2074,6 @@ class PyList(gdb.Command):
 # ...and register the command:
 PyList()
 
-def move_in_stack(move_up):
-    '''Move up or down the stack (for the py-up/py-down command)'''
-    frame = Frame.get_selected_python_frame()
-    if not frame:
-        print('Unable to locate python frame')
-        return
-
-    while frame:
-        if move_up:
-            iter_frame = frame.older()
-        else:
-            iter_frame = frame.newer()
-
-        if not iter_frame:
-            break
-
-        if iter_frame.is_python_frame():
-            # Result:
-            if iter_frame.select():
-                iter_frame.print_summary()
-            return
-
-        frame = iter_frame
-
-    if move_up:
-        print('Unable to find an older python frame')
-    else:
-        print('Unable to find a newer python frame')
-
 class PyUp(gdb.Command):
     'Select and print the python stack frame that called this one (if any)'
     def __init__(self):
@@ -1844,7 +2084,17 @@ class PyUp(gdb.Command):
 
 
     def invoke(self, args, from_tty):
-        move_in_stack(move_up=True)
+        frame = Frame.get_selected_python_frame()
+        if not frame:
+            print('Unable to locate python frame')
+            return
+
+        frame = frame.previous()
+        if not frame:
+            print('Unable to find an older python frame')
+            return
+        Frame._selected_python_frame = frame
+        frame.print_summary()
 
 class PyDown(gdb.Command):
     'Select and print the python stack frame called by this one (if any)'
@@ -1856,7 +2106,22 @@ class PyDown(gdb.Command):
 
 
     def invoke(self, args, from_tty):
-        move_in_stack(move_up=False)
+        frame = Frame.get_selected_python_frame()
+        if not frame:
+            print('Unable to locate python frame')
+            return
+
+        newer = Frame.get_newest_python_frame()
+        while newer is not None:
+            prev = newer.previous()
+            if prev and prev.regs._gdbval == frame.regs._gdbval:
+                break
+            newer = prev
+        if newer is None:
+            print('Unable to find a newer python frame')
+            return
+        Frame._selected_python_frame = newer
+        newer.print_summary()
 
 # Not all builds of gdb have gdb.Frame.select
 if hasattr(gdb.Frame, 'select'):
@@ -1873,14 +2138,23 @@ class PyBacktraceFull(gdb.Command):
 
 
     def invoke(self, args, from_tty):
-        frame = Frame.get_selected_python_frame()
-        if not frame:
+        frame = Frame.get_newest_frame()
+        if not frame.has_python_frame():
             print('Unable to locate python frame')
             return
 
         while frame:
-            if frame.is_python_frame():
-                frame.print_summary()
+            if frame.is_evalframe():
+                interp_frame = frame.get_pyop()
+                if not interp_frame:
+                    sys.stdout.write('#%i (unable to read python frame information)\n' % frame.get_index())
+                while interp_frame:
+                    interp_frame.print_summary()
+                    interp_frame = interp_frame.previous()
+                return
+            info = frame.is_other_python_frame()
+            if info:
+                sys.stdout.write('#%i %s\n' % (frame.get_index(), info))
             frame = frame.older()
 
 PyBacktraceFull()
@@ -1895,15 +2169,28 @@ class PyBacktrace(gdb.Command):
 
 
     def invoke(self, args, from_tty):
-        frame = Frame.get_selected_python_frame()
-        if not frame:
+        frame = Frame.get_newest_frame()
+        if not frame.has_python_frame():
             print('Unable to locate python frame')
             return
 
         sys.stdout.write('Traceback (most recent call first):\n')
         while frame:
-            if frame.is_python_frame():
-                frame.print_traceback()
+            if frame.is_evalframe():
+                interp_frame = frame.get_pyop()
+                if not interp_frame:
+                    sys.stdout.write('  (unable to read python frame information)\n')
+                while interp_frame:
+                    interp_frame.print_traceback()
+                    if interp_frame.is_python_frame:
+                        line = interp_frame.current_line()
+                        if line is not None:
+                            sys.stdout.write('    %s\n' % line.strip())
+                    interp_frame = interp_frame.previous()
+                return
+            info = frame.is_other_python_frame()
+            if info:
+                sys.stdout.write('  %s\n' % info)
             frame = frame.older()
 
 PyBacktrace()
@@ -1925,12 +2212,7 @@ class PyPrint(gdb.Command):
             print('Unable to locate python frame')
             return
 
-        pyop_frame = frame.get_pyop()
-        if not pyop_frame:
-            print(UNABLE_READ_INFO_PYTHON_FRAME)
-            return
-
-        pyop_var, scope = pyop_frame.get_var_by_name(name)
+        pyop_var, scope = frame.get_var_by_name(name)
 
         if pyop_var:
             print('%s %r = %s'
@@ -1959,14 +2241,32 @@ class PyLocals(gdb.Command):
             print('Unable to locate python frame')
             return
 
-        pyop_frame = frame.get_pyop()
-        if not pyop_frame:
-            print(UNABLE_READ_INFO_PYTHON_FRAME)
-            return
-
-        for pyop_name, pyop_value in pyop_frame.iter_locals():
+        for pyop_name, pyop_value in frame.iter_locals():
             print('%s = %s'
                    % (pyop_name.proxyval(set()),
                       pyop_value.get_truncated_repr(MAX_OUTPUT_LEN)))
 
 PyLocals()
+
+
+class PyLocal(gdb.Function):
+    'Look up the given python variable name and return it'
+    def __init__(self):
+        gdb.Function.__init__ (self, "pylocal")
+
+
+    def invoke(self, name):
+        name = name.string()
+
+        frame = Frame.get_selected_python_frame()
+        if not frame:
+            print('Unable to locate python frame')
+            return
+
+        pyop_var, scope = frame.get_var_by_name(name)
+        if pyop_var:
+            return pyop_var._gdbval
+
+        return -1
+
+PyLocal()

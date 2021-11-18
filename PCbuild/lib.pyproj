@@ -1402,7 +1402,6 @@
     <Compile Include="test\test_zoneinfo\_support.py" />
     <Compile Include="test\test_zoneinfo\test_zoneinfo.py" />
     <Compile Include="test\test__locale.py" />
-    <Compile Include="test\test__opcode.py" />
     <Compile Include="test\test__osx_support.py" />
     <Compile Include="test\test___all__.py" />
     <Compile Include="test\test___future__.py" />

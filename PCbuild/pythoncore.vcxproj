@@ -123,6 +123,7 @@
     <ClInclude Include="..\Include\bytesobject.h" />
     <ClInclude Include="..\Include\cellobject.h" />
     <ClInclude Include="..\Include\ceval.h" />
+    <ClInclude Include="..\Include\ceval_meta.h" />
     <ClInclude Include="..\Include\classobject.h" />
     <ClInclude Include="..\Include\code.h" />
     <ClInclude Include="..\Include\codecs.h" />
@@ -185,6 +186,7 @@
     <ClInclude Include="..\Include\internal\pycore_dtoa.h" />
     <ClInclude Include="..\Include\internal\pycore_fileutils.h" />
     <ClInclude Include="..\Include\internal\pycore_gc.h" />
+    <ClInclude Include="..\Include\internal\pycore_generator.h" />
     <ClInclude Include="..\Include\internal\pycore_getopt.h" />
     <ClInclude Include="..\Include\internal\pycore_gil.h" />
     <ClInclude Include="..\Include\internal\pycore_hamt.h" />
@@ -204,6 +206,7 @@
     <ClInclude Include="..\Include\internal\pycore_qsbr.h" />
     <ClInclude Include="..\Include\internal\pycore_refcnt.h" />
     <ClInclude Include="..\Include\internal\pycore_runtime.h" />
+    <ClInclude Include="..\Include\internal\pycore_stackwalk.h" />
     <ClInclude Include="..\Include\internal\pycore_sysmodule.h" />
     <ClInclude Include="..\Include\internal\pycore_traceback.h" />
     <ClInclude Include="..\Include\internal\pycore_tupleobject.h" />
@@ -302,10 +305,12 @@
     <ClInclude Include="..\PC\errmap.h" />
     <ClInclude Include="..\PC\pyconfig.h" />
     <ClInclude Include="..\Python\ceval_gil.h" />
+    <ClInclude Include="..\Python\ceval_intrinsics.h" />
     <ClInclude Include="..\Python\condvar.h" />
     <ClInclude Include="..\Python\importdl.h" />
+    <ClInclude Include="..\Python\opcode_dispatch.h" />
+    <ClInclude Include="..\Python\opcode_names.h" />
     <ClInclude Include="..\Python\thread_nt.h" />
-    <ClInclude Include="..\Python\wordcode_helpers.h" />
   </ItemGroup>
   <ItemGroup Condition="$(IncludeExternals)">
     <ClInclude Include="$(zlibDir)\crc32.h" />
@@ -462,6 +467,8 @@
     <ClCompile Include="..\PC\config.c" />
     <ClCompile Include="..\PC\getpathp.c" />
     <ClCompile Include="..\PC\msvcrtmodule.c" />
+    <ClCompile Include="..\Python\ceval_gil.c" />
+    <ClCompile Include="..\Python\ceval_meta.c" />
     <ClCompile Include="..\Python\pyhash.c" />
     <ClCompile Include="..\Python\_warnings.c" />
     <ClCompile Include="..\Python\asdl.c" />

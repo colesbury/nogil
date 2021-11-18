@@ -9,12 +9,12 @@ import io
 import sys
 
 
-LOAD_CONST = dis.opmap['LOAD_CONST']
-IMPORT_NAME = dis.opmap['IMPORT_NAME']
-STORE_NAME = dis.opmap['STORE_NAME']
-STORE_GLOBAL = dis.opmap['STORE_GLOBAL']
+LOAD_CONST = dis.opmap['LOAD_CONST'].opcode
+IMPORT_NAME = dis.opmap['IMPORT_NAME'].opcode
+STORE_NAME = dis.opmap['STORE_NAME'].opcode
+STORE_GLOBAL = dis.opmap['STORE_GLOBAL'].opcode
 STORE_OPS = STORE_NAME, STORE_GLOBAL
-EXTENDED_ARG = dis.EXTENDED_ARG
+WIDE = dis.opmap['WIDE'].opcode
 
 # Old imp constants:
 
@@ -395,22 +395,17 @@ class ModuleFinder:
     def scan_opcodes(self, co):
         # Scan the code, and yield 'interesting' opcode combinations
         code = co.co_code
-        names = co.co_names
         consts = co.co_consts
-        opargs = [(op, arg) for _, op, arg in dis._unpack_opargs(code)
-                  if op != EXTENDED_ARG]
-        for i, (op, oparg) in enumerate(opargs):
+        for i, (offset, op, *imm) in enumerate(dis._unpack_opargs(code)):
             if op in STORE_OPS:
-                yield "store", (names[oparg],)
+                yield "store", (consts[imm[0]],)
                 continue
-            if (op == IMPORT_NAME and i >= 2
-                    and opargs[i-1][0] == opargs[i-2][0] == LOAD_CONST):
-                level = consts[opargs[i-2][1]]
-                fromlist = consts[opargs[i-1][1]]
+            if op == IMPORT_NAME:
+                name, fromlist, level = consts[imm[0]]
                 if level == 0: # absolute import
-                    yield "absolute_import", (fromlist, names[oparg])
+                    yield "absolute_import", (fromlist, name)
                 else: # relative import
-                    yield "relative_import", (level, fromlist, names[oparg])
+                    yield "relative_import", (level, fromlist, name)
                 continue
 
     def scan_code(self, co, m):

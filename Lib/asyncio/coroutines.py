@@ -87,10 +87,9 @@ class CoroWrapper:
         return self.gen.gi_yieldfrom
 
     def __del__(self):
-        # Be careful accessing self.gen.frame -- self.gen might not exist.
+        # Be careful: self.gen might not exist.
         gen = getattr(self, 'gen', None)
-        frame = getattr(gen, 'gi_frame', None)
-        if frame is not None and frame.f_lasti == -1:
+        if gen != None and inspect.getgeneratorstate(gen) == 'GEN_CREATED':
             msg = f'{self!r} was never yielded from'
             tb = getattr(self, '_source_traceback', ())
             if tb:

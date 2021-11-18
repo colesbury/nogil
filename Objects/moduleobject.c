@@ -3,6 +3,7 @@
 
 #include "Python.h"
 #include "pycore_interp.h"        // PyInterpreterState.importlib
+#include "pycore_object.h"
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "structmember.h"         // PyMemberDef
 
@@ -95,6 +96,15 @@ module_init_dict(PyModuleObject *mod, PyObject *md_dict,
     return 0;
 }
 
+static PyObject *
+module_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    PyObject *m = PyType_GenericNew(type, args, kwds);
+    if (m != NULL) {
+        _PyObject_SET_DEFERRED_RC(m);
+    }
+    return m;
+}
 
 PyObject *
 PyModule_NewObject(PyObject *name)
@@ -117,6 +127,8 @@ PyModule_NewObject(PyObject *name)
     if (module_init_dict(m, m->md_dict, name, NULL) != 0)
         goto fail;
     PyObject_GC_Track(m);
+    _PyObject_SET_DEFERRED_RC(m);
+    _PyObject_SET_DEFERRED_RC(m->md_dict);
     return (PyObject *)m;
 
  fail:
@@ -174,6 +186,7 @@ _add_methods_to_object(PyObject *module, PyObject *name, PyMethodDef *functions)
         if (func == NULL) {
             return -1;
         }
+        _PyObject_SET_DEFERRED_RC(func);
         if (PyObject_SetAttrString(module, fdef->ml_name, func) != 0) {
             Py_DECREF(func);
             return -1;
@@ -733,25 +746,23 @@ _PyModuleSpec_IsInitializing(PyObject *spec)
     return 0;
 }
 
-static PyObject*
-module_getattro(PyModuleObject *m, PyObject *name)
+
+PyObject *
+_PyModule_MissingAttr(PyObject *m, PyObject *name)
 {
-    PyObject *attr, *mod_name, *getattr;
-    attr = PyObject_GenericGetAttr((PyObject *)m, name);
-    if (attr || !PyErr_ExceptionMatches(PyExc_AttributeError)) {
-        return attr;
-    }
-    PyErr_Clear();
-    if (m->md_dict) {
+    assert(PyModule_Check(m));
+    PyObject *mod_name, *getattr;
+    PyObject *dict = ((PyModuleObject *)m)->md_dict;
+    if (dict) {
         _Py_IDENTIFIER(__getattr__);
-        getattr = _PyDict_GetItemId(m->md_dict, &PyId___getattr__);
+        getattr = _PyDict_GetItemId(dict, &PyId___getattr__);
         if (getattr) {
-            return PyObject_CallOneArg(getattr, name);
+            return _PyObject_CallOneArg(getattr, name);
         }
-        mod_name = _PyDict_GetItemId(m->md_dict, &PyId___name__);
+        mod_name = _PyDict_GetItemId(dict, &PyId___name__);
         if (mod_name && PyUnicode_Check(mod_name)) {
             Py_INCREF(mod_name);
-            PyObject *spec = _PyDict_GetItemId(m->md_dict, &PyId___spec__);
+            PyObject *spec = _PyDict_GetItemId(dict, &PyId___spec__);
             Py_XINCREF(spec);
             if (_PyModuleSpec_IsInitializing(spec)) {
                 PyErr_Format(PyExc_AttributeError,
@@ -773,6 +784,20 @@ module_getattro(PyModuleObject *m, PyObject *name)
     PyErr_Format(PyExc_AttributeError,
                 "module has no attribute '%U'", name);
     return NULL;
+}
+
+static PyObject*
+module_getattro(PyObject *m, PyObject *name)
+{
+    PyObject *attr = PyObject_GenericGetAttr(m, name);
+    if (attr != NULL) {
+        return attr;
+    }
+    if (!PyErr_ExceptionMatches(PyExc_AttributeError)) {
+        return NULL;
+    }
+    PyErr_Clear();
+    return _PyModule_MissingAttr(m, name);
 }
 
 static int
@@ -887,6 +912,6 @@ PyTypeObject PyModule_Type = {
     offsetof(PyModuleObject, md_dict),          /* tp_dictoffset */
     module___init__,                            /* tp_init */
     PyType_GenericAlloc,                        /* tp_alloc */
-    PyType_GenericNew,                          /* tp_new */
+    module_new,                                 /* tp_new */
     PyObject_GC_Del,                            /* tp_free */
 };

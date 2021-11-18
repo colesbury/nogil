@@ -13,7 +13,7 @@ class CodePicklerTest(unittest.TestCase):
         self.assertIs(func, rpc.unpickle_code)
         self.assertIn(b'test_rpc.py', cbytes)
         code = rpc.unpickle_code(cbytes)
-        self.assertEqual(code.co_names, ('a', 'b', 'c'))
+        self.assertEqual(code.co_consts[2:], ('a', 'b', 'c'))
 
     def test_code_pickler(self):
         self.assertIn(type((lambda:None).__code__),
