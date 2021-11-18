@@ -867,6 +867,44 @@ frame_get_builtins(PyFrameObject *back, PyObject *globals)
 }
 
 
+PyFrameObject*
+_PyFrame_NewFake(PyCodeObject2 *code, PyObject *globals)
+{
+    Py_ssize_t extras = code->co_nlocals;
+    PyFrameObject *f = PyObject_GC_NewVar(PyFrameObject, &PyFrame_Type, extras);
+    if (f == NULL) {
+        return NULL;
+    }
+    f->f_back = NULL;
+    f->f_code = NULL;
+    Py_INCREF(code);
+    f->f_code2 = code;
+    f->f_builtins = NULL;
+    Py_INCREF(globals);
+    f->f_globals = globals;
+    f->f_locals = NULL;
+    f->f_valuestack = f->f_localsplus + extras;
+    f->f_stacktop = f->f_valuestack;
+    f->f_trace = NULL;
+    f->f_gen = NULL;
+    f->f_lasti = -1;
+    f->f_lineno = 0;
+    f->f_iblock = 0;
+    f->f_trace_lines = 1;
+    f->f_trace_opcodes = 0;
+    f->f_executing = 0;
+    f->instr_lb = 0;
+    f->instr_ub = 0;
+    f->last_line = 0;
+    f->seen_func_header = 0;
+    f->traced_func = 0;
+    for (Py_ssize_t i = 0; i < extras; i++) {
+        f->f_localsplus[i] = NULL;
+    }
+    _PyObject_GC_TRACK(f);
+    return f;
+}
+
 PyFrameObject* _Py_HOT_FUNCTION
 _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
                      PyObject *globals, PyObject *locals)

@@ -72,6 +72,8 @@ struct _ts {
     /* Borrowed reference to the current frame (it can be NULL) */
     PyFrameObject *frame;
 
+    struct ThreadState *active;
+
     mi_heap_t *heaps[Py_NUM_HEAPS];
 
     int recursion_depth;
@@ -142,6 +144,14 @@ struct _ts {
 
     /* Unique thread state id. */
     uint64_t id;
+
+    // opcode_targets[0] is the eval_breaker
+    uintptr_t opcode_targets[256];
+#ifdef HAVE_COMPUTED_GOTOS
+    void *trace_target;
+    void *trace_cfunc_target;
+    void **opcode_targets_base;
+#endif
 
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
 

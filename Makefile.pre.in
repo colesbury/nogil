@@ -346,8 +346,11 @@ PYTHON_OBJS=	\
 		Python/ast_unparse.o \
 		Python/bltinmodule.o \
 		Python/ceval.o \
+		Python/ceval2.o \
+		Python/ceval2_meta.o \
 		Python/codecs.o \
 		Python/compile.o \
+		Python/compile2.o \
 		Python/context.o \
 		Python/critical_section.o \
 		Python/dynamic_annotations.o \
@@ -418,16 +421,19 @@ OBJECT_OBJS=	\
 		Objects/cellobject.o \
 		Objects/classobject.o \
 		Objects/codeobject.o \
+		Objects/codeobject2.o \
 		Objects/complexobject.o \
 		Objects/descrobject.o \
 		Objects/enumobject.o \
 		Objects/exceptions.o \
 		Objects/genericaliasobject.o \
 		Objects/genobject.o \
+		Objects/genobject2.o \
 		Objects/fileobject.o \
 		Objects/floatobject.o \
 		Objects/frameobject.o \
 		Objects/funcobject.o \
+		Objects/funcobject2.o \
 		Objects/interpreteridobject.o \
 		Objects/iterobject.o \
 		Objects/listobject.o \
@@ -483,7 +489,7 @@ LIBRARY_OBJS=	\
 # On some systems, object files that reference DTrace probes need to be modified
 # in-place by dtrace(1).
 DTRACE_DEPS = \
-	Python/ceval.o Python/import.o Python/sysmodule.o Modules/gcmodule.o
+	Python/ceval.o Python/ceval2.o Python/import.o Python/sysmodule.o Modules/gcmodule.o
 
 #########################################################################
 # Rules
@@ -944,6 +950,7 @@ regen-symbol: $(srcdir)/Include/graminit.h
 		$(srcdir)/Lib/symbol.py
 
 Python/compile.o Python/symtable.o Python/ast_unparse.o Python/ast.o Python/future.o Parser/parsetok.o: $(srcdir)/Include/graminit.h $(srcdir)/Include/Python-ast.h
+Python/compile2.o Python/symtable.o Python/ast_unparse.o Python/ast.o Python/future.o Parser/parsetok.o: $(srcdir)/Include/graminit.h $(srcdir)/Include/Python-ast.h
 
 Python/getplatform.o: $(srcdir)/Python/getplatform.c
 		$(CC) -c $(PY_CORE_CFLAGS) -DPLATFORM='"$(MACHDEP)"' -o $@ $(srcdir)/Python/getplatform.c
@@ -999,9 +1006,16 @@ regen-opcode-targets:
 	$(PYTHON_FOR_REGEN) $(srcdir)/Python/makeopcodetargets.py \
 		$(srcdir)/Python/opcode_targets.h.new
 	$(UPDATE_FILE) $(srcdir)/Python/opcode_targets.h $(srcdir)/Python/opcode_targets.h.new
+	$(PYTHON_FOR_REGEN) $(srcdir)/Python/makeopcodetargets2.py
 
 Python/ceval.o: $(srcdir)/Python/opcode_targets.h $(srcdir)/Python/ceval_gil.h \
 		$(srcdir)/Python/condvar.h
+
+Python/ceval2.o: $(srcdir)/Python/ceval2.c $(srcdir)/Python/opcode_targets2.h $(srcdir)/Python/unimplemented_opcodes.h
+       $${CEVAL2CC:-$(CC)} -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o $@ $<
+       $${CEVAL2CC:-$(CC)} -c -S $(PY_CORE_CFLAGS) -g0 -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o Python/ceval2.s $<
+
+Python/ceval2_meta.o: $(srcdir)/Python/opcode_names2.h $(srcdir)/Python/ceval_intrinsics.h
 
 Python/frozen.o: $(srcdir)/Python/importlib.h $(srcdir)/Python/importlib_external.h \
 		$(srcdir)/Python/importlib_zipimport.h
@@ -1049,6 +1063,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/bytesobject.h \
 		$(srcdir)/Include/cellobject.h \
 		$(srcdir)/Include/ceval.h \
+		$(srcdir)/Include/ceval2_meta.h \
 		$(srcdir)/Include/classobject.h \
 		$(srcdir)/Include/code.h \
 		$(srcdir)/Include/codecs.h \
@@ -1066,7 +1081,9 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/floatobject.h \
 		$(srcdir)/Include/frameobject.h \
 		$(srcdir)/Include/funcobject.h \
+		$(srcdir)/Include/funcobject2.h \
 		$(srcdir)/Include/genobject.h \
+		$(srcdir)/Include/genobject2.h \
 		$(srcdir)/Include/import.h \
 		$(srcdir)/Include/interpreteridobject.h \
 		$(srcdir)/Include/intrcheck.h \
@@ -1085,6 +1102,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/object.h \
 		$(srcdir)/Include/objimpl.h \
 		$(srcdir)/Include/opcode.h \
+		$(srcdir)/Include/opcode2.h \
 		$(srcdir)/Include/osdefs.h \
 		$(srcdir)/Include/osmodule.h \
 		$(srcdir)/Include/parking_lot.h \
@@ -1137,6 +1155,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/cpython/bytesobject.h \
 		$(srcdir)/Include/cpython/ceval.h \
 		$(srcdir)/Include/cpython/code.h \
+		$(srcdir)/Include/cpython/code2.h \
 		$(srcdir)/Include/cpython/dictobject.h \
 		$(srcdir)/Include/cpython/fileobject.h \
 		$(srcdir)/Include/cpython/fileutils.h \
@@ -1175,6 +1194,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/internal/pycore_critical_section.h \
 		$(srcdir)/Include/internal/pycore_dtoa.h \
 		$(srcdir)/Include/internal/pycore_fileutils.h \
+		$(srcdir)/Include/internal/pycore_generator.h \
 		$(srcdir)/Include/internal/pycore_getopt.h \
 		$(srcdir)/Include/internal/pycore_gil.h \
 		$(srcdir)/Include/internal/pycore_hamt.h \
@@ -1190,6 +1210,7 @@ PYTHON_HEADERS= \
 		$(srcdir)/Include/internal/pycore_pymem.h \
 		$(srcdir)/Include/internal/pycore_pystate.h \
 		$(srcdir)/Include/internal/pycore_runtime.h \
+		$(srcdir)/Include/internal/pycore_stackwalk.h \
 		$(srcdir)/Include/internal/pycore_sysmodule.h \
 		$(srcdir)/Include/internal/pycore_traceback.h \
 		$(srcdir)/Include/internal/pycore_tupleobject.h \

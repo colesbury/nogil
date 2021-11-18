@@ -116,6 +116,9 @@ struct _is {
     /* Initialized to PyEval_EvalFrameDefault(). */
     _PyFrameEvalFunction eval_frame;
 
+    _PyRecursiveMutex consts_mutex;
+    struct _Py_hashtable_t *consts;
+
     Py_ssize_t co_extra_user_count;
     freefunc co_extra_freefuncs[MAX_CO_EXTRA_USERS];
 

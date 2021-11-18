@@ -737,8 +737,8 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
 
 /* Handle signals, pending calls, GIL drop request
    and asynchronous exception */
-static int
-eval_handle_breaker(PyThreadState *tstate)
+int
+_PyEval_HandleBreaker(PyThreadState *tstate)
 {
     _PyRuntimeState * const runtime = &_PyRuntime;
     struct _ceval_runtime_state *ceval = &runtime->ceval;
@@ -1285,7 +1285,7 @@ main_loop:
                 goto fast_next_opcode;
             }
 
-            if (eval_handle_breaker(tstate) != 0) {
+            if (_PyEval_HandleBreaker(tstate) != 0) {
                 goto error;
             }
         }

@@ -17,8 +17,36 @@ struct _PyOpcache {
     char optimized;
 };
 
+typedef struct {
+    Py_ssize_t start;   /* start instr for try block range */
+    Py_ssize_t handler; /* end instr try block AND start of handler range */
+    Py_ssize_t handler_end; /* end of handler block */
+    Py_ssize_t reg;     /* temporary register to store active exception */
+} ExceptionHandler;
+
+struct _PyHandlerTable {
+    Py_ssize_t size;
+    ExceptionHandler entries[];
+};
+
+typedef struct {
+    uint32_t from;  /* address of JUMP_SIDE_TABLE instruction */
+    int32_t delta;  /* jump delta */
+} JumpEntry;
+
+struct _PyJumpSideTable {
+    Py_ssize_t size;
+    JumpEntry entries[];
+};
+
 /* Private API */
 int _PyCode_InitOpcache(PyCodeObject *co);
+
+PyCodeObject *
+PyCode_NewInternal(
+        int, int, int, int, int, int, int, int, PyObject *, PyObject *,
+        PyObject *, PyObject *, PyObject *, PyObject *,
+        PyObject *, PyObject *, int, PyObject *);
 
 
 #ifdef __cplusplus

@@ -14,6 +14,12 @@ typedef struct PyCodeObject PyCodeObject;
 #  undef Py_CPYTHON_CODE_H
 #endif
 
+#ifndef Py_LIMITED_API
+#  define Py_CPYTHON_CODE_H
+#  include  "cpython/code2.h"
+#  undef Py_CPYTHON_CODE_H
+#endif
+
 #ifdef __cplusplus
 }
 #endif
