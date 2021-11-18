@@ -1218,7 +1218,17 @@ run_eval_code_obj(PyThreadState *tstate, PyCodeObject *co, PyObject *globals, Py
         }
     }
 
-    v = PyEval_EvalCode((PyObject*)co, globals, locals);
+    if (PyCode_Check(co)) {
+        v = PyEval_EvalCode((PyObject*)co, globals, locals);
+    }
+    else if (PyCode2_Check(co)) {
+        v = PyEval2_EvalCode((PyObject*)co, globals, locals);
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "not a code object");
+        return NULL;
+    }
+
     if (!v && _PyErr_Occurred(tstate) == PyExc_KeyboardInterrupt) {
         _Py_UnhandledKeyboardInterrupt = 1;
     }
