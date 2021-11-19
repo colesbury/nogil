@@ -19,7 +19,6 @@ test_profile
 test_pstats
 test_pyexpat
 test_regrtest
-test_syntax
 test_sys_setprofile
 test_trace
 test_traceback

@@ -1740,11 +1740,20 @@ load_name_id(struct compiler *c, _Py_Identifier *id)
 }
 
 static void
+validate_name(struct compiler *c, PyObject *name)
+{
+    if (_PyUnicode_EqualToASCIIString(name, "__debug__")) {
+        compiler_error(c, "cannot assign to __debug__");
+    }
+}
+
+static void
 assign_name(struct compiler *c, PyObject *name)
 {
     // FIXME: we generally shouldn't have CLASS_DEREF in assignment.
     // It happens currently because we have a bug with __class__ variables
     // and nonlocal. See failing test_super.py
+    validate_name(c, name);
     struct var_info a = resolve(c, name);
     int opcodes[] = {
         [ACCESS_FAST]        = STORE_FAST,
@@ -1767,6 +1776,7 @@ static void
 assign_name_reg(struct compiler *c, PyObject *name, Py_ssize_t src, bool preserve)
 {
     struct var_info a = resolve(c, name);
+    validate_name(c, name);
     if (a.access == ACCESS_FAST && is_temporary(c, src) && !preserve) {
         emit2(c, MOVE, a.slot, src);
         free_reg(c, src);
@@ -1850,30 +1860,6 @@ compiler_unwind_block(struct compiler *c, struct fblock *block)
     }
     Py_UNREACHABLE();
 }
-
-// /** Unwind block stack. If loop is not NULL, then stop when the first loop is encountered. */
-// static int
-// compiler_unwind_fblock_stack(struct compiler *c, int preserve_tos, struct fblockinfo **loop) {
-//     if (c->u->u_nfblocks == 0) {
-//         return 1;
-//     }
-//     struct fblockinfo *top = &c->u->u_fblock[c->u->u_nfblocks-1];
-//     if (loop != NULL && (top->fb_type == WHILE_LOOP || top->fb_type == FOR_LOOP)) {
-//         *loop = top;
-//         return 1;
-//     }
-//     struct fblockinfo copy = *top;
-//     c->u->u_nfblocks--;
-//     if (!compiler_unwind_fblock(c, &copy, preserve_tos)) {
-//         return 0;
-//     }
-//     if (!compiler_unwind_fblock_stack(c, preserve_tos, loop)) {
-//         return 0;
-//     }
-//     c->u->u_fblock[c->u->u_nfblocks] = copy;
-//     c->u->u_nfblocks++;
-//     return 1;
-// }
 
 /* Compile a sequence of statements, checking for a docstring
    and for annotations. */
@@ -2097,63 +2083,6 @@ compiler_decorators(struct compiler *c, asdl_seq* decos)
     return base;
 }
 
-// static int
-// compiler_visit_kwonlydefaults(struct compiler *c, asdl_seq *kwonlyargs,
-//                               asdl_seq *kw_defaults)
-// {
-//     /* Push a dict of keyword-only default values.
-
-//        Return 0 on error, -1 if no dict pushed, 1 if a dict is pushed.
-//        */
-//     int i;
-//     PyObject *keys = NULL;
-
-//     for (i = 0; i < asdl_seq_LEN(kwonlyargs); i++) {
-//         arg_ty arg = asdl_seq_GET(kwonlyargs, i);
-//         expr_ty default_ = asdl_seq_GET(kw_defaults, i);
-//         if (default_) {
-//             PyObject *mangled = _Py_Mangle(c->u->u_private, arg->arg);
-//             if (!mangled) {
-//                 goto error;
-//             }
-//             if (keys == NULL) {
-//                 keys = PyList_New(1);
-//                 if (keys == NULL) {
-//                     Py_DECREF(mangled);
-//                     return 0;
-//                 }
-//                 PyList_SET_ITEM(keys, 0, mangled);
-//             }
-//             else {
-//                 int res = PyList_Append(keys, mangled);
-//                 Py_DECREF(mangled);
-//                 if (res == -1) {
-//                     goto error;
-//                 }
-//             }
-//             if (!compiler_visit_expr(c, default_)) {
-//                 goto error;
-//             }
-//         }
-//     }
-//     if (keys != NULL) {
-//         Py_ssize_t default_count = PyList_GET_SIZE(keys);
-//         PyObject *keys_tuple = PyList_AsTuple(keys);
-//         Py_DECREF(keys);
-//         ADDOP_LOAD_CONST_NEW(c, keys_tuple);
-//         ADDOP_I(c, BUILD_CONST_KEY_MAP, default_count);
-//         assert(default_count > 0);
-//         return 1;
-//     }
-//     else {
-//         return -1;
-//     }
-
-// error:
-//     Py_XDECREF(keys);
-//     return 0;
-// }
-
 struct func_annotation {
     int dict_reg;   // register for __annotations__ dict
     int name_reg;
@@ -2312,6 +2241,31 @@ compiler_bind_defaults(struct compiler *c, arguments_ty a, Py_ssize_t base)
 }
 
 static void
+compiler_check_debug_args_seq(struct compiler *c, asdl_seq *args)
+{
+    if (args != NULL) {
+        for (Py_ssize_t i = 0, n = asdl_seq_LEN(args); i < n; i++) {
+            arg_ty arg = asdl_seq_GET(args, i);
+            validate_name(c, arg->arg);
+        }
+    }
+}
+
+static void
+compiler_check_debug_args(struct compiler *c, arguments_ty args)
+{
+    compiler_check_debug_args_seq(c, args->posonlyargs);
+    compiler_check_debug_args_seq(c, args->args);
+    if (args->vararg) {
+        validate_name(c, args->vararg->arg);
+    }
+    compiler_check_debug_args_seq(c, args->kwonlyargs);
+    if (args->kwarg) {
+        validate_name(c, args->kwarg->arg);
+    }
+}
+
+static void
 compiler_function(struct compiler *c, stmt_ty s, int is_async)
 {
     PyObject *docstring = NULL;
@@ -2346,6 +2300,8 @@ compiler_function(struct compiler *c, stmt_ty s, int is_async)
 
         scope_type = COMPILER_SCOPE_FUNCTION;
     }
+
+    compiler_check_debug_args(c, args);
 
     deco_base = compiler_decorators(c, decos);
 
@@ -2584,6 +2540,8 @@ compiler_lambda(struct compiler *c, expr_ty e)
     Py_ssize_t defaults_base;
     arguments_ty args = e->v.Lambda.args;
     assert(e->kind == Lambda_kind);
+
+    compiler_check_debug_args(c, args);
 
     // discharge default values to registers in parent scope
     defaults_base = defaults_to_regs(c, args);
@@ -3294,6 +3252,7 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg, bool preserve
         assign_name_reg(c, t->v.Name.id, reg, preserve);
         return;
     case Attribute_kind: {
+        validate_name(c, t->v.Attribute.attr);
         Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
         emit1(c, LOAD_FAST, reg);
         emit2(c, STORE_ATTR, owner, compiler_name(c, t->v.Attribute.attr));
@@ -3339,6 +3298,7 @@ compiler_assign_acc(struct compiler *c, expr_ty t)
         assign_name(c, t->v.Name.id);
         return;
     case Attribute_kind: {
+        validate_name(c, t->v.Attribute.attr);
         Py_ssize_t owner = expr_as_reg(c, t->v.Attribute.value);
         if (owner == -1) {
             break;
@@ -3392,6 +3352,7 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
         }
         break;
     case Attribute_kind: {
+        validate_name(c, t->v.Attribute.attr);
         Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
         compiler_visit_expr(c, value);
         emit2(c, STORE_ATTR, owner, compiler_name(c, t->v.Attribute.attr));
@@ -4209,15 +4170,6 @@ has_varkeywords(asdl_seq *keywords)
     return false;
 }
 
-
-static void
-forbidden_name(struct compiler *c, identifier name, expr_context_ty ctx)
-{
-    if (ctx == Store && _PyUnicode_EqualToASCIIString(name, "__debug__")) {
-        compiler_error(c, "cannot assign to __debug__");
-    }
-}
-
 static void
 validate_keywords(struct compiler *c, asdl_seq *keywords)
 {
@@ -4228,7 +4180,7 @@ validate_keywords(struct compiler *c, asdl_seq *keywords)
             continue;
         }
 
-        forbidden_name(c, key->arg, Store);
+        validate_name(c, key->arg);
 
         for (Py_ssize_t j = i + 1; j < nkeywords; j++) {
             keyword_ty other = ((keyword_ty)asdl_seq_GET(keywords, j));
@@ -5055,6 +5007,7 @@ compiler_augassign(struct compiler *c, stmt_ty s)
 
     switch (e->kind) {
     case Attribute_kind: {
+        validate_name(c, e->v.Attribute.attr);
         Py_ssize_t owner = expr_to_any_reg(c, e->v.Attribute.value);
         Py_ssize_t name_slot = compiler_name(c, e->v.Attribute.attr);
         emit3(c, LOAD_ATTR, owner, name_slot, compiler_next_metaslot(c, 1));
@@ -5160,6 +5113,7 @@ compiler_annassign(struct compiler *c, stmt_ty s)
     }
     switch (targ->kind) {
     case Name_kind:
+        validate_name(c, targ->v.Name.id);
         /* If we have a simple name in a module or class, store annotation. */
         if (s->v.AnnAssign.simple &&
             (c->unit->scope_type == COMPILER_SCOPE_MODULE ||
@@ -5182,6 +5136,7 @@ compiler_annassign(struct compiler *c, stmt_ty s)
         }
         break;
     case Attribute_kind:
+        validate_name(c, targ->v.Attribute.attr);
         if (s->v.AnnAssign.value) {
             check_ann_expr(c, targ->v.Attribute.value);
         }

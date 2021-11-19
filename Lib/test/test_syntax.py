@@ -931,7 +931,7 @@ pass
             code += f"{'    '*(i+1)}raise Exception\n"
             code += f"{'    '*i}except Exception as e:\n"
         code += f"{' '*4*12}pass"
-        self._check_error(code, "too many statically nested blocks")
+        exec(code)
 
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
@@ -979,30 +979,33 @@ def func2():
         # SF #1565514
 
         source = """
-while 1:
- while 2:
-  while 3:
-   while 4:
-    while 5:
-     while 6:
-      while 8:
-       while 9:
-        while 10:
-         while 11:
-          while 12:
-           while 13:
-            while 14:
-             while 15:
-              while 16:
-               while 17:
-                while 18:
-                 while 19:
-                  while 20:
-                   while 21:
-                    while 22:
-                     break
+def f():
+  while 1:
+   while 2:
+    while 3:
+     while 4:
+      while 5:
+       while 6:
+        while 8:
+         while 9:
+          while 10:
+           while 11:
+            while 12:
+             while 13:
+              while 14:
+               while 15:
+                while 16:
+                 while 17:
+                  while 18:
+                   while 19:
+                    while 20:
+                     while 21:
+                      while 22:
+                       return 'ok'
 """
-        self._check_error(source, "too many statically nested blocks")
+        globals = {}
+        exec(source, globals)
+        self.assertEqual(globals['f'](), 'ok')
 
 
 def test_main():
