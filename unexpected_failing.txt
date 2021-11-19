@@ -14,7 +14,6 @@ test_grammar
 test_inspect
 test_keywordonlyarg
 test_memoryio
-test_metaclass
 test_modulefinder
 test_positional_only_arg
 test_profile

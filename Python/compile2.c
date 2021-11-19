@@ -259,6 +259,7 @@ static void compiler_unit_free(struct compiler_unit *u);
 static void add_exception_handler(struct compiler *c, ExceptionHandler *h);
 static void clear_reg(struct compiler *c, Py_ssize_t reg);
 static void compiler_error(struct compiler *, const char *);
+static void compiler_error_u(struct compiler *, PyObject *);
 static void compiler_warn(struct compiler *, const char *, ...);
 static int compiler_access(struct compiler *c, PyObject *mangled_name);
 static int32_t compiler_varname(struct compiler *c, PyObject *mangled_name);
@@ -4208,6 +4209,41 @@ has_varkeywords(asdl_seq *keywords)
     return false;
 }
 
+
+static void
+forbidden_name(struct compiler *c, identifier name, expr_context_ty ctx)
+{
+    if (ctx == Store && _PyUnicode_EqualToASCIIString(name, "__debug__")) {
+        compiler_error(c, "cannot assign to __debug__");
+    }
+}
+
+static void
+validate_keywords(struct compiler *c, asdl_seq *keywords)
+{
+    Py_ssize_t nkeywords = asdl_seq_LEN(keywords);
+    for (Py_ssize_t i = 0; i < nkeywords; i++) {
+        keyword_ty key = ((keyword_ty)asdl_seq_GET(keywords, i));
+        if (key->arg == NULL) {
+            continue;
+        }
+
+        forbidden_name(c, key->arg, Store);
+
+        for (Py_ssize_t j = i + 1; j < nkeywords; j++) {
+            keyword_ty other = ((keyword_ty)asdl_seq_GET(keywords, j));
+            if (other->arg && !PyUnicode_Compare(key->arg, other->arg)) {
+                PyObject *msg = PyUnicode_FromFormat("keyword argument repeated: %U", key->arg);
+                if (msg == NULL) {
+                    COMPILER_ERROR(c);
+                }
+                c->unit->col_offset = other->col_offset;
+                compiler_error_u(c, msg);
+            }
+        }
+    }
+}
+
 static void
 compiler_call(struct compiler *c, expr_ty e)
 {
@@ -4220,6 +4256,9 @@ compiler_call(struct compiler *c, expr_ty e)
     asdl_seq *keywords = e->v.Call.keywords;
     Py_ssize_t nargs = asdl_seq_LEN(args);
     Py_ssize_t nkwds = asdl_seq_LEN(keywords);
+
+    validate_keywords(c, keywords);
+
     if (nargs > 255 || nkwds > 255 ||
         has_starred(args) ||
         has_varkeywords(keywords)) {

@@ -1,4 +1,5 @@
 
+
 test___all__
 test___future__
 test__locale
@@ -188,6 +189,7 @@ test_mailcap
 test_marshal
 test_math
 test_memoryview
+test_metaclass
 test_mimetypes
 test_minidom
 test_mmap
