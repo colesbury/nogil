@@ -1063,64 +1063,64 @@ _PyCode_CheckLineNumber(PyCodeObject* co, int lasti, PyAddrPair *bounds)
 }
 
 
-int
-_PyCode_GetExtra(PyObject *code, Py_ssize_t index, void **extra)
-{
-    if (!PyCode_Check(code)) {
-        PyErr_BadInternalCall();
-        return -1;
-    }
+// int
+// _PyCode_GetExtra(PyObject *code, Py_ssize_t index, void **extra)
+// {
+//     if (!PyCode_Check(code)) {
+//         PyErr_BadInternalCall();
+//         return -1;
+//     }
 
-    PyCodeObject *o = (PyCodeObject*) code;
-    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra*) o->co_extra;
+//     PyCodeObject *o = (PyCodeObject*) code;
+//     _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra*) o->co_extra;
 
-    if (co_extra == NULL || co_extra->ce_size <= index) {
-        *extra = NULL;
-        return 0;
-    }
+//     if (co_extra == NULL || co_extra->ce_size <= index) {
+//         *extra = NULL;
+//         return 0;
+//     }
 
-    *extra = co_extra->ce_extras[index];
-    return 0;
-}
+//     *extra = co_extra->ce_extras[index];
+//     return 0;
+// }
 
 
-int
-_PyCode_SetExtra(PyObject *code, Py_ssize_t index, void *extra)
-{
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+// int
+// _PyCode_SetExtra(PyObject *code, Py_ssize_t index, void *extra)
+// {
+//     PyInterpreterState *interp = _PyInterpreterState_GET();
 
-    if (!PyCode_Check(code) || index < 0 ||
-            index >= interp->co_extra_user_count) {
-        PyErr_BadInternalCall();
-        return -1;
-    }
+//     if (!PyCode_Check(code) || index < 0 ||
+//             index >= interp->co_extra_user_count) {
+//         PyErr_BadInternalCall();
+//         return -1;
+//     }
 
-    PyCodeObject *o = (PyCodeObject*) code;
-    _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra *) o->co_extra;
+//     PyCodeObject *o = (PyCodeObject*) code;
+//     _PyCodeObjectExtra *co_extra = (_PyCodeObjectExtra *) o->co_extra;
 
-    if (co_extra == NULL || co_extra->ce_size <= index) {
-        Py_ssize_t i = (co_extra == NULL ? 0 : co_extra->ce_size);
-        co_extra = PyMem_Realloc(
-                co_extra,
-                sizeof(_PyCodeObjectExtra) +
-                (interp->co_extra_user_count-1) * sizeof(void*));
-        if (co_extra == NULL) {
-            return -1;
-        }
-        for (; i < interp->co_extra_user_count; i++) {
-            co_extra->ce_extras[i] = NULL;
-        }
-        co_extra->ce_size = interp->co_extra_user_count;
-        o->co_extra = co_extra;
-    }
+//     if (co_extra == NULL || co_extra->ce_size <= index) {
+//         Py_ssize_t i = (co_extra == NULL ? 0 : co_extra->ce_size);
+//         co_extra = PyMem_Realloc(
+//                 co_extra,
+//                 sizeof(_PyCodeObjectExtra) +
+//                 (interp->co_extra_user_count-1) * sizeof(void*));
+//         if (co_extra == NULL) {
+//             return -1;
+//         }
+//         for (; i < interp->co_extra_user_count; i++) {
+//             co_extra->ce_extras[i] = NULL;
+//         }
+//         co_extra->ce_size = interp->co_extra_user_count;
+//         o->co_extra = co_extra;
+//     }
 
-    if (co_extra->ce_extras[index] != NULL) {
-        freefunc free = interp->co_extra_freefuncs[index];
-        if (free != NULL) {
-            free(co_extra->ce_extras[index]);
-        }
-    }
+//     if (co_extra->ce_extras[index] != NULL) {
+//         freefunc free = interp->co_extra_freefuncs[index];
+//         if (free != NULL) {
+//             free(co_extra->ce_extras[index]);
+//         }
+//     }
 
-    co_extra->ce_extras[index] = extra;
-    return 0;
-}
+//     co_extra->ce_extras[index] = extra;
+//     return 0;
+// }

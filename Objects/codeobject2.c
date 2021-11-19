@@ -1041,7 +1041,7 @@ _PyCode2_CheckLineNumber(PyCodeObject2* co, int lasti, PyAddrPair *bounds)
 }
 
 int
-_PyCode_GetExtra2(PyObject *code, Py_ssize_t index, void **extra)
+_PyCode_GetExtra(PyObject *code, Py_ssize_t index, void **extra)
 {
     if (!PyCode2_Check(code)) {
         PyErr_BadInternalCall();
@@ -1062,7 +1062,7 @@ _PyCode_GetExtra2(PyObject *code, Py_ssize_t index, void **extra)
 
 
 int
-_PyCode_SetExtra2(PyObject *code, Py_ssize_t index, void *extra)
+_PyCode_SetExtra(PyObject *code, Py_ssize_t index, void *extra)
 {
     PyInterpreterState *interp = _PyInterpreterState_GET();
 

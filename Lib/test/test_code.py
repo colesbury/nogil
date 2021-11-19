@@ -383,7 +383,7 @@ if check_impl_detail(cpython=True) and ctypes is not None:
 
             SetExtra(f.__code__, FREE_INDEX, ctypes.c_voidp(100))
             del f
-            gc.collect()
+            gc_collect()
             self.assertEqual(LAST_FREED, 100)
 
         def test_get_set(self):
@@ -403,7 +403,6 @@ if check_impl_detail(cpython=True) and ctypes is not None:
             del f
 
         def test_free_different_thread(self):
-            import gc
             # Freeing a code object on a different thread then
             # where the co_extra was set should be safe.
             f = self.get_func()

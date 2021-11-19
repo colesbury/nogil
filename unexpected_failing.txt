@@ -1,6 +1,5 @@
 test__xxsubinterpreters
 test_audit
-test_code
 test_compile
 test_coroutines
 test_faulthandler
