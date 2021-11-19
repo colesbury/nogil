@@ -172,6 +172,7 @@ test_iterlen
 test_itertools
 test_json
 test_keyword
+test_keywordonlyarg
 test_kqueue
 test_largefile
 test_lib2to3
