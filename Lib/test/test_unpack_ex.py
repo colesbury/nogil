@@ -348,22 +348,14 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: can't use starred expression here
 
-Some size constraints (all fail.)
+A large unpack statement. This previously would fail to compile.
 
-    >>> s = ", ".join("a%d" % i for i in range(1<<8)) + ", *rest = range(1<<8 + 1)"
-    >>> compile(s, 'test', 'exec') # doctest:+ELLIPSIS
-    Traceback (most recent call last):
-     ...
-    SyntaxError: too many expressions in star-unpacking assignment
-
-    >>> s = ", ".join("a%d" % i for i in range(1<<8 + 1)) + ", *rest = range(1<<8 + 2)"
-    >>> compile(s, 'test', 'exec') # doctest:+ELLIPSIS
-    Traceback (most recent call last):
-     ...
-    SyntaxError: too many expressions in star-unpacking assignment
-
-(there is an additional limit, on the number of expressions after the
-'*rest', but it's 1<<24 and testing it takes too much memory.)
+    >>> s = ", ".join("a%d" % i for i in range(1<<8)) + ", *rest = range(257)"
+    >>> exec(s)
+    >>> a8
+    8
+    >>> rest
+    [256]
 
 """
 

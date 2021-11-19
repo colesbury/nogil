@@ -3223,7 +3223,7 @@ assignment_helper(struct compiler *c, asdl_seq *elts)
         }
         if (seen_star) {
             compiler_error(c,
-                "two starred expressions in assignment");
+                "multiple starred expressions in assignment");
         }
         seen_star = 1;
         argcnt = i;

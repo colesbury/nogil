@@ -1,6 +1,7 @@
 
 
 
+
 test___all__
 test___future__
 test__locale
@@ -345,6 +346,7 @@ test_unicode_identifiers
 test_unicodedata
 test_univnewlines
 test_unpack
+test_unpack_ex
 test_unparse
 test_urllib
 test_urllib2
