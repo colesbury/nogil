@@ -49,6 +49,10 @@ extern PyObject *_PyEval_EvalCode(
     PyObject *kwdefs, PyObject *closure,
     PyObject *name, PyObject *qualname);
 
+int
+vm_frame_info(PyFunc **func, int *lineno, int depth,
+              int skip_importlib_frames);
+
 extern int _PyEval_ThreadsInitialized(struct pyruntimestate *runtime);
 extern PyStatus _PyEval_InitGIL(PyThreadState *tstate);
 extern void _PyEval_FiniGIL(PyThreadState *tstate);

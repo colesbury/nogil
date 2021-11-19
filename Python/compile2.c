@@ -434,6 +434,13 @@ list2dict(PyObject *list)
     return dict;
 }
 
+static inline int
+is_top_level_await(struct compiler *c)
+{
+    return (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT)
+        && (c->unit->ste->ste_type == ModuleBlock);
+}
+
 static PyObject *
 unicode_from_id(struct compiler *c, _Py_Identifier *id)
 {
@@ -2722,7 +2729,7 @@ compiler_async_for(struct compiler *c, stmt_ty s)
     uint32_t top_offset;
 
     assert(s->kind == AsyncFor_kind);
-    if (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) {
+    if (is_top_level_await(c)) {
         // TODO: this is unfortunate. Would be better if the symtable looked
         // for top-level awaits.
         c->unit->ste->ste_coroutine = 1;
@@ -4333,43 +4340,6 @@ compiler_formatted_value(struct compiler *c, expr_ty e)
     free_regs_above(c, reg);
 }
 
-// static int
-// compiler_subkwargs(struct compiler *c, asdl_seq *keywords, Py_ssize_t begin, Py_ssize_t end)
-// {
-//     Py_ssize_t i, n = end - begin;
-//     keyword_ty kw;
-//     PyObject *keys, *key;
-//     assert(n > 0);
-//     if (n > 1) {
-//         for (i = begin; i < end; i++) {
-//             kw = asdl_seq_GET(keywords, i);
-//             VISIT(c, expr, kw->value);
-//         }
-//         keys = PyTuple_New(n);
-//         if (keys == NULL) {
-//             return 0;
-//         }
-//         for (i = begin; i < end; i++) {
-//             key = ((keyword_ty) asdl_seq_GET(keywords, i))->arg;
-//             Py_INCREF(key);
-//             PyTuple_SET_ITEM(keys, i - begin, key);
-//         }
-//         ADDOP_LOAD_CONST_NEW(c, keys);
-//         ADDOP_I(c, BUILD_CONST_KEY_MAP, n);
-//     }
-//     else {
-//         /* a for loop only executes once */
-//         for (i = begin; i < end; i++) {
-//             kw = asdl_seq_GET(keywords, i);
-//             ADDOP_LOAD_CONST(c, kw->arg);
-//             VISIT(c, expr, kw->value);
-//         }
-//         ADDOP_I(c, BUILD_MAP, n);
-//     }
-//     return 1;
-// }
-
-
 /* List and set comprehensions and generator expressions work by creating a
   nested function to perform the actual iteration. This means that the
   iteration variables don't leak into the current scope.
@@ -4509,12 +4479,13 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
                        expr_ty val)
 {
     comprehension_ty outermost;
-    int is_async_function = c->unit->ste->ste_coroutine;
-    int is_async_generator = 0;
     Py_ssize_t res_reg;
+    int is_async_generator = 0;
+    int top_level_await = is_top_level_await(c);
+
+    int is_async_function = c->unit->ste->ste_coroutine;
 
     outermost = (comprehension_ty) asdl_seq_GET(generators, 0);
-
     compiler_enter_scope(c, name, COMPILER_SCOPE_COMPREHENSION,
                          (void *)e, e->lineno);
 
@@ -4527,7 +4498,9 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
     c->unit->argcount = 1;
     is_async_generator = c->unit->ste->ste_coroutine;
 
-    if (is_async_generator && !is_async_function && type != COMP_GENEXP) {
+    if (is_async_generator && !is_async_function && type != COMP_GENEXP &&
+        !top_level_await)
+    {
         compiler_error(c, "asynchronous comprehension outside of "
                           "an asynchronous function");
     }
@@ -4537,6 +4510,10 @@ compiler_comprehension(struct compiler *c, expr_ty e, int type,
 
     assemble(c);
     compiler_exit_scope(c);
+
+    if (top_level_await && is_async_generator){
+        c->unit->ste->ste_coroutine = 1;
+    }
 
     // call the comprehension function
     Py_ssize_t base = c->unit->next_register + FRAME_EXTRA;
@@ -4653,7 +4630,7 @@ compiler_await(struct compiler *c, expr_ty e)
 {
     Py_ssize_t reg;
 
-    if (!(c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT)) {
+    if (!is_top_level_await(c)) {
         if (c->unit->ste->ste_type != FunctionBlock){
             compiler_error(c, "'await' outside function");
         }
@@ -4720,10 +4697,10 @@ compiler_async_with(struct compiler *c, stmt_ty s, int pos)
     withitem_ty item = asdl_seq_GET(s->v.AsyncWith.items, pos);
 
     assert(s->kind == AsyncWith_kind);
-    if (c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) {
+    if (is_top_level_await(c)) {
         c->unit->ste->ste_coroutine = 1; // ?????
     }
-    else if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION){
+    else if (c->unit->scope_type != COMPILER_SCOPE_ASYNC_FUNCTION) {
         compiler_error(c, "'async with' outside async function");
     }
 
@@ -5337,9 +5314,7 @@ compute_code_flags(struct compiler *c)
     /* (Only) inherit compilerflags in PyCF_MASK */
     flags |= (c->flags.cf_flags & PyCF_MASK);
 
-    if ((c->flags.cf_flags & PyCF_ALLOW_TOP_LEVEL_AWAIT) &&
-         ste->ste_coroutine &&
-         !ste->ste_generator) {
+    if (is_top_level_await(c) && ste->ste_coroutine && !ste->ste_generator) {
         flags |= CO_COROUTINE;
     }
 

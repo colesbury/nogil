@@ -26,7 +26,7 @@ class ObjectsTestCase(unittest.TestCase):
         self.assertEqual(ci._objects, None)
 
     def test_c_char_p(self):
-        s = b"Hello, World"
+        s = b"Hello, World"[:-1]
         refcnt = grc(s)
         cs = c_char_p(s)
         self.assertEqual(refcnt + 1, grc(s))

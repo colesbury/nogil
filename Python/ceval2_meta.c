@@ -352,13 +352,6 @@ vm_compute_cr_origin(struct ThreadState *ts)
     return cr_origin;
 }
 
-PyObject *
-vm_cur_handled_exc(void)
-{
-    struct ThreadState *ts = PyThreadState_GET()->active;
-    return vm_handled_exc(ts);
-}
-
 static int
 vm_exit_with_exc(struct ThreadState *ts, Py_ssize_t opA)
 {
@@ -732,7 +725,7 @@ is_importlib_frame(PyFunc *func)
 
 int
 vm_frame_info(PyFunc **out_func, int *out_lineno, int depth,
-              bool skip_importlib_frames)
+              int skip_importlib_frames)
 {
     struct ThreadState *ts = _PyThreadState_GET()->active;
 
@@ -3167,7 +3160,7 @@ exit:
 
 
 PyObject *
-PyEval_GetGlobals2(void)
+PyEval_GetGlobals(void)
 {
     struct ThreadState *ts = current_thread_state();
     Py_ssize_t offset = 0;
@@ -3332,7 +3325,7 @@ vm_eval_breaker(struct ThreadState *ts)
 }
 
 PyObject *
-PyEval_GetLocals2(void)
+PyEval_GetLocals(void)
 {
     // TODO: use stack walk?
     struct ThreadState *ts = current_thread_state();

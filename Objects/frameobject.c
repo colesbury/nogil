@@ -4,6 +4,7 @@
 #include "pycore_object.h"
 #include "pycore_gc.h"       // _PyObject_GC_IS_TRACKED()
 
+#include "ceval2_meta.h"
 #include "code.h"
 #include "frameobject.h"
 #include "opcode.h"
@@ -13,7 +14,7 @@
 
 static PyMemberDef frame_memberlist[] = {
     {"f_back",          T_OBJECT,       OFF(f_back),      READONLY},
-    {"f_code",          T_OBJECT,       OFF(f_code),      READONLY|READ_RESTRICTED},
+    {"f_code",          T_OBJECT,       OFF(f_code2),     READONLY|READ_RESTRICTED},
     {"f_builtins",      T_OBJECT,       OFF(f_builtins),  READONLY},
     {"f_globals",       T_OBJECT,       OFF(f_globals),   READONLY},
     {"f_lasti",         T_INT,          OFF(f_lasti),     READONLY},
@@ -31,6 +32,19 @@ frame_getlocals(PyFrameObject *f, void *closure)
     return f->f_locals;
 }
 
+static PyObject *
+frame_getcode(PyFrameObject *f, void *closure)
+{
+    if (f->f_code) {
+        Py_INCREF(f->f_code);
+        return (PyObject *)f->f_code;
+    }
+    else {
+        Py_INCREF(f->f_code2);
+        return (PyObject *)f->f_code2;
+    }
+}
+
 int
 PyFrame_GetLineNumber(PyFrameObject *f)
 {
@@ -38,8 +52,11 @@ PyFrame_GetLineNumber(PyFrameObject *f)
     if (f->f_trace) {
         return f->f_lineno;
     }
-    else {
+    else if (f->f_code) {
         return PyCode_Addr2Line(f->f_code, f->f_lasti);
+    }
+    else {
+        return PyCode2_Addr2Line(f->f_code2, f->f_lasti);
     }
 }
 
@@ -588,13 +605,13 @@ frame_dealloc(PyFrameObject *f)
     }
 
     Py_XDECREF(f->f_back);
-    Py_DECREF(f->f_builtins);
+    Py_XDECREF(f->f_builtins);
     Py_DECREF(f->f_globals);
     Py_CLEAR(f->f_locals);
     Py_CLEAR(f->f_trace);
 
     co = f->f_code;
-    if (!_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL) {
+    if (co && !_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL) {
         co->co_zombieframe = f;
     }
 #if PyFrame_MAXFREELIST > 0
@@ -609,7 +626,7 @@ frame_dealloc(PyFrameObject *f)
         PyObject_GC_Del(f);
     }
 
-    Py_DECREF(co);
+    Py_XDECREF(co);
     Py_TRASHCAN_END;
 }
 
@@ -617,6 +634,7 @@ static inline Py_ssize_t
 frame_nslots(PyFrameObject *frame)
 {
     PyCodeObject *code = frame->f_code;
+    if (!code) return 0;
     return (code->co_nlocals
             + PyTuple_GET_SIZE(code->co_cellvars)
             + PyTuple_GET_SIZE(code->co_freevars));
@@ -717,7 +735,7 @@ static PyObject *
 frame_repr(PyFrameObject *f)
 {
     int lineno = PyFrame_GetLineNumber(f);
-    PyCodeObject *code = f->f_code;
+    PyCodeObject2 *code = f->f_code2;
     return PyUnicode_FromFormat(
         "<frame at %p, file %R, line %d, code %S>",
         f, code->co_filename, lineno, code->co_name);
@@ -1106,60 +1124,32 @@ dict_to_map(PyObject *map, Py_ssize_t nmap, PyObject *dict, PyObject **values,
 int
 PyFrame_FastToLocalsWithError(PyFrameObject *f)
 {
-    /* Merge fast locals into f->f_locals */
-    PyObject *locals, *map;
-    PyObject **fast;
-    PyCodeObject *co;
-    Py_ssize_t j;
-    Py_ssize_t ncells, nfreevars;
-
     if (f == NULL) {
         PyErr_BadInternalCall();
         return -1;
     }
-    locals = f->f_locals;
+
+    PyObject *locals = f->f_locals;
     if (locals == NULL) {
         locals = f->f_locals = PyDict_New();
         if (locals == NULL)
             return -1;
     }
-    co = f->f_code;
-    map = co->co_varnames;
-    if (!PyTuple_Check(map)) {
-        PyErr_Format(PyExc_SystemError,
-                     "co_varnames must be a tuple, not %s",
-                     Py_TYPE(map)->tp_name);
+
+    if (!f->f_executing) {
+        return 0;
+    }
+
+    struct ThreadState *ts = f->ts;
+    Py_ssize_t offset = (ts->stack + f->f_offset) - ts->regs;
+
+    assert(AS_OBJ(ts->regs[offset-2]) == (PyObject *)f);
+
+    PyObject *res = vm_locals(f->ts, f, offset);
+    if (res == NULL) {
         return -1;
     }
-    fast = f->f_localsplus;
-    j = PyTuple_GET_SIZE(map);
-    if (j > co->co_nlocals)
-        j = co->co_nlocals;
-    if (co->co_nlocals) {
-        if (map_to_dict(map, j, locals, fast, 0) < 0)
-            return -1;
-    }
-    ncells = PyTuple_GET_SIZE(co->co_cellvars);
-    nfreevars = PyTuple_GET_SIZE(co->co_freevars);
-    if (ncells || nfreevars) {
-        if (map_to_dict(co->co_cellvars, ncells,
-                        locals, fast + co->co_nlocals, 1))
-            return -1;
 
-        /* If the namespace is unoptimized, then one of the
-           following cases applies:
-           1. It does not contain free variables, because it
-              uses import * or is a top-level namespace.
-           2. It is a class namespace.
-           We don't want to accidentally copy free variables
-           into the locals dict used by the class.
-        */
-        if (co->co_flags & CO_OPTIMIZED) {
-            if (map_to_dict(co->co_freevars, nfreevars,
-                            locals, fast + co->co_nlocals + ncells, 1) < 0)
-                return -1;
-        }
-    }
     return 0;
 }
 
@@ -1249,11 +1239,11 @@ _PyFrame_DebugMallocStats(FILE *out)
 }
 
 
-PyCodeObject *
+PyCodeObject2 *
 PyFrame_GetCode(PyFrameObject *frame)
 {
     assert(frame != NULL);
-    PyCodeObject *code = frame->f_code;
+    PyCodeObject2 *code = frame->f_code2;
     assert(code != NULL);
     Py_INCREF(code);
     return code;

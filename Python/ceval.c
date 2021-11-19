@@ -4706,22 +4706,24 @@ _PyEval_GetAsyncGenFinalizer(void)
     return tstate->async_gen_finalizer;
 }
 
+struct _frame *vm_frame(struct ThreadState *ts);
+
 PyFrameObject *
 PyEval_GetFrame(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return tstate->frame;
+    return vm_frame(tstate->active);
 }
 
 PyObject *
 PyEval_GetBuiltins(void)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *current_frame = tstate->frame;
-    if (current_frame == NULL)
+    // PyFrameObject *current_frame = vm_frame(tstate->active);
+    // if (current_frame == NULL)
         return tstate->interp->builtins;
-    else
-        return current_frame->f_builtins;
+    // else
+    //     return current_frame->f_builtins;
 }
 
 /* Convenience function to get a builtin from its name */
@@ -4739,46 +4741,46 @@ _PyEval_GetBuiltinId(_Py_Identifier *name)
     return attr;
 }
 
-PyObject *
-PyEval_GetLocals(void)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *current_frame = tstate->frame;
-    if (current_frame == NULL) {
-        _PyErr_SetString(tstate, PyExc_SystemError, "frame does not exist");
-        return NULL;
-    }
+// PyObject *
+// PyEval_GetLocals(void)
+// {
+//     PyThreadState *tstate = _PyThreadState_GET();
+//     PyFrameObject *current_frame = tstate->frame;
+//     if (current_frame == NULL) {
+//         _PyErr_SetString(tstate, PyExc_SystemError, "frame does not exist");
+//         return NULL;
+//     }
 
-    if (PyFrame_FastToLocalsWithError(current_frame) < 0) {
-        return NULL;
-    }
+//     if (PyFrame_FastToLocalsWithError(current_frame) < 0) {
+//         return NULL;
+//     }
 
-    assert(current_frame->f_locals != NULL);
-    return current_frame->f_locals;
-}
+//     assert(current_frame->f_locals != NULL);
+//     return current_frame->f_locals;
+// }
 
-PyObject *
-PyEval_GetGlobals(void)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *current_frame = tstate->frame;
-    if (current_frame == NULL) {
-        return NULL;
-    }
+// PyObject *
+// PyEval_GetGlobals(void)
+// {
+//     PyThreadState *tstate = _PyThreadState_GET();
+//     PyFrameObject *current_frame = tstate->frame;
+//     if (current_frame == NULL) {
+//         return NULL;
+//     }
 
-    assert(current_frame->f_globals != NULL);
-    return current_frame->f_globals;
-}
+//     assert(current_frame->f_globals != NULL);
+//     return current_frame->f_globals;
+// }
 
 int
 PyEval_MergeCompilerFlags(PyCompilerFlags *cf)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *current_frame = tstate->frame;
+    PyFrameObject *current_frame = vm_frame(tstate->active);
     int result = cf->cf_flags != 0;
 
     if (current_frame != NULL) {
-        const int codeflags = current_frame->f_code->co_flags;
+        const int codeflags = current_frame->f_code2->co_flags;
         const int compilerflags = codeflags & PyCF_MASK;
         if (compilerflags) {
             result = 1;

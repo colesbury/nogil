@@ -1248,16 +1248,22 @@ async_gen_athrow_send(PyAsyncGenAThrow *o, PyObject *arg)
     PyGenObject2 *gen = (PyGenObject2*)o->agt_gen;
     PyObject *retval;
 
-    if (o->agt_state == AWAITABLE_STATE_CLOSED || 
-        gen->status == GEN_CLOSED) {
+    if (o->agt_state == AWAITABLE_STATE_CLOSED) {
         PyErr_SetString(
             PyExc_RuntimeError,
             "cannot reuse already awaited aclose()/athrow()");
         return NULL;
     }
 
+    if (gen->status == GEN_CLOSED) {
+        o->agt_state = AWAITABLE_STATE_CLOSED;
+        PyErr_SetNone(PyExc_StopIteration);
+        return NULL;
+    }
+
     if (o->agt_state == AWAITABLE_STATE_INIT) {
         if (o->agt_gen->running_async) {
+            o->agt_state = AWAITABLE_STATE_CLOSED;
             if (o->agt_args == NULL) {
                 PyErr_SetString(
                     PyExc_RuntimeError,
@@ -1344,12 +1350,14 @@ async_gen_athrow_send(PyAsyncGenAThrow *o, PyObject *arg)
 
 yield_close:
     o->agt_gen->running_async = 0;
+    o->agt_state = AWAITABLE_STATE_CLOSED;
     PyErr_SetString(
         PyExc_RuntimeError, ASYNC_GEN_IGNORED_EXIT_MSG);
     return NULL;
 
 check_error:
     o->agt_gen->running_async = 0;
+    o->agt_state = AWAITABLE_STATE_CLOSED;
     if (PyErr_ExceptionMatches(PyExc_StopAsyncIteration) ||
             PyErr_ExceptionMatches(PyExc_GeneratorExit))
     {
@@ -1387,6 +1395,7 @@ async_gen_athrow_throw(PyAsyncGenAThrow *o, PyObject *args)
         /* aclose() mode */
         if (retval && _PyAsyncGenWrappedValue_CheckExact(retval)) {
             o->agt_gen->running_async = 0;
+            o->agt_state = AWAITABLE_STATE_CLOSED;
             Py_DECREF(retval);
             PyErr_SetString(PyExc_RuntimeError, ASYNC_GEN_IGNORED_EXIT_MSG);
             return NULL;

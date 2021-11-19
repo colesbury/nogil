@@ -8,6 +8,7 @@
 #include "pycore_pystate.h"    // _PyThreadState_GET()
 #include "pycore_sysmodule.h"
 #include "pycore_traceback.h"
+#include "ceval2_meta.h"
 
 #ifndef __STDC__
 #ifndef MS_WINDOWS
@@ -127,7 +128,8 @@ _PyErr_SetObject(PyThreadState *tstate, PyObject *exception, PyObject *value)
     }
 
     Py_XINCREF(value);
-    exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
+    exc_value = vm_handled_exc(PyThreadState_GET()->active);
+    // exc_value = _PyErr_GetTopmostException(tstate)->exc_value;
     if (exc_value != NULL && exc_value != Py_None) {
         /* Implicit exception chaining */
         Py_INCREF(exc_value);

@@ -27,6 +27,8 @@ Data members:
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_tupleobject.h"
 
+#include "ceval2_meta.h"
+
 #include "pydtrace.h"
 #include "osdefs.h"               // DELIM
 #include <locale.h>
@@ -748,7 +750,6 @@ sys_excepthook_impl(PyObject *module, PyObject *exctype, PyObject *value,
     Py_RETURN_NONE;
 }
 
-
 /*[clinic input]
 sys.exc_info
 
@@ -762,13 +763,19 @@ static PyObject *
 sys_exc_info_impl(PyObject *module)
 /*[clinic end generated code: output=3afd0940cf3a4d30 input=b5c5bf077788a3e5]*/
 {
-    _PyErr_StackItem *err_info = _PyErr_GetTopmostException(_PyThreadState_GET());
-    return Py_BuildValue(
-        "(OOO)",
-        err_info->exc_type != NULL ? err_info->exc_type : Py_None,
-        err_info->exc_value != NULL ? err_info->exc_value : Py_None,
-        err_info->exc_traceback != NULL ?
-            err_info->exc_traceback : Py_None);
+    PyThreadState *tstate = PyThreadState_GET();
+    PyObject *exc_value = NULL, *exc_type = NULL, *exc_traceback = NULL;
+
+    exc_value = vm_handled_exc(tstate->active);
+    if (exc_value != NULL) {
+        exc_type = (PyObject *)Py_TYPE(exc_value);
+        exc_traceback = ((PyBaseExceptionObject *)exc_value)->traceback;
+    }
+
+    return Py_BuildValue("(OOO)",
+        exc_type != NULL ? exc_type : Py_None,
+        exc_value != NULL ? exc_value : Py_None,
+        exc_traceback != NULL ? exc_traceback : Py_None);
 }
 
 
@@ -929,10 +936,6 @@ static PyObject *
 call_trampoline(PyThreadState *tstate, PyObject* callback,
                 PyFrameObject *frame, int what, PyObject *arg)
 {
-    if (PyFrame_FastToLocalsWithError(frame) < 0) {
-        return NULL;
-    }
-
     PyObject *stack[3];
     stack[0] = (PyObject *)frame;
     stack[1] = whatstrings[what];
@@ -941,7 +944,6 @@ call_trampoline(PyThreadState *tstate, PyObject* callback,
     /* call the Python-level function */
     PyObject *result = _PyObject_FastCallTstate(tstate, callback, stack, 3);
 
-    PyFrame_LocalsToFast(frame, 1);
     if (result == NULL) {
         PyTraceBack_Here(frame);
     }
@@ -1831,7 +1833,6 @@ sys_getallocatedblocks_impl(PyObject *module)
     return _Py_GetAllocatedBlocks();
 }
 
-
 /*[clinic input]
 sys._getframe
 
@@ -1854,7 +1855,11 @@ sys__getframe_impl(PyObject *module, int depth)
 /*[clinic end generated code: output=d438776c04d59804 input=c1be8a6464b11ee5]*/
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *f = PyThreadState_GetFrame(tstate);
+    PyFrameObject *f = vm_frame(tstate->active);
+    if (f == NULL) {
+        return NULL;
+    }
+    Py_INCREF(f);
 
     if (_PySys_Audit(tstate, "sys._getframe", "O", f) < 0) {
         Py_DECREF(f);

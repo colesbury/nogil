@@ -309,7 +309,7 @@ tracemalloc_get_frame(PyFrameObject *pyframe, frame_t *frame)
     }
     frame->lineno = (unsigned int)lineno;
 
-    PyCodeObject *code = PyFrame_GetCode(pyframe);
+    PyCodeObject2 *code = PyFrame_GetCode(pyframe);
     PyObject *filename = code->co_filename;
     Py_DECREF(code);
 

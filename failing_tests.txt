@@ -1,0 +1,14 @@
+test_bdb
+test_capi
+test_cgitb
+test_cprofile
+test_dis
+test_doctest
+test_frame
+test_gdb
+test_nntplib
+test_pdb
+test_peepholer
+test_super
+test_sys_settrace
+test_userlist

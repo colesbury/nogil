@@ -1279,7 +1279,7 @@ run_pyc_file(FILE *fp, PyObject *globals, PyObject *locals,
         goto error;
     }
     v = PyMarshal_ReadLastObjectFromFile(fp);
-    if (v == NULL || !PyCode_Check(v)) {
+    if (v == NULL || (!PyCode_Check(v) && !PyCode2_Check(v))) {
         Py_XDECREF(v);
         PyErr_SetString(PyExc_RuntimeError,
                    "Bad code object in .pyc file");

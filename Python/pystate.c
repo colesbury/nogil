@@ -13,6 +13,7 @@
 #include "pycore_sysmodule.h"
 #include "pycore_refcnt.h"
 
+#include "ceval2_meta.h"
 #include "lock.h"
 #include "parking_lot.h"
 #include "mimalloc.h"
@@ -985,6 +986,13 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
 
     tstate_impl->qsbr = _Py_qsbr_register(&_PyRuntime.qsbr_shared, tstate);
     if (tstate_impl->qsbr == NULL) {
+        PyMem_RawFree(tstate);
+        return NULL;
+    }
+
+    // FIXME: leaks thread-state
+    tstate->active = vm_new_threadstate(tstate);
+    if (tstate->active == NULL) {
         PyMem_RawFree(tstate);
         return NULL;
     }

@@ -323,6 +323,11 @@ PyAST_CompileObject(mod_ty mod, PyObject *filename, PyCompilerFlags *flags,
     PyCompilerFlags local_flags = _PyCompilerFlags_INIT;
     int merged;
 
+    if (1) {
+        optimize = (optimize == -1) ? _Py_GetConfig()->optimization_level : optimize;
+        return (PyCodeObject *)PyAST_CompileObject2(mod, filename, flags, optimize, arena);
+    }
+
     if (!__doc__) {
         __doc__ = PyUnicode_InternFromString("__doc__");
         if (!__doc__)

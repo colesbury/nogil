@@ -560,7 +560,7 @@ tb_printinternal(PyTracebackObject *tb, PyObject *f, long limit)
         tb = tb->tb_next;
     }
     while (tb != NULL && err == 0) {
-        PyCodeObject *code = PyFrame_GetCode(tb->tb_frame);
+        PyCodeObject2 *code = PyFrame_GetCode(tb->tb_frame);
         if (last_file == NULL ||
             code->co_filename != last_file ||
             last_line == -1 || tb->tb_lineno != last_line ||
@@ -776,7 +776,7 @@ done:
 static void
 dump_frame(int fd, PyFrameObject *frame)
 {
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    PyCodeObject2 *code = PyFrame_GetCode(frame);
     PUTS(fd, "  File ");
     if (code->co_filename != NULL
         && PyUnicode_Check(code->co_filename))
@@ -789,7 +789,7 @@ dump_frame(int fd, PyFrameObject *frame)
     }
 
     /* PyFrame_GetLineNumber() was introduced in Python 2.7.0 and 3.2.0 */
-    int lineno = PyCode_Addr2Line(code, frame->f_lasti);
+    int lineno = PyCode2_Addr2Line(code, frame->f_lasti);
     PUTS(fd, ", line ");
     if (lineno >= 0) {
         _Py_DumpDecimal(fd, (unsigned long)lineno);

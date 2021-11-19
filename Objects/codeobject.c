@@ -713,7 +713,8 @@ _PyCode_ConstantKey(PyObject *op)
        || PyLong_CheckExact(op)
        || PyUnicode_CheckExact(op)
           /* code_richcompare() uses _PyCode_ConstantKey() internally */
-       || PyCode_Check(op))
+       || PyCode_Check(op)
+       || PyCode2_Check(op))
     {
         /* Objects of these types are always different from object of other
          * type and from tuples. */
@@ -819,6 +820,10 @@ _PyCode_ConstantKey(PyObject *op)
         key = PyTuple_Pack(2, set, op);
         Py_DECREF(set);
         return key;
+    }
+    else if (PySlice_Check(op)) {
+        PySliceObject *slice = (PySliceObject *)op;
+        return Py_BuildValue("(O(OOO))", Py_TYPE(op), slice->start, slice->stop, slice->step);
     }
     else {
         /* for other types, use the object identifier as a unique identifier

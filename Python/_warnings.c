@@ -1,4 +1,5 @@
 #include "Python.h"
+#include "pycore_ceval.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"        // PyInterpreterState.warnings
 #include "pycore_pyerrors.h"
@@ -786,7 +787,7 @@ is_internal_frame(PyFrameObject *frame)
         return 0;
     }
 
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    PyCodeObject2 *code = PyFrame_GetCode(frame);
     PyObject *filename = code->co_filename;
     Py_DECREF(code);
 
@@ -837,35 +838,24 @@ setup_context(Py_ssize_t stack_level, PyObject **filename, int *lineno,
 
     /* Setup globals, filename and lineno. */
     PyThreadState *tstate = _PyThreadState_GET();
-    PyFrameObject *f = PyThreadState_GetFrame(tstate);
-    // Stack level comparisons to Python code is off by one as there is no
-    // warnings-related stack level to avoid.
-    if (stack_level <= 0 || is_internal_frame(f)) {
-        while (--stack_level > 0 && f != NULL) {
-            PyFrameObject *back = PyFrame_GetBack(f);
-            Py_DECREF(f);
-            f = back;
-        }
-    }
-    else {
-        while (--stack_level > 0 && f != NULL) {
-            f = next_external_frame(f);
-        }
+    PyFunc *func;
+    int err;
+
+    err = vm_frame_info(&func, lineno, stack_level, 1);
+    if (err < 0) {
+        return 0;
     }
 
-    if (f == NULL) {
+    if (func == NULL) {
         globals = _PyInterpreterState_GET()->sysdict;
         *filename = PyUnicode_FromString("sys");
         *lineno = 1;
     }
     else {
-        globals = f->f_globals;
-        PyCodeObject *code = PyFrame_GetCode(f);
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+        globals = ((PyFunc *)func)->globals;
         *filename = code->co_filename;
-        Py_DECREF(code);
         Py_INCREF(*filename);
-        *lineno = PyFrame_GetLineNumber(f);
-        Py_DECREF(f);
     }
 
     *module = NULL;
