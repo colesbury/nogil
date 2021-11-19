@@ -10,7 +10,6 @@ test_faulthandler
 test_future
 test_gc
 test_generators
-test_grammar
 test_inspect
 test_memoryio
 test_modulefinder
