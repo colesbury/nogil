@@ -255,7 +255,7 @@ What about willful misconduct?
     >>> f(**{1:2})
     Traceback (most recent call last):
       ...
-    TypeError: keywords must be strings
+    TypeError: f() keywords must be strings
 
     >>> h(**{'e': 2})
     Traceback (most recent call last):
