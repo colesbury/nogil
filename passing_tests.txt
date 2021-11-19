@@ -193,6 +193,7 @@ test_mailbox
 test_mailcap
 test_marshal
 test_math
+test_memoryio
 test_memoryview
 test_metaclass
 test_mimetypes

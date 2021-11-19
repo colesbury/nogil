@@ -9,7 +9,6 @@ test_future
 test_gc
 test_generators
 test_inspect
-test_memoryio
 test_modulefinder
 test_positional_only_arg
 test_profile
