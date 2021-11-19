@@ -88,6 +88,7 @@ test_decimal
 test_decorators
 test_defaultdict
 test_deque
+test_descr
 test_descrtut
 test_devpoll
 test_dict
