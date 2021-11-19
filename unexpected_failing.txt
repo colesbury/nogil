@@ -9,7 +9,6 @@ test_future
 test_gc
 test_generators
 test_inspect
-test_modulefinder
 test_profile
 test_pstats
 test_pyexpat
