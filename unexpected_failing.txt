@@ -3,7 +3,6 @@ test_audit
 test_code
 test_compile
 test_coroutines
-test_exceptions
 test_faulthandler
 test_future
 test_gc
