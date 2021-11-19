@@ -927,6 +927,7 @@ PyFrameObject* _Py_HOT_FUNCTION
 _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
                      PyObject *globals, PyObject *locals)
 {
+    abort();
 #ifdef Py_DEBUG
     if (code == NULL || globals == NULL || !PyDict_Check(globals) ||
         (locals != NULL && !PyMapping_Check(locals))) {
@@ -987,13 +988,10 @@ _PyFrame_New_NoTrack(PyThreadState *tstate, PyCodeObject *code,
 }
 
 PyFrameObject*
-PyFrame_New(PyThreadState *tstate, PyCodeObject *code,
+PyFrame_New(PyThreadState *tstate, PyCodeObject2 *code,
             PyObject *globals, PyObject *locals)
 {
-    PyFrameObject *f = _PyFrame_New_NoTrack(tstate, code, globals, locals);
-    if (f)
-        _PyObject_GC_TRACK(f);
-    return f;
+    return _PyFrame_NewFake(code, globals);
 }
 
 

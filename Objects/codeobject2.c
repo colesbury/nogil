@@ -135,6 +135,7 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
     return co;
 }
 
+
 PyDoc_STRVAR(code_doc,
 "code(argcount, posonlyargcount, kwonlyargcount, nlocals, stacksize,\n\
       flags, codestring, constants, names, varnames, filename, name,\n\
@@ -253,6 +254,51 @@ code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
 
     PyCode2_UpdateFlags(co);
     return (PyObject *)co;
+}
+
+PyCodeObject2 *
+PyCode2_NewEmpty(const char *filename, const char *funcname, int firstlineno)
+{
+    PyObject *funcname_ob = NULL;
+    PyObject *filename_ob = NULL;
+    PyObject *co = NULL;
+
+    funcname_ob = PyUnicode_FromString(funcname);
+    if (funcname_ob == NULL) {
+        goto done;
+    }
+    filename_ob = PyUnicode_DecodeFSDefault(filename);
+    if (filename_ob == NULL) {
+        goto done;
+    }
+    co = code_new_impl(
+        &PyCode2_Type,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        NULL, /*code*/
+        NULL, /*consts*/
+        NULL, /*varnames*/
+        filename_ob,
+        funcname_ob,
+        firstlineno,
+        Py_None, /*linetable*/
+        NULL, /*eh_table*/
+        NULL, /*jump_table*/
+        NULL, /*freevars*/
+        NULL, /*cellvars*/
+        NULL, /*free2reg*/
+        NULL /*cell2reg*/
+    );
+done:
+    Py_XDECREF(funcname_ob);
+    Py_XDECREF(filename_ob);
+    return (PyCodeObject2 *)co;
 }
 
 void

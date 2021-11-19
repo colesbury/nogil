@@ -246,6 +246,7 @@ test_pwd
 test_py_compile
 test_pyclbr
 test_pydoc
+test_pyexpat
 test_queue
 test_quopri
 test_raise

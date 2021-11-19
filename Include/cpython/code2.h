@@ -115,6 +115,9 @@ PyCode2_New(Py_ssize_t instr_size, Py_ssize_t nconsts,
             Py_ssize_t nmeta, Py_ssize_t ncells, Py_ssize_t ncaptured,
             Py_ssize_t nexc_handlers, Py_ssize_t jump_table_size);
 
+/* Creates a new empty code object with the specified source location. */
+PyAPI_FUNC(PyCodeObject2 *)
+PyCode2_NewEmpty(const char *filename, const char *funcname, int firstlineno);
 
 /* Return the line number associated with the specified bytecode index
    in this code object.  If you just need the line number of a frame,

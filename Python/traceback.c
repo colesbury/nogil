@@ -257,7 +257,7 @@ PyTraceBack_Here(PyFrameObject *frame)
 void _PyTraceback_Add(const char *funcname, const char *filename, int lineno)
 {
     PyObject *globals;
-    PyCodeObject *code;
+    PyCodeObject2 *code;
     PyFrameObject *frame;
     PyObject *exc, *val, *tb;
 
@@ -269,7 +269,7 @@ void _PyTraceback_Add(const char *funcname, const char *filename, int lineno)
     globals = PyDict_New();
     if (!globals)
         goto error;
-    code = PyCode_NewEmpty(filename, funcname, lineno);
+    code = PyCode2_NewEmpty(filename, funcname, lineno);
     if (!code) {
         Py_DECREF(globals);
         goto error;
