@@ -232,6 +232,7 @@ test_plistlib
 test_poll
 test_popen
 test_poplib
+test_positional_only_arg
 test_posix
 test_posixpath
 test_pow
