@@ -29,5 +29,4 @@ test_tracemalloc
 test_unittest
 test_unpack_ex
 test_warnings
-test_with
 test_zipimport_support
