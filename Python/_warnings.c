@@ -1,5 +1,6 @@
 #include "Python.h"
 #include "pycore_ceval.h"
+#include "pycore_generator.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"        // PyInterpreterState.warnings
 #include "pycore_pyerrors.h"
@@ -1324,7 +1325,7 @@ _PyErr_WarnUnawaitedCoroutine(PyObject *coro)
     if (!warned) {
         if (_PyErr_WarnFormat(coro, PyExc_RuntimeWarning, 1,
                               "coroutine '%S' was never awaited",
-                              ((PyCoroObject *)coro)->cr_qualname) < 0)
+                              ((PyGenObject2 *)coro)->qualname) < 0)
         {
             PyErr_WriteUnraisable(coro);
         }

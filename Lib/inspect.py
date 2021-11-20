@@ -1708,13 +1708,7 @@ def getcoroutinestate(coroutine):
       CORO_SUSPENDED: Currently suspended at an await expression.
       CORO_CLOSED: Execution has completed.
     """
-    if coroutine.cr_running:
-        return CORO_RUNNING
-    if coroutine.cr_frame is None:
-        return CORO_CLOSED
-    if coroutine.cr_frame.f_lasti == -1:
-        return CORO_CREATED
-    return CORO_SUSPENDED
+    return coroutine._corostate
 
 
 def getcoroutinelocals(coroutine):
