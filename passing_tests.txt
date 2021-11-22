@@ -349,6 +349,7 @@ test_unicode_file
 test_unicode_file_functions
 test_unicode_identifiers
 test_unicodedata
+test_unittest
 test_univnewlines
 test_unpack
 test_unpack_ex

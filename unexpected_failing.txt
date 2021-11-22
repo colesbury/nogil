@@ -12,6 +12,5 @@ test_sys_setprofile
 test_trace
 test_traceback
 test_tracemalloc
-test_unittest
 test_warnings
 test_zipimport_support
