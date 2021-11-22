@@ -7,6 +7,5 @@ test_pstats
 test_regrtest
 test_sys_setprofile
 test_traceback
-test_tracemalloc
 test_warnings
 test_zipimport_support
