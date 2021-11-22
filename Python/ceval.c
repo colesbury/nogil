@@ -27,6 +27,7 @@
 #include "code.h"
 #include "dictobject.h"
 #include "frameobject.h"
+#include "opcode2.h"
 #include "opcode.h"
 #include "pydtrace.h"
 #include "setobject.h"
@@ -4564,6 +4565,41 @@ maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
     return result;
 }
 
+static void
+update_use_tracing(PyThreadState *tstate)
+{
+    int use_tracing = (tstate->c_tracefunc   != NULL ||
+                       tstate->c_profilefunc != NULL);
+
+    /* Flag that tracing or profiling is turned on */
+    tstate->use_tracing = use_tracing;
+
+#ifdef HAVE_COMPUTED_GOTOS
+    static uint8_t trace_cfunc[128] = {
+        [CFUNC_HEADER] = 1,
+        [CFUNC_HEADER_NOARGS] = 1,
+        [CFUNC_HEADER_O] = 1,
+        [CMETHOD_O] = 1,
+        [FUNC_TPCALL_HEADER] = 1,
+    };
+
+    /* Update opcode handlers */
+    for (int i = 0; i < 128; i++) {
+        if (use_tracing) {
+            if (trace_cfunc[i]) {
+                tstate->opcode_targets[i] = (uintptr_t)tstate->trace_cfunc_target;
+            }
+            else {
+                tstate->opcode_targets[i] = (uintptr_t)tstate->trace_target;
+            }
+        }
+        else {
+            tstate->opcode_targets[i] = (uintptr_t)tstate->opcode_targets_base[i];
+        }
+    }
+#endif
+}
+
 int
 _PyEval_SetProfile(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
 {
@@ -4591,7 +4627,7 @@ _PyEval_SetProfile(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
     tstate->c_profilefunc = func;
 
     /* Flag that tracing or profiling is turned on */
-    tstate->use_tracing = (func != NULL) || (tstate->c_tracefunc != NULL);
+    update_use_tracing(tstate);
     return 0;
 }
 
@@ -4634,9 +4670,7 @@ _PyEval_SetTrace(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
     tstate->c_tracefunc = func;
 
     /* Flag that tracing or profiling is turned on */
-    tstate->use_tracing = ((func != NULL)
-                           || (tstate->c_profilefunc != NULL));
-
+    update_use_tracing(tstate);
     return 0;
 }
 
