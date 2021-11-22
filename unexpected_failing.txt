@@ -2,7 +2,6 @@ test__xxsubinterpreters
 test_audit
 test_compile
 test_faulthandler
-test_future
 test_gc
 test_inspect
 test_profile
