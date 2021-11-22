@@ -339,7 +339,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
 {
 #ifdef HAVE_COMPUTED_GOTOS
     #include "opcode_targets2.h"
-    if (UNLIKELY(!ts->ts->opcode_targets[0])) {
+    if (UNLIKELY(!ts->ts->opcode_targets_base)) {
         memcpy(ts->ts->opcode_targets + 1,
                opcode_targets_base + 1,
                sizeof(opcode_targets_base) - sizeof(void*));

@@ -752,7 +752,7 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
     }
 
     /* load eval breaker */
-    uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
+    uintptr_t b = _Py_atomic_load_uintptr(&tstate->opcode_targets[0]);
 
     /* Stop-the-world */
     if ((b & EVAL_PLEASE_STOP) != 0) {
@@ -769,6 +769,7 @@ _PyEval_HandleBreaker(PyThreadState *tstate)
 
     /* Pending signals */
     if ((b & EVAL_PENDING_SIGNALS) != 0) {
+        _PyThreadState_Unsignal(tstate, EVAL_PENDING_SIGNALS);
         assert(_Py_ThreadCanHandleSignals(tstate->interp));
         if (handle_signals(tstate) != 0) {
             return -1;
@@ -832,7 +833,7 @@ _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
     PyObject **fastlocals, **freevars;
     PyObject *retval = NULL;            /* Return value */
     struct _ceval_state * const ceval2 = &tstate->interp->ceval;
-    uintptr_t * const eval_breaker = &tstate->eval_breaker;
+    uintptr_t * const eval_breaker = &tstate->opcode_targets[0];
     PyCodeObject *co;
 
     /* when tracing we set things up so that

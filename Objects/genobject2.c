@@ -2,6 +2,7 @@
 
 #include "Python.h"
 #include "pycore_object.h"
+#include "pycore_pyerrors.h"      // _PyErr_ClearExcState()
 #include "pycore_pystate.h"
 #include "structmember.h"
 #include "ceval2_meta.h" // remove ?
@@ -463,6 +464,7 @@ gen_throw_current(PyGenObject2 *gen)
     }
     gen->status = GEN_CLOSED;  // TODO: awkward, maybe GEN_RUNNING but set closed in vm_pop_frame?
     ts->ts = PyThreadState_GET();
+    _PyErr_ChainExceptionsFrom(ts);
     const uint8_t *pc = vm_exception_unwind(ts, (Register){0}, false);
     if (pc == NULL) {
         assert(gen->status == GEN_CLOSED);

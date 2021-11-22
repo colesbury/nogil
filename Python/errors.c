@@ -599,6 +599,31 @@ _PyErr_ChainStackItem(_PyErr_StackItem *exc_info)
     }
 }
 
+void
+_PyErr_ChainExceptionsFrom(struct ThreadState *ts)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+    struct ThreadState *prev = tstate->active;
+    assert(_PyErr_Occurred(tstate));
+
+    PyObject *exc2 = vm_handled_exc(ts);
+    if (exc2 == NULL) {
+        return;
+    }
+
+    PyObject *exc, *val, *tb;
+    _PyErr_Fetch(tstate, &exc, &val, &tb);
+
+    tstate->active = ts;
+    _PyErr_SetObject(tstate, exc, val);
+    tstate->active = prev;
+
+    Py_DECREF(exc);
+    Py_XDECREF(val);
+    Py_XDECREF(tb);
+
+}
+
 static PyObject *
 _PyErr_FormatVFromCause(PyThreadState *tstate, PyObject *exception,
                         const char *format, va_list vargs)
@@ -1468,7 +1493,7 @@ _PyErr_WriteUnraisableMsg(const char *err_msg_str, PyObject *obj)
     }
 
     if (exc_tb == NULL) {
-        PyFrameObject *frame = tstate->frame;
+        PyFrameObject *frame = vm_frame(tstate->active);
         if (frame != NULL) {
             exc_tb = _PyTraceBack_FromFrame(NULL, frame);
             if (exc_tb == NULL) {

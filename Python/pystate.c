@@ -423,10 +423,11 @@ void
 _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 {
     // TODO: use atomic bitwise instructions when available
+    uintptr_t *eval_breaker = &tstate->opcode_targets[0];
     for (;;) {
-        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(eval_breaker);
         uintptr_t newv = v | bit;
-        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+        if (_Py_atomic_compare_exchange_uintptr(eval_breaker, v, newv)) {
             break;
         }
     }
@@ -435,10 +436,11 @@ _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 void
 _PyThreadState_Unsignal(PyThreadState *tstate, uintptr_t bit)
 {
+    uintptr_t *eval_breaker = &tstate->opcode_targets[0];
     for (;;) {
-        uintptr_t v = _Py_atomic_load_uintptr_relaxed(&tstate->eval_breaker);
+        uintptr_t v = _Py_atomic_load_uintptr_relaxed(eval_breaker);
         uintptr_t newv = v & ~bit;
-        if (_Py_atomic_compare_exchange_uintptr(&tstate->eval_breaker, v, newv)) {
+        if (_Py_atomic_compare_exchange_uintptr(eval_breaker, v, newv)) {
             break;
         }
     }
@@ -938,7 +940,6 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
     tstate->interp = interp;
 
     tstate->status = _Py_THREAD_DETACHED;
-    tstate->eval_breaker = 0;
     tstate->frame = NULL;
     tstate->recursion_depth = 0;
     tstate->overflowed = 0;
