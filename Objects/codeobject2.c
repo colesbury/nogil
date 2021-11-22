@@ -903,6 +903,7 @@ static PyMemberDef code_memberlist[] = {
     {"co_totalargcount",        T_PYSSIZET,  OFF(co_totalargcount),   READONLY},
     {"co_nlocals",      T_PYSSIZET,     OFF(co_nlocals),         READONLY},
     {"co_framesize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
+    {"co_stacksize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
     {"co_ndefaultargs", T_PYSSIZET,     OFF(co_ndefaultargs),    READONLY},
     {"co_nmeta",        T_PYSSIZET,     OFF(co_nmeta),           READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},
