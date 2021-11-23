@@ -379,6 +379,7 @@ test_uuid
 test_venv
 test_wait3
 test_wait4
+test_warnings
 test_wave
 test_weakref
 test_weakset

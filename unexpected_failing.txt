@@ -4,5 +4,4 @@ test_inspect
 test_profile
 test_regrtest
 test_traceback
-test_warnings
 test_zipimport_support
