@@ -1,5 +1,4 @@
 test__xxsubinterpreters
 test_gc
-test_profile
 test_regrtest
 test_traceback

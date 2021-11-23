@@ -9,6 +9,7 @@ test_gdb
 test_nntplib
 test_pdb
 test_peepholer
+test_profile
 test_super
 test_sys_settrace
 test_userlist

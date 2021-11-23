@@ -100,10 +100,20 @@ call_timer(ProfilerObject *pObj)
 
 /*** ProfilerObject ***/
 
+static PyObject*
+normalize_method_descr(PyMethodDescrObject *d)
+{
+    return PyUnicode_FromFormat("<built-in method %s>",
+                                d->d_method->ml_name);
+}
+
 static PyObject *
 normalizeUserObj(PyObject *obj)
 {
     PyCFunctionObject *fn;
+    if (Py_IS_TYPE(obj, &PyMethodDescr_Type)) {
+        return normalize_method_descr((PyMethodDescrObject *)obj);
+    }
     if (!PyCFunction_Check(obj)) {
         Py_INCREF(obj);
         return obj;
@@ -379,6 +389,20 @@ ptrace_leave_call(PyObject *self, void *key)
     pObj->freelistProfilerContext = pContext;
 }
 
+static PyMethodDef *
+get_method_def(PyObject *arg)
+{
+    if (PyCFunction_Check(arg)) {
+        return ((PyCFunctionObject *)arg)->m_ml;
+    }
+    else if (Py_IS_TYPE(arg, &PyMethodDescr_Type)) {
+        return ((PyMethodDescrObject *)arg)->d_method;
+    }
+    else {
+        return NULL;
+    }
+}
+
 static int
 profiler_callback(PyObject *self, PyFrameObject *frame, int what,
                   PyObject *arg)
@@ -412,11 +436,11 @@ profiler_callback(PyObject *self, PyFrameObject *frame, int what,
     /* the Python function 'frame' is issuing a call to the built-in
        function 'arg' */
     case PyTrace_C_CALL:
-        if ((((ProfilerObject *)self)->flags & POF_BUILTINS)
-            && PyCFunction_Check(arg)) {
-            ptrace_enter_call(self,
-                              ((PyCFunctionObject *)arg)->m_ml,
-                              arg);
+        if (((ProfilerObject *)self)->flags & POF_BUILTINS) {
+            PyMethodDef *def = get_method_def(arg);
+            if (def != NULL) {
+                ptrace_enter_call(self, def, arg);
+            }
         }
         break;
 
@@ -424,10 +448,11 @@ profiler_callback(PyObject *self, PyFrameObject *frame, int what,
        caller 'frame' */
     case PyTrace_C_RETURN:              /* ...normally */
     case PyTrace_C_EXCEPTION:           /* ...with an exception set */
-        if ((((ProfilerObject *)self)->flags & POF_BUILTINS)
-            && PyCFunction_Check(arg)) {
-            ptrace_leave_call(self,
-                              ((PyCFunctionObject *)arg)->m_ml);
+        if (((ProfilerObject *)self)->flags & POF_BUILTINS) {
+            PyMethodDef *def = get_method_def(arg);
+            if (def != NULL) {
+                ptrace_leave_call(self, def);
+            }
         }
         break;
 
