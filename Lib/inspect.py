@@ -1462,11 +1462,12 @@ def getclosurevars(func):
     global_vars = {}
     builtin_vars = {}
     unbound_names = set()
-    for name in code.co_names:
-        if name in ("None", "True", "False"):
+    for instr in dis.get_instructions(func):
+        if instr.opname not in ("LOAD_GLOBAL", "LOAD_NAME"):
             # Because these used to be builtins instead of keywords, they
             # may still show up as name references. We ignore them.
             continue
+        name = code.co_consts[instr.imm[0]]
         try:
             global_vars[name] = global_ns[name]
         except KeyError:

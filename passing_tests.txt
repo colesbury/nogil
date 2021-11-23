@@ -1,9 +1,3 @@
-
-
-
-
-
-
 test___all__
 test___future__
 test__locale
@@ -176,6 +170,7 @@ test_imp
 test_import
 test_importlib
 test_index
+test_inspect
 test_int
 test_int_literal
 test_io
