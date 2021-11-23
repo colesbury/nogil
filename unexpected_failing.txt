@@ -1,11 +1,8 @@
 test__xxsubinterpreters
-test_audit
 test_gc
 test_inspect
 test_profile
-test_pstats
 test_regrtest
-test_sys_setprofile
 test_traceback
 test_warnings
 test_zipimport_support

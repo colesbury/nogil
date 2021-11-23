@@ -21,6 +21,7 @@ test_asyncio
 test_asyncore
 test_atexit
 test_audioop
+test_audit
 test_augassign
 test_base64
 test_baseexception
@@ -250,6 +251,7 @@ test_pow
 test_pprint
 test_print
 test_property
+test_pstats
 test_pty
 test_pulldom
 test_pwd
@@ -318,6 +320,7 @@ test_symbol
 test_symtable
 test_syntax
 test_sys
+test_sys_setprofile
 test_sysconfig
 test_syslog
 test_tabnanny

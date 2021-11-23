@@ -4584,7 +4584,7 @@ update_use_tracing(PyThreadState *tstate)
     };
 
     /* Update opcode handlers */
-    for (int i = 0; i < 128; i++) {
+    for (int i = 1; i < 128; i++) {
         if (use_tracing) {
             if (trace_cfunc[i]) {
                 tstate->opcode_targets[i] = (uintptr_t)tstate->trace_cfunc_target;

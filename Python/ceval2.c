@@ -257,7 +257,7 @@ _OWNING_REF(Register r, intptr_t tid)
 #define JumpImm(idx) ((int16_t)UImm16(idx))
 
 #define CHECK_EVAL_BREAKER() do {                                       \
-    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(&opcode_targets[0]))) {    \
+    if (UNLIKELY(!_Py_atomic_uintptr_is_zero(eval_breaker_ptr))) {      \
         goto eval_breaker;                                              \
     }                                                                   \
 } while (0)
@@ -349,8 +349,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     }
     uintptr_t *opcode_targets = ts->ts->opcode_targets;
     #define tstate ((PyThreadState *)(((char *)opcode_targets) - offsetof(PyThreadState, opcode_targets)))
+    #define eval_breaker_ptr &opcode_targets[0]
 #else
     PyThreadState *tstate = ts->ts;
+    #define eval_breaker_ptr &tstate->opcode_targets[0]
 #endif
 
     const uint8_t *pc = initial_pc;
