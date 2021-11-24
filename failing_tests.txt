@@ -15,7 +15,6 @@ test_sys_settrace
 test_userlist
 
 test_asyncio
-test_venv
 
 test__xxsubinterpreters
 test_regrtest
