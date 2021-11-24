@@ -97,6 +97,7 @@ test_dict_version
 test_dictcomps
 test_dictviews
 test_difflib
+test_dis
 test_distutils
 test_doctest2
 test_docxmlrpc

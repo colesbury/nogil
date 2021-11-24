@@ -156,7 +156,7 @@ def _format_code_info(co):
     lines.append("Positional-only arguments: %s" % co.co_posonlyargcount)
     lines.append("Kw-only arguments: %s" % co.co_kwonlyargcount)
     lines.append("Number of locals:  %s" % co.co_nlocals)
-    lines.append("Stack size:        %s" % (co.co_stacksize + co.co_callablesize))
+    lines.append("Stack size:        %s" % (co.co_stacksize))
     lines.append("Flags:             %s" % pretty_flags(co.co_flags))
     if co.co_consts:
         lines.append("Constants:")
@@ -397,17 +397,8 @@ def disassemble(co, lasti=-1, *, file=None):
     cell_names = co.co_cellvars + co.co_freevars
     linestarts = dict(findlinestarts(co))
     _disassemble_bytes(co.co_code, lasti, co.co_varnames,
-                       co.co_consts, cell_names, linestarts, file=file)
-    if len(co.co_cell2reg) > 0:
-        print(' ' * 2 + f'Cell variables: {list(co.co_cell2reg)}', file=file)
-    if len(co.co_free2reg) > 0:
-        print(' ' * 2 + f'Free variables: {list(co.co_free2reg)}', file=file)
-    exc_handlers = co.co_exc_handlers
-    if len(exc_handlers) > 0:
-        print(' ' * 2 + f'Exception handlers ({len(exc_handlers)}):', file=file)
-        print(f'    start  ->  (handler,  end)', file=file)
-        for start, handler, end, reg in exc_handlers:
-            print(f'     {start:4d}  ->      {handler:4d}, {end:4d}  [reg={reg}]', file=file)
+                       co.co_consts, cell_names, linestarts, co.co_cell2reg,
+                       co.co_free2reg, co.co_exc_handlers, file=file)
 
 def _disassemble_recursive(co, *, file=None, depth=None):
     disassemble(co, file=file)
@@ -421,7 +412,8 @@ def _disassemble_recursive(co, *, file=None, depth=None):
                 _disassemble_recursive(x, file=file, depth=depth)
 
 def _disassemble_bytes(code, lasti=-1, varnames=None, constants=None,
-                       cells=None, linestarts=None,
+                       cells=None, linestarts=None, cell2reg=None,
+                       free2reg=None, exc_handlers=None,
                        *, file=None, line_offset=0):
     # Omit the line number column entirely if we have no line number info
     show_lineno = linestarts is not None
@@ -449,6 +441,15 @@ def _disassemble_bytes(code, lasti=-1, varnames=None, constants=None,
         is_current_instr = instr.offset == lasti
         print(instr._disassemble(lineno_width, is_current_instr, offset_width),
               file=file)
+    if cell2reg:
+        print(' ' * 2 + f'Cell variables: {list(cell2reg)}', file=file)
+    if free2reg:
+        print(' ' * 2 + f'Free variables: {list(free2reg)}', file=file)
+    if exc_handlers:
+        print(' ' * 2 + f'Exception handlers ({len(exc_handlers)}):', file=file)
+        print(f'    start  ->  (handler,  end)', file=file)
+        for start, handler, end, reg in exc_handlers:
+            print(f'     {start:4d}  ->      {handler:4d}, {end:4d}  [reg={reg}]', file=file)
 
 def _disassemble_str(source, **kwargs):
     """Compile the source string, then disassemble the code object."""
@@ -593,10 +594,13 @@ class Bytecode:
             offset = -1
         with io.StringIO() as output:
             _disassemble_bytes(co.co_code, varnames=co.co_varnames,
-                               names=co.co_names, constants=co.co_consts,
+                               constants=co.co_consts,
                                cells=self._cell_names,
                                linestarts=self._linestarts,
                                line_offset=self._line_offset,
+                               cell2reg=co.co_cell2reg,
+                               free2reg=co.co_free2reg,
+                               exc_handlers=co.co_exc_handlers,
                                file=output,
                                lasti=offset)
             return output.getvalue()
