@@ -11,7 +11,6 @@ test_asdl_parser
 test_ast
 test_asyncgen
 test_asynchat
-test_asyncio
 test_asyncore
 test_atexit
 test_audioop
@@ -130,7 +129,6 @@ test_fnmatch
 test_fork1
 test_format
 test_fractions
-test_frozen
 test_fstring
 test_ftplib
 test_funcattrs
@@ -169,7 +167,6 @@ test_imaplib
 test_imghdr
 test_imp
 test_import
-test_importlib
 test_index
 test_inspect
 test_int
@@ -315,7 +312,6 @@ test_support
 test_symbol
 test_symtable
 test_syntax
-test_sys
 test_sys_setprofile
 test_sysconfig
 test_syslog
@@ -327,7 +323,6 @@ test_tempfile
 test_textwrap
 test_thread
 test_threadedtempfile
-test_threading
 test_threading_local
 test_threadsignals
 test_time
@@ -372,7 +367,6 @@ test_utf8_mode
 test_utf8source
 test_uu
 test_uuid
-test_venv
 test_wait3
 test_wait4
 test_warnings

@@ -1,3 +1,0 @@
-test__xxsubinterpreters
-test_regrtest
-test_traceback
