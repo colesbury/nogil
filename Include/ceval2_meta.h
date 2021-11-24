@@ -307,6 +307,8 @@ int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);
 
+Py_ssize_t vm_stack_depth(struct ThreadState *ts);
+
 int vm_eval_breaker(struct ThreadState *ts);
 int vm_trace_handler(struct ThreadState *ts, const uint8_t *last_pc, Register acc);
 PyObject *vm_trace_cfunc(struct ThreadState *ts, Register acc);

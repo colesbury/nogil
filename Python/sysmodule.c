@@ -1164,6 +1164,7 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
 {
     int mark;
     PyThreadState *tstate = _PyThreadState_GET();
+    Py_ssize_t depth;
 
     if (new_limit < 1) {
         _PyErr_SetString(tstate, PyExc_ValueError,
@@ -1181,11 +1182,13 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
        the new low-water mark. Otherwise it may not be possible anymore to
        reset the overflowed flag to 0. */
     mark = _Py_RecursionLimitLowerWaterMark(new_limit);
-    if (tstate->recursion_depth >= mark) {
+    depth = _PyThreadState_GetRecursionDepth(tstate);
+
+    if (depth >= mark) {
         _PyErr_Format(tstate, PyExc_RecursionError,
                       "cannot set the recursion limit to %i at "
                       "the recursion depth %i: the limit is too low",
-                      new_limit, tstate->recursion_depth);
+                      new_limit, depth);
         return NULL;
     }
 

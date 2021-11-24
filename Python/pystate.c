@@ -1536,6 +1536,15 @@ PyThreadState_GetID(PyThreadState *tstate)
     return tstate->id;
 }
 
+Py_ssize_t
+_PyThreadState_GetRecursionDepth(PyThreadState *tstate)
+{
+    if (!tstate->active) {
+        return 0;
+    }
+    return vm_stack_depth(tstate->active);
+}
+
 
 /* Asynchronously raise an exception in a thread.
    Requested by Just van Rossum and Alex Martelli.
@@ -1631,6 +1640,10 @@ _PyThread_CurrentFrames(void)
         return NULL;
     }
 
+    _PyMutex_lock(&_PyRuntime.stoptheworld_mutex);
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
+    tstate->cant_stop_wont_stop++;
+
     /* for i in all interpreters:
      *     for t in all of i's thread states:
      *          if t's frame isn't NULL, map t's id to its frame
@@ -1639,23 +1652,23 @@ _PyThread_CurrentFrames(void)
      */
     _PyRuntimeState *runtime = tstate->interp->runtime;
     HEAD_LOCK(runtime);
-    PyInterpreterState *i;
-    for (i = runtime->interpreters.head; i != NULL; i = i->next) {
-        PyThreadState *t;
-        for (t = i->tstate_head; t != NULL; t = t->next) {
-            PyFrameObject *frame = t->frame;
-            if (frame == NULL) {
-                continue;
-            }
-            PyObject *id = PyLong_FromUnsignedLong(t->thread_id);
-            if (id == NULL) {
+    PyThreadState *t;
+    for_each_thread(t) {
+        PyFrameObject *frame = vm_frame(t->active);
+        if (frame == NULL) {
+            if (_PyErr_Occurred(tstate)) {
                 goto fail;
             }
-            int stat = PyDict_SetItem(result, id, (PyObject *)frame);
-            Py_DECREF(id);
-            if (stat < 0) {
-                goto fail;
-            }
+            continue;
+        }
+        PyObject *id = PyLong_FromUnsignedLong(t->thread_id);
+        if (id == NULL) {
+            goto fail;
+        }
+        int stat = PyDict_SetItem(result, id, (PyObject *)frame);
+        Py_DECREF(id);
+        if (stat < 0) {
+            goto fail;
         }
     }
     goto done;
@@ -1665,6 +1678,9 @@ fail:
 
 done:
     HEAD_UNLOCK(runtime);
+    tstate->cant_stop_wont_stop--;
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+    _PyMutex_unlock(&_PyRuntime.stoptheworld_mutex);
     return result;
 }
 

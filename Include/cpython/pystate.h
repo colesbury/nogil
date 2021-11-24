@@ -168,6 +168,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_UncheckedGet(void);
 
 PyAPI_FUNC(PyObject *) _PyThreadState_GetDict(PyThreadState *tstate);
 
+PyAPI_FUNC(Py_ssize_t) _PyThreadState_GetRecursionDepth(PyThreadState *tstate);
+
 /* PyGILState */
 
 /* Helper/diagnostic function - return 1 if the current thread

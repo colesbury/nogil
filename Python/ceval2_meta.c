@@ -217,7 +217,7 @@ vm_dump_stack(void)
     }
 }
 
-static Py_ssize_t
+Py_ssize_t
 vm_stack_depth(struct ThreadState *ts)
 {
     struct stack_walk w;

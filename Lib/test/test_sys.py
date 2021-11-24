@@ -269,33 +269,6 @@ class SysModuleTest(unittest.TestCase):
         finally:
             sys.setrecursionlimit(oldlimit)
 
-    # The error message is specific to CPython
-    @test.support.cpython_only
-    def test_recursionlimit_fatalerror(self):
-        # A fatal error occurs if a second recursion limit is hit when recovering
-        # from a first one.
-        code = textwrap.dedent("""
-            import sys
-
-            def f():
-                try:
-                    f()
-                except RecursionError:
-                    f()
-
-            sys.setrecursionlimit(%d)
-            f()""")
-        with test.support.SuppressCrashReport():
-            for i in (50, 1000):
-                sub = subprocess.Popen([sys.executable, '-c', code % i],
-                    stderr=subprocess.PIPE)
-                err = sub.communicate()[1]
-                self.assertTrue(sub.returncode, sub.returncode)
-                self.assertIn(
-                    b"Fatal Python error: _Py_CheckRecursiveCall: "
-                    b"Cannot recover from stack overflow",
-                    err)
-
     def test_getwindowsversion(self):
         # Raise SkipTest if sys doesn't have getwindowsversion attribute
         test.support.get_attribute(sys, "getwindowsversion")
@@ -1163,17 +1136,17 @@ class SizeofTest(unittest.TestCase):
         # complex
         check(complex(0,1), size('2d'))
         # method_descriptor (descriptor object)
-        check(str.lower, size('3PPP'))
+        check(str.lower, size('4PPP'))
         # classmethod_descriptor (descriptor object)
         # XXX
         # member_descriptor (descriptor object)
         import datetime
-        check(datetime.timedelta.days, size('3PP'))
+        check(datetime.timedelta.days, size('4PP'))
         # getset_descriptor (descriptor object)
         import collections
-        check(collections.defaultdict.default_factory, size('3PP'))
+        check(collections.defaultdict.default_factory, size('4PP'))
         # wrapper_descriptor (descriptor object)
-        check(int.__add__, size('3P2P'))
+        check(int.__add__, size('4P2P'))
         # method-wrapper (descriptor object)
         check({}.__iter__, size('2P'))
         # empty dict
@@ -1257,7 +1230,7 @@ class SizeofTest(unittest.TestCase):
             check(bar, size('PP'))
         # generator
         def get_gen(): yield 1
-        check(get_gen(), size('Pb2PPP4P'))
+        check(get_gen(), size('6P2c6Pc'))
         # iterator
         check(iter('abc'), size('lP'))
         # callable-iterator
