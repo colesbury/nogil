@@ -39,7 +39,7 @@ vm_object_steal(Register* addr) {
     return obj;
 }
 
-static Py_ssize_t
+Py_ssize_t
 vm_regs_frame_size(Register *regs)
 {
     PyObject *this_func = AS_OBJ(regs[-1]);
@@ -264,46 +264,6 @@ vm_handled_exc(struct ThreadState *ts)
 }
 
 #define IS_OBJ(r) (((r).as_int64 & NON_OBJECT_TAG) != NON_OBJECT_TAG)
-
-int
-vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg)
-{
-    if (ts->prev != NULL) {
-        return 0;
-    }
-
-    // FIXME: does this double-count generators that are executing
-    // when calling other generators? i.e. due to thread switch while
-    // walking up ts->active->prev...
-
-    Register *max = ts->maxstack;
-    struct stack_walk w;
-    vm_stack_walk_init(&w, ts);
-    while (vm_stack_walk_all(&w)) {
-        Register *regs = w.regs;
-        Register *top = regs + vm_regs_frame_size(regs);
-        if (top > max) {
-            top = max;
-        }
-
-        Register *bot;
-        for (bot = &regs[-1]; bot != top; bot++) {
-            // TODO: handle deferred refcounting
-            Register r = *bot;
-            if (!IS_OBJ(r) || !IS_RC(r)) {
-                continue;
-            }
-
-            PyObject *obj = AS_OBJ(*bot);
-            Py_VISIT(obj);
-        }
-
-        // don't visit the frame header
-        max = regs - FRAME_EXTRA;
-    }
-
-    return 0;
-}
 
 PyObject *
 vm_compute_cr_origin(struct ThreadState *ts)
@@ -2284,73 +2244,6 @@ vm_free_threadstate(struct ThreadState *ts)
     }
     mi_free(ts->stack);
     ts->stack = ts->regs = ts->maxstack = NULL;
-}
-
-void
-vm_retain_for_gc(struct ThreadState *ts)
-{
-    if (ts->gc_visited) {
-        return;
-    }
-
-    ts->gc_visited = true;
-    Register *max = ts->maxstack;
-    struct stack_walk w;
-    vm_stack_walk_init(&w, ts);
-    while (vm_stack_walk_thread(&w)) {
-        Register *regs = w.regs;
-        Register *top = regs + vm_regs_frame_size(regs);
-        if (top > max) {
-            top = max;
-        }
-
-        Register *bot;
-        for (bot = &regs[-1]; bot != top; bot++) {
-            Register r = *bot;
-            if ((r.as_int64 & NON_OBJECT_TAG) != NO_REFCOUNT_TAG) {
-                continue;
-            }
-
-            PyObject *obj = AS_OBJ(r);
-            Py_INCREF(obj);
-        }
-
-        // don't visit the frame header
-        max = regs - FRAME_EXTRA;
-    }
-}
-
-void
-vm_unretain_for_gc(struct ThreadState *ts)
-{
-    if (!ts->gc_visited) {
-        return;
-    }
-    ts->gc_visited = false;
-    Register *max = ts->maxstack;
-    struct stack_walk w;
-    vm_stack_walk_init(&w, ts);
-    while (vm_stack_walk_thread(&w)) {
-        Register *regs = w.regs;
-        Register *top = regs + vm_regs_frame_size(regs);
-        if (top > max) {
-            top = max;
-        }
-
-        Register *bot;
-        for (bot = &regs[-1]; bot != top; bot++) {
-            Register r = *bot;
-            if ((r.as_int64 & NON_OBJECT_TAG) != NO_REFCOUNT_TAG) {
-                continue;
-            }
-
-            PyObject *obj = AS_OBJ(r);
-            Py_DECREF(obj);
-        }
-
-        // don't visit the frame header
-        max = regs - FRAME_EXTRA;
-    }
 }
 
 int

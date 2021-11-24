@@ -179,6 +179,7 @@ struct _gc_runtime_state {
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);
 PyAPI_FUNC(void) _PyGC_ResetHeap(void);
 PyAPI_FUNC(Py_ssize_t) _PyGC_Collect(PyThreadState *);
+PyAPI_FUNC(void) _PyGC_TraverseStack(PyGenObject2 *gen, visitproc visit, void *arg);
 
 static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)

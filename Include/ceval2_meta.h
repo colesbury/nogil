@@ -183,10 +183,11 @@ struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
 PyObject *vm_locals(struct ThreadState *ts, struct _frame *frame, Py_ssize_t offset);
 
 // used by genobject2.c
-int vm_traverse_stack(struct ThreadState *ts, visitproc visit, void *arg);
 PyObject *vm_compute_cr_origin(struct ThreadState *ts);
+
 struct _frame *vm_frame(struct ThreadState *ts);
 struct _frame *vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset);
+Py_ssize_t vm_regs_frame_size(Register *regs);
 
 // Used by funcobject2.c.
 PyObject *vm_builtins_from_globals(PyObject *globals);
@@ -302,9 +303,6 @@ void vm_free_threadstate(struct ThreadState *ts);
 int vm_for_iter_exc(struct ThreadState *ts);
 PyObject *vm_get_iter(PyObject *obj);
 int vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA);
-
-void vm_retain_for_gc(struct ThreadState *ts);
-void vm_unretain_for_gc(struct ThreadState *ts);
 
 int
 vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts);

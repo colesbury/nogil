@@ -230,9 +230,10 @@ class GCTests(unittest.TestCase):
     def test_frame(self):
         def f():
             frame = sys._getframe()
+            locals = frame.f_locals
         gc.collect()
         f()
-        self.assertEqual(gc.collect(), 1)
+        self.assertEqual(gc.collect(), 2)
 
     def test_saveall(self):
         # Verify that cyclic garbage like lists show up in gc.garbage if the

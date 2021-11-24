@@ -1,11 +1,11 @@
 /* Generator object implementation */
 
 #include "Python.h"
+#include "pycore_gc.h"            // _PyGC_TraverseStack()
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"      // _PyErr_ClearExcState()
 #include "pycore_pystate.h"
 #include "structmember.h"
-#include "ceval2_meta.h" // remove ?
 #include "pycore_generator.h"
 #include "opcode2.h"
 
@@ -135,8 +135,10 @@ gen_traverse(PyGenObject2 *gen, visitproc visit, void *arg)
     Py_VISIT(gen->qualname);
     Py_VISIT(gen->return_value);
     Py_VISIT(gen->yield_from);
-
-    return vm_traverse_stack(&gen->base.thread, visit, arg);
+    if (gen->base.thread.prev == NULL) {
+        _PyGC_TraverseStack(gen, visit, arg);
+    }
+    return 0;
 }
 
 static void

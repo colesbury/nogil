@@ -25,6 +25,7 @@
 
 #include "Python.h"
 #include "pycore_context.h"
+#include "pycore_generator.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"      // PyInterpreterState.gc
 #include "pycore_object.h"
@@ -32,6 +33,7 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "pycore_refcnt.h"
+#include "pycore_stackwalk.h"
 #include "pycore_gc.h"
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
@@ -486,7 +488,7 @@ validate_list(PyGC_Head *head, enum flagstates flags)
 static int
 validate_refcount_visitor(PyGC_Head* gc, void *arg)
 {
-    assert(_Py_GC_REFCNT(FROM_GC(gc)) > 0);
+    assert(_Py_GC_REFCNT(FROM_GC(gc)) >= 0);
     return 0;
 }
 
@@ -558,6 +560,70 @@ visit_decref(PyObject *op, void *arg)
     return 0;
 }
 
+static int
+visit_decref_unreachable(PyObject *op, void *data);
+
+static int
+visit_incref(PyObject *op, void *data)
+{
+    if (_PyObject_IS_GC(op)) {
+        PyGC_Head *gc = AS_GC(op);
+        if (_PyGC_TRACKED(gc)) {
+            gc_add_refs(gc, 1);
+        }
+    }
+    return 0;
+}
+
+static void
+visit_regs(struct ThreadState *ts, visitproc visit, void *arg)
+{
+    Register *max = ts->maxstack;
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk_thread(&w)) {
+        Register *regs = w.regs;
+        Register *top = regs + vm_regs_frame_size(regs);
+        if (top > max) {
+            top = max;
+        }
+
+        Register *bot;
+        for (bot = &regs[-1]; bot != top; bot++) {
+            Register r = *bot;
+            if (r.as_int64 == 0) {
+                continue;
+            }
+            if ((r.as_int64 & NON_OBJECT_TAG) == NON_OBJECT_TAG) {
+                // skip things that aren't objects
+                continue;
+            }
+
+            if (visit == visit_decref || visit == visit_decref_unreachable) {
+                if (!IS_RC(r)) {
+                    continue;
+                }
+            }
+            else if (visit == visit_incref) {
+                if (IS_RC(r)) {
+                    continue;
+                }
+            }
+
+            visit(AS_OBJ(r), arg);
+        }
+
+        // don't visit the frame header
+        max = regs - FRAME_EXTRA;
+    }
+}
+
+void
+_PyGC_TraverseStack(PyGenObject2 *gen, visitproc visit, void *arg)
+{
+    visit_regs(&gen->base.thread, visit, arg);
+}
+
 // Compute the number of external references to objects in the heap
 // by subtracting internal references from the refcount.
 static int
@@ -598,6 +664,21 @@ update_refs(PyGC_Head *gc, void *args)
     gc->_gc_next = (uintptr_t)list;
     list->_gc_prev = (uintptr_t)gc;
     return 0;
+}
+
+static void
+visit_thread_stacks(void)
+{
+    HEAD_LOCK(&_PyRuntime);
+    PyThreadState *t;
+    for_each_thread(t) {
+        struct ThreadState *ts = t->active;
+        while (ts != NULL) {
+            visit_regs(ts, visit_incref, NULL);
+            ts = ts->prev;
+        }
+    }
+    HEAD_UNLOCK(&_PyRuntime);
 }
 
 /* A traversal callback for subtract_refs. */
@@ -1385,6 +1466,7 @@ collect(PyThreadState *tstate, _PyGC_Reason reason)
     validate_tracked_heap(_PyGC_PREV_MASK_UNREACHABLE, 0);
 
     gc_list_init(&young);
+    visit_thread_stacks();
     visit_heap(update_refs, &young);
     deduce_unreachable(&young, &unreachable);
 
