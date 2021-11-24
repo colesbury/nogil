@@ -261,6 +261,7 @@ test_random
 test_range
 test_re
 test_readline
+test_regrtest
 test_repl
 test_reprlib
 test_resource

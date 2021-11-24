@@ -586,6 +586,7 @@ static int numfree = 0;         /* number of frames currently in free_list */
 static void _Py_HOT_FUNCTION
 frame_dealloc(PyFrameObject *f)
 {
+
     PyObject **p, **valuestack;
     PyCodeObject *co;
 
@@ -609,6 +610,7 @@ frame_dealloc(PyFrameObject *f)
     Py_DECREF(f->f_globals);
     Py_CLEAR(f->f_locals);
     Py_CLEAR(f->f_trace);
+    Py_CLEAR(f->f_code2);
 
     co = f->f_code;
     if (co && !_PyRuntime.preconfig.disable_gil && co->co_zombieframe == NULL) {

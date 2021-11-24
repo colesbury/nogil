@@ -17,5 +17,4 @@ test_userlist
 test_asyncio
 
 test__xxsubinterpreters
-test_regrtest
 test_traceback

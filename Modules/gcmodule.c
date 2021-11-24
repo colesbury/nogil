@@ -952,6 +952,7 @@ incref_merge(PyObject *op)
 
     op->ob_ref_shared += ((local_refcount + 1) << _Py_REF_LOCAL_SHIFT);
     op->ob_ref_shared |= _Py_REF_MERGED_MASK;
+    _Py_INCREF_TOTAL;
 
     assert(!immortal && "immortal objects should not be in garbage");
 
