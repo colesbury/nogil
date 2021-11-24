@@ -129,6 +129,7 @@ test_fnmatch
 test_fork1
 test_format
 test_fractions
+test_frozen
 test_fstring
 test_ftplib
 test_funcattrs
@@ -167,6 +168,7 @@ test_imaplib
 test_imghdr
 test_imp
 test_import
+test_importlib
 test_index
 test_inspect
 test_int

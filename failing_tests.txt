@@ -15,8 +15,6 @@ test_sys_settrace
 test_userlist
 
 test_asyncio
-test_frozen
-test_importlib
 test_sys
 test_threading
 test_venv
