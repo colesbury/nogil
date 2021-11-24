@@ -14,7 +14,5 @@ test_super
 test_sys_settrace
 test_userlist
 
-test_asyncio
-
 test__xxsubinterpreters
 test_traceback

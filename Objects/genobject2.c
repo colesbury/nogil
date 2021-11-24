@@ -732,7 +732,7 @@ _PyGen2_Finalize(PyObject *self)
     PyGenObject2 *gen = (PyGenObject2 *)self;
     PyObject *error_type, *error_value, *error_traceback;
 
-    if (PyCoro2_CheckExact(gen) && gen->status != GEN_CLOSED) {
+    if (PyCoro2_CheckExact(gen) && gen->status == GEN_CREATED) {
         /* Save the current exception, if any. */
         PyErr_Fetch(&error_type, &error_value, &error_traceback);
 
