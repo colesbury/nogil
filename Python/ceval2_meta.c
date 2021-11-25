@@ -2655,7 +2655,7 @@ PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
 
     PyObject *ret = NULL;
 
-    if (tstate->use_tracing && gen->status == GEN_SUSPENDED) {
+    if (tstate->use_tracing) {
         if (vm_trace_enter_gen(ts) != 0) {
             goto exit;
         }
@@ -3345,27 +3345,27 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
 int
 vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 {
-    int err;
+    int opcode = vm_opcode(ts->pc);
+    int last_opcode = last_pc ? vm_opcode(last_pc) : -1;
 
-    if (last_pc != NULL && vm_opcode(last_pc) == FUNC_HEADER) {
+    if (last_opcode == FUNC_HEADER && opcode != COROGEN_HEADER) {
+        // trace calls into functions, but not ones that create generators
+        // because that's how CPython profiling has worked historically
         PyFrameObject *frame = vm_frame(ts);
         if (frame == NULL) {
             return -1;
         }
-        err = call_profile(ts, frame, PyTrace_CALL, Py_None);
-        if (err != 0) {
+        if (call_profile(ts, frame, PyTrace_CALL, Py_None) != 0) {
             return -1;
         }
     }
 
-    int opcode = vm_opcode(ts->pc);
     if (opcode == RETURN_VALUE || opcode == YIELD_VALUE) {
         PyFrameObject *frame = vm_frame(ts);
         if (frame == NULL) {
             return -1;
         }
-        err = call_profile(ts, frame, PyTrace_RETURN, AS_OBJ(acc));
-        if (err != 0) {
+        if (call_profile(ts, frame, PyTrace_RETURN, AS_OBJ(acc)) != 0) {
             return -1;
         }
     }
