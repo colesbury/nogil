@@ -370,6 +370,7 @@ test_urllib_response
 test_urllibnet
 test_urlparse
 test_userdict
+test_userlist
 test_userstring
 test_utf8_mode
 test_utf8source
