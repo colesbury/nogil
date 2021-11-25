@@ -218,6 +218,7 @@ test_multiprocessing_spawn
 test_named_expressions
 test_netrc
 test_nis
+test_nntplib
 test_ntpath
 test_numeric_tower
 test_opcodes
