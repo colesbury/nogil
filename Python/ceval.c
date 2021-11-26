@@ -4580,6 +4580,7 @@ update_use_tracing(PyThreadState *tstate)
         [CFUNC_HEADER_NOARGS] = 1,
         [CFUNC_HEADER_O] = 1,
         [CMETHOD_O] = 1,
+        [CMETHOD_NOARGS] = 1,
         [FUNC_TPCALL_HEADER] = 1,
     };
 

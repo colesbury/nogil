@@ -74,6 +74,7 @@ test_contextlib_async
 test_copy
 test_copyreg
 test_coroutines
+test_cprofile
 test_crashers
 test_crypt
 test_csv

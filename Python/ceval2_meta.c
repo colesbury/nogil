@@ -3281,7 +3281,7 @@ PyObject *
 vm_trace_cfunc(struct ThreadState *ts, Register acc)
 {
     int err;
-    PyObject *res;
+    PyObject *res = NULL;
 
     PyThreadState *tstate = ts->ts;
     if (tstate->tracing || tstate->c_profilefunc == NULL) {
@@ -3299,9 +3299,26 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
     }
 
     PyObject *func = AS_OBJ(ts->regs[-1]);
+    if (Py_IS_TYPE(func, &PyMethodDescr_Type) && ACC_ARGCOUNT(acc) > 0) {
+        // We need to create a temporary bound method as argument for
+        // profiling.
+        //
+        // If nargs == 0, then this cannot work because we have no
+        // "self". In any case, the call itself would raise
+        // TypeError (foo needs an argument), so we just skip
+        // profiling.
+        PyObject *self = AS_OBJ(ts->regs[0]);
+        func = Py_TYPE(func)->tp_descr_get(func, self, (PyObject*)Py_TYPE(self));
+        if (func == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        Py_INCREF(func);
+    }
 
-    err = call_profile(ts, frame, PyTrace_C_CALL, func);
-    if (err != 0) {
+    if (call_profile(ts, frame, PyTrace_C_CALL, func) != 0) {
+        Py_DECREF(func);
         return NULL;
     }
 
@@ -3315,30 +3332,29 @@ vm_trace_cfunc(struct ThreadState *ts, Register acc)
         res = vm_call_cfunction(ts, acc);
     }
 
-    if (tstate->c_profilefunc == NULL) {
-        return res;
-    }
-
-    if (res == NULL) {
-        PyObject *exc = NULL, *val = NULL, *tb = NULL;
-        _PyErr_Fetch(ts->ts, &exc, &val, &tb);
-        err = call_profile(ts, frame, PyTrace_C_EXCEPTION, func);
-        if (err != 0) {
-            Py_XDECREF(exc);
-            Py_XDECREF(val);
-            Py_XDECREF(tb);
-            return NULL;
+    if (tstate->c_profilefunc != NULL) {
+        if (res == NULL) {
+            PyObject *exc = NULL, *val = NULL, *tb = NULL;
+            _PyErr_Fetch(ts->ts, &exc, &val, &tb);
+            err = call_profile(ts, frame, PyTrace_C_EXCEPTION, func);
+            if (err != 0) {
+                Py_XDECREF(exc);
+                Py_XDECREF(val);
+                Py_XDECREF(tb);
+            }
+            else {
+                PyErr_Restore(exc, val, tb);
+            }
         }
-        PyErr_Restore(exc, val, tb);
-    }
-    else {
-        err = call_profile(ts, frame, PyTrace_C_RETURN, func);
-        if (err != 0) {
-            Py_DECREF(res);
-            return NULL;
+        else {
+            err = call_profile(ts, frame, PyTrace_C_RETURN, func);
+            if (err != 0) {
+                Py_CLEAR(res);
+            }
         }
     }
 
+    Py_DECREF(func);
     return res;
 }
 
