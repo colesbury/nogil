@@ -7,5 +7,4 @@ test_gdb
 test_pdb
 test_peepholer
 test_super
-test_sys_settrace
 test_traceback

@@ -366,6 +366,10 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     // Check the eval breaker (signals, GIL, stop-the-world, etc.)
     CHECK_EVAL_BREAKER();
 
+    if (_PyErr_Occurred(tstate)) {
+        goto error;
+    }
+
     // Dispatch to the first instruction
     NEXT_INSTRUCTION();
 
@@ -1077,6 +1081,9 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             gen->status = GEN_SUSPENDED;                                        \
             ts->pc = pc;  /* will resume with YIELD_FROM */                     \
             goto return_to_c;                                                   \
+        }                                                                       \
+        if (UNLIKELY(tstate->use_tracing)) {                                    \
+            CALL_VM(vm_trace_stop_iteration(ts));                               \
         }                                                                       \
         CALL_VM(res = _PyGen2_FetchStopIterationValue());                       \
         if (UNLIKELY(res == NULL)) {                                            \

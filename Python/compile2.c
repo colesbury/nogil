@@ -268,6 +268,7 @@ static void clear_name(struct compiler *c, PyObject *name);
 
 static PyCodeObject2 *compiler_mod(struct compiler *, mod_ty);
 static void compiler_visit_stmts(struct compiler *, asdl_seq *stmts);
+static void compiler_visit_stmts_emit_nop(struct compiler *c, asdl_seq *stmts);
 static void compiler_visit_stmt(struct compiler *, stmt_ty);
 static void compiler_visit_expr(struct compiler *, expr_ty);
 static void compiler_augassign(struct compiler *, stmt_ty);
@@ -2663,7 +2664,7 @@ compiler_for(struct compiler *c, stmt_ty s)
     compiler_push_block(c, &block);
 
     compiler_assign_acc(c, s->v.For.target);
-    compiler_visit_stmts(c, s->v.For.body);
+    compiler_visit_stmts_emit_nop(c, s->v.For.body);
 
     emit_multi_label(c, &continue_label);
     set_lineno(c, s);  // reset lineno to beginning of stmt for FOR_ITER
@@ -2750,9 +2751,10 @@ compiler_while(struct compiler *c, stmt_ty s)
     block.v.WhileLoop.continue_label = &continue_label;
     compiler_push_block(c, &block);
 
-    compiler_visit_stmts(c, s->v.While.body);
+    compiler_visit_stmts_emit_nop(c, s->v.While.body);
     emit_multi_label(c, &continue_label);
 
+    set_lineno(c, s);  // reset lineno to beginning of stmt for jump
     if (constant == 1) {
         emit_bwd_jump(c, JUMP, top_offset);
     }
@@ -3508,9 +3510,11 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
     Py_ssize_t next_register = c->unit->next_register;
 
     /* Always assign a lineno to the next instruction for a stmt. */
-    c->unit->lineno = s->lineno;
-    c->unit->col_offset = s->col_offset;
-    c->unit->lineno_set = 0;
+    if (!c->do_not_emit_bytecode && !c->unit->unreachable) {
+        c->unit->lineno = s->lineno;
+        c->unit->col_offset = s->col_offset;
+        c->unit->lineno_set = 0;
+    }
 
     switch (s->kind) {
     case FunctionDef_kind:
@@ -3599,6 +3603,20 @@ compiler_visit_stmts(struct compiler *c, asdl_seq *stmts)
     for (int i = 0, n = asdl_seq_LEN(stmts); i != n; i++) {
         stmt_ty elt = asdl_seq_GET(stmts, i);
         compiler_visit_stmt(c, elt);
+    }
+}
+
+static void
+compiler_visit_stmts_emit_nop(struct compiler *c, asdl_seq *stmts)
+{
+    uint32_t offset = c->unit->instr.offset;
+    compiler_visit_stmts(c, stmts);
+    if (c->unit->instr.offset == offset) {
+        if (asdl_seq_LEN(stmts) > 0) {
+            stmt_ty s = asdl_seq_GET(stmts, 0);
+            set_lineno(c, s);
+        }
+        emit0(c, CLEAR_ACC);
     }
 }
 

@@ -464,17 +464,9 @@ gen_throw_current(PyGenObject2 *gen)
         // from this PC.
         ts->pc -= 1;
     }
-    gen->status = GEN_CLOSED;  // TODO: awkward, maybe GEN_RUNNING but set closed in vm_pop_frame?
     ts->ts = PyThreadState_GET();
     _PyErr_ChainExceptionsFrom(ts);
-    const uint8_t *pc = vm_exception_unwind(ts, (Register){0}, false);
-    if (pc == NULL) {
-        assert(gen->status == GEN_CLOSED);
-        return gen_wrap_exception(gen);
-    }
-    gen->status = GEN_SUSPENDED;
-    ts->pc = pc;
-    return gen_send_internal(gen, NULL);
+    return gen_send_internal(gen, Py_None);
 }
 
 

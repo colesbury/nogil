@@ -323,6 +323,7 @@ test_symtable
 test_syntax
 test_sys
 test_sys_setprofile
+test_sys_settrace
 test_sysconfig
 test_syslog
 test_tabnanny

@@ -141,14 +141,19 @@ dis_bug708901 = """\
 %3d          13 STORE_FAST               6 (.t5)
              15 CALL_FUNCTION          5 2 (.t4 to .t6)
              19 GET_ITER                 1 (.t0)
-             21 JUMP                     5 (to 26)
+             21 JUMP                     6 (to 27)
         >>   24 STORE_FAST               0 (res)
-        >>   26 FOR_ITER              1 -2 (.t0; to 24)
-             30 LOAD_CONST               0 (None)
-             32 RETURN_VALUE
+
+%3d          26 CLEAR_ACC
+
+%3d     >>   27 FOR_ITER              1 -3 (.t0; to 24)
+             31 LOAD_CONST               0 (None)
+             33 RETURN_VALUE
 """ % (bug708901.__code__.co_firstlineno,
        bug708901.__code__.co_firstlineno + 1,
        bug708901.__code__.co_firstlineno + 2,
+       bug708901.__code__.co_firstlineno + 1,
+       bug708901.__code__.co_firstlineno + 3,
        bug708901.__code__.co_firstlineno + 1)
 
 
@@ -321,7 +326,8 @@ dis_compound_stmt_str = """\
              13 INPLACE_ADD              1 (.t0)
              15 STORE_NAME               1 ('x')
              17 CLEAR_FAST               1 (.t0)
-             19 JUMP                   -13 (to 6)
+
+  2          19 JUMP                   -13 (to 6)
 """
 
 dis_traceback = """\
@@ -1137,7 +1143,7 @@ expected_opinfo_jumpy = [
   Instruction(opname='POP_JUMP_IF_FALSE', opcode=83, imm=[6], argval=121, argrepr='to 121', offset=115, starts_line=None, is_jump_target=False),
   Instruction(opname='JUMP', opcode=79, imm=[22], argval=140, argrepr='to 140', offset=118, starts_line=17, is_jump_target=False),
   Instruction(opname='LOAD_FAST', opcode=50, imm=[0], argval=0, argrepr='i', offset=121, starts_line=11, is_jump_target=True),
-  Instruction(opname='POP_JUMP_IF_TRUE', opcode=84, imm=[-43], argval=80, argrepr='to 80', offset=123, starts_line=17, is_jump_target=False),
+  Instruction(opname='POP_JUMP_IF_TRUE', opcode=84, imm=[-43], argval=80, argrepr='to 80', offset=123, starts_line=None, is_jump_target=False),
   Instruction(opname='LOAD_GLOBAL', opcode=54, imm=[4, 252], argval=('print', 252), argrepr="'print'; 252", offset=126, starts_line=19, is_jump_target=False),
   Instruction(opname='STORE_FAST', opcode=58, imm=[5], argval=5, argrepr='.t3', offset=129, starts_line=None, is_jump_target=False),
   Instruction(opname='LOAD_CONST', opcode=52, imm=[9], argval='Who let lolcatz into this test suite?', argrepr="'Who let lolcatz into this test suite?'", offset=131, starts_line=None, is_jump_target=False),

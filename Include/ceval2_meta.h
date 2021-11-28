@@ -312,6 +312,8 @@ Py_ssize_t vm_stack_depth(struct ThreadState *ts);
 int vm_eval_breaker(struct ThreadState *ts);
 int vm_trace_handler(struct ThreadState *ts, const uint8_t *last_pc, Register acc);
 PyObject *vm_trace_cfunc(struct ThreadState *ts, Register acc);
+void vm_trace_stop_iteration(struct ThreadState *ts);
+
 
 #ifdef __cplusplus
 }

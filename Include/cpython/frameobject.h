@@ -49,6 +49,7 @@ struct _frame {
     /* tracing stuff */
     int instr_lb;
     int instr_ub;
+    int instr_prev;
     int last_line;
     unsigned int seen_func_header : 1;
     unsigned int traced_func : 1;

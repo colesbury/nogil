@@ -517,6 +517,12 @@ vm_exception_handler(PyCodeObject2 *code, const uint8_t *pc)
 static void
 vm_trace_err(struct ThreadState *ts, PyObject **type, PyObject **value, PyObject **traceback);
 
+static void
+vm_trace_active_exc(struct ThreadState *ts);
+
+static int
+vm_trace_return(struct ThreadState *ts);
+
 // Clears the arguments to a failed function call. This is necessary
 // when the function is the outermost call into the interpreter, because
 // the calling code assumes the interpreter will clean-up the frame.
@@ -597,9 +603,12 @@ vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
                 PyErr_Fetch(&exc, &val, &tb);
             }
         }
-        else {
-            skip_frame = false;
+
+        if (ts->ts->use_tracing && !skip_frame) {
+            vm_trace_err(ts, &exc, &val, &tb);
         }
+
+        skip_frame = false;
 
         ExceptionHandler *handler = vm_exception_handler(code, pc);
         if (handler != NULL) {
@@ -622,7 +631,12 @@ vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
         }
 
         if (ts->ts->use_tracing) {
-            vm_trace_err(ts, &exc, &val, &tb);
+            if (vm_trace_return(ts) != 0) {
+                Py_CLEAR(exc);
+                Py_CLEAR(val);
+                Py_CLEAR(tb);
+                PyErr_Fetch(&exc, &val, &tb);
+            }
         }
 
       next: ;
@@ -2254,11 +2268,21 @@ vm_for_iter_exc(struct ThreadState *ts)
     if (!_PyErr_ExceptionMatches(tstate, PyExc_StopIteration)) {
         return -1;
     }
-    // else if (tstate->c_tracefunc != NULL) {
-    //     call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
-    // }
+    if (tstate->c_tracefunc != NULL) {
+        vm_trace_active_exc(ts);
+    }
     _PyErr_Clear(tstate);
     return 0;
+}
+
+void
+vm_trace_stop_iteration(struct ThreadState *ts)
+{
+    PyThreadState *tstate = ts->ts;
+    if (_PyErr_ExceptionMatches(tstate, PyExc_StopIteration) &&
+        tstate->c_tracefunc != NULL) {
+        vm_trace_active_exc(ts);
+    }
 }
 
 int
@@ -2277,9 +2301,6 @@ vm_end_async_for(struct ThreadState *ts, Py_ssize_t opA)
     assert(ts->regs[opA + 1].as_int64 == -1);
     ts->regs[opA + 1].as_int64 = 0;
     CLEAR(ts->regs[opA]);
-    // else if (tstate->c_tracefunc != NULL) {
-    //     call_exc_trace(tstate->c_tracefunc, tstate->c_traceobj, tstate, f);
-    // }
     return 0;
 }
 
@@ -2636,17 +2657,14 @@ vm_trace_enter_gen(struct ThreadState *ts);
 PyObject *
 PyEval2_EvalGen(PyGenObject2 *gen, PyObject *opt_value)
 {
-    PyThreadState *tstate;
-    struct ThreadState *ts;
+    PyThreadState *tstate = PyThreadState_GET();
+    struct ThreadState *ts = &gen->base.thread;
 
-    tstate = PyThreadState_GET();
     if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
         return NULL;
     }
 
-    ts = &gen->base.thread;
     assert(ts->prev == NULL);
-
     ts->ts = tstate;
 
     // push `ts` onto the list of active threads
@@ -3249,16 +3267,26 @@ call_trace(struct ThreadState *ts, PyFrameObject *frame,
     PyThreadState *tstate = ts->ts;
     Py_tracefunc func = tstate->c_tracefunc;
     PyObject *obj = tstate->c_traceobj;
+    PyObject *type, *value, *traceback;
     if (func == NULL) {
         return 0;
     }
 
+    _PyErr_Fetch(tstate, &type, &value, &traceback);
     tstate->tracing++;
     tstate->use_tracing = 0;
     result = func(obj, frame, what, arg);
     tstate->use_tracing = ((tstate->c_tracefunc != NULL)
                            || (tstate->c_profilefunc != NULL));
     tstate->tracing--;
+    if (result == 0) {
+        _PyErr_Restore(tstate, type, value, traceback);
+    }
+    else {
+        Py_XDECREF(type);
+        Py_XDECREF(value);
+        Py_XDECREF(traceback);
+    }
     return result;
 }
 
@@ -3270,10 +3298,20 @@ call_profile(struct ThreadState *ts, PyFrameObject *frame,
     PyThreadState *tstate = ts->ts;
     Py_tracefunc func = tstate->c_profilefunc;
     PyObject *obj = tstate->c_profileobj;
+    PyObject *type, *value, *traceback;
 
+    _PyErr_Fetch(tstate, &type, &value, &traceback);
     tstate->tracing++;
     result = func(obj, frame, what, arg);
     tstate->tracing--;
+    if (result == 0) {
+        _PyErr_Restore(tstate, type, value, traceback);
+    }
+    else {
+        Py_XDECREF(type);
+        Py_XDECREF(value);
+        Py_XDECREF(traceback);
+    }
     return result;
 }
 
@@ -3390,7 +3428,7 @@ vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 }
 
 static int
-vm_trace(struct ThreadState *ts, Register acc)
+vm_trace(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 {
     PyObject *callable = AS_OBJ(ts->regs[-1]);
     if (!PyFunc_Check(callable)) {
@@ -3405,6 +3443,9 @@ vm_trace(struct ThreadState *ts, Register acc)
     PyFunc *func = (PyFunc *)callable;
     PyCodeObject2 *code = PyCode2_FromFunc(func);
 
+    int opcode = vm_opcode(ts->pc);
+    int last_opcode = last_pc ? vm_opcode(last_pc) : -1;
+
     int addrq = (ts->pc - func->func_base.first_instr);
     assert(addrq >= 0 && addrq < code->co_size);
     int line = frame->f_lineno;
@@ -3416,19 +3457,20 @@ vm_trace(struct ThreadState *ts, Register acc)
         frame->instr_ub = bounds.ap_upper;
     }
 
-    bool trace_line = (addrq == frame->instr_lb && frame->last_line != line);
+    int trace_line = (addrq == frame->instr_lb && 
+        (frame->last_line != line || addrq < frame->instr_prev));
     frame->f_lasti = addrq;
+    frame->instr_prev = addrq;
 
-    int opcode = vm_opcode(ts->pc);
-    if (opcode == FUNC_HEADER || opcode == COROGEN_HEADER) {
-        frame->seen_func_header = true;
-        trace_line = false;
+    if (opcode == FUNC_HEADER) {
+        frame->seen_func_header = 1;
+        trace_line = 0;
         frame->f_lineno = line;
     }
-    else if (frame->seen_func_header && !frame->traced_func) {
+    else if (last_opcode == FUNC_HEADER && opcode != COROGEN_HEADER) {
         frame->f_lasti = 0;
-        frame->traced_func = true;
-        trace_line = true;
+        frame->traced_func = 1;
+        trace_line = 1;
 
         int err = call_trace(ts, frame, PyTrace_CALL, Py_None);
         if (err != 0) {
@@ -3436,6 +3478,9 @@ vm_trace(struct ThreadState *ts, Register acc)
         }
 
         frame->f_lasti = addrq;
+    }
+    else if (opcode == JUMP) {
+        trace_line = 0;
     }
 
     /* If the last instruction falls at the start of a line or if it
@@ -3461,7 +3506,7 @@ vm_trace(struct ThreadState *ts, Register acc)
         }
     }
 
-    if (opcode == RETURN_VALUE) {
+    if (opcode == RETURN_VALUE || opcode == YIELD_VALUE) {
         int err = call_trace(ts, frame, PyTrace_RETURN, AS_OBJ(acc));
         if (err != 0) {
             return -1;
@@ -3481,7 +3526,7 @@ vm_trace_handler(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 
     int err;
     if (tstate->c_tracefunc != NULL) {
-        err = vm_trace(ts, acc);
+        err = vm_trace(ts, last_pc, acc);
         if (err != 0) {
             return -1;
         }
@@ -3523,20 +3568,50 @@ vm_trace_err(struct ThreadState *ts, PyObject **type, PyObject **value, PyObject
     if (tstate->c_tracefunc != NULL) {
         err = call_trace(ts, frame, PyTrace_EXCEPTION, arg);
         if (err != 0) {
-            // TODO: upstream replaces current error with this one.
-            PyErr_WriteUnraisable(NULL);
-        }
-    }
-
-    if (tstate->c_profilefunc != NULL) {
-        err = call_profile(ts, frame, PyTrace_RETURN, NULL);
-        if (err != 0) {
-            // TODO: upstream replaces current error with this one.
-            PyErr_WriteUnraisable(NULL);
+            Py_CLEAR(*type);
+            Py_CLEAR(*value);
+            Py_CLEAR(*traceback);
+            PyErr_Fetch(type, value, traceback);
         }
     }
 
     Py_DECREF(arg);
+}
+
+static void
+vm_trace_active_exc(struct ThreadState *ts)
+{
+    PyObject *type, *value, *tb;
+    _PyErr_Fetch(ts->ts, &type, &value, &tb);
+    vm_trace_err(ts, &type, &value, &tb);
+    _PyErr_Restore(ts->ts, type, value, tb);
+}
+
+static int
+vm_trace_return(struct ThreadState *ts)
+{
+    PyThreadState *tstate = ts->ts;
+    if (tstate->tracing) {
+        return 0;
+    }
+
+    PyFrameObject *frame = vm_frame(ts);
+    if (frame == NULL) {
+        return -1;
+    }
+
+    if (tstate->c_tracefunc != NULL) {
+        if (call_trace(ts, frame, PyTrace_RETURN, NULL) != 0) {
+            return -1;
+        }
+    }
+
+    if (tstate->c_profilefunc != NULL) {
+        if (call_profile(ts, frame, PyTrace_RETURN, NULL) != 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int

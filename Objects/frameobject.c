@@ -915,6 +915,7 @@ _PyFrame_NewFake(PyCodeObject2 *code, PyObject *globals)
     f->f_executing = 0;
     f->instr_lb = 0;
     f->instr_ub = 0;
+    f->instr_prev = 0;
     f->last_line = 0;
     f->seen_func_header = 0;
     f->traced_func = 0;
