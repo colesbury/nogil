@@ -319,6 +319,7 @@ test_subclassinit
 test_subprocess
 test_sunau
 test_sundry
+test_super
 test_support
 test_symbol
 test_symtable

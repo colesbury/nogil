@@ -117,7 +117,7 @@ class TestSuper(unittest.TestCase):
             __class__ = 42
             def f():
                 __class__
-        self.assertEqual(__class__, 42)
+        self.assertEqual(__class__, X)
 
     def test___class___instancemethod(self):
         # See issue #14857

@@ -4,5 +4,4 @@ test_cgitb
 test_frame
 test_gdb
 test_peepholer
-test_super
 test_traceback

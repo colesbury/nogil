@@ -510,7 +510,6 @@ add_symbols(struct compiler *c, PyObject *symbols)
     while (PyDict_Next(symbols, &pos, &key, &value)) {
         long vi = PyLong_AS_LONG(value);
         Py_ssize_t scope = (vi >> SCOPE_OFFSET) & SCOPE_MASK;
-        // printf("symbol %s scope %zd vi=0x%lx free=%d\n", PyUnicode_AsUTF8(key), scope, vi, (int)(scope & DEF_FREE));
         if (scope == CELL) {
             add_cellvar(c, key);
         }
@@ -594,7 +593,11 @@ compiler_enter_scope(struct compiler *c, PyObject *name,
     add_symbols(c, u->ste->ste_symbols);
     if (u->ste->ste_needs_class_closure) {
         /* Cook up an implicit __class__ cell. */
-        add_cellvar(c, unicode_from_id(c, &PyId___class__));
+        PyObject *name = unicode_from_id(c, &PyId___class__);
+        int scope = PyST_GetScope(c->unit->ste, name);
+        if (scope != FREE) {
+            add_cellvar(c, name);
+        }
     }
     u->nlocals = PyDict_GET_SIZE(u->varnames);
     u->max_registers = u->next_register = u->nlocals;
