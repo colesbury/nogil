@@ -263,6 +263,47 @@ vm_handled_exc(struct ThreadState *ts)
     return NULL;
 }
 
+int
+vm_set_handled_exc(struct ThreadState *ts, PyObject *exc)
+{
+    if (exc == NULL) {
+        exc = Py_None;
+    }
+
+    struct stack_walk w;
+    vm_stack_walk_init(&w, ts);
+    while (vm_stack_walk(&w)) {
+        PyFunc *func = (PyFunc *)AS_OBJ(w.regs[-1]);
+        PyCodeObject2 *code = PyCode2_FromFunc(func);
+
+        const uint8_t *first_instr = PyCode2_GET_CODE(code);
+        Py_ssize_t instr_offset = (w.pc - first_instr);  // FIXME!
+
+        // Find the inner-most active except/finally block. Note that because
+        // try-blocks are stored inner-most to outer-most, the except/finally
+        // blocks have the opposite nesting order: outer-most to inner-most.
+        struct _PyHandlerTable *table = code->co_exc_handlers;
+        for (Py_ssize_t i = table->size - 1; i >= 0; i--) {
+            ExceptionHandler *eh = &table->entries[i];
+            Py_ssize_t start = eh->handler;
+            Py_ssize_t end = eh->handler_end;
+            if (start <= instr_offset && instr_offset < end) {
+                Py_ssize_t link_reg = eh->reg;
+                if (w.regs[link_reg].as_int64 != -1) {
+                    // not handling an exception
+                    continue;
+                }
+
+                CLEAR(w.regs[link_reg+1]);
+                w.regs[link_reg+1] = PACK_INCREF(exc);
+                return 0;
+            }
+        }
+    }
+
+    return -1;
+}
+
 #define IS_OBJ(r) (((r).as_int64 & NON_OBJECT_TAG) != NON_OBJECT_TAG)
 
 PyObject *
@@ -674,6 +715,32 @@ vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
         }
         ts->pc = pc = (const uint8_t *)frame_link;
     }
+}
+
+void
+vm_error_with_result(struct ThreadState *ts, Register acc)
+{
+    if (acc.as_int64 != 0) {
+        DECREF(acc);
+    }
+
+    PyThreadState *tstate = ts->ts;
+    PyObject *callable = AS_OBJ(ts->regs[-1]);
+    if (callable) {
+        _PyErr_FormatFromCauseTstate(
+            tstate, PyExc_SystemError,
+            "%R returned a result with an error set", callable);
+    }
+    else {
+        _PyErr_FormatFromCauseTstate(
+            tstate, PyExc_SystemError,
+            "a function returned a result with an error set");
+    }
+#ifdef Py_DEBUG
+    /* Ensure that the bug is caught in debug mode.
+        Py_FatalError() logs the SystemError exception raised above. */
+    Py_FatalError("a function returned a result with an error set");
+#endif
 }
 
 static int

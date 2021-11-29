@@ -1,5 +1,4 @@
 test__xxsubinterpreters
-test_capi
 test_cgitb
 test_frame
 test_gdb

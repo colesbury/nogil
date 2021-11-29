@@ -492,26 +492,36 @@ void
 PyErr_GetExcInfo(PyObject **p_type, PyObject **p_value, PyObject **p_traceback)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    _PyErr_GetExcInfo(tstate, p_type, p_value, p_traceback);
+    PyObject *exc = vm_handled_exc(tstate->active);
+    if (exc == NULL) {
+        *p_type = NULL;
+        *p_value = NULL;
+        *p_traceback = NULL;
+    }
+    else {
+        *p_type = (PyObject *)Py_TYPE(exc);
+        Py_INCREF(*p_type);
+        *p_value = exc;
+        Py_INCREF(*p_value);
+        *p_traceback = PyException_GetTraceback(exc);
+    }
 }
 
 void
-PyErr_SetExcInfo(PyObject *p_type, PyObject *p_value, PyObject *p_traceback)
+PyErr_SetExcInfo(PyObject *type, PyObject *value, PyObject *traceback)
 {
-    PyObject *oldtype, *oldvalue, *oldtraceback;
     PyThreadState *tstate = _PyThreadState_GET();
+    _PyErr_NormalizeException(tstate, &type, &value, &traceback);
 
-    oldtype = tstate->exc_info->exc_type;
-    oldvalue = tstate->exc_info->exc_value;
-    oldtraceback = tstate->exc_info->exc_traceback;
+    if (value) {
+        PyException_SetTraceback(value, traceback ? traceback : Py_None);
+    }
 
-    tstate->exc_info->exc_type = p_type;
-    tstate->exc_info->exc_value = p_value;
-    tstate->exc_info->exc_traceback = p_traceback;
+    vm_set_handled_exc(tstate->active, value);
 
-    Py_XDECREF(oldtype);
-    Py_XDECREF(oldvalue);
-    Py_XDECREF(oldtraceback);
+    Py_XDECREF(type);
+    Py_XDECREF(value);
+    Py_XDECREF(traceback);
 }
 
 /* Like PyErr_Restore(), but if an exception is already set,

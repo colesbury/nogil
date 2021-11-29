@@ -234,7 +234,7 @@ class CAPITest(unittest.TestCase):
             """)
             rc, out, err = assert_python_failure('-c', code)
             self.assertRegex(err.replace(b'\r', b''),
-                             br'Fatal Python error: vm_exception_unwind: '
+                             br'Fatal Python error: vm_error_with_result: '
                                  br'a function returned a result '
                                  br'with an error set\n'
                              br'Python runtime state: initialized\n'

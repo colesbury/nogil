@@ -72,6 +72,11 @@
 #define COLD_TARGET(name) name:
 #endif
 
+#define CHECK_ERR_OCCURED() do {                \
+    if (UNLIKELY(tstate->curexc_type != NULL))  \
+        goto error_with_result;                 \
+} while (0)
+
 // All calls from the interpreter to external functions need to be wrapped
 // in a CALL_VM or related macro. This restores the registers pointer (regs)
 // after the call, which may have been reallocated. Additionally, this saves
@@ -731,6 +736,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -758,6 +764,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR(regs[-1]);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -786,6 +793,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR(regs[0]);
         CLEAR(regs[-1]);
         pc = (const uint8_t *)regs[-3].as_int64;
@@ -820,6 +828,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -853,6 +862,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR_REGISTERS(-1, 1);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -895,6 +905,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -971,6 +982,7 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             goto error;
         }
         acc = PACK_OBJ(res);
+        CHECK_ERR_OCCURED();
         CLEAR_REGISTERS(-1, regs[-2].as_int64);
         pc = (const uint8_t *)regs[-3].as_int64;
         intptr_t frame_delta = regs[-4].as_int64;
@@ -2806,6 +2818,11 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         CALL_VM(pc = vm_exception_unwind(ts, acc, true));
         acc.as_int64 = 0;
         goto finish_unwind;
+    }
+
+    error_with_result: {
+        CALL_VM(vm_error_with_result(ts, acc));
+        goto error;
     }
 
     finish_unwind: {
