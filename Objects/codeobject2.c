@@ -309,9 +309,18 @@ PyCode2_UpdateFlags(PyCodeObject2 *co)
     co->co_packed_flags |= (co->co_ncells > 0 ? CODE_FLAG_HAS_CELLS : 0);
     co->co_packed_flags |= (co->co_nfreevars > co->co_ndefaultargs ? CODE_FLAG_HAS_FREEVARS : 0);
     co->co_packed_flags |= (co->co_flags & CO_VARARGS) ? CODE_FLAG_VARARGS : 0;
-    co->co_packed_flags |= (co->co_flags & CO_VARKEYWORDS) ? CODE_FLAG_VARKEYWORDS : 0;
-    co->co_packed_flags |= (co->co_totalargcount > co->co_argcount ? CODE_FLAG_KWD_ONLY_ARGS : 0);
-    co->co_packed_flags |= (co->co_flags & CO_NEWLOCALS) ? 0 : CODE_FLAG_LOCALS_DICT;
+    if (co->co_flags & CO_VARKEYWORDS) {
+        co->co_packed_flags |= CODE_FLAG_VARKEYWORDS;
+    }
+    if (co->co_totalargcount > co->co_argcount) {
+        co->co_packed_flags |= CODE_FLAG_KWD_ONLY_ARGS;
+    }
+    if (!(co->co_flags & CO_NEWLOCALS)) {
+        co->co_packed_flags |= CODE_FLAG_LOCALS_DICT;
+    }
+    if (co->co_flags & (CO_GENERATOR|CO_COROUTINE|CO_ASYNC_GENERATOR)) {
+        co->co_packed_flags |= CODE_FLAG_GENERATOR;
+    }
 }
 
 static void

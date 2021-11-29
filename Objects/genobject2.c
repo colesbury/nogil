@@ -67,11 +67,17 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 }
 
 PyGenObject2 *
-PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx)
+PyGen2_NewWithCode(struct ThreadState *ts, PyCodeObject2 *co)
 {
-    assert(typeidx > 0 && (size_t)typeidx < (sizeof(coro_types)/sizeof(*coro_types)));
-    PyTypeObject *type = coro_types[typeidx];
-    return gen_new_with_qualname(type, ts);
+    if (co->co_flags & CO_COROUTINE) {
+        return gen_new_with_qualname(&PyCoro2_Type, ts);
+    }
+    else if (co->co_flags & CO_ASYNC_GENERATOR) {
+        return gen_new_with_qualname(&PyAsyncGen2_Type, ts);
+    }
+    else {
+        return gen_new_with_qualname(&PyGen2_Type, ts);
+    }
 }
 
 /*

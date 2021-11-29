@@ -7,7 +7,7 @@ static const char *opcode_names[256] = {
     "MOVE",
     "FUNC_HEADER",
     "METHOD_HEADER",
-    "COROGEN_HEADER",
+    "unknown_opcode",
     "CFUNC_HEADER",
     "CFUNC_HEADER_NOARGS",
     "CFUNC_HEADER_O",

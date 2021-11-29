@@ -16,7 +16,6 @@ extern "C" {
     _(MOVE,                       5,     3,     10) \
     _(FUNC_HEADER,                6,     2,      6) \
     _(METHOD_HEADER,              7,     1,      2) \
-    _(COROGEN_HEADER,             8,     2,      6) \
     _(CFUNC_HEADER,               9,     1,      2) \
     _(CFUNC_HEADER_NOARGS,       10,     1,      2) \
     _(CFUNC_HEADER_O,            11,     1,      2) \

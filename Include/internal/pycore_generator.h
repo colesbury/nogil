@@ -55,7 +55,7 @@ typedef struct {
 } PyAsyncGenObject2;
 
 PyGenObject2 *
-PyGen2_NewWithSomething(struct ThreadState *ts, int typeidx);
+PyGen2_NewWithCode(struct ThreadState *ts, PyCodeObject2 *co);
 
 PyAPI_FUNC(PyObject *) _PyGen2_FetchStopIterationValue(void);
 PyAPI_FUNC(PyObject *) _PyGen_YieldFrom(PyGenObject2 *gen, PyObject *awaitable, PyObject *arg);

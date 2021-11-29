@@ -663,6 +663,17 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
             regs[0] = PACK(this_func->globals, NO_REFCOUNT_TAG);
         }
 
+        if (this_code->co_packed_flags & CODE_FLAG_GENERATOR) {
+            PyGenObject2 *gen;
+            FUNC_CALL_VM(gen = PyGen2_NewWithCode(ts, this_code));
+            if (gen == NULL) {
+                goto error;
+            }
+            PyGen2_SetPC(gen, pc + OP_SIZE(FUNC_HEADER));
+            acc = PACK_OBJ((PyObject *)gen);
+            goto RETURN_VALUE;
+        }
+
     LABEL(dispatch_func_header):
         acc.as_int64 = 0;
         pc += OP_SIZE(FUNC_HEADER);
@@ -896,22 +907,6 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
         NEXT_INSTRUCTION();
     }
     #endif
-
-    TARGET(COROGEN_HEADER) {
-        // setup generator?
-        // copy arguments
-        // return
-        assert(IS_EMPTY(acc));
-        PyGenObject2 *gen;
-        int typeidx = UImm(0);
-        CALL_VM(gen = PyGen2_NewWithSomething(ts, typeidx));
-        if (gen == NULL) {
-            goto error;
-        }
-        PyGen2_SetPC(gen, pc + OP_SIZE(COROGEN_HEADER));
-        acc = PACK_OBJ((PyObject *)gen);
-        goto RETURN_VALUE;
-    }
 
     TARGET(MAKE_FUNCTION) {
         PyCodeObject2 *code = (PyCodeObject2 *)constants[UImm(0)];

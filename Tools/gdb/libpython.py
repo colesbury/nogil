@@ -874,7 +874,7 @@ class PyFrameObjectPtr(PyObjectPtr):
         PyObjectPtr.__init__(self, gdbval, cast_to)
 
         if not self.is_optimized_out():
-            self.co = PyCodeObjectPtr.from_pyobject_ptr(self.field('f_code'))
+            self.co = PyCodeObjectPtr.from_pyobject_ptr(self.field('f_code2'))
             self.co_name = self.co.pyop_field('co_name')
             self.co_filename = self.co.pyop_field('co_filename')
 

@@ -2529,12 +2529,12 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
     PyFunc *func = (PyFunc *)AS_OBJ(old->regs[-1]);
     PyCodeObject2 *code = PyCode2_FromFunc(func);
 
-    // copy over func and arguments
+    // Copy over func and arguments, but not the frame object.
+    // We don't want to copy the frame object because frame->f_offset
+    // and frame->ts would be incorrect
     Py_ssize_t frame_delta = FRAME_EXTRA;
     ts->regs += frame_delta;
     ts->regs[-4].as_int64 = frame_delta;
-    ts->regs[-2] = old->regs[-2];  // PyFrameObject
-    old->regs[-2].as_int64 = 0;
     ts->regs[-3].as_int64 = FRAME_GENERATOR;
     ts->regs[-1] = STRONG_REF(old->regs[-1]);  // copy func
 
@@ -2546,11 +2546,11 @@ vm_init_thread_state(struct ThreadState *old, struct ThreadState *ts)
 
     Py_ssize_t nargs = code->co_totalargcount;
     if (code->co_packed_flags & CODE_FLAG_VARARGS) {
-        // FIXME: I think this is wrong now that varargs are prior to header
+        // FIXME(sgross): I think this is wrong now that varargs are prior to header
         nargs += 1;
     }
     if (code->co_packed_flags & CODE_FLAG_VARKEYWORDS) {
-        // FIXME: I think this is wrong now that varargs are prior to header
+        // FIXME(sgross): I think this is wrong now that varargs are prior to header
         nargs += 1;
     }
     for (Py_ssize_t i = 0; i != nargs; i++) {
@@ -3402,15 +3402,18 @@ vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
     int opcode = vm_opcode(ts->pc);
     int last_opcode = last_pc ? vm_opcode(last_pc) : -1;
 
-    if (last_opcode == FUNC_HEADER && opcode != COROGEN_HEADER) {
-        // trace calls into functions, but not ones that create generators
-        // because that's how CPython profiling has worked historically
-        PyFrameObject *frame = vm_frame(ts);
-        if (frame == NULL) {
-            return -1;
-        }
-        if (call_profile(ts, frame, PyTrace_CALL, Py_None) != 0) {
-            return -1;
+    if (last_opcode == FUNC_HEADER) {
+        PyCodeObject2 *co = PyCode2_FromInstr(last_pc);
+        if (!(co->co_packed_flags & CODE_FLAG_GENERATOR)) {
+            // trace calls into functions, but not ones that create generators
+            // because that's how CPython profiling has worked historically
+            PyFrameObject *frame = vm_frame(ts);
+            if (frame == NULL) {
+                return -1;
+            }
+            if (call_profile(ts, frame, PyTrace_CALL, Py_None) != 0) {
+                return -1;
+            }
         }
     }
 
@@ -3467,7 +3470,7 @@ vm_trace(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
         trace_line = 0;
         frame->f_lineno = line;
     }
-    else if (last_opcode == FUNC_HEADER && opcode != COROGEN_HEADER) {
+    else if (last_opcode == FUNC_HEADER && code == PyCode2_FromInstr(last_pc)) {
         frame->f_lasti = 0;
         frame->traced_func = 1;
         trace_line = 1;

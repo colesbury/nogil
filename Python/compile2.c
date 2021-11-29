@@ -1191,22 +1191,6 @@ write_func_header(struct compiler *c, uint8_t *pc)
         pc[1] = (uint8_t)max_registers;
         offset = 2;
     }
-    PySTEntryObject *ste = c->unit->ste;
-    if (ste->ste_generator || ste->ste_coroutine) {
-        int type;
-        if (ste->ste_generator && ste->ste_coroutine) {
-            type = CORO_HEADER_ASYNC_GENERATOR;
-        }
-        else if (ste->ste_generator) {
-            type = CORO_HEADER_GENERATOR;
-        }
-        else {
-            type = CORO_HEADER_COROUTINE;
-        }
-        pc[offset+0] = COROGEN_HEADER;
-        pc[offset+1] = type;
-        offset += 2;
-    }
     return offset;
 }
 
@@ -5383,7 +5367,7 @@ makecode(struct compiler *c)
     Py_ssize_t nexc_handlers = c->unit->except_handlers.offset;
     Py_ssize_t jump_table_size = c->unit->jump_table.offset;
     Py_ssize_t header_size;
-    uint8_t header[OP_SIZE_WIDE_FUNC_HEADER + OP_SIZE_COROGEN_HEADER];
+    uint8_t header[OP_SIZE_WIDE_FUNC_HEADER];
 
     header_size = write_func_header(c, header);
     instr_size += header_size;
