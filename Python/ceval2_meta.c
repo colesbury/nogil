@@ -558,6 +558,22 @@ vm_func_header_clear_frame(struct ThreadState *ts, Register acc)
 const uint8_t *
 vm_exception_unwind(struct ThreadState *ts, Register acc, bool skip_first_frame)
 {
+    if (!PyErr_Occurred()) {
+        PyObject *callable = AS_OBJ(ts->regs[-1]);
+        if (callable)
+            PyErr_Format(PyExc_SystemError,
+                         "%R returned NULL without setting an error",
+                         callable);
+        else
+            PyErr_Format(PyExc_SystemError,
+                         "a function returned NULL without setting an error");
+#ifdef Py_DEBUG
+        /* Ensure that the bug is caught in debug mode.
+            Py_FatalError() logs the SystemError exception raised above. */
+        Py_FatalError("a function returned NULL without setting an error");
+#endif
+    }
+
     assert(PyErr_Occurred());
     assert(ts->regs > ts->stack);
     assert(ts->ts == PyThreadState_GET());
