@@ -234,6 +234,7 @@ test_ossaudiodev
 test_osx_env
 test_parser
 test_pathlib
+test_pdb
 test_pickle
 test_picklebuffer
 test_pickletools

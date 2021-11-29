@@ -3,7 +3,6 @@ test_capi
 test_cgitb
 test_frame
 test_gdb
-test_pdb
 test_peepholer
 test_super
 test_traceback

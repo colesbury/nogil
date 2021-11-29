@@ -3431,6 +3431,20 @@ vm_profile(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 }
 
 static int
+vm_last_line(PyCodeObject2 *code, const uint8_t *last_pc)
+{
+    if (last_pc == NULL) {
+        return -1;
+    }
+    const uint8_t *first_instr = PyCode2_Code(code);
+    ptrdiff_t delta = last_pc - first_instr;
+    if (delta < 0 || delta >= code->co_size) {
+        return -1;
+    }
+    return PyCode2_Addr2Line(code, (int)delta);
+}
+
+static int
 vm_trace(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
 {
     PyObject *callable = AS_OBJ(ts->regs[-1]);
@@ -3460,11 +3474,16 @@ vm_trace(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
         frame->instr_ub = bounds.ap_upper;
     }
 
-    int trace_line = (addrq == frame->instr_lb && 
-        (frame->last_line != line || addrq < frame->instr_prev));
+    int trace_line = (addrq == frame->instr_lb);
+    if (addrq >= frame->instr_prev && ts->pc != last_pc) {
+        int last_line = vm_last_line(code, last_pc);
+        if (last_line == line) {
+            trace_line = 0;
+        }
+    }
+
     frame->f_lasti = addrq;
     frame->instr_prev = addrq;
-
     if (opcode == FUNC_HEADER) {
         frame->seen_func_header = 1;
         trace_line = 0;
@@ -3481,9 +3500,6 @@ vm_trace(struct ThreadState *ts, const uint8_t *last_pc, Register acc)
         }
 
         frame->f_lasti = addrq;
-    }
-    else if (opcode == JUMP) {
-        trace_line = 0;
     }
 
     /* If the last instruction falls at the start of a line or if it
