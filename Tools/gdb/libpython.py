@@ -639,7 +639,7 @@ class PyCodeObjectPtr(PyObjectPtr):
     Class wrapping a gdb.Value that's a PyCodeObject* i.e. a <code> instance
     within the process being debugged.
     """
-    _typename = 'PyCodeObject'
+    _typename = 'PyCodeObject2'
 
     def addr2line(self, addrq):
         '''
