@@ -1257,6 +1257,7 @@ class TestTracebackException(unittest.TestCase):
         # there are locals in the next-to-innermost frame
         exc6 = traceback.TracebackException(*exc_info, limit=-2)
         exc7 = traceback.TracebackException(*exc_info, limit=-2, capture_locals=True)
+        print(exc7.__dict__)
         self.assertNotEqual(exc6, exc7)
 
     def test_comparison_equivalent_exceptions_are_equal(self):

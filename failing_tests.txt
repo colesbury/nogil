@@ -2,5 +2,4 @@ test__xxsubinterpreters
 test_cgitb
 test_frame
 test_gdb
-test_peepholer
 test_traceback
