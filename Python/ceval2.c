@@ -368,12 +368,12 @@ _PyEval_Fast(struct ThreadState *ts, Register initial_acc, const uint8_t *initia
     #define metadata ((intptr_t *)(char *)constants)
     uintptr_t tid = _Py_ThreadId();
 
-    // Check the eval breaker (signals, GIL, stop-the-world, etc.)
-    CHECK_EVAL_BREAKER();
-
     if (_PyErr_Occurred(tstate)) {
         goto error;
     }
+
+    // Check the eval breaker (signals, GIL, stop-the-world, etc.)
+    CHECK_EVAL_BREAKER();
 
     // Dispatch to the first instruction
     NEXT_INSTRUCTION();
