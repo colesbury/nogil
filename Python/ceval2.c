@@ -268,7 +268,7 @@ _OWNING_REF(Register r, intptr_t tid)
 } while (0)
 
 #ifdef HAVE_COMPUTED_GOTOS
-#define DISPATCH_NARROW() goto *opcode_targets[opcode]
+#define DISPATCH_NARROW() goto *(const void *)opcode_targets[opcode]
 #define DISPATCH_NOTRACE() goto *opcode_targets_base[opcode];
 #else
 #define DISPATCH_NARROW() goto dispatch

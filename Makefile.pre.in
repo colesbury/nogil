@@ -1016,8 +1016,8 @@ Python/ceval.o: $(srcdir)/Python/opcode_targets.h $(srcdir)/Python/ceval_gil.h \
 		$(srcdir)/Python/condvar.h
 
 Python/ceval2.o: $(srcdir)/Python/ceval2.c $(srcdir)/Python/opcode_targets2.h
-       $${CEVAL2CC:-$(CC)} -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o $@ $<
-       $${CEVAL2CC:-$(CC)} -c -S $(PY_CORE_CFLAGS) -g0 -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o Python/ceval2.s $<
+	$${CEVAL2CC:-$(CC)} -c $(PY_CORE_CFLAGS) -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o $@ $<
+	$${CEVAL2CC:-$(CC)} -c -S $(PY_CORE_CFLAGS) -g0 -fno-gcse --param max-goto-duplication-insns=100000 $$CEVAL2_FLAGS -o Python/ceval2.s $<
 
 Python/ceval2_meta.o: $(srcdir)/Python/opcode_names2.h $(srcdir)/Python/ceval_intrinsics.h
 

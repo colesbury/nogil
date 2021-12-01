@@ -198,10 +198,6 @@ PyObject *_PyFunc_Vectorcall(PyObject *func, PyObject* const* stack,
                              size_t nargsf, PyObject *kwnames);
 PyObject *_Py_method_call(PyObject *obj, PyObject *args, PyObject *kwds);
 
-
-struct _PyCodeObject2;
-typedef struct _PyCodeObject2 PyCodeObject2;
-
 Register vm_unknown_opcode(intptr_t opcode);
 
 int vm_raise(struct ThreadState *ts, PyObject *exc);

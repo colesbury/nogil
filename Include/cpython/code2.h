@@ -72,7 +72,7 @@ enum {
 struct _PyHandlerTable;
 struct _PyJumpSideTable;
 
-typedef struct _PyCodeObject2 {
+typedef struct PyCodeObject2 {
     PyObject_HEAD
     uint32_t co_packed_flags;
     int co_flags; // unused???

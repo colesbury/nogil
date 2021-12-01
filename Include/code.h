@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 typedef struct PyCodeObject PyCodeObject;
+typedef struct PyCodeObject2 PyCodeObject2;
 
 #ifndef Py_LIMITED_API
 #  define Py_CPYTHON_CODE_H
