@@ -722,6 +722,23 @@ class PyListTests(DebuggerTests):
                            '   3    def foo(a, b, c):\n',
                            bt)
 
+SAMPLE_WITH_C_CALL = """
+
+from _testcapi import pyobject_fastcall
+
+def foo(a, b, c):
+    bar(a, b, c)
+
+def bar(a, b, c):
+    pyobject_fastcall(baz, (a, b, c))
+
+def baz(*args):
+    id(42)
+
+foo(1, 2, 3)
+
+"""
+
 class StackNavigationTests(DebuggerTests):
     @unittest.skipUnless(HAS_PYUP_PYDOWN, "test requires py-up/py-down commands")
     @unittest.skipIf(python_is_optimized(),
@@ -880,8 +897,8 @@ id(42)
         # Various optimizations multiply the code paths by which these are
         # called, so test a variety of calling conventions.
         for func_name, args, expected_frame in (
-            ('meth_varargs', '', 1),
-            ('meth_varargs_keywords', '', 1),
+            ('meth_varargs', '', 2),
+            ('meth_varargs_keywords', '', 2),
             ('meth_o', '[]', 1),
             ('meth_noargs', '', 1),
             ('meth_fastcall', '', 1),
