@@ -272,6 +272,7 @@ struct _typeobject {
 
     destructor tp_finalize;
     vectorcallfunc tp_vectorcall;
+    Py_ssize_t tp_typeid;
 };
 
 /* The *real* layout of a type object when allocated on the heap */

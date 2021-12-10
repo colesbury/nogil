@@ -1811,6 +1811,26 @@ sys_getfullrefcount(PyObject *module, PyObject *object)
     return res;
 }
 
+/*[clinic input]
+sys.gettypeid -> Py_ssize_t
+
+    object:  object
+    /
+
+Gets the internal id of a type
+[clinic start generated code]*/
+
+static Py_ssize_t
+sys_gettypeid_impl(PyObject *module, PyObject *object)
+/*[clinic end generated code: output=e78e7c238e4c0c63 input=d9f7d6d5c606a5de]*/
+{
+    if (!PyType_Check(object)) {
+        PyErr_SetString(PyExc_TypeError, "object is not a type");
+        return -1;
+    }
+    return ((PyTypeObject *)object)->tp_typeid;
+}
+
 #ifdef Py_REF_DEBUG
 /*[clinic input]
 sys.gettotalrefcount -> Py_ssize_t
@@ -2034,6 +2054,7 @@ static PyMethodDef sys_methods[] = {
     SYS_GETREFCOUNT_METHODDEF
     SYS_GETFULLREFCOUNT_METHODDEF
     SYS_MERGEREFCOUNT_METHODDEF
+    SYS_GETTYPEID_METHODDEF
     SYS_GETRECURSIONLIMIT_METHODDEF
     {"getsizeof",   (PyCFunction)(void(*)(void))sys_getsizeof,
      METH_VARARGS | METH_KEYWORDS, getsizeof_doc},

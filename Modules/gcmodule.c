@@ -507,10 +507,11 @@ static int
 validate_tracked_visitor(PyGC_Head* gc, void *void_arg)
 {
     struct validate_tracked_args *arg = (struct validate_tracked_args*)void_arg;
+    PyObject *op = FROM_GC(gc);
     assert((gc->_gc_prev & arg->mask) == arg->expected);
     assert(gc->_gc_next == 0);
     assert(_PyGCHead_PREV(gc) == NULL);
-    assert(_Py_GC_REFCNT(FROM_GC(gc)) >= 0);
+    assert(_Py_GC_REFCNT(op) >= 0 || PyType_Check(op));
     return 0;
 }
 
@@ -685,6 +686,9 @@ visit_thread_stacks(void)
     HEAD_LOCK(&_PyRuntime);
     PyThreadState *t;
     for_each_thread(t) {
+        // Merge per-thread refcount for types into the type's actual refcount
+        _PyTypeId_MergeRefcounts(&_PyRuntime.typeids, t);
+
         // Visit all deferred refcount items on the thread's stack to ensure
         // they're not collected.
         struct ThreadState *ts = vm_active(t);
@@ -1076,6 +1080,12 @@ clear_weakrefs(PyGC_Head *unreachable, PyGC_Head *wrcb_to_call)
             }
             if (!func->retains_globals && incref_unreachable(func->globals)) {
                 func->retains_globals = 1;
+            }
+        }
+        else if (PyType_Check(op)) {
+            PyTypeObject *type = (PyTypeObject *)op;
+            if (type->tp_typeid != 0) {
+                _PyTypeId_Release(&_PyRuntime.typeids, type);
             }
         }
 

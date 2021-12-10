@@ -10,6 +10,7 @@ extern "C" {
 
 #include "pycore_atomic.h"    /* _Py_atomic_address */
 #include "pycore_gil.h"       // struct _gil_runtime_state
+#include "pycore_typeid.h"    // struct PyTypeIdPool
 
 /* ceval state */
 
@@ -125,6 +126,8 @@ typedef struct pyruntimestate {
     _PyMutex stoptheworld_mutex;
 
     Py_ssize_t ref_total;
+
+    PyTypeIdPool typeids;
 
     // XXX Consolidate globals found via the check-c-globals script.
 } _PyRuntimeState;
