@@ -44,7 +44,6 @@ typedef struct _err_stackitem {
 
 } _PyErr_StackItem;
 
-
 struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
 
@@ -156,6 +155,10 @@ struct _ts {
     void *trace_cfunc_target;
     void **opcode_targets_base;
 #endif
+
+    /* Local refcount for heap type objects */
+    Py_ssize_t *local_refcnts;
+    Py_ssize_t local_refcnts_size;
 
     struct method_cache_entry method_cache[(1 << MCACHE_SIZE_EXP)];
 

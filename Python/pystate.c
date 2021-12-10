@@ -133,6 +133,8 @@ _PyRuntimeState_Fini(_PyRuntimeState *runtime)
     }
 
     PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+
+    _PyTypeId_Finalize(&_PyRuntime.typeids);
 }
 
 #ifdef HAVE_FORK
@@ -1221,8 +1223,9 @@ PyThreadState_Clear(PyThreadState *tstate)
     Py_CLEAR(tstate->async_gen_finalizer);
 
     Py_CLEAR(tstate->context);
-}
 
+    _PyTypeId_MergeRefcounts(&_PyRuntime.typeids, tstate);
+}
 
 /* Common code for PyThreadState_Delete() and PyThreadState_DeleteCurrent() */
 static void
@@ -1244,6 +1247,8 @@ tstate_delete_common(PyThreadState *tstate,
     {
         PyThread_tss_set(&gilstate->autoTSSkey, NULL);
     }
+
+    _PyTypeId_MergeRefcounts(&_PyRuntime.typeids, tstate);
 
     PyThreadStateImpl *tstate_impl = (PyThreadStateImpl *)tstate;
     if (is_current) {

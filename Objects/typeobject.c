@@ -6,6 +6,7 @@
 #include "pycore_object.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pystate.h"       // _PyThreadState_GET()
+#include "pycore_typeid.h"
 #include "frameobject.h"
 #include "structmember.h"         // PyMemberDef
 #include "pyatomic.h"
@@ -158,7 +159,7 @@ _PyType_CheckConsistency(PyTypeObject *type)
         return 1;
     }
 
-    CHECK(Py_REFCNT(type) >= 1);
+    // CHECK(Py_REFCNT(type) >= 1);
     CHECK(PyType_Check(type));
 
     CHECK(!(type->tp_flags & Py_TPFLAGS_READYING));
@@ -1053,6 +1054,50 @@ type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return obj;
 }
 
+static void
+incref_type(PyTypeObject *type)
+{
+    if (_PyObject_IS_IMMORTAL((PyObject *)type)) {
+        return;
+    }
+
+    Py_ssize_t typeid = type->tp_typeid;
+    if (typeid == 0) {
+        Py_INCREF(type);
+        return;
+    }
+
+    PyThreadState *tstate = PyThreadState_GET();
+    if (_PY_UNLIKELY(typeid >= tstate->local_refcnts_size)) {
+        _PyTypeId_IncrefSlow(&_PyRuntime.typeids, type);
+    }
+    else {
+        tstate->local_refcnts[typeid]++;
+    }
+}
+
+static void
+decref_type(PyTypeObject *type)
+{
+    assert(!_PyObject_IS_IMMORTAL((PyObject *)type));
+
+    Py_ssize_t typeid = type->tp_typeid;
+    if (typeid == 0) {
+        Py_DECREF(type);
+        return;
+    }
+
+    assert(_PyObject_IS_DEFERRED_RC((PyObject *)type));
+    PyThreadState *tstate = PyThreadState_GET();
+    if (typeid >= tstate->local_refcnts_size) {
+        Py_DECREF(type);
+    }
+    else {
+        tstate->local_refcnts[typeid]--;
+    }
+}
+
+
 PyObject *
 PyType_GenericAlloc(PyTypeObject *type, Py_ssize_t nitems)
 {
@@ -1072,13 +1117,12 @@ PyType_GenericAlloc(PyTypeObject *type, Py_ssize_t nitems)
     }
 
     memset(obj, '\0', size);
-
-    if (type->tp_itemsize == 0) {
-        (void)PyObject_INIT(obj, type);
+    if (type->tp_itemsize != 0) {
+        Py_SET_SIZE(obj, nitems);
     }
-    else {
-        (void) PyObject_INIT_VAR((PyVarObject *)obj, type, nitems);
-    }
+    Py_SET_TYPE(obj, type);
+    incref_type(type);
+    _Py_NewReference(obj);
 
     if (_PyType_IS_GC(type)) {
         _PyObject_GC_TRACK(obj);
@@ -1262,7 +1306,7 @@ subtype_dealloc(PyObject *self)
            reference counting. Only decref if the base type is not already a heap
            allocated type. Otherwise, basedealloc should have decref'd it already */
         if (type_needs_decref) {
-            Py_DECREF(type);
+            decref_type(type);
         }
 
         /* Done */
@@ -1368,7 +1412,7 @@ subtype_dealloc(PyObject *self)
        reference counting. Only decref if the base type is not already a heap
        allocated type. Otherwise, basedealloc should have decref'd it already */
     if (type_needs_decref) {
-        Py_DECREF(type);
+        decref_type(type);
     }
 
   endlabel:
@@ -2624,6 +2668,11 @@ type_new(PyTypeObject *metatype, PyObject *args, PyObject *kwds)
     if (type == NULL)
         goto error;
 
+    if (_PyTypeId_Allocate(&_PyRuntime.typeids, type) < 0) {
+        goto error;
+    }
+    _PyObject_SET_DEFERRED_RC(type);
+
     /* Keep name and slots alive in the extended type object */
     et = (PyHeapTypeObject *)type;
     Py_INCREF(name);
@@ -2941,6 +2990,13 @@ PyType_FromModuleAndSpec(PyObject *module, PyType_Spec *spec, PyObject *bases)
     res = (PyHeapTypeObject*)PyType_GenericAlloc(&PyType_Type, nmembers);
     if (res == NULL)
         return NULL;
+
+    type = &res->ht_type;
+    if (_PyTypeId_Allocate(&_PyRuntime.typeids, type) < 0) {
+        goto fail;
+    }
+    _PyObject_SET_DEFERRED_RC(res);
+
     res_start = (char*)res;
 
     if (spec->name == NULL) {
@@ -2956,7 +3012,6 @@ PyType_FromModuleAndSpec(PyObject *module, PyType_Spec *spec, PyObject *bases)
     else
         s++;
 
-    type = &res->ht_type;
     /* The flags must be initialized early, before the GC traverses us */
     type->tp_flags = spec->flags | Py_TPFLAGS_HEAPTYPE;
     res->ht_name = PyUnicode_FromString(s);
@@ -3518,6 +3573,9 @@ type_dealloc(PyTypeObject *type)
         // FIXME(sgross): cached keys
     }
     Py_XDECREF(et->ht_module);
+    if (type->tp_typeid != 0) {
+        _PyTypeId_Release(&_PyRuntime.typeids, type);
+    }
     Py_TYPE(type)->tp_free((PyObject *)type);
 }
 

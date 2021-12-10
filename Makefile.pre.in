@@ -391,6 +391,7 @@ PYTHON_OBJS=	\
 		Python/structmember.o \
 		Python/symtable.o \
 		Python/sysmodule.o \
+		Python/typeid.o \
 		Python/thread.o \
 		Python/traceback.o \
 		Python/getopt.o \
