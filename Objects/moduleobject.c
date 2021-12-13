@@ -103,6 +103,11 @@ PyModule_NewObject(PyObject *name)
     m = PyObject_GC_New(PyModuleObject, &PyModule_Type);
     if (m == NULL)
         return NULL;
+    if (PyUnicode_CheckExact(name)) {
+        Py_INCREF(name);
+        PyUnicode_InternInPlace(&name);
+        Py_DECREF(name);
+    }
     m->md_def = NULL;
     m->md_state = NULL;
     m->md_weaklist = NULL;
@@ -123,7 +128,7 @@ PyObject *
 PyModule_New(const char *name)
 {
     PyObject *nameobj, *module;
-    nameobj = PyUnicode_FromString(name);
+    nameobj = PyUnicode_InternFromString(name);
     if (nameobj == NULL)
         return NULL;
     module = PyModule_NewObject(nameobj);

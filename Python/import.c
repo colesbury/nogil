@@ -875,7 +875,7 @@ PyImport_AddModuleObject(PyObject *name)
 PyObject *
 PyImport_AddModule(const char *name)
 {
-    PyObject *nameobj = PyUnicode_FromString(name);
+    PyObject *nameobj = PyUnicode_InternFromString(name);
     if (nameobj == NULL) {
         return NULL;
     }
