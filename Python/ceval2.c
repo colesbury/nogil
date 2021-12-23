@@ -132,7 +132,7 @@
 
 #define DECREF_X(reg, CALL) do { \
     if (IS_RC(reg)) { \
-        _Py_DECREF_TOTAL \
+        _Py_DEC_REFTOTAL; \
         PyObject *obj = (PyObject *)reg.as_int64; \
         if (LIKELY(_Py_ThreadMatches(obj, tid))) { \
             uint32_t refcount = obj->ob_ref_local; \
@@ -152,7 +152,7 @@
 
 #define INCREF(reg) do { \
     if (IS_RC(reg)) { \
-        _Py_INCREF_TOTAL \
+        _Py_INC_REFTOTAL; \
         PyObject *obj = (PyObject *)reg.as_int64; \
         if (LIKELY(_Py_ThreadMatches(obj, tid))) { \
             uint32_t refcount = obj->ob_ref_local; \
@@ -168,7 +168,7 @@
 #define _Py_INCREF(op) do { \
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
     if (!_Py_REF_IS_IMMORTAL(local)) { \
-        _Py_INCREF_TOTAL \
+        _Py_INC_REFTOTAL; \
         if (_PY_LIKELY(_Py_ThreadMatches(op, tid))) { \
             local += (1 << _Py_REF_LOCAL_SHIFT); \
             _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local); \
@@ -194,7 +194,7 @@ _OWNING_REF(Register r, intptr_t tid)
 #define _Py_DECREF(op) do { \
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local); \
     if (!_Py_REF_IS_IMMORTAL(local)) { \
-        _Py_DECREF_TOTAL \
+        _Py_DEC_REFTOTAL; \
         if (LIKELY(_Py_ThreadMatches(op, tid))) { \
             uint32_t refcount = op->ob_ref_local; \
             refcount -= 4; \
@@ -2891,7 +2891,7 @@ dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid)
         goto check_tag;
     }
     else if (LIKELY(_Py_ThreadMatches(value, tid))) {
-        _Py_INCREF_TOTAL;
+        _Py_INC_REFTOTAL;
         _Py_atomic_store_uint32_relaxed(&value->ob_ref_local,
                                         refcount + (1 << _Py_REF_LOCAL_SHIFT));
         result.acc = PACK(value, REFCOUNT_TAG);
@@ -2914,7 +2914,7 @@ retry: ;
                 new_shared)) {
             goto retry;
         }
-        _Py_INCREF_TOTAL;
+        _Py_INC_REFTOTAL;
         result.acc = PACK(value, REFCOUNT_TAG);
         if (value != _Py_atomic_load_ptr(&entry->me_value)) {
             result.found = 0;

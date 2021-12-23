@@ -38,7 +38,7 @@ gen_new_with_qualname(PyTypeObject *type, struct ThreadState *ts)
 
     int err = vm_init_thread_state(ts, &gen->base.thread);
     if (UNLIKELY(err != 0)) {
-        _Py_DECREF_TOTAL;
+        _Py_DEC_REFTOTAL;
         PyObject_GC_Del(gen);
     }
 

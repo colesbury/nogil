@@ -100,7 +100,7 @@ _PACK_INCREF(PyObject *obj, intptr_t tid)
     Register r;
     r.as_int64 = (intptr_t)obj;
     if ((obj->ob_ref_local & 0x3) == 0) {
-        _Py_INCREF_TOTAL
+        _Py_INC_REFTOTAL;
         if (LIKELY(_Py_ThreadMatches(obj, tid))) {
             uint32_t refcount = obj->ob_ref_local;
             refcount += 4;

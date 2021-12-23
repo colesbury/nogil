@@ -62,7 +62,7 @@ vm_frame_size(struct ThreadState *ts)
 
 #define DECREF(reg) do { \
     if (IS_RC(reg)) { \
-        _Py_DECREF_TOTAL \
+        _Py_DEC_REFTOTAL; \
         PyObject *obj = AS_OBJ(reg); \
         if (_PY_LIKELY(_Py_ThreadLocal(obj))) { \
             uint32_t refcount = obj->ob_ref_local; \

@@ -514,11 +514,11 @@ _Py_REF_IS_QUEUED(uint32_t shared)
 }
 
 #ifdef Py_REF_DEBUG
-#define _Py_INCREF_TOTAL _Py_IncRefTotal();
-#define _Py_DECREF_TOTAL _Py_DecRefTotal();
+#define _Py_INC_REFTOTAL _Py_IncRefTotal();
+#define _Py_DEC_REFTOTAL _Py_DecRefTotal();
 #else
-#define _Py_INCREF_TOTAL
-#define _Py_DECREF_TOTAL
+#define _Py_INC_REFTOTAL
+#define _Py_DEC_REFTOTAL
 #endif
 
 
