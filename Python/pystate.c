@@ -1474,8 +1474,6 @@ _PyThreadState_Swap(struct _gilstate_runtime_state *gilstate, PyThreadState *new
     if (newts) {
         int attached = _PyThreadState_Attach(newts);
         if (!attached) {
-            assert(_Py_atomic_load_int32(&newts->status) == _Py_THREAD_GC);
-
             // drop the GIL?
             assert(_PyThreadState_GET());
             _PyThreadState_GC_Park(newts);
