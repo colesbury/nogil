@@ -360,6 +360,33 @@ dict_entry_hash(PyDictKeysObject *keys, PyDictKeyEntry *entry)
     }
 }
 
+static Py_hash_t
+perturb_hash(PyDictKeysObject *keys, Py_hash_t hash)
+{
+    if (keys->dk_type == DK_UNICODE) {
+        return hash;
+    }
+    // murmur3 finalizers from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+    // (public domain)
+#if SIZEOF_SIZE_T > 4
+    uint64_t k = (uint64_t)hash;
+    k ^= k >> 33;
+    k *= UINT64_C(0xff51afd7ed558ccd);
+    k ^= k >> 33;
+    k *= UINT64_C(0xc4ceb9fe1a85ec53);
+    k ^= k >> 33;
+    return (Py_ssize_t)k;
+#else
+    uint32_t h = (uint32_t)hash;
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return (Py_ssize_t)h;
+#endif
+}
+
 static PyDictKeyEntry *
 find_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, int *is_error)
 {
@@ -368,14 +395,16 @@ find_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, int *is_error)
     PyDictKeyEntry *entries;
     size_t mask;
     Py_hash_t ix;
+    Py_hash_t perturb;
 retry:
     keys = mp->ma_keys;
+    perturb = perturb_hash(keys, hash);
     entries = keys->dk_entries;
     mask = keys->dk_size & DICT_SIZE_MASK;
-    ix = (hash >> 7) & mask;
+    ix = (perturb >> 7) & mask;
     for (;;) {
         dict_ctrl ctrl = load_ctrl(keys, ix);
-        dict_bitmask bitmask = dict_match(ctrl, hash);
+        dict_bitmask bitmask = dict_match(ctrl, perturb);
         while (bitmask) {
             int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
@@ -422,14 +451,16 @@ find(PyDictObject *mp, PyObject *key, Py_hash_t hash)
     PyDictKeyEntry *entries;
     size_t mask;
     Py_hash_t ix;
+    Py_hash_t perturb;
 retry:
     keys = mp->ma_keys;
+    perturb = perturb_hash(keys, hash);
     entries = keys->dk_entries;
     mask = keys->dk_size & DICT_SIZE_MASK;
-    ix = (hash >> 7) & mask;
+    ix = (perturb >> 7) & mask;
     for (;;) {
         dict_ctrl ctrl = load_ctrl(keys, ix);
-        dict_bitmask bitmask = dict_match(ctrl, hash);
+        dict_bitmask bitmask = dict_match(ctrl, perturb);
         while (bitmask) {
             int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
@@ -630,10 +661,10 @@ find_or_prepare_insert(PyDictObject *mp, PyObject *key, Py_hash_t hash, int *is_
 }
 
 static Py_ssize_t
-find_first_non_full(PyDictKeysObject *keys, Py_hash_t hash)
+find_first_non_full(PyDictKeysObject *keys, Py_hash_t perturb)
 {
     size_t mask = keys->dk_size & DICT_SIZE_MASK;
-    Py_hash_t ix = (hash >> 7) & mask;
+    Py_hash_t ix = (perturb >> 7) & mask;
     for (;;) {
         dict_bitmask bitmask = ctrl_match_empty(load_ctrl(keys, ix));
         if (bitmask != 0) {
@@ -647,8 +678,9 @@ find_first_non_full(PyDictKeysObject *keys, Py_hash_t hash)
 static PyDictKeyEntry *
 insert(PyDictKeysObject *keys, Py_hash_t hash)
 {
-    Py_ssize_t ix = find_first_non_full(keys, hash);
-    _Py_atomic_store_uint8(&keys->dk_ctrl[ix], CTRL_FULL | (hash & 0x7f));
+    Py_hash_t perturb = perturb_hash(keys, hash);
+    Py_ssize_t ix = find_first_non_full(keys, perturb);
+    _Py_atomic_store_uint8(&keys->dk_ctrl[ix], CTRL_FULL | (perturb & 0x7f));
     keys->dk_usable--;
     insert_index(keys, ix);
     if (keys->dk_type == DK_GENERIC) {
@@ -717,10 +749,11 @@ pydict_get(PyDictObject *mp, PyObject *key, Py_hash_t hash)
     PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&mp->ma_keys);
     PyDictKeyEntry *entries = _Py_atomic_load_ptr_relaxed(&keys->dk_entries);
     size_t mask = keys->dk_size & DICT_SIZE_MASK;
-    Py_hash_t ix = (hash >> 7) & mask;
+    Py_hash_t perturb = perturb_hash(keys, hash);
+    Py_hash_t ix = (perturb >> 7) & mask;
     for (;;) {
         dict_ctrl ctrl = load_ctrl(keys, ix);
-        dict_bitmask bitmask = dict_match(ctrl, hash);
+        dict_bitmask bitmask = dict_match(ctrl, perturb);
         while (bitmask) {
             int lsb = bitmask_lsb(bitmask);
             PyDictKeyEntry *entry = &entries[ix + lsb];
@@ -842,18 +875,24 @@ reserve(PyDictObject *mp, Py_ssize_t n)
     return 0;
 }
 
+static PyObject *
+_PyDict_NewPresizedWithType(Py_ssize_t usable, uint8_t type)
+{
+    Py_ssize_t size = capacity_from_usable(usable);
+    PyDictKeysObject *new_keys = new_keys_object(size, type);
+    if (new_keys == NULL) {
+        return NULL;
+    }
+    return new_dict(new_keys);
+}
+
 PyObject *
 _PyDict_NewPresized(Py_ssize_t usable)
 {
     if (usable == 0) {
         return PyDict_New();
     }
-    Py_ssize_t size = capacity_from_usable(usable);
-    PyDictKeysObject *new_keys = new_keys_object(size, DK_UNICODE);
-    if (new_keys == NULL) {
-        return NULL;
-    }
-    return new_dict(new_keys);
+    return _PyDict_NewPresizedWithType(usable, DK_UNICODE);
 }
 
 /* Note that, for historical reasons, PyDict_GetItem() suppresses all errors
@@ -1334,7 +1373,7 @@ _PyDict_FromKeys(PyObject *cls, PyObject *iterable, PyObject *value)
     if (cls == (PyObject *)&PyDict_Type) {
         if (PyDict_CheckExact(iterable)) {
             PyDictObject *src = (PyDictObject *)iterable;
-            PyObject *d = _PyDict_NewPresized(PyDict_GET_SIZE(iterable));
+            PyObject *d = _PyDict_NewPresizedWithType(PyDict_GET_SIZE(iterable), src->ma_keys->dk_type);
             if (d == NULL) {
                 return NULL;
             }

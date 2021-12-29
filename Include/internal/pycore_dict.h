@@ -163,6 +163,7 @@ _PyDict_VersionTag(PyObject *mp)
 static inline PyDictKeyEntry *
 find_unicode(PyDictKeysObject *keys, PyObject *key)
 {
+    assert(PyUnicode_CheckExact(key) && keys->dk_type == DK_UNICODE);
     PyDictKeyEntry *entries = keys->dk_entries;
     size_t mask = keys->dk_size & DICT_SIZE_MASK;
     Py_hash_t hash = ((PyASCIIObject *)key)->hash;
