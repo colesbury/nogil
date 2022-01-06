@@ -131,6 +131,8 @@ static volatile struct {
 /* Speed up sigcheck() when none tripped */
 static _Py_atomic_int is_tripped;
 
+static _PyMutex mutex;
+
 static PyObject *DefaultHandler;
 static PyObject *IgnoreHandler;
 static PyObject *IntHandler;
@@ -420,9 +422,11 @@ signal_raise_signal_impl(PyObject *module, int signalnum)
 {
     int err;
     Py_BEGIN_ALLOW_THREADS
+    _PyMutex_lock(&mutex);
     _Py_BEGIN_SUPPRESS_IPH
     err = raise(signalnum);
     _Py_END_SUPPRESS_IPH
+    _PyMutex_unlock(&mutex);
     Py_END_ALLOW_THREADS
 
     if (err) {
@@ -454,6 +458,7 @@ signal_signal_impl(PyObject *module, int signalnum, PyObject *handler)
 {
     PyObject *old_handler;
     void (*func)(int);
+    PyOS_sighandler_t e;
 #ifdef MS_WINDOWS
     /* Validate that signalnum is one of the allowable signals */
     switch (signalnum) {
@@ -506,7 +511,14 @@ signal_signal_impl(PyObject *module, int signalnum, PyObject *handler)
     if (_PyErr_CheckSignalsTstate(tstate)) {
         return NULL;
     }
-    if (PyOS_setsig(signalnum, func) == SIG_ERR) {
+
+    // On macOS, sigaction isn't thread-safe with concurrent calls to raise(),
+    // so we use a mutex to prevent concurrent calls to raise() and sigaction().
+    _PyMutex_lock(&mutex);
+    e = PyOS_setsig(signalnum, func);
+    _PyMutex_unlock(&mutex);
+
+    if (e == SIG_ERR) {
         PyErr_SetFromErrno(PyExc_OSError);
         return NULL;
     }
