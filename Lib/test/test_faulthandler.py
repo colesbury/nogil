@@ -95,21 +95,25 @@ class FaultHandlerTests(unittest.TestCase):
 
         Raise an error if the output doesn't match the expected format.
         """
+        if sys.flags.nogil:
+            all_threads = False
         if all_threads:
             if know_current_thread:
                 header = 'Current thread 0x[0-9a-f]+'
             else:
                 header = 'Thread 0x[0-9a-f]+'
-        else:
+        elif know_current_thread:
             header = 'Stack'
         regex = [f'^{fatal_error}']
         if py_fatal_error:
             regex.append("Python runtime state: initialized")
         regex.append('')
-        regex.append(fr'{header} \(most recent call first\):')
-        if garbage_collecting:
+        if all_threads or know_current_thread:
+            regex.append(fr'{header} \(most recent call first\):')
+        if garbage_collecting and all_threads:
             regex.append('  Garbage-collecting')
-        regex.append(fr'  File "<string>", line {lineno} in {function}')
+        if all_threads or know_current_thread:
+            regex.append(fr'  File "<string>", line {lineno} in {function}')
         regex = '\n'.join(regex)
 
         if other_regex:
@@ -691,6 +695,8 @@ class FaultHandlerTests(unittest.TestCase):
 
         Raise an error if the output doesn't match the expected format.
         """
+        if sys.flags.nogil:
+            all_threads = False
         signum = signal.SIGUSR1
         code = """
             import faulthandler

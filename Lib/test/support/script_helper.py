@@ -39,7 +39,7 @@ def interpreter_requires_environment():
     global __cached_interp_requires_environment
     if __cached_interp_requires_environment is None:
         # If PYTHONHOME is set, assume that we need it
-        if 'PYTHONHOME' in os.environ:
+        if 'PYTHONHOME' in os.environ or 'PYTHONGIL' in os.environ:
             __cached_interp_requires_environment = True
             return True
         # cannot run subprocess, assume we don't need it

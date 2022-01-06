@@ -2559,7 +2559,14 @@ _Py_FatalError_DumpTracebacks(int fd, PyInterpreterState *interp,
     PUTS(fd, "\n");
 
     /* display the current Python stack */
-    _Py_DumpTracebackThreads(fd, interp, tstate);
+    if (_PyRuntime.preconfig.disable_gil) {
+        if (tstate != NULL) {
+            _Py_DumpTraceback(fd, tstate);
+        }
+    }
+    else {
+        _Py_DumpTracebackThreads(fd, interp, tstate);
+    }
 }
 
 /* Print the current exception (if an exception is set) with its traceback,

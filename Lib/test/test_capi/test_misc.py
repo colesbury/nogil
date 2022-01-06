@@ -311,7 +311,7 @@ class CAPITest(unittest.TestCase):
                     r'Python runtime state: initialized\n'
                     r'ValueError: bug\n'
                     r'\n'
-                    r'Current thread .* \(most recent call first\):\n'
+                    r'(Current thread|Stack).* \(most recent call first\):\n'
                     r'  File .*, line 6 in <module>\n'
                     r'\n'
                     r'Extension modules: _testcapi \(total: 1\)\n')
