@@ -97,6 +97,8 @@ class FaultHandlerTests(unittest.TestCase):
 
         Raise an error if the output doesn't match the expected format.
         """
+        if sys.flags.nogil:
+            all_threads = False
         if all_threads:
             if know_current_thread:
                 header = 'Current thread 0x[0-9a-f]+'
@@ -109,6 +111,10 @@ class FaultHandlerTests(unittest.TestCase):
 
             {header} \(most recent call first\):
               File "<string>", line {lineno} in <module>
+            """
+        if not all_threads and not know_current_thread:
+            regex = r"""
+                (?m)^{fatal_error}
             """
         if py_fatal_error:
             fatal_error += "\nPython runtime state: initialized"
@@ -693,7 +699,7 @@ class FaultHandlerTests(unittest.TestCase):
         trace, exitcode = self.get_output(code, filename)
         trace = '\n'.join(trace)
         if not unregister:
-            if all_threads:
+            if all_threads and not sys.flags.nogil:
                 regex = r'Current thread 0x[0-9a-f]+ \(most recent call first\):\n'
             else:
                 regex = r'Stack \(most recent call first\):\n'

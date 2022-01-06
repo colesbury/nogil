@@ -1,5 +1,6 @@
 #include "Python.h"
 #include "pycore_initconfig.h"
+#include "pycore_runtime.h"
 #include "pycore_traceback.h"
 #include <signal.h>
 #include <object.h>
@@ -228,6 +229,11 @@ faulthandler_dump_traceback(int fd, int all_threads,
         return;
 
     reentrant = 1;
+
+    if (_PyRuntime.preconfig.disable_gil) {
+        // It's not safe to dump all threads when running without the GIL.
+        all_threads = 0;
+    }
 
     /* SIGSEGV, SIGFPE, SIGABRT, SIGBUS and SIGILL are synchronous signals and
        are thus delivered to the thread that caused the fault. Get the Python
