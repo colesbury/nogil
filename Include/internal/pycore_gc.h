@@ -187,6 +187,7 @@ PyAPI_FUNC(void) _PyGC_ResetHeap(void);
 PyAPI_FUNC(Py_ssize_t) _PyGC_Collect(PyThreadState *);
 PyAPI_FUNC(void) _PyGC_TraverseStack(struct ThreadState *ts, visitproc visit, void *arg);
 int _PyGC_VisitorType(visitproc visit);
+void _PyGC_DumpReferrers(PyObject *op);
 
 static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)

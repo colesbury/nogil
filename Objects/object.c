@@ -4,6 +4,7 @@
 #include "Python.h"
 #include "pycore_ceval.h"         // _Py_EnterRecursiveCall()
 #include "pycore_context.h"
+#include "pycore_gc.h"
 #include "pycore_initconfig.h"
 #include "pycore_object.h"
 #include "pycore_refcnt.h"
@@ -377,6 +378,9 @@ _PyObject_Dump(PyObject* op)
     /* XXX(twouters) cast refcount to long until %zd is
        universally available */
     fprintf(stderr, "object refcount : %ld\n", (long)Py_REFCNT(op));
+    fprintf(stderr, "object local    : %x\n", op->ob_ref_local);
+    fprintf(stderr, "object shared   : %x\n", op->ob_ref_shared);
+    fprintf(stderr, "object tid      : %p\n", (const void *)op->ob_tid);
     fflush(stderr);
 
     PyTypeObject *type = Py_TYPE(op);
@@ -400,6 +404,11 @@ _PyObject_Dump(PyObject* op)
 
     fprintf(stderr, "\n");
     fflush(stderr);
+
+    PyThreadState *tstate = PyThreadState_GET();
+    if (tstate && tstate->interp->gc.collecting) {
+        _PyGC_DumpReferrers(op);
+    }
 }
 
 PyObject *

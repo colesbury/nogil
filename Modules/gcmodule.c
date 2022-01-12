@@ -64,6 +64,15 @@ module gc
 /* Get the object given the GC head */
 #define FROM_GC  _PyObject_FROM_GC
 
+#define _PyGC_RUNTIME_ASSERT(obj, expr, msg) \
+    _PyGC_RUNTIME_ASSERT_FROM(obj, expr, msg, __FILE__, __LINE__, __func__)
+
+#define _PyGC_RUNTIME_ASSERT_FROM(obj, expr, msg, filename, lineno, func) \
+    ((expr) \
+      ? (void)(0) \
+      : _PyObject_AssertFailed((obj), Py_STRINGIFY(expr), \
+                               (msg), (filename), (lineno), (func)))
+
 typedef enum {
     /* GC was triggered by heap allocation */
     GC_REASON_HEAP,
@@ -437,6 +446,42 @@ find_object(PyObject *op)
     return args.found;
 }
 
+// debug functions
+
+static int
+visit_print_referrers(PyObject *self, PyObject **args)
+{
+    if (self == args[1]) {
+        PyObject *op = args[0];
+        fprintf(stderr, "referrer: obj=%p (type=%s) gc_get_refs=%zd ob_ref_local=%x ob_ref_shared=%x ob_tid=%p\n",
+            op, Py_TYPE(op)->tp_name, gc_get_refs(AS_GC(op)),
+            op->ob_ref_local, op->ob_ref_shared, (const void *)op->ob_tid);
+    }
+    return 0;
+}
+
+static int
+print_referrers(PyGC_Head* gc, void *arg)
+{
+    PyObject *obj = FROM_GC(gc);
+    PyObject *args[2] = { obj, (PyObject *)arg };
+
+    traverseproc traverse = Py_TYPE(FROM_GC(gc))->tp_traverse;
+    (void) traverse(obj,
+                    (visitproc)visit_print_referrers,
+                    args);
+    return 0;
+}
+
+void
+_PyGC_DumpReferrers(PyObject *op)
+{
+    if (PyObject_IS_GC(op)) {
+        fprintf(stderr, "object gc_refs  : %zd\n\n", gc_get_refs(AS_GC(op)));
+        visit_heap(print_referrers, op);
+    }
+}
+
 // Constants for validate_list's flags argument.
 enum flagstates {unreachable_clear,
                  unreachable_set};
@@ -753,14 +798,9 @@ visit_reachable(PyObject *op, PyGC_Head *reachable)
         return 0;
     }
 
-    if (gc_get_refs(gc) < 0) {
-        printf("gc_get_refs(gc): %zd\n", gc_get_refs(gc));
-    }
-
-    _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) >= 0,
-                              "refcount is too small");
-
     const Py_ssize_t gc_refs = gc_get_refs(gc);
+    _PyGC_RUNTIME_ASSERT(op, gc_refs >= 0,
+                         "refcount is too small");
 
     if (gc_is_unreachable(gc)) {
         // printf("clearing unreachable of %p\n", gc);
@@ -834,6 +874,9 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
      */
 
     while (gc != young) {
+        PyObject *op = FROM_GC(gc);
+        _PyGC_RUNTIME_ASSERT(op, gc_get_refs(gc) >= 0,
+                             "refcount is too small");
         if (gc_get_refs(gc)) {
             /* gc is definitely reachable from outside the
              * original 'young'.  Mark it as such, and traverse
@@ -843,10 +886,7 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              * so we have to wait until it returns to determine
              * the next object to visit.
              */
-            PyObject *op = FROM_GC(gc);
             traverseproc traverse = Py_TYPE(op)->tp_traverse;
-            _PyObject_ASSERT_WITH_MSG(op, gc_get_refs(gc) >= 0,
-                                      "refcount is too small");
             // NOTE: visit_reachable may change gc->_gc_next when
             // young->_gc_prev == gc.  Don't do gc = GC_NEXT(gc) before!
             (void) traverse(op,
