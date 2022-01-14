@@ -4057,9 +4057,13 @@ kwdargs_to_reg(struct compiler *c, asdl_seq *kwds, Py_ssize_t reg)
     Py_ssize_t i, n;
 
     n = asdl_seq_LEN(kwds);
-    if (n == 1) {
+    if (n == 0) {
+        return;
+    }
+    else if (n == 1) {
         keyword_ty kwd = asdl_seq_GET(kwds, 0);
         if (kwd->arg == NULL) {
+            // pass the kwargs dict directly for foo(**kwargs)
             expr_to_reg(c, kwd->value, reg);
             return;
         }
@@ -4067,9 +4071,6 @@ kwdargs_to_reg(struct compiler *c, asdl_seq *kwds, Py_ssize_t reg)
 
     emit1(c, BUILD_MAP, n);
     emit1(c, STORE_FAST, reg);
-    if (n == 0) {
-        return;
-    }
 
     Py_ssize_t dict = reg;
     bool merged = false;

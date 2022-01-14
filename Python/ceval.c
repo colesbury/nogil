@@ -1053,7 +1053,7 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
             goto error;
         }
         acc = PACK_OBJ(res);
-        CLEAR(regs[-FRAME_EXTRA - 1]);  // clear **kwargs
+        XCLEAR(regs[-FRAME_EXTRA - 1]); // clear **kwargs
         CLEAR(regs[-FRAME_EXTRA - 2]);  // clear *args
         CLEAR(regs[-1]);  // clear callable
         pc = (const uint8_t *)regs[-3].as_int64;

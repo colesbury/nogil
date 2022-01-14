@@ -1260,7 +1260,7 @@ vm_call_function_ex(PyThreadState *ts)
     PyObject *args = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
     PyObject *kwargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 1]);
     PyObject *res = PyObject_Call(callable, args, kwargs);
-    CLEAR(ts->regs[-FRAME_EXTRA - 1]);
+    XCLEAR(ts->regs[-FRAME_EXTRA - 1]);
     CLEAR(ts->regs[-FRAME_EXTRA - 2]);
     return res;
 }
