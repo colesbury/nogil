@@ -260,6 +260,9 @@ void _mi_thread_abandon(mi_tld_t *tld) {
       break;
     }
   } while (!mi_atomic_cas_strong(&tld->status, MI_THREAD_ABANDONED, MI_THREAD_ALIVE));
+
+  // reset default heap
+  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
 }
 
 static void _mi_tld_destroy(mi_tld_t *tld) {
