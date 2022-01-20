@@ -1240,8 +1240,12 @@ class CLanguage(Language):
         assert isinstance(f_self.converter, self_converter), "No self parameter in " + repr(f.full_name) + "!"
 
         if f.lock is not None:
-            data.lock_statement.append('_PyRecursiveMutex_lock(&{self_name}->{lock_name});')
-            data.unlock_statement.append('_PyRecursiveMutex_unlock(&{self_name}->{lock_name});')
+            if f.lock == 'rlock':
+                data.lock_statement.append('_PyRecursiveMutex_lock(&{self_name}->{lock_name});')
+                data.unlock_statement.append('_PyRecursiveMutex_unlock(&{self_name}->{lock_name});')
+            else:
+                data.lock_statement.append('Py_BEGIN_CRITICAL_SECTION(&{self_name}->{lock_name});')
+                data.unlock_statement.append('Py_END_CRITICAL_SECTION;')
 
         last_group = 0
         first_optional = len(selfless)
