@@ -17,6 +17,7 @@
 /* SHA1 objects */
 
 #include "Python.h"
+#include "lock.h"
 #include "hashlib.h"
 #include "pystrhex.h"
 
@@ -51,6 +52,7 @@ struct sha1_state {
 typedef struct {
     PyObject_HEAD
 
+    _PyMutex mutex;
     struct sha1_state hash_state;
 } SHA1object;
 
@@ -301,7 +303,11 @@ static PyTypeObject SHA1type;
 static SHA1object *
 newSHA1object(void)
 {
-    return (SHA1object *)PyObject_New(SHA1object, &SHA1type);
+    SHA1object *new = PyObject_New(SHA1object, &SHA1type);
+    if (new) {
+        memset(&new->mutex, 0, sizeof(new->mutex));
+    }
+    return new;
 }
 
 
@@ -331,7 +337,9 @@ SHA1Type_copy_impl(SHA1object *self)
     if ((newobj = newSHA1object()) == NULL)
         return NULL;
 
+    _PyMutex_lock(&self->mutex);
     newobj->hash_state = self->hash_state;
+    _PyMutex_unlock(&self->mutex);
     return (PyObject *)newobj;
 }
 
@@ -348,7 +356,9 @@ SHA1Type_digest_impl(SHA1object *self)
     unsigned char digest[SHA1_DIGESTSIZE];
     struct sha1_state temp;
 
+    _PyMutex_lock(&self->mutex);
     temp = self->hash_state;
+    _PyMutex_unlock(&self->mutex);
     sha1_done(&temp, digest);
     return PyBytes_FromStringAndSize((const char *)digest, SHA1_DIGESTSIZE);
 }
@@ -367,7 +377,9 @@ SHA1Type_hexdigest_impl(SHA1object *self)
     struct sha1_state temp;
 
     /* Get the raw (binary) digest value */
+    _PyMutex_lock(&self->mutex);
     temp = self->hash_state;
+    _PyMutex_unlock(&self->mutex);
     sha1_done(&temp, digest);
 
     return _Py_strhex((const char *)digest, SHA1_DIGESTSIZE);
@@ -390,7 +402,9 @@ SHA1Type_update(SHA1object *self, PyObject *obj)
 
     GET_BUFFER_VIEW_OR_ERROUT(obj, &buf);
 
+    _PyMutex_lock(&self->mutex);
     sha1_process(&self->hash_state, buf.buf, buf.len);
+    _PyMutex_unlock(&self->mutex);
 
     PyBuffer_Release(&buf);
     Py_RETURN_NONE;
