@@ -6,9 +6,41 @@ opcodes = [None] * 256
 intrinsics = [None] * 256
 intrinsic_map = {}
 
+hasconst = []
+hasname = []
+hasjrel = []
+hasjabs = []
+haslocal = []
+hascompare = []
+hasfree = []
+hasnargs = [] # unused
+
+_inline_cache_entries = [0] * 256
+
+def def_op(name, op, entries=0):
+    opname[op] = name
+    opmap[name] = op
+    _inline_cache_entries[op] = entries
+
+def name_op(name, op, entries=0):
+    def_op(name, op, entries)
+    hasname.append(op)
+
+def jrel_op(name, op, entries=0):
+    def_op(name, op, entries)
+    hasjrel.append(op)
+
+def jabs_op(name, op, entries=0):
+    def_op(name, op, entries)
+    hasjabs.append(op)
+
+
+
 __all__ = [
-    "cmp_op", "opname", "opmap", "opcodes", "bytecodes", "intrinsics",
-    "intrinsic_map",
+    "cmp_op", "hasconst", "hasname", "hasjrel", "hasjabs",
+    "haslocal", "hascompare", "hasfree", "opname", "opmap",
+    "opcodes", "bytecodes", "intrinsics",
+    "intrinsic_map", "hasnargs",
 ]
 
 class Bytecode:
@@ -61,6 +93,19 @@ def def_intrinsic(name, code, nargs=1):
     intrinsics[code] = intrinsic
     intrinsic_map[name] = intrinsic
 
+def name_op(name, op, *imm):
+    def_op(name, op, *imm)
+    hasname.append(op)
+
+def jrel_op(name, op, *imm):
+    def_op(name, op, *imm)
+    hasjrel.append(op)
+
+def jabs_op(name, op, *imm):
+    def_op(name, op, *imm)
+    hasjabs.append(op)
+
+
 def_op('CLEAR_ACC', 1)
 def_op('CLEAR_FAST', 2, 'reg')
 def_op('ALIAS', 3, 'reg', 'reg')
@@ -100,6 +145,7 @@ def_op('BINARY_OR', 33, 'reg')
 def_op('IS_OP', 34, 'reg')
 def_op('CONTAINS_OP', 35, 'reg')
 def_op('COMPARE_OP', 36, 'lit', 'reg')
+hascompare.append(36)
 
 # inplace binary operators
 def_op('INPLACE_FLOOR_DIVIDE', 37, 'reg')
@@ -118,27 +164,35 @@ def_op('INPLACE_POWER', 49, 'reg')
 
 # load / store / delete
 def_op('LOAD_FAST', 50, 'reg')
-def_op('LOAD_NAME', 51, 'str', 'lit')
+haslocal.append(50)
+name_op('LOAD_NAME', 51, 'str', 'lit')
 def_op('LOAD_CONST', 52, 'const')
-def_op('LOAD_ATTR', 53, 'reg', 'str', 'lit')
-def_op('LOAD_GLOBAL', 54, 'str', 'lit')
-def_op('LOAD_METHOD', 55, 'reg', 'str', 'lit')
+hasconst.append(52)
+name_op('LOAD_ATTR', 53, 'reg', 'str', 'lit')
+name_op('LOAD_GLOBAL', 54, 'str', 'lit')
+name_op('LOAD_METHOD', 55, 'reg', 'str', 'lit')
 def_op('LOAD_DEREF', 56, 'reg')
+hasfree.append(56)
 def_op('LOAD_CLASSDEREF', 57, 'reg', 'str')
+hasfree.append(57)
 
 def_op('STORE_FAST', 58, 'reg')
-def_op('STORE_NAME', 59, 'str')
-def_op('STORE_ATTR', 60, 'reg', 'str')
-def_op('STORE_GLOBAL', 61, 'str')
+haslocal.append(58)
+name_op('STORE_NAME', 59, 'str')
+name_op('STORE_ATTR', 60, 'reg', 'str')
+name_op('STORE_GLOBAL', 61, 'str')
 def_op('STORE_SUBSCR', 62, 'reg', 'reg')
 def_op('STORE_DEREF', 63, 'reg')
+hasfree.append(63)
 
 def_op('DELETE_FAST', 64, 'reg')
-def_op('DELETE_NAME', 65, 'str')
-def_op('DELETE_ATTR', 66, 'str')
-def_op('DELETE_GLOBAL', 67, 'str')
+haslocal.append(64)
+name_op('DELETE_NAME', 65, 'str')
+name_op('DELETE_ATTR', 66, 'str')
+name_op('DELETE_GLOBAL', 67, 'str')
 def_op('DELETE_SUBSCR', 68, 'reg')
 def_op('DELETE_DEREF', 69, 'reg')
+hasfree.append(69)
 
 # call / return / yield
 def_op('CALL_FUNCTION', 70, 'base', 'imm16')
@@ -152,19 +206,19 @@ def_op('RAISE', 76)
 def_op('YIELD_VALUE', 77)
 def_op('YIELD_FROM', 78, 'reg')
 
-def_op('JUMP', 79, 'jump')
-def_op('JUMP_IF_FALSE', 80, 'jump')
-def_op('JUMP_IF_TRUE', 81, 'jump')
-def_op('JUMP_IF_NOT_EXC_MATCH', 82, 'reg', 'jump')
-def_op('POP_JUMP_IF_FALSE', 83, 'jump')
-def_op('POP_JUMP_IF_TRUE', 84, 'jump')
+jrel_op('JUMP', 79, 'jump')
+jabs_op('JUMP_IF_FALSE', 80, 'jump')
+jabs_op('JUMP_IF_TRUE', 81, 'jump')
+jabs_op('JUMP_IF_NOT_EXC_MATCH', 82, 'reg', 'jump')
+jabs_op('POP_JUMP_IF_FALSE', 83, 'jump')
+jabs_op('POP_JUMP_IF_TRUE', 84, 'jump')
 
 def_op('GET_ITER', 85, 'reg')
 def_op('GET_YIELD_FROM_ITER', 86, 'reg')
-def_op('FOR_ITER', 87, 'reg', 'jump')
+jrel_op('FOR_ITER', 87, 'reg', 'jump')
 
-def_op('IMPORT_NAME', 88, 'str')
-def_op('IMPORT_FROM', 89, 'reg', 'str')
+name_op('IMPORT_NAME', 88, 'str')
+name_op('IMPORT_FROM', 89, 'reg', 'str')
 def_op('IMPORT_STAR', 90, 'reg')
 
 def_op('BUILD_SLICE', 91, 'reg')
