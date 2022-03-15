@@ -130,6 +130,7 @@ typedef struct {
 #define _PyVarObject_CAST(op) ((PyVarObject*)(op))
 
 #define Py_REFCNT(ob)           (_PyObject_Refcount(_PyObject_CAST(ob)))
+#define Py_SET_REFCNT(ob, refcnt) (_PyObject_SetRefcount(_PyObject_CAST(ob), refcnt))
 #define Py_RESURRECT(ob, rc)    (_PyObject_Resurrect(ob, rc))
 #define Py_IS_REFERENCED(ob)    (_PyObject_IsReferened(_PyObject_CAST(ob)))
 #define Py_TYPE(ob)             (_PyObject_CAST(ob)->ob_type)
@@ -139,12 +140,6 @@ static inline int _Py_IS_TYPE(const PyObject *ob, const PyTypeObject *type) {
     return ob->ob_type == type;
 }
 #define Py_IS_TYPE(ob, type) _Py_IS_TYPE(_PyObject_CAST_CONST(ob), type)
-
-static inline void _Py_SET_REFCNT(PyObject *ob, Py_ssize_t refcnt) {
-    // FIXME(sgross): not good!
-    ob->ob_ref_local = (uint32_t)refcnt;
-}
-#define Py_SET_REFCNT(ob, refcnt) _Py_SET_REFCNT(_PyObject_CAST(ob), refcnt)
 
 static inline void _Py_SET_TYPE(PyObject *ob, PyTypeObject *type) {
     ob->ob_type = type;
@@ -723,6 +718,9 @@ _PyObject_Refcount(PyObject *op)
 
     return local_refcount + shared_refcount;
 }
+
+PyAPI_FUNC(void)
+_PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount);
 
 static inline int
 _PyObject_IsReferened(PyObject *op)

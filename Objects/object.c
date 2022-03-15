@@ -155,6 +155,34 @@ Py_DecRef(PyObject *o)
     Py_XDECREF(o);
 }
 
+void
+_PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount)
+{
+    // "best-effort" -- works for the common use-case of resurrecting a
+    // zero refcount object. Not safe with concurrent reference count
+    // modifications.
+
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    if (_Py_REF_IS_IMMORTAL(local)) {
+        return;
+    }
+    if (_Py_ThreadLocal(op)) {
+        // set local refcount to desired refcount and shared refcount to zero
+        // (but keeping "queued" mask).
+        int deferred = (local & _Py_REF_DEFERRED_MASK);
+        op->ob_ref_local = (refcount << _Py_REF_LOCAL_SHIFT) | deferred;
+        op->ob_ref_shared = (op->ob_ref_shared & _Py_REF_QUEUED_MASK);
+    }
+    else {
+        // set local refcount to zero and shared refcount to desired refcount
+        int queued = (op->ob_ref_shared & _Py_REF_QUEUED_MASK);
+        op->ob_tid = 0;
+        op->ob_ref_local = (local & _Py_REF_DEFERRED_MASK);
+        op->ob_ref_shared = (refcount << _Py_REF_SHARED_SHIFT) |
+                           _Py_REF_MERGED_MASK | queued;
+    }
+}
+
 PyObject *
 PyObject_Init(PyObject *op, PyTypeObject *tp)
 {
