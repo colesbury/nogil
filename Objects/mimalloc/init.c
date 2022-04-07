@@ -147,8 +147,8 @@ static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {
   if (heap != &_mi_heap_main) {
     heap->cookie  = _mi_heap_random_next(heap) | 1;
   }
-  heap->keys[0] = _mi_heap_random_next(heap);
-  heap->keys[1] = _mi_heap_random_next(heap);
+  heap->keys[0] = _mi_heap_random_next(heap) & ~1;
+  heap->keys[1] = _mi_heap_random_next(heap) & ~1;
   heap->tld = tld;
   heap->tag = tag;
   heap->debug_offset = debug_offsets[tag];

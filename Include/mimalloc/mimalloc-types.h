@@ -12,6 +12,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #include <stdint.h>   // uintptr_t, uint16_t, etc
 #include <mimalloc-atomic.h>  // _Atomic
 #include "pycore_llist.h"
+#include <assert.h>
 
 // Minimal alignment necessary. On most platforms 16 bytes are needed
 // due to SSE registers for example. This must be at least `MI_INTPTR_SIZE`
@@ -34,7 +35,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // #define MI_SECURE 4  // checks for double free. (may be more expensive)
 
 #if !defined(MI_SECURE)
-#define MI_SECURE 0
+#define MI_SECURE 3
 #endif
 
 // Define MI_DEBUG for debug mode
@@ -59,9 +60,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // Encoded free lists allow detection of corrupted free lists
 // and can detect buffer overflows, modify after free, and double `free`s.
 #if (MI_SECURE>=3 || MI_DEBUG>=1 || defined(MI_PADDING))
-// TODO(sgross): Don't encode free-list because it breaks the constraint that
-// freed blocks do not have the LSB of the first word set.
-//#define MI_ENCODE_FREELIST  1
+#define MI_ENCODE_FREELIST  1
 #endif
 
 

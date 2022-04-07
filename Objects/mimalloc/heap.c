@@ -205,8 +205,8 @@ mi_heap_t* mi_heap_new(void) {
   heap->thread_id = _mi_thread_id();
   _mi_random_split(&bheap->random, &heap->random);
   heap->cookie  = _mi_heap_random_next(heap) | 1;
-  heap->keys[0] = _mi_heap_random_next(heap);
-  heap->keys[1] = _mi_heap_random_next(heap);
+  heap->keys[0] = _mi_heap_random_next(heap) & ~1;
+  heap->keys[1] = _mi_heap_random_next(heap) & ~1;
   heap->no_reclaim = true;  // don't reclaim abandoned pages or otherwise destroy is unsafe
   // push on the thread local heaps list
   heap->next = heap->tld->heaps;

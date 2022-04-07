@@ -584,12 +584,14 @@ static inline bool mi_is_in_same_page(const void* p, const void* q) {
 }
 
 static inline uintptr_t mi_rotl(uintptr_t x, uintptr_t shift) {
-  shift %= MI_INTPTR_BITS;
-  return ((x << shift) | (x >> (MI_INTPTR_BITS - shift)));
+  return x;
+  // shift %= MI_INTPTR_BITS;
+  // return ((x << shift) | (x >> (MI_INTPTR_BITS - shift)));
 }
 static inline uintptr_t mi_rotr(uintptr_t x, uintptr_t shift) {
-  shift %= MI_INTPTR_BITS;
-  return ((x >> shift) | (x << (MI_INTPTR_BITS - shift)));
+  return x;
+  // shift %= MI_INTPTR_BITS;
+  // return ((x >> shift) | (x << (MI_INTPTR_BITS - shift)));
 }
 
 static inline void* mi_ptr_decode(const void* null, const mi_encoded_t x, const uintptr_t* keys) {
@@ -614,6 +616,7 @@ static inline mi_block_t* mi_block_nextx( const void* null, const mi_block_t* bl
 static inline void mi_block_set_nextx(const void* null, mi_block_t* block, const mi_block_t* next, const uintptr_t* keys) {
   #ifdef MI_ENCODE_FREELIST
   block->next = mi_ptr_encode(null, next, keys);
+  mi_assert((block->next & 1) == 0);
   #else
   UNUSED(keys); UNUSED(null);
   block->next = (mi_encoded_t)next;

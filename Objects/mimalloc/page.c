@@ -680,8 +680,8 @@ static void mi_page_init(mi_heap_t* heap, mi_page_t* page, size_t block_size, mi
   mi_assert_internal(page_size / block_size < (1L<<16));
   page->reserved = (uint16_t)(page_size / block_size);
   #ifdef MI_ENCODE_FREELIST
-  page->keys[0] = _mi_heap_random_next(heap);
-  page->keys[1] = _mi_heap_random_next(heap);
+  page->keys[0] = _mi_heap_random_next(heap) & ~1;
+  page->keys[1] = _mi_heap_random_next(heap) & ~1;
   #endif
   page->is_zero = page->is_zero_init;
   page->tag = heap->tag;
