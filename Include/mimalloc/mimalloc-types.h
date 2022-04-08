@@ -46,7 +46,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #if !defined(NDEBUG) || defined(_DEBUG)
 #define MI_DEBUG 2
 #else
-#define MI_DEBUG 0
+#define MI_DEBUG 2
 #endif
 #endif
 
