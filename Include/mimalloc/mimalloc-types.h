@@ -17,7 +17,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // Minimal alignment necessary. On most platforms 16 bytes are needed
 // due to SSE registers for example. This must be at least `MI_INTPTR_SIZE`
 #define MI_MAX_ALIGN_SIZE  16   // sizeof(max_align_t)
-#define MI_MAX_LOGS 512
+#define MI_MAX_LOGS 4096
 
 // ------------------------------------------------------
 // Variants
@@ -485,6 +485,7 @@ enum mi_tld_status_e {
 typedef struct mi_log_record_s {
   const char *event;
   const void *addr;
+  intptr_t extra;
 } mi_log_record_t;
 
 typedef struct mi_log_s {

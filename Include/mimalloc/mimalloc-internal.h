@@ -121,7 +121,7 @@ void       _mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
 
 // "stats.c"
 void       _mi_stats_done(mi_stats_t* stats);
-void       _mi_log(mi_heap_t *heap, const char* event, const void *addr);
+void       _mi_log(mi_heap_t *heap, const char* event, const void *addr, intptr_t extra);
 
 mi_msecs_t  _mi_clock_now(void);
 mi_msecs_t  _mi_clock_end(mi_msecs_t start);

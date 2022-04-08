@@ -25,8 +25,12 @@ static inline void _mi_debug_fill(mi_page_t* page, mi_block_t* block, int c, siz
 }
 static inline void _mi_debug_freed(mi_page_t* page, mi_block_t* block, int mt) {
   // just invert the second word. Should turn ob_type into invalid pointer
+  if (page->debug_offset < 0) {
+    return;
+  }
   size_t offset = (size_t)page->debug_offset;
-  if (offset < mi_usable_size(block)) {
+  size_t size = mi_usable_size(block);
+  if (offset + sizeof(uintptr_t) < size) {
     uintptr_t *data = (uintptr_t *)(((char*)block) + page->debug_offset);
     *data = ~(*data) + mt;
   }
@@ -90,7 +94,7 @@ extern inline mi_decl_restrict void* mi_heap_malloc_small(mi_heap_t* heap, size_
     mi_heap_stat_increase(heap, malloc, mi_usable_size(p));
   }
   #endif
-  _mi_log(heap, "malloc", p);
+  _mi_log(heap, "malloc", p, size);
   return p;
 }
 
@@ -114,7 +118,7 @@ extern inline mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size
       mi_heap_stat_increase(heap, malloc, mi_usable_size(p));
     }
     #endif
-    _mi_log(heap, "malloc", p);
+    _mi_log(heap, "malloc", p, size);
     return p;
   }
 }
@@ -436,9 +440,8 @@ void mi_free(void* p) mi_attr_noexcept
   }
 #endif
 
-  _mi_log(heap, "free", block);
-
   if (mi_likely(tid == segment->thread_id && page->flags.full_aligned == 0)) {  // the thread id matches and it is not a full page, nor has aligned blocks
+    _mi_log(heap, "free", block, 0);
     // local, and not full or aligned
     if (mi_unlikely(mi_check_is_double_free(page,block))) return;
     mi_check_padding(page, block);
@@ -453,6 +456,7 @@ void mi_free(void* p) mi_attr_noexcept
     }
   }
   else {
+    _mi_log(heap, "free", block, 1);
     // non-local, aligned blocks, or a full page; use the more generic path
     // note: recalc page in generic to improve code generation
     mi_free_generic(segment, tid == segment->thread_id, p);
@@ -586,7 +590,7 @@ void* _mi_heap_realloc_zero(mi_heap_t* heap, void* p, size_t newsize, bool zero)
 }
 
 void* mi_heap_realloc(mi_heap_t* heap, void* p, size_t newsize) mi_attr_noexcept {
-  _mi_log(heap, "realloc", p);
+  _mi_log(heap, "realloc", p, newsize);
   return _mi_heap_realloc_zero(heap, p, newsize, false);
 }
 
