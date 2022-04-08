@@ -23,6 +23,14 @@ static inline void _mi_debug_fill(mi_page_t* page, mi_block_t* block, int c, siz
     memset((char*)block + offset, c, size - offset);
   }
 }
+static inline void _mi_debug_freed(mi_page_t* page, mi_block_t* block, int mt) {
+  // just invert the second word. Should turn ob_type into invalid pointer
+  size_t offset = (size_t)page->debug_offset;
+  if (offset < mi_usable_size(block)) {
+    uintptr_t *data = (uintptr_t *)(((char*)block) + page->debug_offset);
+    *data = ~(*data) + mt;
+  }
+}
 #endif
 
 // Fast allocation in a page: just pop from the free list.
@@ -77,6 +85,7 @@ extern inline mi_decl_restrict void* mi_heap_malloc_small(mi_heap_t* heap, size_
     mi_heap_stat_increase(heap, malloc, mi_usable_size(p));
   }
   #endif
+  _mi_log(heap, "malloc", p);
   return p;
 }
 
@@ -100,6 +109,7 @@ extern inline mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size
       mi_heap_stat_increase(heap, malloc, mi_usable_size(p));
     }
     #endif
+    _mi_log(heap, "malloc", p);
     return p;
   }
 }
@@ -295,7 +305,7 @@ static mi_decl_noinline void _mi_free_block_mt(mi_page_t* page, mi_block_t* bloc
   mi_check_padding(page, block);
   mi_padding_shrink(page, block, sizeof(mi_block_t)); // for small size, ensure we can fit the delayed thread pointers without triggering overflow detection
   #if (MI_DEBUG!=0)
-  _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_usable_size(block));
+  _mi_debug_freed(page, block, 1);
   #endif
 
   // huge page segments are always abandoned and can be freed immediately
@@ -355,7 +365,7 @@ static inline void _mi_free_block(mi_page_t* page, bool local, mi_block_t* block
     if (mi_unlikely(mi_check_is_double_free(page, block))) return;
     mi_check_padding(page, block);
     #if (MI_DEBUG!=0)
-    _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
+    _mi_debug_freed(page, block, 0);
     #endif
     mi_block_set_next(page, block, page->local_free);
     page->local_free = block;
@@ -421,12 +431,14 @@ void mi_free(void* p) mi_attr_noexcept
   }
 #endif
 
+  _mi_log(heap, "free", block);
+
   if (mi_likely(tid == segment->thread_id && page->flags.full_aligned == 0)) {  // the thread id matches and it is not a full page, nor has aligned blocks
     // local, and not full or aligned
     if (mi_unlikely(mi_check_is_double_free(page,block))) return;
     mi_check_padding(page, block);
     #if (MI_DEBUG!=0)
-    _mi_debug_fill(page, block, MI_DEBUG_FREED, mi_page_block_size(page));
+    _mi_debug_freed(page, block, 0);
     #endif
     mi_block_set_next(page, block, page->local_free);
     page->local_free = block;
@@ -569,6 +581,7 @@ void* _mi_heap_realloc_zero(mi_heap_t* heap, void* p, size_t newsize, bool zero)
 }
 
 void* mi_heap_realloc(mi_heap_t* heap, void* p, size_t newsize) mi_attr_noexcept {
+  _mi_log(heap, "realloc", p);
   return _mi_heap_realloc_zero(heap, p, newsize, false);
 }
 

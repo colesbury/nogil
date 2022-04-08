@@ -319,6 +319,14 @@ void _mi_stats_done(mi_stats_t* stats) {  // called from `mi_thread_done`
   mi_stats_merge_from(stats);
 }
 
+void _mi_log(mi_heap_t *heap, const char* event, const void *addr) {
+  mi_log_t *log = &heap->tld->log;
+  mi_log_record_t *record = &log->records[log->offset % MI_MAX_LOGS];
+  record->event = event;
+  record->addr = addr;
+  log->offset += 1;
+}
+
 void mi_stats_print_out(mi_output_fun* out, void* arg) mi_attr_noexcept {
   mi_msecs_t elapsed = _mi_clock_end(mi_time_start);
   mi_stats_merge_from(mi_stats_get_default());

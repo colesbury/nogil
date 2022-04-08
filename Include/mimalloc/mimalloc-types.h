@@ -17,6 +17,7 @@ terms of the MIT license. A copy of the license can be found in the file
 // Minimal alignment necessary. On most platforms 16 bytes are needed
 // due to SSE registers for example. This must be at least `MI_INTPTR_SIZE`
 #define MI_MAX_ALIGN_SIZE  16   // sizeof(max_align_t)
+#define MI_MAX_LOGS 512
 
 // ------------------------------------------------------
 // Variants
@@ -481,6 +482,16 @@ enum mi_tld_status_e {
   MI_THREAD_DEAD        = 2
 };
 
+typedef struct mi_log_record_s {
+  const char *event;
+  const void *addr;
+} mi_log_record_t;
+
+typedef struct mi_log_s {
+  size_t offset;
+  mi_log_record_t records[MI_MAX_LOGS];
+} mi_log_t;
+
 // Thread local data
 struct mi_tld_s {
   unsigned long long  heartbeat;     // monotonic heartbeat count
@@ -494,6 +505,7 @@ struct mi_tld_s {
   mi_stats_t          stats;         // statistics
   _Atomic(uintptr_t)  refcount;      // used by pystate.c
   _Atomic(uintptr_t)  status;        // used by pystate.c
+  mi_log_t            log;
 };
 
 #endif
