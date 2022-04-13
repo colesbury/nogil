@@ -15,7 +15,7 @@ typedef uint16_t _Py_CODEUNIT;
 struct _PyHandlerTable;
 struct _PyJumpSideTable;
 
-typedef struct PyCodeObject {
+struct PyCodeObject {
     PyObject_HEAD
     uint32_t co_packed_flags;
     int co_flags; // unused???
@@ -54,7 +54,7 @@ typedef struct PyCodeObject {
     PyObject *co_filename;      /* unicode (where it was loaded from) */
     PyObject *co_name;          /* unicode (name, for reference) */
     PyObject *co_lnotab;        /* string (encoding addr<->lineno mapping) See */
-} PyCodeObject;
+};
 
 /* Masks for co_flags above */
 #define CO_OPTIMIZED    0x0001

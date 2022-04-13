@@ -71,6 +71,7 @@
 #include "objimpl.h"
 #include "typeslots.h"
 #include "pyhash.h"
+#include "lock.h"
 
 #include "pydebug.h"
 

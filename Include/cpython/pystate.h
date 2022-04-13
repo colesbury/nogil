@@ -50,8 +50,6 @@ typedef struct mi_heap_s mi_heap_t;
 // must match MI_NUM_HEAPS in mimalloc.h
 #define Py_NUM_HEAPS 5
 
-// _PyEventRc is defined in lock.h
-typedef struct _PyEventRc _PyEventRc;
 typedef union _Register Register;
 
 // The PyThreadState typedef is in Include/pystate.h.

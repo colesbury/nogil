@@ -1,3 +1,4 @@
+#ifndef Py_LIMITED_API
 #ifndef Py_LOCK_H
 #define Py_LOCK_H
 
@@ -226,3 +227,4 @@ _PyBeginOnce(_PyOnceFlag *o)
 }
 #endif
 #endif /* !Py_LOCK_H */
+#endif /* Py_LIMITED_API */
