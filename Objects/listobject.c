@@ -531,29 +531,98 @@ list_contains(PyListObject *a, PyObject *el)
     }
 }
 
-static PyObject *
-list_slice(PyListObject *a, Py_ssize_t ilow, Py_ssize_t ihigh)
+static Py_ssize_t
+clamp_indices(Py_ssize_t size, Py_ssize_t *start, Py_ssize_t *stop)
 {
-    PyListObject *np;
-    PyObject **src, **dest;
-    Py_ssize_t i, len;
-    len = ihigh - ilow;
-    if (len <= 0) {
-        return PyList_New(0);
+    if (*start < 0) {
+        *start = 0;
     }
-    np = list_new(len);
-    if (np == NULL)
-        return NULL;
+    else if (*start > size) {
+        *start = size;
+    }
 
-    src = a->ob_item + ilow;
-    dest = np->ob_item;
-    for (i = 0; i < len; i++) {
+    if (*stop < *start) {
+        *stop = *start;
+    }
+    else if (*stop > size) {
+        *stop = size;
+    }
+    return *stop - *start;
+}
+
+static PyObject *
+list_slice_locked(PyListObject *a, Py_ssize_t start, Py_ssize_t len)
+{
+    PyThreadState_GET()->cant_stop_wont_stop++;
+    PyListObject *np = list_new(len);
+    PyThreadState_GET()->cant_stop_wont_stop--;
+    if (np == NULL) {
+        return NULL;
+    }
+
+    PyObject **src = a->ob_item + start;
+    PyObject **dest = np->ob_item;
+    for (Py_ssize_t i = 0; i < len; i++) {
         PyObject *v = src[i];
         Py_INCREF(v);
         dest[i] = v;
     }
-    Py_SET_SIZE(np, len);
     return (PyObject *)np;
+}
+
+static PyObject *
+list_slice_step_locked(PyListObject *a, Py_ssize_t start, Py_ssize_t step,
+                       Py_ssize_t len)
+{
+    PyThreadState_GET()->cant_stop_wont_stop++;
+    PyListObject *np = list_new(len);
+    PyThreadState_GET()->cant_stop_wont_stop--;
+    if (np == NULL) {
+        return NULL;
+    }
+
+    size_t cur;
+    Py_ssize_t i;
+    PyObject **src = a->ob_item;
+    PyObject **dest = np->ob_item;
+    for (cur = start, i = 0; i < len;
+            cur += (size_t)step, i++) {
+        PyObject *item = src[cur];
+        Py_INCREF(item);
+        dest[i] = item;
+    }
+    return (PyObject *)np;
+}
+
+static PyObject *
+list_slice_clamp(PyListObject *a, Py_ssize_t ilow, Py_ssize_t ihigh)
+{
+    PyObject *res;
+    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+    Py_ssize_t len = clamp_indices(Py_SIZE(a), &ilow, &ihigh);
+    res = list_slice_locked(a, ilow, len);
+    Py_END_CRITICAL_SECTION;
+    return res;
+}
+
+static PyObject *
+list_slice_wrap(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t step)
+{
+    PyObject *res = NULL;
+    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+
+    Py_ssize_t len = PySlice_AdjustIndices(Py_SIZE(a), &start, &stop, step);
+    if (len <= 0) {
+        res = PyList_New(0);
+    }
+    else if (step == 1) {
+        res = list_slice_locked(a, start, len);
+    }
+    else {
+        res = list_slice_step_locked(a, start, step, len);
+    }
+    Py_END_CRITICAL_SECTION;
+    return res;
 }
 
 PyObject *
@@ -563,19 +632,7 @@ PyList_GetSlice(PyObject *a, Py_ssize_t ilow, Py_ssize_t ihigh)
         PyErr_BadInternalCall();
         return NULL;
     }
-    if (ilow < 0) {
-        ilow = 0;
-    }
-    else if (ilow > Py_SIZE(a)) {
-        ilow = Py_SIZE(a);
-    }
-    if (ihigh < ilow) {
-        ihigh = ilow;
-    }
-    else if (ihigh > Py_SIZE(a)) {
-        ihigh = Py_SIZE(a);
-    }
-    return list_slice((PyListObject *)a, ilow, ihigh);
+    return list_slice_clamp((PyListObject *)a, ilow, ihigh);
 }
 
 static PyObject *
@@ -709,20 +766,7 @@ adjust_indices(Py_ssize_t size, Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t 
 {
     if (wrap_mode == CLAMP_INDICES) {
         assert(step == 1);
-        if (*start < 0) {
-            *start = 0;
-        }
-        else if (*start > size) {
-            *start = size;
-        }
-
-        if (*stop < *start) {
-            *stop = *start;
-        }
-        else if (*stop > size) {
-            *stop = size;
-        }
-        return *stop - *start;
+        return clamp_indices(size, start, stop);
     }
     else {
         Py_ssize_t slicelength = PySlice_AdjustIndices(size, start, stop, step);
@@ -847,8 +891,7 @@ list_ass_slice(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t st
     /* protect against a[::-1] = a */
     PyObject *seq = NULL;
     if (a == (PyListObject*)v) {
-        seq = list_slice((PyListObject*)v, 0,
-                           PyList_GET_SIZE(v));
+        seq = list_slice_clamp((PyListObject*)v, 0, PY_SSIZE_T_MAX);
     }
     else if (v != NULL) {
         seq = PySequence_Fast(v, "can only assign an iterable");
@@ -1022,7 +1065,7 @@ static PyObject *
 list_copy_impl(PyListObject *self)
 /*[clinic end generated code: output=ec6b72d6209d418e input=6453ab159e84771f]*/
 {
-    return list_slice(self, 0, Py_SIZE(self));
+    return list_slice_clamp(self, 0, PY_SSIZE_T_MAX);
 }
 
 /*[clinic input]
@@ -3169,38 +3212,11 @@ list_subscript_slow(PyListObject* self, PyObject* item)
         return list_item(self, i);
     }
     else if (PySlice_Check(item)) {
-        Py_ssize_t start, stop, step, slicelength, i;
-        size_t cur;
-
+        Py_ssize_t start, stop, step;
         if (PySlice_Unpack(item, &start, &stop, &step) < 0) {
             return NULL;
         }
-        slicelength = PySlice_AdjustIndices(Py_SIZE(self), &start, &stop,
-                                            step);
-
-        if (slicelength <= 0) {
-            return PyList_New(0);
-        }
-        else if (step == 1) {
-            return list_slice(self, start, stop);
-        }
-        else {
-            PyListObject *result = list_new(slicelength);
-            if (!result) return NULL;
-
-            PyObject **dest = result->ob_item;
-            for (cur = start, i = 0; i < slicelength;
-                 cur += (size_t)step, i++) {
-                PyObject *item = list_item_safe(self, cur);
-                if (!item) {
-                    slicelength = i;
-                    break;
-                }
-                dest[i] = item;
-            }
-            Py_SET_SIZE(result, slicelength);
-            return (PyObject *) result;
-        }
+        return list_slice_wrap(self, start, stop, step);
     }
     else {
         PyErr_Format(PyExc_TypeError,
