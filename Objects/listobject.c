@@ -889,29 +889,45 @@ static int
 list_ass_slice(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t step, int wrap_mode, PyObject *v)
 {
     /* protect against a[::-1] = a */
-    PyObject *seq = NULL;
+    int ret;
     if (a == (PyListObject*)v) {
-        seq = list_slice_clamp((PyListObject*)v, 0, PY_SSIZE_T_MAX);
+        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        Py_ssize_t n = PyList_GET_SIZE(a);
+        PyListObject *copy = (PyListObject *)list_slice_locked(a, 0, n);
+        if (copy == NULL) {
+            ret = -1;
+        }
+        else {
+            ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, copy->ob_item, n);
+        }
+        Py_END_CRITICAL_SECTION;
     }
-    else if (v != NULL) {
-        seq = PySequence_Fast(v, "can only assign an iterable");
+    else if (v == NULL) {
+        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, NULL, NULL, 0);
+        Py_END_CRITICAL_SECTION;
     }
-
-    Py_ssize_t n = 0;
-    PyObject **seqitems = NULL;
-    if (v) {
-        if (!seq) {
+    else if (PyList_CheckExact(v)) {
+        PyListObject *b = (PyListObject *)v;
+        Py_BEGIN_CRITICAL_SECTION2(&a->mutex, &b->mutex);
+        Py_ssize_t n = PyList_GET_SIZE(b);
+        ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, b->ob_item, n);
+        Py_END_CRITICAL_SECTION2;
+    }
+    else {
+        PyObject *seq = PySequence_Fast(v, "can only assign an iterable");
+        if (seq == NULL) {
             return -1;
         }
-        n = PySequence_Fast_GET_SIZE(seq);
-        seqitems = PySequence_Fast_ITEMS(seq);
-    }
 
-    int ret;
-    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
-    ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, seqitems, n);
-    Py_END_CRITICAL_SECTION;
-    Py_XDECREF(seq);
+        Py_ssize_t n = PySequence_Fast_GET_SIZE(seq);
+        PyObject **seqitems = PySequence_Fast_ITEMS(seq);
+
+        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, seqitems, n);
+        Py_END_CRITICAL_SECTION;
+        Py_DECREF(seq);
+    }
     return ret;
 }
 
