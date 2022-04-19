@@ -660,7 +660,20 @@ code_repr(PyCodeObject *co)
 static Py_hash_t
 code_hash(PyCodeObject *co)
 {
-    return 7;
+    Py_hash_t h, h0, h1, h2, h3;
+    h0 = PyObject_Hash(co->co_name);
+    if (h0 == -1) return -1;
+    h1 = PyObject_Hash(co->co_varnames);
+    if (h1 == -1) return -1;
+    h2 = PyObject_Hash(co->co_freevars);
+    if (h2 == -1) return -1;
+    h3 = PyObject_Hash(co->co_cellvars);
+    if (h3 == -1) return -1;
+    h = h0 ^ h1 ^ h2 ^ h3 ^
+        co->co_argcount ^ co->co_posonlyargcount ^ co->co_kwonlyargcount ^
+        co->co_flags;
+    if (h == -1) h = -2;
+    return h;
 }
 
 static int
@@ -679,7 +692,6 @@ _PyCode_ConstantKey(PyObject *op)
        || PyLong_CheckExact(op)
        || PyUnicode_CheckExact(op)
           /* code_richcompare() uses _PyCode_ConstantKey() internally */
-       || PyCode_Check(op)
        || PyCode_Check(op))
     {
         /* Objects of these types are always different from object of other
@@ -865,15 +877,16 @@ code_richcompare(PyObject *self, PyObject *other, int op)
     }
 
     // compare bytecode
-    eq = (0 == memcmp(PyCode_FirstInstr(a),
-                      PyCode_FirstInstr(b),
-                      a->co_size));
-    if (eq) goto done;
+    if (0 != memcmp(PyCode_FirstInstr(a), PyCode_FirstInstr(b), a->co_size)) {
+        goto unequal;
+    }
 
     // compare exception handler entries
-    eq = (0 == memcmp(a->co_exc_handlers->entries,
-                      b->co_exc_handlers->entries,
-                      a->co_exc_handlers->size * sizeof(ExceptionHandler)));
+    if (0 != memcmp(a->co_exc_handlers->entries,
+                    b->co_exc_handlers->entries,
+                    a->co_exc_handlers->size * sizeof(ExceptionHandler))) {
+        goto unequal;
+    }
     goto done;
 
 unequal:
