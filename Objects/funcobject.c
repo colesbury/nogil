@@ -433,6 +433,7 @@ PyFunction_SetClosure(PyObject *op, PyObject *closure)
     Py_ssize_t num_defaults = func->num_defaults;
     for (Py_ssize_t i = 0; i < size; i++) {
         PyObject *item = PyTuple_GET_ITEM(closure, i);
+        Py_INCREF(item);
         Py_XSETREF(func->freevars[i + num_defaults], item);
     }
 
