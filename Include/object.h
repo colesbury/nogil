@@ -753,6 +753,7 @@ they can have object code that is not dependent on Python compilation flags.
 */
 PyAPI_FUNC(void) Py_IncRef(PyObject *);
 PyAPI_FUNC(void) Py_DecRef(PyObject *);
+PyAPI_FUNC(Py_ssize_t) Py_RefCnt(PyObject *);
 
 /*
 _Py_NoneStruct is an object of undefined type which can be used in contexts

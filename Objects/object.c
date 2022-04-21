@@ -154,6 +154,12 @@ Py_DecRef(PyObject *o)
     Py_XDECREF(o);
 }
 
+Py_ssize_t
+Py_RefCnt(PyObject *o)
+{
+    return Py_REFCNT(o);
+}
+
 void
 _PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount)
 {
