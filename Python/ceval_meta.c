@@ -3543,15 +3543,28 @@ vm_trace_cfunc(PyThreadState *ts, Register acc)
     }
 
     PyObject *func = AS_OBJ(ts->regs[-1]);
-    if (Py_IS_TYPE(func, &PyMethodDescr_Type) && ACC_ARGCOUNT(acc) > 0) {
+    if (Py_IS_TYPE(func, &PyMethodDescr_Type)) {
         // We need to create a temporary bound method as argument for
         // profiling.
-        //
-        // If nargs == 0, then this cannot work because we have no
-        // "self". In any case, the call itself would raise
-        // TypeError (foo needs an argument), so we just skip
-        // profiling.
-        PyObject *self = AS_OBJ(ts->regs[0]);
+        PyObject *self = NULL;
+        if (ACC_ARGCOUNT(acc) > 0) {
+            self = AS_OBJ(ts->regs[0]);
+        }
+        else if ((acc.as_int64 & ACC_FLAG_VARARGS) != 0) {
+            PyObject *varargs = AS_OBJ(ts->regs[-FRAME_EXTRA - 2]);
+            Py_ssize_t argcount = PyTuple_GET_SIZE(varargs);
+            if (argcount > 0) {
+                self = PyTuple_GET_ITEM(varargs, 0);
+            }
+        }
+
+        if (self == NULL) {
+            // If nargs == 0, then this cannot work because we have no
+            // "self". In any case, the call itself would raise
+            // TypeError (foo needs an argument), so we just skip profiling.
+            return vm_call_cfunction(ts, acc);
+        }
+
         func = Py_TYPE(func)->tp_descr_get(func, self, (PyObject*)Py_TYPE(self));
         if (func == NULL) {
             return NULL;
