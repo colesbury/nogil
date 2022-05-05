@@ -605,9 +605,6 @@ vm_trace_err(PyThreadState *ts, PyObject **type, PyObject **value, PyObject **tr
 static void
 vm_trace_active_exc(PyThreadState *ts);
 
-static int
-vm_trace_return(PyThreadState *ts);
-
 // Clears the arguments to a failed function call. This is necessary
 // when the function is the outermost call into the interpreter, because
 // the calling code assumes the interpreter will clean-up the frame.
@@ -732,7 +729,7 @@ vm_exception_unwind(PyThreadState *ts, Register acc, bool skip_first_frame)
         }
 
         if (ts->use_tracing) {
-            if (vm_trace_return(ts) != 0) {
+            if (vm_trace_return(ts, NULL) != 0) {
                 Py_CLEAR(exc);
                 Py_CLEAR(val);
                 Py_CLEAR(tb);
@@ -3828,8 +3825,8 @@ vm_trace_active_exc(PyThreadState *ts)
     _PyErr_Restore(ts, type, value, tb);
 }
 
-static int
-vm_trace_return(PyThreadState *tstate)
+int
+vm_trace_return(PyThreadState *tstate, PyObject *return_value)
 {
     if (tstate->tracing) {
         return 0;
@@ -3841,13 +3838,13 @@ vm_trace_return(PyThreadState *tstate)
     }
 
     if (tstate->c_tracefunc != NULL) {
-        if (call_trace(tstate, frame, PyTrace_RETURN, NULL) != 0) {
+        if (call_trace(tstate, frame, PyTrace_RETURN, return_value) != 0) {
             return -1;
         }
     }
 
     if (tstate->c_profilefunc != NULL) {
-        if (call_profile(tstate, frame, PyTrace_RETURN, NULL) != 0) {
+        if (call_profile(tstate, frame, PyTrace_RETURN, return_value) != 0) {
             return -1;
         }
     }

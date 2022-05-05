@@ -1085,15 +1085,15 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
 
     #define IMPL_YIELD_FROM(awaitable, res) do {                                \
         CALL_VM(res = _PyGen_YieldFrom(                                         \
-            PyGen_FromThread(ts->active), awaitable, AS_OBJ(acc)));                     \
+            PyGen_FromThread(ts->active), awaitable, AS_OBJ(acc)));             \
         if (res != NULL) {                                                      \
             SET_ACC(PACK_OBJ(res));                                             \
-            PyGenObject *gen = PyGen_FromThread(ts->active);                            \
+            PyGenObject *gen = PyGen_FromThread(ts->active);                    \
             gen->status = GEN_SUSPENDED;                                        \
             ts->pc = pc;  /* will resume with YIELD_FROM */                     \
-            goto return_to_c;                                                   \
+            goto exit_maybe_trace;                                              \
         }                                                                       \
-        if (UNLIKELY(ts->use_tracing)) {                                    \
+        if (UNLIKELY(ts->use_tracing)) {                                        \
             CALL_VM(vm_trace_stop_iteration(ts));                               \
         }                                                                       \
         CALL_VM(res = _PyGen_FetchStopIterationValue2());                       \
@@ -2820,6 +2820,17 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
     #undef UImm16
     #undef SImm
     #undef JumpImm
+
+    exit_maybe_trace: {
+        int err;
+        if (UNLIKELY(ts->use_tracing)) {
+            CALL_VM(err = vm_trace_return(ts, AS_OBJ(acc)));
+            if (UNLIKELY(err != 0)) {
+                goto error;
+            }
+        }
+        goto return_to_c;
+    }
 
     return_to_c: {
         return OWNING_REF(acc);
