@@ -1761,6 +1761,7 @@ _PyErr_CheckSignalsTstate(PyThreadState *tstate)
             continue;
         }
 
+        Py_INCREF(func);
         PyObject *arglist = Py_BuildValue("(iO)", i, frame);
         PyObject *result;
         if (arglist) {
@@ -1770,6 +1771,7 @@ _PyErr_CheckSignalsTstate(PyThreadState *tstate)
         else {
             result = NULL;
         }
+        Py_DECREF(func);
         if (!result) {
             /* On error, re-schedule a call to _PyErr_CheckSignalsTstate() */
             _Py_atomic_store(&is_tripped, 1);

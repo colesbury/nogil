@@ -2803,7 +2803,9 @@ setup_frame_ex(PyThreadState *ts, PyObject *func, Py_ssize_t extra, Py_ssize_t n
 
     ts->regs[-4].as_int64 = frame_delta;
     ts->regs[-3].as_int64 = -(intptr_t)ts->pc;
-    ts->regs[-1] = PACK(func, NO_REFCOUNT_TAG); // this_func
+    // function ought to be retained by caller, but some code forgets to do
+    // that, so defensively retain func here.
+    ts->regs[-1] = PACK_INCREF(func);
     return 0;
 
 }
