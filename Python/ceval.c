@@ -2863,7 +2863,7 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
 
     eval_breaker: {
         int err;
-        CALL_VM(err = vm_eval_breaker(ts));
+        CALL_VM(err = vm_eval_breaker(ts, ts->pc));
         if (UNLIKELY(err != 0)) {
             goto error;
         }

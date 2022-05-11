@@ -3442,13 +3442,18 @@ vm_locals(PyFrameObject *frame)
 }
 
 int
-vm_eval_breaker(PyThreadState *ts)
+vm_eval_breaker(PyThreadState *ts, const uint8_t *last_pc)
 {
-    int opcode = vm_opcode(ts->pc);
-    if (opcode == YIELD_FROM) {
-        return 0;
+    int ret = 0;
+    if (vm_opcode(ts->pc) != YIELD_FROM) {
+        ret = _PyEval_HandleBreaker(ts);
     }
-    return _PyEval_HandleBreaker(ts);
+    // For tracing, we must restore the previous value of "pc" so that
+    // the detection of FUNC_HEADER execution works properly, even when
+    // the eval_breaker is hit at the end of FUNC_HEADER after pc is
+    // advanced.
+    ts->pc = last_pc;
+    return ret;
 }
 
 PyObject *
@@ -3614,27 +3619,46 @@ vm_trace_cfunc(PyThreadState *ts, Register acc)
     return res;
 }
 
+static int
+is_func_header(PyThreadState *ts, const uint8_t *last_pc)
+{
+    if (last_pc) {
+        // The previous pc must point to FUNC_HEADER and the current pc must
+        // point to the next instruction. We can't be currently executing the
+        // FUNC_HEADER.
+        if (last_pc[0] == FUNC_HEADER) {
+            return ts->pc == last_pc + OP_SIZE_FUNC_HEADER;
+        }
+        if (last_pc[0] == WIDE && last_pc[1] == FUNC_HEADER) {
+            return ts->pc == last_pc + OP_SIZE_WIDE_FUNC_HEADER;
+        }
+    }
+    return 0;
+}
+
 int
 vm_profile(PyThreadState *ts, const uint8_t *last_pc, Register acc)
 {
-    int opcode = vm_opcode(ts->pc);
-    int last_opcode = last_pc ? vm_opcode(last_pc) : -1;
-
-    if (last_opcode == FUNC_HEADER) {
+    if (is_func_header(ts, last_pc)) {
+        // Trace the function entry *after* we've executed the FUNC_HEADER
         PyCodeObject *co = PyCode_FromFirstInstr(last_pc);
         if (!(co->co_packed_flags & CODE_FLAG_GENERATOR)) {
-            // trace calls into functions, but not ones that create generators
+            // Trace calls into functions, but not ones that create generators
             // because that's how CPython profiling has worked historically
             PyFrameObject *frame = vm_frame(ts);
             if (frame == NULL) {
                 return -1;
             }
+            // Fix up lasti so that the line number is the function definition
+            // instead of the first line of the body.
+            frame->f_lasti = 0;
             if (call_profile(ts, frame, PyTrace_CALL, Py_None) != 0) {
                 return -1;
             }
         }
     }
 
+    int opcode = vm_opcode(ts->pc);
     if (opcode == RETURN_VALUE || opcode == YIELD_VALUE) {
         PyFrameObject *frame = vm_frame(ts);
         if (frame == NULL) {
@@ -3679,7 +3703,6 @@ vm_trace(PyThreadState *ts, const uint8_t *last_pc, Register acc)
     PyCodeObject *code = _PyFunction_GET_CODE(func);
 
     int opcode = vm_opcode(ts->pc);
-    int last_opcode = last_pc ? vm_opcode(last_pc) : -1;
 
     int addrq = (ts->pc - func->func_base.first_instr);
     assert(addrq >= 0 && addrq < code->co_size);
@@ -3707,7 +3730,7 @@ vm_trace(PyThreadState *ts, const uint8_t *last_pc, Register acc)
         trace_line = 0;
         frame->f_lineno = line;
     }
-    else if (last_opcode == FUNC_HEADER && code == PyCode_FromFirstInstr(last_pc)) {
+    else if (is_func_header(ts, last_pc) && code == PyCode_FromFirstInstr(last_pc)) {
         frame->f_lasti = 0;
         frame->traced_func = 1;
         trace_line = 1;
