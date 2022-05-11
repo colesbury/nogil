@@ -3725,14 +3725,10 @@ vm_trace(PyThreadState *ts, const uint8_t *last_pc, Register acc)
 
     frame->f_lasti = addrq;
     frame->instr_prev = addrq;
-    if (opcode == FUNC_HEADER) {
-        frame->seen_func_header = 1;
-        trace_line = 0;
-        frame->f_lineno = line;
-    }
-    else if (is_func_header(ts, last_pc) && code == PyCode_FromFirstInstr(last_pc)) {
+
+    if (is_func_header(ts, last_pc) ) {
+        // Trace function calls immediately after FUNC_HEADER is executed.
         frame->f_lasti = 0;
-        frame->traced_func = 1;
         trace_line = 1;
 
         // set pc to point at FUNC_HEADER

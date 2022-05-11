@@ -50,8 +50,6 @@ struct _frame {
     int instr_ub;
     int instr_prev;
     int last_line;
-    unsigned int seen_func_header : 1;
-    unsigned int traced_func : 1;
 
     PyObject *f_localsplus[1];  /* locals+stack, dynamically sized */
 };
