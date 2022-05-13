@@ -32,7 +32,6 @@
 */
 
 #include "Python.h"
-#include "pycore_critical_section.h"
 #include "pycore_object.h"        // _PyObject_GC_UNTRACK()
 #include <stddef.h>               // offsetof()
 

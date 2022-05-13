@@ -3,7 +3,6 @@
 #include <stddef.h>               // offsetof()
 #include "pycore_accu.h"
 #include "pycore_object.h"
-#include "pycore_critical_section.h"
 #include "_iomodule.h"
 
 /* Implementation note: the buffer is always at least one character longer

@@ -1,17 +1,12 @@
 #ifndef Py_LIMITED_API
-#ifndef Py_INTERNAL_CRITICAL_SECTION_H
-#define Py_INTERNAL_CRITICAL_SECTION_H
+#ifndef Py_CPYTHON_CRITICAL_SECTION_H
+#define Py_CPYTHON_CRITICAL_SECTION_H
 
-#include "pycore_pystate.h"
 #include "lock.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifndef Py_BUILD_CORE
-#  error "this header requires Py_BUILD_CORE define"
 #endif
 
 /*
@@ -191,5 +186,5 @@ _Py_critical_section_end_all(PyThreadState *tstate);
 #ifdef __cplusplus
 }
 #endif
-#endif /* !Py_INTERNAL_CRITICAL_SECTION_H */
+#endif /* !Py_CPYTHON_CRITICAL_SECTION_H */
 #endif /* !Py_LIMITED_API */

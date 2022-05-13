@@ -8,7 +8,6 @@
 #define PyDict_MINSIZE 7
 
 #include "Python.h"
-#include "pycore_critical_section.h"
 #include "pycore_gc.h"       // _PyObject_GC_IS_TRACKED()
 #include "pycore_object.h"
 #include "pycore_pystate.h"  // _PyThreadState_GET()

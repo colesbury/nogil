@@ -1,5 +1,4 @@
 #include "Python.h"
-#include "pycore_critical_section.h"
 
 void
 _Py_critical_section_begin_slow(struct _Py_critical_section *c, _PyMutex *m)

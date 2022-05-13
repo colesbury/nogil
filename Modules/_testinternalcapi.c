@@ -13,7 +13,6 @@
 
 #include "Python.h"
 #include "pycore_byteswap.h"     // _Py_bswap32()
-#include "pycore_critical_section.h"
 #include "pycore_initconfig.h"   // _Py_GetConfigsAsDict()
 #include "pycore_hashtable.h"    // _Py_hashtable_new()
 #include "pycore_gc.h"           // PyGC_Head

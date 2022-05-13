@@ -135,6 +135,7 @@
     <ClInclude Include="..\Include\cpython\bytesobject.h" />
     <ClInclude Include="..\Include\cpython\ceval.h" />
     <ClInclude Include="..\Include\cpython\code.h" />
+    <ClInclude Include="..\Include\cpython\critical_section.h" />
     <ClInclude Include="..\Include\cpython\dictobject.h" />
     <ClInclude Include="..\Include\cpython\fileobject.h" />
     <ClInclude Include="..\Include\cpython\fileutils.h" />
@@ -181,7 +182,6 @@
     <ClInclude Include="..\Include\internal\pycore_code.h" />
     <ClInclude Include="..\Include\internal\pycore_condvar.h" />
     <ClInclude Include="..\Include\internal\pycore_context.h" />
-    <ClInclude Include="..\Include\internal\pycore_critical_section.h" />
     <ClInclude Include="..\Include\internal\pycore_dict.h" />
     <ClInclude Include="..\Include\internal\pycore_dtoa.h" />
     <ClInclude Include="..\Include\internal\pycore_fileutils.h" />

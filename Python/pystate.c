@@ -3,7 +3,6 @@
 
 #include "Python.h"
 #include "pycore_ceval.h"
-#include "pycore_critical_section.h"
 #include "pycore_initconfig.h"
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"

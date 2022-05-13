@@ -112,6 +112,7 @@
 #include "namespaceobject.h"
 #include "picklebufobject.h"
 #include "pystate.h"
+#include "cpython/critical_section.h"
 
 #include "codecs.h"
 #include "pyerrors.h"

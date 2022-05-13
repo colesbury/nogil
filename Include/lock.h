@@ -24,6 +24,8 @@ typedef struct {
     uintptr_t v;
 } _PyMutex;
 
+typedef _PyMutex PyMutex;
+
 // A one-time event notification
 typedef struct {
     uintptr_t v;
