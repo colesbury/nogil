@@ -206,12 +206,27 @@ code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
     co->co_ndefaultargs = ndefaultargs;
     co->co_flags = flags;
     co->co_framesize = framesize;
-    Py_XINCREF(varnames);
-    co->co_varnames = varnames;
-    Py_XINCREF(freevars);
-    co->co_freevars = freevars;
-    Py_XINCREF(cellvars);
-    co->co_cellvars = cellvars;
+    if (varnames) {
+        co->co_varnames = varnames;
+        Py_INCREF(varnames);
+    }
+    else {
+        co->co_varnames = _Py_EmptyTuple;
+    }
+    if (freevars) {
+        co->co_freevars = freevars;
+        Py_INCREF(freevars);
+    }
+    else {
+        co->co_freevars = _Py_EmptyTuple;
+    }
+    if (cellvars) {
+        co->co_cellvars = cellvars;
+        Py_INCREF(cellvars);
+    }
+    else {
+        co->co_cellvars = _Py_EmptyTuple;
+    }
     Py_INCREF(filename);
     co->co_filename = filename;
     Py_INCREF(name);
