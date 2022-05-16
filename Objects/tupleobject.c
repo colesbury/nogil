@@ -28,18 +28,16 @@ class tuple "PyTupleObject *" "&PyTuple_Type"
 */
 static PyTupleObject *free_list[PyTuple_MAXSAVESIZE];
 static int numfree[PyTuple_MAXSAVESIZE];
-#else
+#endif
+
 static struct {
     PyGC_Head head;
     PyTupleObject tuple;
 } _Py_EmptyTupleStruct = {
-    {0, 0},
-    {
-        { _PyObject_STRUCT_INIT(&PyTuple_Type), 0 },
-        { NULL }
-    }
+    .tuple = { .ob_base = { .ob_base = _PyObject_STRUCT_INIT(&PyTuple_Type) }}
 };
-#endif
+
+PyObject * const _Py_EmptyTuple = (PyObject *)&_Py_EmptyTupleStruct.tuple;
 
 static inline void
 tuple_gc_track(PyTupleObject *op)
@@ -119,7 +117,7 @@ PyTuple_New(Py_ssize_t size)
     }
 #else
     if (size == 0) {
-        return (PyObject *) &_Py_EmptyTupleStruct.tuple;
+        return _Py_EmptyTuple;
     }
 #endif
     op = tuple_alloc(size);

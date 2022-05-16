@@ -14,6 +14,7 @@ typedef struct {
     PyObject *ob_item[1];
 } PyTupleObject;
 
+PyAPI_DATA(PyObject * const) _Py_EmptyTuple;
 PyAPI_FUNC(int) _PyTuple_Resize(PyObject **, Py_ssize_t);
 PyAPI_FUNC(void) _PyTuple_MaybeUntrack(PyObject *);
 
