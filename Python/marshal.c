@@ -519,7 +519,7 @@ w_complex_object(PyObject *v, char flag, WFILE *p)
         w_long(co->co_ndefaultargs, p);
         w_long(co->co_posonlyargcount, p);
         w_long(co->co_totalargcount, p);
-        w_long(co->co_framesize, p);
+        w_long(co->co_stacksize, p);
         w_long(co->co_nconsts, p);
         w_long(co->co_nmeta, p);
         w_long(co->co_ncells, p);
@@ -1406,7 +1406,7 @@ r_object(RFILE *p)
             co->co_posonlyargcount = posonlyargcount;
             co->co_totalargcount = totalargcount;
             co->co_kwonlyargcount = totalargcount - argcount;
-            co->co_framesize = framesize;
+            co->co_stacksize = framesize;
 
             for (Py_ssize_t i = 0; i < nconsts; i++) {
                 PyObject *v = r_object(p);

@@ -205,7 +205,7 @@ code_new_impl(PyTypeObject *type, int argcount, int posonlyargcount,
     co->co_nfreevars = ncaptured;
     co->co_ndefaultargs = ndefaultargs;
     co->co_flags = flags;
-    co->co_framesize = framesize;
+    co->co_stacksize = framesize;
     if (varnames) {
         co->co_varnames = varnames;
         Py_INCREF(varnames);
@@ -853,7 +853,7 @@ code_richcompare(PyObject *self, PyObject *other, int op)
     COMPARE_INT(co_ndefaultargs);
     COMPARE_INT(co_posonlyargcount);
     COMPARE_INT(co_totalargcount);
-    COMPARE_INT(co_framesize);
+    COMPARE_INT(co_stacksize);
     COMPARE_INT(co_size);
     COMPARE_INT(co_nconsts);
     COMPARE_INT(co_ncells);
@@ -1044,7 +1044,7 @@ code.replace
     co_kwonlyargcount: int(c_default="self->co_kwonlyargcount") = -1
     co_ndefaultargs: int(c_default="self->co_ndefaultargs") = -1
     co_nlocals: int(c_default="self->co_nlocals") = -1
-    co_framesize: int(c_default="self->co_framesize") = -1
+    co_stacksize: int(c_default="self->co_stacksize") = -1
     co_nmeta: int(c_default="self->co_nmeta") = -1
     co_flags: int(c_default="self->co_flags") = -1
     co_firstlineno: int(c_default="self->co_firstlineno") = -1
@@ -1063,7 +1063,7 @@ Return a copy of the code object with new values for the specified fields.
 static PyObject *
 code_replace_impl(PyCodeObject *self, int co_argcount,
                   int co_posonlyargcount, int co_kwonlyargcount,
-                  int co_ndefaultargs, int co_nlocals, int co_framesize,
+                  int co_ndefaultargs, int co_nlocals, int co_stacksize,
                   int co_nmeta, int co_flags, int co_firstlineno,
                   PyObject *co_code, PyObject *co_consts,
                   PyObject *co_varnames, PyObject *co_freevars,
@@ -1103,7 +1103,7 @@ code_replace_impl(PyCodeObject *self, int co_argcount,
         co_posonlyargcount,
         co_kwonlyargcount,
         co_nlocals,
-        co_framesize,
+        co_stacksize,
         co_ndefaultargs,
         co_nmeta,
         co_flags,
@@ -1145,8 +1145,8 @@ static PyMemberDef code_memberlist[] = {
     {"co_kwonlyargcount",       T_PYSSIZET,  OFF(co_kwonlyargcount),  READONLY},
     {"co_totalargcount",        T_PYSSIZET,  OFF(co_totalargcount),   READONLY},
     {"co_nlocals",      T_PYSSIZET,     OFF(co_nlocals),         READONLY},
-    {"co_framesize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
-    {"co_stacksize",    T_PYSSIZET,     OFF(co_framesize),       READONLY},
+    {"co_stacksize",    T_PYSSIZET,     OFF(co_stacksize),       READONLY},
+    {"co_framesize",    T_PYSSIZET,     OFF(co_stacksize),       READONLY},
     {"co_ndefaultargs", T_PYSSIZET,     OFF(co_ndefaultargs),    READONLY},
     {"co_nmeta",        T_PYSSIZET,     OFF(co_nmeta),           READONLY},
     {"co_flags",        T_INT,          OFF(co_flags),           READONLY},

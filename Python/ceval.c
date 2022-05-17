@@ -1114,7 +1114,7 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
     #ifndef WIDE_OP
     TARGET(RETURN_VALUE) {
     #if DEBUG_FRAME
-        Py_ssize_t frame_size = THIS_CODE()->co_framesize;
+        Py_ssize_t frame_size = THIS_CODE()->co_stacksize;
     #endif
         // mark pc as NULL to prevent frame from showing up in tracebacks
         ts->pc = pc = NULL;

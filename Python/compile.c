@@ -5339,7 +5339,7 @@ makecode(struct compiler *c)
     co->co_nlocals = c->unit->nlocals;
     co->co_ndefaultargs = c->unit->defaults.offset;
     co->co_flags = compute_code_flags(c);
-    co->co_framesize = c->unit->max_registers;
+    co->co_stacksize = c->unit->max_registers;
     co->co_varnames = dict_keys_as_tuple(c, c->unit->varnames);
     co->co_filename = c->filename;
     Py_INCREF(co->co_filename);

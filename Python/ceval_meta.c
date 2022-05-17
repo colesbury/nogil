@@ -58,7 +58,7 @@ vm_regs_frame_size(Register *regs)
     if (!PyFunction_Check(this_func)) {
         return regs[-2].as_int64;
     }
-    return _PyFunction_GET_CODE((PyFunctionObject *)this_func)->co_framesize;
+    return _PyFunction_GET_CODE((PyFunctionObject *)this_func)->co_stacksize;
 }
 
 static Py_ssize_t
@@ -717,7 +717,7 @@ vm_exception_unwind(PyThreadState *ts, Register acc, bool skip_first_frame)
             _PyErr_NormalizeException(ts, &exc, &val, &tb);
             PyException_SetTraceback(val, tb ? tb : Py_None);
 
-            vm_clear_regs(ts, handler->reg, code->co_framesize);
+            vm_clear_regs(ts, handler->reg, code->co_stacksize);
 
             Py_ssize_t link_reg = handler->reg;
             ts->regs[link_reg].as_int64 = -1;

@@ -317,7 +317,7 @@ exit:
 PyDoc_STRVAR(code_replace__doc__,
 "replace($self, /, *, co_argcount=-1, co_posonlyargcount=-1,\n"
 "        co_kwonlyargcount=-1, co_ndefaultargs=-1, co_nlocals=-1,\n"
-"        co_framesize=-1, co_nmeta=-1, co_flags=-1, co_firstlineno=-1,\n"
+"        co_stacksize=-1, co_nmeta=-1, co_flags=-1, co_firstlineno=-1,\n"
 "        co_code=None, co_consts=None, co_varnames=None,\n"
 "        co_freevars=None, co_cellvars=None, co_filename=None,\n"
 "        co_name=None, co_lnotab=None)\n"
@@ -331,7 +331,7 @@ PyDoc_STRVAR(code_replace__doc__,
 static PyObject *
 code_replace_impl(PyCodeObject *self, int co_argcount,
                   int co_posonlyargcount, int co_kwonlyargcount,
-                  int co_ndefaultargs, int co_nlocals, int co_framesize,
+                  int co_ndefaultargs, int co_nlocals, int co_stacksize,
                   int co_nmeta, int co_flags, int co_firstlineno,
                   PyObject *co_code, PyObject *co_consts,
                   PyObject *co_varnames, PyObject *co_freevars,
@@ -342,7 +342,7 @@ static PyObject *
 code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
 {
     PyObject *return_value = NULL;
-    static const char * const _keywords[] = {"co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_ndefaultargs", "co_nlocals", "co_framesize", "co_nmeta", "co_flags", "co_firstlineno", "co_code", "co_consts", "co_varnames", "co_freevars", "co_cellvars", "co_filename", "co_name", "co_lnotab", NULL};
+    static const char * const _keywords[] = {"co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_ndefaultargs", "co_nlocals", "co_stacksize", "co_nmeta", "co_flags", "co_firstlineno", "co_code", "co_consts", "co_varnames", "co_freevars", "co_cellvars", "co_filename", "co_name", "co_lnotab", NULL};
     static _PyArg_Parser _parser = {NULL, _keywords, "replace", 0};
     PyObject *argsbuf[17];
     Py_ssize_t noptargs = nargs + (kwnames ? PyTuple_GET_SIZE(kwnames) : 0) - 0;
@@ -351,7 +351,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
     int co_kwonlyargcount = self->co_kwonlyargcount;
     int co_ndefaultargs = self->co_ndefaultargs;
     int co_nlocals = self->co_nlocals;
-    int co_framesize = self->co_framesize;
+    int co_stacksize = self->co_stacksize;
     int co_nmeta = self->co_nmeta;
     int co_flags = self->co_flags;
     int co_firstlineno = self->co_firstlineno;
@@ -447,8 +447,8 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
                             "integer argument expected, got float" );
             goto exit;
         }
-        co_framesize = _PyLong_AsInt(args[5]);
-        if (co_framesize == -1 && PyErr_Occurred()) {
+        co_stacksize = _PyLong_AsInt(args[5]);
+        if (co_stacksize == -1 && PyErr_Occurred()) {
             goto exit;
         }
         if (!--noptargs) {
@@ -579,7 +579,7 @@ code_replace(PyCodeObject *self, PyObject *const *args, Py_ssize_t nargs, PyObje
     }
     co_lnotab = args[16];
 skip_optional_kwonly:
-    return_value = code_replace_impl(self, co_argcount, co_posonlyargcount, co_kwonlyargcount, co_ndefaultargs, co_nlocals, co_framesize, co_nmeta, co_flags, co_firstlineno, co_code, co_consts, co_varnames, co_freevars, co_cellvars, co_filename, co_name, co_lnotab);
+    return_value = code_replace_impl(self, co_argcount, co_posonlyargcount, co_kwonlyargcount, co_ndefaultargs, co_nlocals, co_stacksize, co_nmeta, co_flags, co_firstlineno, co_code, co_consts, co_varnames, co_freevars, co_cellvars, co_filename, co_name, co_lnotab);
 
 exit:
     return return_value;

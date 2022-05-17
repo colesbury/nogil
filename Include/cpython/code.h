@@ -27,7 +27,7 @@ struct PyCodeObject {
     Py_ssize_t co_kwonlyargcount;
     Py_ssize_t co_totalargcount; /* number of arguments including kwd-only, but not *args and **kwargs */
 
-    Py_ssize_t co_framesize;    /* maximum stack usage */
+    Py_ssize_t co_stacksize;    /* maximum stack usage */
     Py_ssize_t co_size;         /* size of instructions (in bytes) */
     Py_ssize_t co_nconsts;      /* number of constants */
     Py_ssize_t co_ncells;
