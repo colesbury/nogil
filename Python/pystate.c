@@ -152,6 +152,9 @@ _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime)
     PyMemAllocatorEx old_alloc;
     _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
+    // re-init stop-the-world mutex as LOCKED but with no waiters
+    runtime->stoptheworld_mutex.v = LOCKED;
+
     int interp_mutex = _PyThread_at_fork_reinit(&runtime->interpreters.mutex);
     int xidregistry_mutex = _PyThread_at_fork_reinit(&runtime->xidregistry.mutex);
 
