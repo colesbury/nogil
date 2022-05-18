@@ -326,6 +326,7 @@ def _get_instructions_bytes(code, varnames=None, constants=None,
     def get_repr(bytecode, *imm):
         argvals = []
         argreprs = []
+        val_index = None
 
         for arg, fmt in zip(imm, bytecode.imm):
             argval = arg
@@ -335,6 +336,7 @@ def _get_instructions_bytes(code, varnames=None, constants=None,
                 argrepr = "to " + repr(argval)
             elif fmt == 'str' or fmt == 'const':
                 argval, argrepr = _get_const_info(arg, constants)
+                val_index = len(argvals)
             elif fmt == 'cell':
                 argval, argrepr = _get_name_info(arg, cells)
             elif fmt == 'reg' or fmt == 'base':
@@ -368,6 +370,8 @@ def _get_instructions_bytes(code, varnames=None, constants=None,
             argval = None
         elif len(argvals) == 1:
             argval = argvals[0]
+        elif val_index is not None:
+            argval = argvals[val_index]
         else:
             argval = tuple(argvals)
 
