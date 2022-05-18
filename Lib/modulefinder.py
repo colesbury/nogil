@@ -9,12 +9,12 @@ import io
 import sys
 
 
-LOAD_CONST = dis.opmap['LOAD_CONST'].opcode
-IMPORT_NAME = dis.opmap['IMPORT_NAME'].opcode
-STORE_NAME = dis.opmap['STORE_NAME'].opcode
-STORE_GLOBAL = dis.opmap['STORE_GLOBAL'].opcode
+LOAD_CONST = dis.opmap['LOAD_CONST']
+IMPORT_NAME = dis.opmap['IMPORT_NAME']
+STORE_NAME = dis.opmap['STORE_NAME']
+STORE_GLOBAL = dis.opmap['STORE_GLOBAL']
 STORE_OPS = STORE_NAME, STORE_GLOBAL
-WIDE = dis.opmap['WIDE'].opcode
+WIDE = dis.opmap['WIDE']
 
 # Old imp constants:
 

@@ -486,7 +486,7 @@ def _unpack_opargs(code):
         if bytecode is None:
             raise RuntimeError(f'bad opcode {op}')
 
-        if bytecode == WIDE:
+        if bytecode.opcode == WIDE:
             wide = True
             op = code[i+1]
             bytecode = opcodes[op]

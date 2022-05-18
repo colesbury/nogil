@@ -51,7 +51,7 @@ class Intrinsic:
 def def_op(name, opcode, *imm):
     bytecode = Bytecode(name, opcode, *imm)
     bytecodes.append(bytecode)
-    opmap[name] = bytecode
+    opmap[name] = opcode
     opname[opcode] = name
     opcodes[opcode] = bytecode
 

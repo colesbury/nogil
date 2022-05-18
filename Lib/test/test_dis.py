@@ -563,7 +563,7 @@ class DisTests(unittest.TestCase):
         self.assertEqual(got, expected)
 
     def test_opname(self):
-        self.assertEqual(dis.opname[dis.opmap["LOAD_FAST"].opcode], "LOAD_FAST")
+        self.assertEqual(dis.opname[dis.opmap["LOAD_FAST"]], "LOAD_FAST")
 
     def test_widths(self):
         for opcode, opname in enumerate(dis.opname):
