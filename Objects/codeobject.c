@@ -929,13 +929,6 @@ code_getcode(PyCodeObject *co, PyObject *Py_UNUSED(args))
 }
 
 static PyObject *
-code_getnames(PyCodeObject *co, PyObject *Py_UNUSED(args))
-{
-    // TODO: traverse bytecode looking for LOAD_GLOBAL/LOAD_NAME ??
-    return PyTuple_New(0);
-}
-
-static PyObject *
 code_getconsts(PyCodeObject *co, PyObject *Py_UNUSED(args))
 {
     PyObject *t = PyTuple_New(co->co_nconsts);
@@ -1164,7 +1157,7 @@ static PyMemberDef code_memberlist[] = {
 static PyGetSetDef code_getset[] = {
     {"co_code", (getter)code_getcode, (setter)NULL, "code bytes", NULL},
     {"co_consts", (getter)code_getconsts, (setter)NULL, "constants", NULL},
-    {"co_names", (getter)code_getnames, (setter)NULL, "names", NULL},
+    {"co_names", (getter)code_getconsts, (setter)NULL, "names", NULL},
     {"co_exc_handlers", (getter)code_getexc_handlers, (setter)NULL, "exception handlers", NULL},
     {"co_jump_table", (getter)code_get_jump_table, (setter)NULL, "jump side table", NULL},
     {"co_cell2reg", (getter)code_getcell2reg, (setter)NULL, "cell variables", NULL},

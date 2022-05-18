@@ -162,10 +162,6 @@ def _format_code_info(co):
         lines.append("Constants:")
         for i_c in enumerate(co.co_consts):
             lines.append("%4d: %r" % i_c)
-    if co.co_names:
-        lines.append("Names:")
-        for i_n in enumerate(co.co_names):
-            lines.append("%4d: %s" % i_n)
     if co.co_varnames:
         lines.append("Variable names:")
         for i_n in enumerate(co.co_varnames):
