@@ -34,10 +34,10 @@ def write_targets(opcode, f):
     targets[0] = 'NULL'
     targets[255] = '&&debug_regs'
     for opname, bytecode in opcode.opmap.items():
-        targets[bytecode.opcode] = f'&&{opname}'
+        targets[bytecode] = f"&&{opname}"
     for opname, bytecode in opcode.opmap.items():
-        if bytecode.has_wide:
-            targets[bytecode.opcode + 128] = f"&&WIDE_{opname}"
+        if opcode.opcodes[bytecode].has_wide:
+            targets[bytecode + 128] = f"&&WIDE_{opname}"
     f.write("static void *opcode_targets_base[256] = {\n")
     f.write(",\n".join(["    %s" % s for s in targets]))
     f.write("\n};\n")
@@ -49,12 +49,11 @@ def write_switch(opcode, f):
     f.write("switch (opcode) {\n")
     targets = ['_unknown_opcode'] * 256
     targets[255] = 'debug_regs'
-    for opname, bytecode in opcode.opmap.items():
+    for opname in opcode.opmap.keys():
         f.write(f"  case {opname}: goto {opname};\n");
     for opname, bytecode in opcode.opmap.items():
-        if bytecode.has_wide:
+        if opcode.opcodes[bytecode].has_wide:
             f.write(f"  case 128+{opname}: goto WIDE_{opname};\n");
-
     f.write(f"  default: goto _unknown_opcode;\n");
     f.write("};\n")
 
@@ -65,7 +64,7 @@ def write_names(opcode, f):
     names = ['unknown_opcode'] * 256
     names[255] = 'debug_regs'
     for opname, bytecode in opcode.opmap.items():
-        names[bytecode.opcode] = opname
+        names[bytecode] = opname
     f.write("static const char *opcode_names[256] = {\n")
     f.write(",\n".join(['    "%s"' % s for s in names]))
     f.write("\n};\n")

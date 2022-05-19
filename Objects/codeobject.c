@@ -1062,7 +1062,7 @@ code_replace_impl(PyCodeObject *self, int co_argcount,
                   PyObject *co_varnames, PyObject *co_freevars,
                   PyObject *co_cellvars, PyObject *co_filename,
                   PyObject *co_name, PyObject *co_lnotab)
-/*[clinic end generated code: output=96a0f34eb63827c7 input=55640c6349f94397]*/
+/*[clinic end generated code: output=65757a6b634f1570 input=b84995b4768fdce6]*/
 {
     PyObject *co = NULL;
     PyObject *eh_table = NULL;
