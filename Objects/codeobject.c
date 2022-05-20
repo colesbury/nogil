@@ -672,22 +672,64 @@ code_repr(PyCodeObject *co)
     }
 }
 
+// see tupleobject.c
+#if SIZEOF_PY_UHASH_T > 4
+#define _PyHASH_XXPRIME_1 ((Py_uhash_t)11400714785074694791ULL)
+#define _PyHASH_XXPRIME_2 ((Py_uhash_t)14029467366897019727ULL)
+#define _PyHASH_XXPRIME_5 ((Py_uhash_t)2870177450012600261ULL)
+#define _PyHASH_XXROTATE(x) ((x << 31) | (x >> 33))  /* Rotate left 31 bits */
+#else
+#define _PyHASH_XXPRIME_1 ((Py_uhash_t)2654435761UL)
+#define _PyHASH_XXPRIME_2 ((Py_uhash_t)2246822519UL)
+#define _PyHASH_XXPRIME_5 ((Py_uhash_t)374761393UL)
+#define _PyHASH_XXROTATE(x) ((x << 13) | (x >> 19))  /* Rotate left 13 bits */
+#endif
+
+static void
+hash_value(Py_uhash_t *h, Py_uhash_t lane)
+{
+    Py_uhash_t acc = *h;
+    acc += lane * _PyHASH_XXPRIME_2;
+    acc = _PyHASH_XXROTATE(acc);
+    acc *= _PyHASH_XXPRIME_1;
+    *h = acc;
+}
+
 static Py_hash_t
 code_hash(PyCodeObject *co)
 {
-    Py_hash_t h, h0, h1, h2, h3;
-    h0 = PyObject_Hash(co->co_name);
-    if (h0 == -1) return -1;
-    h1 = PyObject_Hash(co->co_varnames);
-    if (h1 == -1) return -1;
-    h2 = PyObject_Hash(co->co_freevars);
-    if (h2 == -1) return -1;
-    h3 = PyObject_Hash(co->co_cellvars);
-    if (h3 == -1) return -1;
-    h = h0 ^ h1 ^ h2 ^ h3 ^
-        co->co_argcount ^ co->co_posonlyargcount ^ co->co_kwonlyargcount ^
-        co->co_flags;
-    if (h == -1) h = -2;
+    Py_uhash_t h = _PyHASH_XXPRIME_5;
+
+#define HASH_OBJ(h, obj) do {           \
+    Py_hash_t h0 = PyObject_Hash(obj);  \
+    if (h0 == -1) return -1;            \
+    hash_value(h, h0);                  \
+} while (0)
+
+    HASH_OBJ(&h, co->co_name);
+    HASH_OBJ(&h, co->co_varnames);
+    HASH_OBJ(&h, co->co_freevars);
+    HASH_OBJ(&h, co->co_cellvars);
+    for (int i = 0; i < co->co_nconsts; i++) {
+        PyObject *value = co->co_constants[i];
+        if (PySlice_Check(value)) {
+            PySliceObject *slice = (PySliceObject *)value;
+            HASH_OBJ(&h, slice->start);
+            HASH_OBJ(&h, slice->stop);
+            HASH_OBJ(&h, slice->step);
+        }
+        else {
+            HASH_OBJ(&h, value);
+        }
+    }
+#undef HASH_OBJ
+    hash_value(&h, co->co_nconsts);
+    hash_value(&h, _Py_HashBytes(PyCode_FirstInstr(co), co->co_size));
+    hash_value(&h, co->co_argcount);
+    hash_value(&h, co->co_posonlyargcount);
+    hash_value(&h, co->co_kwonlyargcount);
+    hash_value(&h, co->co_flags);
+    if (h == (Py_uhash_t)-1) h = (Py_uhash_t)-2;
     return h;
 }
 
