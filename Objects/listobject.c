@@ -451,12 +451,45 @@ list_dealloc(PyListObject *op)
     Py_TRASHCAN_END
 }
 
+static int
+list_write_repr(PyListObject *v, _PyUnicodeWriter *writer)
+{
+    if (_PyUnicodeWriter_WriteChar(writer, '[') < 0)
+        return -1;
+
+    for (Py_ssize_t i = 0; i < Py_SIZE(v); ++i) {
+        if (i > 0) {
+            if (_PyUnicodeWriter_WriteASCIIString(writer, ", ", 2) < 0)
+                return -1;
+        }
+
+        PyObject *item = v->ob_item[i];
+        Py_INCREF(item);
+        PyObject *s = PyObject_Repr(item);
+        Py_DECREF(item);
+        if (s == NULL)
+            return -1;
+
+        if (_PyUnicodeWriter_WriteStr(writer, s) < 0) {
+            Py_DECREF(s);
+            return -1;
+        }
+        Py_DECREF(s);
+    }
+
+    writer->overallocate = 0;
+    if (_PyUnicodeWriter_WriteChar(writer, ']') < 0)
+        return -1;
+
+    return 0;
+}
+
 static PyObject *
 list_repr(PyListObject *v)
 {
     Py_ssize_t i;
-    PyObject *s;
     _PyUnicodeWriter writer;
+    int err;
 
     if (Py_SIZE(v) == 0) {
         return PyUnicode_FromString("[]");
@@ -472,30 +505,13 @@ list_repr(PyListObject *v)
     /* "[" + "1" + ", 2" * (len - 1) + "]" */
     writer.min_length = 1 + 1 + (2 + 1) * (Py_SIZE(v) - 1) + 1;
 
-    if (_PyUnicodeWriter_WriteChar(&writer, '[') < 0)
-        goto error;
-
     /* Do repr() on each element.  Note that this may mutate the list,
        so must refetch the list size on each iteration. */
-    for (i = 0; i < Py_SIZE(v); ++i) {
-        if (i > 0) {
-            if (_PyUnicodeWriter_WriteASCIIString(&writer, ", ", 2) < 0)
-                goto error;
-        }
+    Py_BEGIN_CRITICAL_SECTION(&v->mutex);
+    err = list_write_repr(v, &writer);
+    Py_END_CRITICAL_SECTION;
 
-        s = PyObject_Repr(v->ob_item[i]);
-        if (s == NULL)
-            goto error;
-
-        if (_PyUnicodeWriter_WriteStr(&writer, s) < 0) {
-            Py_DECREF(s);
-            goto error;
-        }
-        Py_DECREF(s);
-    }
-
-    writer.overallocate = 0;
-    if (_PyUnicodeWriter_WriteChar(&writer, ']') < 0)
+    if (err)
         goto error;
 
     Py_ReprLeave((PyObject *)v);
