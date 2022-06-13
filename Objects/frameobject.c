@@ -43,7 +43,11 @@ PyFrame_GetLineNumber(PyFrameObject *f)
         return f->f_lineno;
     }
     struct ThreadState *ts = f->f_ts;
-    if (ts && ts->ts && !ts->ts->tracing) {
+    PyThreadState *tstate = PyThreadState_GET();
+    // We are supposed to update the current line number when we're not tracing,
+    // but that's not safe to do from another thread. If we're not in the owning
+    // thread, just use the potentially stale line number.
+    if (ts && ts->ts == tstate && !tstate->tracing) {
         // update f->f_lasti
         vm_frame_at_offset(ts, f->f_offset);
     }
