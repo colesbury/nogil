@@ -1048,6 +1048,7 @@ class ThreadStatePtr:
             self.stack = Registers(self._gdbval['regs'])
             self.regs = Registers(self._gdbval['regs'])
             self.pc = self._gdbval['pc']
+            self.prev = self._gdbval['prev']
 
     def is_optimized_out(self):
         return self._gdbval.is_optimized_out
@@ -1217,9 +1218,12 @@ class InterpFrame:
     def previous(self):
         frame_delta = self.regs[-4]
         frame_link = self.regs[-3]
-        prev_regs = Registers(self.regs._gdbval - frame_delta.value)
-        if frame_link.value == 0:
+        if frame_link.value <= 0:
+            if self.ts.prev:
+                ts = ThreadStatePtr(self.ts.prev)
+                return InterpFrame(self.frame, ts, ts.regs, ts.pc)
             return None
+        prev_regs = Registers(self.regs._gdbval - frame_delta.value)
         return InterpFrame(self.frame, self.ts, prev_regs, frame_link._gdbval)
 
     def write_repr(self, out, visited):
