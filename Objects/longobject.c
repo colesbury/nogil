@@ -5766,6 +5766,7 @@ _PyLong_Init(PyThreadState *tstate)
         }
 
         Py_SET_SIZE(v, size);
+        ((PyObject *)v)->ob_ref_local = _Py_REF_IMMORTAL_MASK;
         v->ob_digit[0] = (digit)abs(ival);
 
         tstate->interp->small_ints[i] = v;
