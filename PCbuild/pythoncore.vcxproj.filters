@@ -1013,6 +1013,9 @@
     <ClCompile Include="..\Objects\mimalloc\arena.c">
       <Filter>Objects\mimalloc</Filter>
     </ClCompile>
+    <ClCompile Include="..\Objects\mimalloc\bitmap.c">
+      <Filter>Objects\mimalloc</Filter>
+    </ClCompile>
     <ClCompile Include="..\Objects\mimalloc\heap.c">
       <Filter>Objects\mimalloc</Filter>
     </ClCompile>

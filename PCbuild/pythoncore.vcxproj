@@ -427,6 +427,7 @@
     <ClCompile Include="..\Objects\mimalloc\alloc-aligned.c" />
     <ClCompile Include="..\Objects\mimalloc\alloc.c" />
     <ClCompile Include="..\Objects\mimalloc\arena.c" />
+    <ClCompile Include="..\Objects\mimalloc\bitmap.c" />
     <ClCompile Include="..\Objects\mimalloc\heap.c" />
     <ClCompile Include="..\Objects\mimalloc\init.c" />
     <ClCompile Include="..\Objects\mimalloc\options.c" />
