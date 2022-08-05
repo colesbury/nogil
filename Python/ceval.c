@@ -182,7 +182,7 @@
 
 #define OWNING_REF(r) _OWNING_REF(r, tid)
 
-static inline PyObject *
+static _Py_ALWAYS_INLINE PyObject *
 _OWNING_REF(Register r, intptr_t tid)
 {
     PyObject *value = AS_OBJ(r);
@@ -312,13 +312,13 @@ struct probe_result {
     int found;
 };
 
-static inline struct probe_result
+static _Py_ALWAYS_INLINE struct probe_result
 dict_probe(PyDictObject *dict, PyObject *name, intptr_t guess, intptr_t tid);
 
 static _Py_ALWAYS_INLINE struct probe_result
 load_ptr(PyObject **ptr, uintptr_t tid);
 
-_Py_ALWAYS_INLINE static uint16_t
+static _Py_ALWAYS_INLINE uint16_t
 load_uimm16(const uint8_t *addr)
 {
     uint16_t r;
@@ -326,7 +326,7 @@ load_uimm16(const uint8_t *addr)
     return r;
 }
 
-_Py_ALWAYS_INLINE static uint32_t
+static _Py_ALWAYS_INLINE uint32_t
 load_uimm32(const uint8_t *addr)
 {
     uint32_t r;
@@ -2894,18 +2894,18 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
             "# pc = %2 \n\t"
             "# regs = %3 \n\t"
             "# ts = %4 \n\t"
-            "# tstate = %5 \n\t"
-            "# tid = %6 \n\t"
-            "# constants = %7 \n\t"
+            "# tid = %5 \n\t"
+            "# constants = %6 \n\t"
+            "# eval_breaker = %7 \n\t"
         ::
-            "r" (opcode),
-            "r" (acc),
-            "r" (pc),
-            "r" (regs),
-            "r" (ts),
-            "r" (tstate),
-            "r" (tid),
-            "r" (constants));
+            "g" (opcode),
+            "g" (acc),
+            "g" (pc),
+            "g" (regs),
+            "g" (ts),
+            "g" (tid),
+            "g" (constants),
+            "g" (ts->eval_breaker));
 #endif
         NEXT_INSTRUCTION();
     }
