@@ -27,4 +27,4 @@ jobs:
           build-args: |
             commit=${{ github.sha }}
           push: true
-          tags: python/nogil:latest
+          tags: nogil/python:latest
