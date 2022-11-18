@@ -2161,19 +2161,16 @@ caught ValueError ()
 >>> g.throw(ValueError("xyz"))  # value only
 caught ValueError (xyz)
 
->>> import warnings
->>> warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-# Filter DeprecationWarning: regarding the (type, val, tb) signature of throw().
-# Deprecation warnings are re-enabled below.
-
 >>> g.throw(ValueError, ValueError(1))   # value+matching type
 caught ValueError (1)
 
 >>> g.throw(ValueError, TypeError(1))  # mismatched type, rewrapped
 caught ValueError (1)
 
->>> g.throw(ValueError, ValueError(1), None)   # explicit None traceback
+# Filter DeprecationWarning: regarding the (type, val, tb) signature of throw().
+>>> import warnings
+>>> with warnings.catch_warnings(action="ignore", category=DeprecationWarning):
+...    g.throw(ValueError, ValueError(1), None)   # explicit None traceback
 caught ValueError (1)
 
 >>> g.throw(ValueError(1), "foo")       # bad args
@@ -2234,12 +2231,6 @@ ValueError: 6
 Traceback (most recent call last):
   ...
 ValueError: 7
-
->>> warnings.filters.pop(0)
-('ignore', None, <class 'DeprecationWarning'>, None, 0)
-
-# Re-enable DeprecationWarning: the (type, val, tb) exception representation is deprecated,
-#                               and may be removed in a future version of Python.
 
 Plain "raise" inside a generator should preserve the traceback (#13188).
 The traceback should have 3 levels:
