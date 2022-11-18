@@ -220,6 +220,8 @@ class UstarReadTest(ReadTest, unittest.TestCase):
     def test_issue14160(self):
         self._test_fileobj_link("symtype2", "ustar/regtype")
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() >= 100000000,
+                     "effective uid is more than eight digits")
     def test_add_dir_getmember(self):
         # bpo-21987
         self.add_dir_and_getmember('bar')
