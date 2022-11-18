@@ -13,6 +13,8 @@ if support.check_sanitizer(address=True, memory=True):
     raise unittest.SkipTest("test too slow on ASAN/MSAN build")
 
 
+raise unittest.SkipTest("test_tools is flaky")
+
 if not support.has_subprocess_support:
     raise unittest.SkipTest("test module requires subprocess")
 
