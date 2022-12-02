@@ -1847,6 +1847,21 @@ PyUnicode_FromString(const char *u)
     return PyUnicode_DecodeUTF8Stateful(u, (Py_ssize_t)size, NULL, NULL);
 }
 
+static PyObject **
+resize_array(PyObject **array, Py_ssize_t *capacity)
+{
+    Py_ssize_t old_size = *capacity;
+    Py_ssize_t new_size = Py_MAX(old_size * 2, 16);
+    Py_ssize_t item_size = sizeof(array[0]);
+    PyObject **new_array = PyMem_Realloc(array, new_size * item_size);
+    if (new_array == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    memset(&new_array[old_size], 0, (new_size - old_size) * item_size);
+    *capacity = new_size;
+    return new_array;
+}
 
 PyObject *
 _PyUnicode_FromId(_Py_Identifier *id)
@@ -1909,6 +1924,34 @@ _PyUnicode_FromId(_Py_Identifier *id)
     return obj;
 }
 
+static int
+_PyUnicode_Immortalize(PyObject *obj)
+{
+    assert(!_PyObject_IS_IMMORTAL(obj));
+
+    struct _Py_immortalized_objects *imm = &_PyRuntime.static_objects.immortal;
+
+    _PyMutex_lock(&imm->mutex);
+    Py_ssize_t index = imm->size;
+    if (index >= imm->capacity) {
+        Py_ssize_t capacity = imm->capacity;
+        PyObject **new_array = resize_array(imm->array, &capacity);
+        if (new_array == NULL) {
+            _PyMutex_unlock(&imm->mutex);
+            return -1;
+        }
+
+        imm->array = new_array;
+        imm->capacity = capacity;
+    }
+
+    _PyObject_SetImmortal(obj);
+    imm->array[index] = obj;
+    imm->size++;
+    _PyMutex_unlock(&imm->mutex);
+    return 0;
+}
+
 
 static void
 unicode_clear_identifiers(struct _Py_unicode_state *state)
@@ -1924,6 +1967,18 @@ unicode_clear_identifiers(struct _Py_unicode_state *state)
     // after Py_Finalize().
 }
 
+static void
+unicode_free_immortalized(_PyRuntimeState *runtime)
+{
+    struct _Py_immortalized_objects *imm = &runtime->static_objects.immortal;
+    for (Py_ssize_t i=0; i < imm->size; i++) {
+        _PyUnicode_ExactDealloc(imm->array[i]);
+    }
+    imm->size = 0;
+    PyMem_Free(imm->array);
+    imm->array = NULL;
+    imm->capacity = 0;
+}
 
 /* Internal function, doesn't check maximum character */
 
@@ -14623,11 +14678,18 @@ PyUnicode_InternInPlace(PyObject **p)
         return;
     }
 
-    /* The two references in interned dict (key and value) are not counted by
-       refcnt. unicode_dealloc() and _PyUnicode_ClearInterned() take care of
-       this. */
-    Py_SET_REFCNT(s, Py_REFCNT(s) - 2);
     _PyUnicode_STATE(s).interned = 1;
+
+    if (_Py_ThreadLocal(t) && _PyUnicode_Immortalize(t) == 0) {
+        /* Nothing to do if we immortalize the string */
+        return;
+    }
+    else {
+        /* The two references in interned dict (key and value) are not counted by
+        refcnt. unicode_dealloc() and _PyUnicode_ClearInterned() take care of
+        this. */
+        Py_SET_REFCNT(s, Py_REFCNT(s) - 2);
+    }
 }
 
 // Function kept for the stable ABI.
@@ -15136,6 +15198,10 @@ _PyUnicode_Fini(PyInterpreterState *interp)
     interp->unicode.ucnhash_capi = NULL;
 
     unicode_clear_identifiers(state);
+
+    if (_Py_IsMainInterpreter(interp)) {
+        unicode_free_immortalized(&_PyRuntime);
+    }
 }
 
 /* A _string module, to export formatter_parser and formatter_field_name_split
