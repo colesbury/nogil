@@ -1006,6 +1006,8 @@ Python/ceval_gil.o: $(srcdir)/Python/ceval_gil.h $(srcdir)/Python/condvar.h
 
 Python/ceval.o: $(srcdir)/Python/ceval.c $(srcdir)/Python/opcode_targets.h
 	$${CEVAL_CC:-$(CC)} -c $(PY_CORE_CFLAGS) $$CEVAL_FLAGS -o $@ $<
+
+Python/ceval.s: $(srcdir)/Python/ceval.c $(srcdir)/Python/opcode_targets.h
 	$${CEVAL_CC:-$(CC)} -c -S $(PY_CORE_CFLAGS) -g0 $$CEVAL_FLAGS -o Python/ceval.s $<
 
 Python/ceval_meta.o: $(srcdir)/Python/opcode_names.h $(srcdir)/Python/ceval_intrinsics.h
