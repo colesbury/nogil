@@ -1,0 +1,32 @@
+name: Windows
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  workflow_call:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: windows-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          variant: sccache
+
+      - name: build MSI
+        run: |
+          .\Tools\msi\buildnogil.bat -x64
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: python-3.9.10-amd64.exe
+          path: PCBuild/amd64/en-us/python-3.9.10-amd64.exe
