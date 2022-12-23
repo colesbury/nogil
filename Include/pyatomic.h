@@ -243,6 +243,8 @@ _Py_atomic_compare_uintptr_relaxed(uintptr_t *address, uintptr_t value)
 #elif defined(_MSC_VER)
 #define Py_ATOMIC_MSC_H
 #include "pyatomic_msc.h"
+#else
+#error "define pyatomic for this platform"
 #endif
 
 #endif  /* Py_ATOMIC_H */
