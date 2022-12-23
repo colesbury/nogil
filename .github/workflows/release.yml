@@ -12,6 +12,7 @@ jobs:
 
   windows:
     uses: ./.github/workflows/windows.yml
+    if: false
     secrets: inherit
 
   release:
