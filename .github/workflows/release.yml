@@ -14,9 +14,10 @@ jobs:
     uses: ./.github/workflows/windows.yml
     secrets: inherit
 
-  build:
+  release:
     needs: [mac, windows]
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v3
         with:

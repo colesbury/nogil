@@ -430,6 +430,8 @@ def _init_posix(vars):
     _temp = __import__(name, globals(), locals(), ['build_time_vars'], 0)
     build_time_vars = _temp.build_time_vars
     vars.update(build_time_vars)
+    vars['INCLUDEPY'] = get_path('include')
+    vars['CONFINCLUDEPY'] = get_path('platinclude')
 
 def _init_non_posix(vars):
     """Initialize the module as appropriate for NT"""
