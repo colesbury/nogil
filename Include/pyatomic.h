@@ -76,6 +76,26 @@ static inline void *
 _Py_atomic_exchange_ptr(volatile void *address, void *value);
 
 
+static inline uint32_t
+_Py_atomic_and_uint32(volatile uint32_t *address, uint32_t value);
+
+static inline uint64_t
+_Py_atomic_and_uint64(volatile uint64_t *address, uint64_t value);
+
+static inline uintptr_t
+_Py_atomic_and_uintptr(volatile uintptr_t *address, uintptr_t value);
+
+
+static inline uint32_t
+_Py_atomic_or_uint32(volatile uint32_t *address, uint32_t value);
+
+static inline uint64_t
+_Py_atomic_or_uint64(volatile uint64_t *address, uint64_t value);
+
+static inline uintptr_t
+_Py_atomic_or_uintptr(volatile uintptr_t *address, uintptr_t value);
+
+
 static inline int
 _Py_atomic_load_int(const volatile int *address);
 
@@ -237,7 +257,13 @@ _Py_atomic_compare_uintptr_relaxed(uintptr_t *address, uintptr_t value)
 }
 
 
-#if defined(HAVE_STD_ATOMIC) || defined(HAVE_BUILTIN_ATOMIC)
+#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+#define Py_ATOMIC_GCC_H
+#include "pyatomic_gcc.h"
+#elif defined(__clang__) && __has_builtin(__atomic_load)
+#define Py_ATOMIC_GCC_H
+#include "pyatomic_gcc.h"
+#elif __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #define Py_ATOMIC_STD_H
 #include "pyatomic_std.h"
 #elif defined(_MSC_VER)

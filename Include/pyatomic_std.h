@@ -184,6 +184,47 @@ _Py_atomic_exchange_ptr(volatile void *address, void *value)
     return atomic_exchange((volatile _Atomic(void *)*)address, value);
 }
 
+static inline uint32_t
+_Py_atomic_and_uint32(volatile uint32_t *address, uint32_t value)
+{
+    MI_USING_STD
+    return atomic_and((volatile _Atomic(uint32_t)*)address, value);
+}
+
+static inline uint64_t
+_Py_atomic_and_uint64(volatile uint64_t *address, uint64_t value)
+{
+    MI_USING_STD
+    return atomic_and((volatile _Atomic(uint64_t)*)address, value);
+}
+
+static inline uintptr_t
+_Py_atomic_and_uintptr(volatile uintptr_t *address, uintptr_t value)
+{
+    MI_USING_STD
+    return atomic_and((volatile _Atomic(uintptr_t)*)address, value);
+}
+
+static inline uint32_t
+_Py_atomic_or_uint32(volatile uint32_t *address, uint32_t value)
+{
+    MI_USING_STD
+    return atomic_or((volatile _Atomic(uint32_t)*)address, value);
+}
+
+static inline uint64_t
+_Py_atomic_or_uint64(volatile uint64_t *address, uint64_t value)
+{
+    MI_USING_STD
+    return atomic_or((volatile _Atomic(uint64_t)*)address, value);
+}
+
+static inline uintptr_t
+_Py_atomic_or_uintptr(volatile uintptr_t *address, uintptr_t value)
+{
+    MI_USING_STD
+    return atomic_or((volatile _Atomic(uintptr_t)*)address, value);
+}
 
 static inline int
 _Py_atomic_load_int(const volatile int *address)

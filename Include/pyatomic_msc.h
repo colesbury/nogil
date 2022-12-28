@@ -168,6 +168,49 @@ _Py_atomic_exchange_ptr(volatile void *address, void *value)
     return (void *)_InterlockedExchangePointer((void * volatile *)address, (void *)value);
 }
 
+static inline uint32_t
+_Py_atomic_and_uint32(volatile uint32_t *address, uint32_t value)
+{
+    return (uint32_t)_InterlockedAnd((volatile long*)address, (long)value);
+}
+
+static inline uint64_t
+_Py_atomic_and_uint64(volatile uint64_t *address, uint64_t value)
+{
+    return (uint64_t)_InterlockedAnd64((volatile __int64*)address, (__int64)value);
+}
+
+static inline uintptr_t
+_Py_atomic_and_uintptr(volatile uintptr_t *address, uintptr_t value)
+{
+#if SIZEOF_UINTPTR_T == 8
+    return (uintptr_t)_InterlockedAnd64((volatile __int64*)address, (__int64)value);
+#else
+    return (uintptr_t)_InterlockedAnd((volatile long*)address, (long)value);
+#endif
+}
+
+static inline uint32_t
+_Py_atomic_or_uint32(volatile uint32_t *address, uint32_t value)
+{
+    return (uint32_t)_InterlockedOr((volatile long*)address, (long)value);
+}
+
+static inline uint64_t
+_Py_atomic_or_uint64(volatile uint64_t *address, uint64_t value)
+{
+    return (uint64_t)_InterlockedOr64((volatile __int64*)address, (__int64)value);
+}
+
+static inline uintptr_t
+_Py_atomic_or_uintptr(volatile uintptr_t *address, uintptr_t value)
+{
+#if SIZEOF_UINTPTR_T == 8
+    return (uintptr_t)_InterlockedOr64((volatile __int64*)address, (__int64)value);
+#else
+    return (uintptr_t)_InterlockedOr((volatile long*)address, (long)value);
+#endif
+}
 
 static inline int
 _Py_atomic_load_int(const volatile int *address)
