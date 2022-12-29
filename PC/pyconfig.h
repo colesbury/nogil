@@ -90,7 +90,7 @@ WIN32 is still required for the locale module.
  * literally in the string.
  */
 #define _Py_PASTE_VERSION(SUFFIX) \
-        ("[MSC v." _Py_STRINGIZE(_MSC_VER) " " SUFFIX "]")
+        ("MSC v." _Py_STRINGIZE(_MSC_VER) " " SUFFIX)
 /* e.g., this produces, after compile-time string catenation,
  *      ("[MSC v.1200 32 bit (Intel)]")
  *
@@ -121,7 +121,7 @@ WIN32 is still required for the locale module.
 #ifdef MS_WIN64
 #if defined(_M_X64) || defined(_M_AMD64)
 #if defined(__INTEL_COMPILER)
-#define COMPILER ("[ICC v." _Py_STRINGIZE(__INTEL_COMPILER) " 64 bit (amd64) with MSC v." _Py_STRINGIZE(_MSC_VER) " CRT]")
+#define COMPILER ("ICC v." _Py_STRINGIZE(__INTEL_COMPILER) " 64 bit (amd64) with MSC v." _Py_STRINGIZE(_MSC_VER) " CRT")
 #else
 #define COMPILER _Py_PASTE_VERSION("64 bit (AMD64)")
 #endif /* __INTEL_COMPILER */
@@ -174,7 +174,7 @@ typedef _W64 int ssize_t;
 #if defined(MS_WIN32) && !defined(MS_WIN64)
 #if defined(_M_IX86)
 #if defined(__INTEL_COMPILER)
-#define COMPILER ("[ICC v." _Py_STRINGIZE(__INTEL_COMPILER) " 32 bit (Intel) with MSC v." _Py_STRINGIZE(_MSC_VER) " CRT]")
+#define COMPILER ("ICC v." _Py_STRINGIZE(__INTEL_COMPILER) " 32 bit (Intel) with MSC v." _Py_STRINGIZE(_MSC_VER) " CRT")
 #else
 #define COMPILER _Py_PASTE_VERSION("32 bit (Intel)")
 #endif /* __INTEL_COMPILER */
@@ -215,7 +215,7 @@ typedef int pid_t;
 #warning "Please use an up-to-date version of gcc! (>2.91 recommended)"
 #endif
 
-#define COMPILER "[gcc]"
+#define COMPILER "gcc"
 #define PY_LONG_LONG long long
 #define PY_LLONG_MIN LLONG_MIN
 #define PY_LLONG_MAX LLONG_MAX
@@ -228,7 +228,7 @@ typedef int pid_t;
 /* XXX These defines are likely incomplete, but should be easy to fix.
    They should be complete enough to build extension modules. */
 
-#define COMPILER "[lcc-win32]"
+#define COMPILER "lcc-win32"
 typedef int pid_t;
 /* __declspec() is supported here too - do nothing to get the defaults */
 

@@ -1083,6 +1083,8 @@ def _sys_version(sys_version=None):
             builddate = ''
         elif buildtime:
             builddate = builddate + ' ' + buildtime
+        if compiler.startswith('nogil, '):
+            compiler = compiler[7:]
 
     if hasattr(sys, '_git'):
         _, branch, revision = sys._git
