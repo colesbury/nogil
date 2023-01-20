@@ -256,11 +256,15 @@ _Py_atomic_compare_uintptr_relaxed(uintptr_t *address, uintptr_t value)
 #endif
 }
 
-
 #if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
-#define Py_ATOMIC_GCC_H
-#include "pyatomic_gcc.h"
-#elif defined(__clang__) && __has_builtin(__atomic_load)
+#define _Py_HAVE_GCC_BUILTIN_ATOMICS 1
+#elif defined(__clang__)
+#if __has_builtin(__atomic_load)
+#define _Py_HAVE_GCC_BUILTIN_ATOMICS 1
+#endif
+#endif
+
+#if defined(_Py_HAVE_GCC_BUILTIN_ATOMICS)
 #define Py_ATOMIC_GCC_H
 #include "pyatomic_gcc.h"
 #elif __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
