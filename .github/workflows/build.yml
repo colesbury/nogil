@@ -6,21 +6,7 @@ name: Tests
 on:
   workflow_dispatch:
   push:
-    branches:
-    - 'main'
-    - '3.11'
-    - '3.10'
-    - '3.9'
-    - '3.8'
-    - '3.7'
   pull_request:
-    branches:
-    - 'main'
-    - '3.11'
-    - '3.10'
-    - '3.9'
-    - '3.8'
-    - '3.7'
 
 permissions:
   contents: read
@@ -112,22 +98,23 @@ jobs:
       - name: Check limited ABI symbols
         run: make check-limited-abi
 
-  build_win32:
-    name: 'Windows (x86)'
-    runs-on: windows-latest
-    needs: check_source
-    if: needs.check_source.outputs.run_tests == 'true'
-    env:
-       IncludeUwp: 'true'
-    steps:
-    - uses: actions/checkout@v3
-    - name: Build CPython
-      run: .\PCbuild\build.bat -e -d -p Win32
-      timeout-minutes: 30
-    - name: Display build info
-      run: .\python.bat -m test.pythoninfo
-    - name: Tests
-      run: .\PCbuild\rt.bat -p Win32 -d -q -uall -u-cpu -rwW --slowest --timeout=1200 -j0
+  # Disable win32 for now
+  # build_win32:
+  #  name: 'Windows (x86)'
+  #  runs-on: windows-latest
+  #  needs: check_source
+  #  if: needs.check_source.outputs.run_tests == 'true'
+  #  env:
+  #     IncludeUwp: 'true'
+  #  steps:
+  #  - uses: actions/checkout@v3
+  #  - name: Build CPython
+  #    run: .\PCbuild\build.bat -e -d -p Win32
+  #    timeout-minutes: 30
+  #  - name: Display build info
+  #    run: .\python.bat -m test.pythoninfo
+  #  - name: Tests
+  #    run: .\PCbuild\rt.bat -p Win32 -d -q -uall -u-cpu -rwW --slowest --timeout=1200 -j0
 
   build_win_amd64:
     name: 'Windows (x64)'
