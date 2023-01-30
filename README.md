@@ -19,13 +19,13 @@ The proof-of-concept works best on Linux x86-64. It also builds on macOS, Linux 
 
 ## Install with pyenv
 
-First you need to install pyenv [on Linux](https://github.com/colesbury/nogil/wiki/Install-nogil-with-pyenv-on-Linux) or [on macOS](https://github.com/colesbury/nogil/wiki/Install-nogil-with-pyenv-on-macOS) . To install the "nogil-3.9.10" version:
+First you need to install pyenv [on Linux](https://github.com/colesbury/nogil/wiki/Install-nogil-with-pyenv-on-Linux) or [on macOS](https://github.com/colesbury/nogil/wiki/Install-nogil-with-pyenv-on-macOS) . To install the "nogil-3.9.10-1" version:
 
-    pyenv install nogil-3.9.10
+    pyenv install nogil-3.9.10-1
 
 You can make the nogil installation the default Python installation with:
 
-    pyenv global nogil-3.9.10  
+    pyenv global nogil-3.9.10-1
 
 ## Docker
 
