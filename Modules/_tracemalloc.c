@@ -2,6 +2,7 @@
 #include "pycore_fileutils.h"     // _Py_write_noraise()
 #include "pycore_gc.h"            // PyGC_Head
 #include "pycore_hashtable.h"     // _Py_hashtable_t
+#include "pycore_object.h"        // _PyType_PreHeaderSize
 #include "pycore_pymem.h"         // _Py_tracemalloc_config
 #include "pycore_runtime.h"       // _Py_ID()
 #include "pycore_traceback.h"
@@ -1399,19 +1400,13 @@ static PyObject *
 _tracemalloc__get_object_traceback(PyObject *module, PyObject *obj)
 /*[clinic end generated code: output=41ee0553a658b0aa input=29495f1b21c53212]*/
 {
-    PyTypeObject *type;
-    void *ptr;
+    uintptr_t ptr;
     traceback_t *traceback;
 
-    type = Py_TYPE(obj);
-    if (PyType_IS_GC(type)) {
-        ptr = (void *)((char *)obj - sizeof(PyGC_Head));
-    }
-    else {
-        ptr = (void *)obj;
-    }
+    ptr = (uintptr_t)obj;
+    ptr -= _PyType_PreHeaderSize(Py_TYPE(obj));
 
-    traceback = tracemalloc_get_traceback(DEFAULT_DOMAIN, (uintptr_t)ptr);
+    traceback = tracemalloc_get_traceback(DEFAULT_DOMAIN, ptr);
     if (traceback == NULL)
         Py_RETURN_NONE;
 

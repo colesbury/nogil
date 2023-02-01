@@ -2342,15 +2342,9 @@ _PyObject_AssertFailed(PyObject *obj, const char *expr, const char *msg,
         /* Display the traceback where the object has been allocated.
            Do it before dumping repr(obj), since repr() is more likely
            to crash than dumping the traceback. */
-        void *ptr;
-        PyTypeObject *type = Py_TYPE(obj);
-        if (_PyType_IS_GC(type)) {
-            ptr = (void *)((char *)obj - sizeof(PyGC_Head));
-        }
-        else {
-            ptr = (void *)obj;
-        }
-        _PyMem_DumpTraceback(fileno(stderr), ptr);
+        char *mem = (char *)obj;
+        mem -= _PyType_PreHeaderSize(Py_TYPE(obj));
+        _PyMem_DumpTraceback(fileno(stderr), mem);
 
         /* This might succeed or fail, but we're about to abort, so at least
            try to provide any extra info we can: */
