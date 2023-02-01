@@ -25,7 +25,7 @@ py_sha3_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 1
     static struct {
-        PyGC_Head _this_is_not_used;
+        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -193,4 +193,4 @@ _sha3_shake_128_hexdigest(SHA3object *self, PyObject *arg)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=747c3f34ddd14063 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=7ce5eb10c4e5a0dc input=a9049054013a1b77]*/

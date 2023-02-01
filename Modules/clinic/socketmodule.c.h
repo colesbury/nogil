@@ -20,7 +20,7 @@ sock_initobj(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 4
     static struct {
-        PyGC_Head _this_is_not_used;
+        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -91,4 +91,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=987155ac4b48a198 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=62dcc914282c060f input=a9049054013a1b77]*/
