@@ -469,6 +469,9 @@ extern int _PyObject_StoreInstanceAttribute(PyObject *obj, PyDictValues *values,
 PyObject * _PyObject_GetInstanceAttribute(PyObject *obj, PyDictValues *values,
                                         PyObject *name);
 
+#define MANAGED_WEAKREF_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
+#define MANAGED_DICT_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-3)
+
 typedef union {
     PyObject *dict;
     /* Use a char* to generate a warning if directly assigning a PyDictValues */
@@ -479,7 +482,7 @@ static inline PyDictOrValues *
 _PyObject_DictOrValuesPointer(PyObject *obj)
 {
     assert(Py_TYPE(obj)->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-    return ((PyDictOrValues *)obj)-3;
+    return (PyDictOrValues *)((char *)obj + MANAGED_DICT_OFFSET);
 }
 
 static inline int
@@ -507,8 +510,6 @@ _PyDictOrValues_SetValues(PyDictOrValues *ptr, PyDictValues *values)
 {
     ptr->values = ((char *)values) - 1;
 }
-
-#define MANAGED_WEAKREF_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
 
 extern PyObject ** _PyObject_ComputedDictPointer(PyObject *);
 extern void _PyObject_FreeInstanceAttributes(PyObject *obj);

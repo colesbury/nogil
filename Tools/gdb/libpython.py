@@ -70,7 +70,6 @@ def _type_unsigned_int_ptr():
 def _sizeof_void_p():
     return gdb.lookup_type('void').pointer().sizeof
 
-
 Py_TPFLAGS_MANAGED_DICT      = (1 << 4)
 Py_TPFLAGS_HEAPTYPE          = (1 << 9)
 Py_TPFLAGS_LONG_SUBCLASS     = (1 << 24)
@@ -81,6 +80,9 @@ Py_TPFLAGS_UNICODE_SUBCLASS  = (1 << 28)
 Py_TPFLAGS_DICT_SUBCLASS     = (1 << 29)
 Py_TPFLAGS_BASE_EXC_SUBCLASS = (1 << 30)
 Py_TPFLAGS_TYPE_SUBCLASS     = (1 << 31)
+
+#From pycore_object.h
+MANAGED_DICT_OFFSET = -3
 
 #From pycore_frame.h
 FRAME_OWNED_BY_CSTACK = 3
@@ -482,7 +484,7 @@ class HeapTypeObjectPtr(PyObjectPtr):
                 if dictoffset < 0:
                     if int_from_int(typeobj.field('tp_flags')) & Py_TPFLAGS_MANAGED_DICT:
                         assert dictoffset == -1
-                        dictoffset = -3 * _sizeof_void_p()
+                        dictoffset = MANAGED_DICT_OFFSET * _sizeof_void_p()
                     else:
                         type_PyVarObject_ptr = gdb.lookup_type('PyVarObject').pointer()
                         tsize = int_from_int(self._gdbval.cast(type_PyVarObject_ptr)['ob_size'])
@@ -511,7 +513,7 @@ class HeapTypeObjectPtr(PyObjectPtr):
         if not has_values:
             return None
         charptrptr_t = _type_char_ptr().pointer()
-        ptr = self._gdbval.cast(charptrptr_t) - 3
+        ptr = self._gdbval.cast(charptrptr_t) + MANAGED_DICT_OFFSET
         char_ptr = ptr.dereference()
         if (int(char_ptr) & 1) == 0:
             return None
