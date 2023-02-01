@@ -21,6 +21,7 @@
 #include "pycore_gc.h"           // PyGC_Head
 #include "pycore_hashtable.h"    // _Py_hashtable_new()
 #include "pycore_initconfig.h"   // _Py_GetConfigsAsDict()
+#include "pycore_object.h"       // _PyGC_PREHEADER_SIZE
 #include "pycore_pathconfig.h"   // _PyPathConfig_ClearGlobal()
 #include "pycore_interp.h"       // _PyInterpreterState_GetConfigCopy()
 #include "pycore_pyerrors.h"     // _Py_UTF8_Edit_Cost()
@@ -690,7 +691,7 @@ PyInit__testinternalcapi(void)
     }
 
     if (PyModule_AddObject(module, "SIZEOF_PYGC_HEAD",
-                           PyLong_FromSsize_t(sizeof(PyGC_Head))) < 0) {
+                           PyLong_FromSsize_t(_PyGC_PREHEADER_SIZE)) < 0) {
         goto error;
     }
 
