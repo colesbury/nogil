@@ -21,10 +21,19 @@ typedef struct {
     uintptr_t _gc_prev;
 } PyGC_Head;
 
+typedef struct {
+    PyGC_Head _gc_head;
+    PyObject *_dict_or_values;
+    PyObject *_weakref;
+} _PyGC_Preheader_UNUSED;
+
+#define PyGC_Head_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
+
 static inline PyGC_Head* _Py_AS_GC(PyObject *op) {
-    return (_Py_CAST(PyGC_Head*, op) - 1);
+    char *mem = _Py_STATIC_CAST(char*, op);
+    return _Py_STATIC_CAST(PyGC_Head*, mem + PyGC_Head_OFFSET);
 }
-#define _PyGC_Head_UNUSED PyGC_Head
+#define _PyGC_Head_UNUSED _PyGC_Preheader_UNUSED
 
 /* True if the object is currently tracked by the GC. */
 static inline int _PyObject_GC_IS_TRACKED(PyObject *op) {

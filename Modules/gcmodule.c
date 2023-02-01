@@ -72,10 +72,10 @@ module gc
 #define NEXT_MASK_UNREACHABLE  (1)
 
 /* Get an object's GC head */
-#define AS_GC(o) ((PyGC_Head *)(((char *)(o))-sizeof(PyGC_Head)))
+#define AS_GC(o) ((PyGC_Head *)(((char *)(o))+PyGC_Head_OFFSET))
 
 /* Get the object given the GC head */
-#define FROM_GC(g) ((PyObject *)(((char *)(g))+sizeof(PyGC_Head)))
+#define FROM_GC(g) ((PyObject *)(((char *)(g))-PyGC_Head_OFFSET))
 
 static inline int
 gc_is_collecting(PyGC_Head *g)
@@ -2349,8 +2349,8 @@ gc_alloc(size_t basicsize, size_t presize)
     if (mem == NULL) {
         return _PyErr_NoMemory(tstate);
     }
-    ((PyObject **)mem)[0] = NULL;
-    ((PyObject **)mem)[1] = NULL;
+    ((PyObject **)mem)[2] = NULL;
+    ((PyObject **)mem)[3] = NULL;
     PyObject *op = (PyObject *)(mem + presize);
     _PyObject_GC_Link(op);
     return op;

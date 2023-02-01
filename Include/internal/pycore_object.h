@@ -469,8 +469,8 @@ extern int _PyObject_StoreInstanceAttribute(PyObject *obj, PyDictValues *values,
 PyObject * _PyObject_GetInstanceAttribute(PyObject *obj, PyDictValues *values,
                                         PyObject *name);
 
-#define MANAGED_WEAKREF_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
-#define MANAGED_DICT_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-3)
+#define MANAGED_WEAKREF_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-2)
+#define MANAGED_DICT_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-1)
 
 typedef union {
     PyObject *dict;

@@ -1297,13 +1297,11 @@ _PyType_AllocNoTrack(PyTypeObject *type, Py_ssize_t nitems)
     if (alloc  == NULL) {
         return PyErr_NoMemory();
     }
+    memset(alloc, '\0', size + presize);
     obj = (PyObject *)(alloc + presize);
     if (presize) {
-        ((PyObject **)alloc)[0] = NULL;
-        ((PyObject **)alloc)[1] = NULL;
         _PyObject_GC_Link(obj);
     }
-    memset(obj, '\0', size);
 
     if (type->tp_itemsize == 0) {
         _PyObject_Init(obj, type);

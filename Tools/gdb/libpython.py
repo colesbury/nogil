@@ -82,7 +82,7 @@ Py_TPFLAGS_BASE_EXC_SUBCLASS = (1 << 30)
 Py_TPFLAGS_TYPE_SUBCLASS     = (1 << 31)
 
 #From pycore_object.h
-MANAGED_DICT_OFFSET = -3
+MANAGED_DICT_OFFSET = -1
 
 #From pycore_frame.h
 FRAME_OWNED_BY_CSTACK = 3
