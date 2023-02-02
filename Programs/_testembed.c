@@ -1896,7 +1896,6 @@ static int test_unicode_id_init(void)
     // is defined, it is manually expanded here.
     static _Py_Identifier PyId_test_unicode_id_init = {
         .string = "test_unicode_id_init",
-        .index = -1,
     };
 
     // Initialize Python once without using the identifier

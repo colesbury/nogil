@@ -21,6 +21,11 @@ struct qsbr_pad {
     char __padding[64 - sizeof(struct qsbr)];
 };
 
+struct _Py_qsbr_head {
+    struct _Py_qsbr_head *next;
+    uint64_t seq;
+};
+
 static inline uint64_t
 _Py_qsbr_shared_current(struct qsbr_shared *shared)
 {

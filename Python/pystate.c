@@ -73,8 +73,7 @@ Py_DECL_THREAD PyThreadState *_Py_current_tstate;
 static void
 init_runtime(_PyRuntimeState *runtime,
              void *open_code_hook, void *open_code_userdata,
-             _Py_AuditHookEntry *audit_hook_head,
-             Py_ssize_t unicode_next_index)
+             _Py_AuditHookEntry *audit_hook_head)
 {
     if (runtime->_initialized) {
         Py_FatalError("runtime already initialized");
@@ -95,9 +94,6 @@ init_runtime(_PyRuntimeState *runtime,
 
     // Set it to the ID of the main thread of the main interpreter.
     runtime->main_thread = PyThread_get_thread_ident();
-
-    runtime->unicode_state.ids.next_index = unicode_next_index;
-
     runtime->_initialized = 1;
 }
 
@@ -112,15 +108,13 @@ _PyRuntimeState_Init(_PyRuntimeState *runtime)
     _Py_AuditHookEntry *audit_hook_head = runtime->audit_hook_head;
     // bpo-42882: Preserve next_index value if Py_Initialize()/Py_Finalize()
     // is called multiple times.
-    Py_ssize_t unicode_next_index = runtime->unicode_state.ids.next_index;
 
     if (runtime->_initialized) {
         // Py_Initialize() must be running again.
         // Reset to _PyRuntimeState_INIT.
         memcpy(runtime, &initial, sizeof(*runtime));
     }
-    init_runtime(runtime, open_code_hook, open_code_userdata, audit_hook_head,
-                 unicode_next_index);
+    init_runtime(runtime, open_code_hook, open_code_userdata, audit_hook_head);
 
     return _PyStatus_OK();
 }

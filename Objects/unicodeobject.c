@@ -220,8 +220,7 @@ static inline PyObject* unicode_get_empty(void)
 // Return a strong reference to the empty string singleton.
 static inline PyObject* unicode_new_empty(void)
 {
-    PyObject *empty = unicode_get_empty();
-    return Py_NewRef(empty);
+    return unicode_get_empty();
 }
 
 /* This dictionary holds all interned unicode strings.  Note that references
@@ -1706,7 +1705,7 @@ unicode_write_cstr(PyObject *unicode, Py_ssize_t index,
 static PyObject*
 get_latin1_char(Py_UCS1 ch)
 {
-    return Py_NewRef(LATIN1(ch));
+    return LATIN1(ch);
 }
 
 static PyObject*
@@ -1863,65 +1862,39 @@ resize_array(PyObject **array, Py_ssize_t *capacity)
     return new_array;
 }
 
-PyObject *
-_PyUnicode_FromId(_Py_Identifier *id)
+static PyObject *
+initialize_identifier(_Py_Identifier *id)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    struct _Py_unicode_ids *ids = &interp->unicode.ids;
-
-    Py_ssize_t index = _Py_atomic_size_get(&id->index);
-    if (index < 0) {
-        struct _Py_unicode_runtime_ids *rt_ids = &interp->runtime->unicode_state.ids;
-
-        _PyMutex_lock(&rt_ids->mutex);
-        // Check again to detect concurrent access. Another thread can have
-        // initialized the index while this thread waited for the lock.
-        index = _Py_atomic_size_get(&id->index);
-        if (index < 0) {
-            assert(rt_ids->next_index < PY_SSIZE_T_MAX);
-            index = rt_ids->next_index;
-            rt_ids->next_index++;
-            _Py_atomic_size_set(&id->index, index);
-        }
-        _PyMutex_unlock(&rt_ids->mutex);
-    }
-    assert(index >= 0);
-
-    PyObject *obj;
-    if (index < ids->size) {
-        obj = ids->array[index];
-        if (obj) {
-            // Return a borrowed reference
-            return obj;
-        }
-    }
-
-    obj = PyUnicode_DecodeUTF8Stateful(id->string, strlen(id->string),
-                                       NULL, NULL);
+    PyObject *obj = PyUnicode_DecodeUTF8Stateful(id->string, strlen(id->string),
+                                                 NULL, NULL);
     if (!obj) {
         return NULL;
     }
     PyUnicode_InternInPlace(&obj);
 
-    if (index >= ids->size) {
-        // Overallocate to reduce the number of realloc
-        Py_ssize_t new_size = Py_MAX(index * 2, 16);
-        Py_ssize_t item_size = sizeof(ids->array[0]);
-        PyObject **new_array = PyMem_Realloc(ids->array, new_size * item_size);
-        if (new_array == NULL) {
-            PyErr_NoMemory();
-            return NULL;
-        }
-        memset(&new_array[ids->size], 0, (new_size - ids->size) * item_size);
-        ids->array = new_array;
-        ids->size = new_size;
+    assert(_PyObject_IS_IMMORTAL(obj));
+
+    if (!_Py_atomic_compare_exchange_ptr(&id->obj, NULL, obj)) {
+        Py_DECREF(obj);
+        return _Py_atomic_load_ptr(&id->obj);
     }
-
-    // The array stores a strong reference
-    ids->array[index] = obj;
-
-    // Return a borrowed reference
+    for (;;) {
+        id->next = _Py_atomic_load_ptr(&_PyRuntime.unicode_state.head);
+        if (_Py_atomic_compare_exchange_ptr(&_PyRuntime.unicode_state.head, id->next, id)) {
+            break;
+        }
+    }
     return obj;
+}
+
+PyObject *
+_PyUnicode_FromId(_Py_Identifier *id)
+{
+    PyObject *obj = _Py_atomic_load_ptr(&id->obj);
+    if (obj) {
+        return obj;
+    }
+    return initialize_identifier(id);
 }
 
 static void
@@ -1956,17 +1929,16 @@ _PyUnicode_Immortalize(PyObject *obj)
 
 
 static void
-unicode_clear_identifiers(struct _Py_unicode_state *state)
+unicode_clear_identifiers(struct _Py_unicode_runtime_state *state)
 {
-    struct _Py_unicode_ids *ids = &state->ids;
-    for (Py_ssize_t i=0; i < ids->size; i++) {
-        Py_XDECREF(ids->array[i]);
+    _Py_Identifier *id = state->head;
+    while (id) {
+        _Py_Identifier *next = id->next;
+        id->next = NULL;
+        id->obj = NULL;
+        id = next;
     }
-    ids->size = 0;
-    PyMem_Free(ids->array);
-    ids->array = NULL;
-    // Don't reset _PyRuntime next_index: _Py_Identifier.id remains valid
-    // after Py_Finalize().
+    state->head = NULL;
 }
 
 static void
@@ -14593,6 +14565,16 @@ _PyUnicode_InitGlobalObjects(PyInterpreterState *interp)
         return _PyStatus_OK();
     }
 
+    /* Create the interned dictionary. This must be done before creating static
+     * strings.
+     */
+    assert(get_interned_dict() == NULL);
+    PyObject *dict = PyDict_New();
+    if (!dict) {
+        return _PyStatus_NO_MEMORY();
+    }
+    set_interned_dict(dict);
+
     /* Intern statically allocated string identifiers and deepfreeze strings.
      * This must be done before any module initialization so that statically
      * allocated string identifiers are used instead of heap allocated strings.
@@ -14660,14 +14642,6 @@ PyUnicode_InternInPlace(PyObject **p)
     }
 
     PyObject *interned = get_interned_dict();
-    if (interned == NULL) {
-        interned = PyDict_New();
-        if (interned == NULL) {
-            PyErr_Clear(); /* Don't leave an exception */
-            return;
-        }
-        set_interned_dict(interned);
-    }
 
     if (!_Py_ThreadLocal(s) && !_PyObject_IS_IMMORTAL(s)) {
         /* Make a copy so that we can safely immortalize the string. */
@@ -15189,8 +15163,6 @@ _PyUnicode_FiniTypes(PyInterpreterState *interp)
 void
 _PyUnicode_Fini(PyInterpreterState *interp)
 {
-    struct _Py_unicode_state *state = &interp->unicode;
-
     if (_Py_IsMainInterpreter(interp)) {
         // _PyUnicode_ClearInterned() must be called before _PyUnicode_Fini()
         assert(get_interned_dict() == NULL);
@@ -15198,12 +15170,11 @@ _PyUnicode_Fini(PyInterpreterState *interp)
         // subsequent initialization of main interpreter.
     }
 
-    _PyUnicode_FiniEncodings(&state->fs_codec);
+    _PyUnicode_FiniEncodings(&interp->unicode.fs_codec);
     interp->unicode.ucnhash_capi = NULL;
 
-    unicode_clear_identifiers(state);
-
     if (_Py_IsMainInterpreter(interp)) {
+        unicode_clear_identifiers(&_PyRuntime.unicode_state);
         unicode_free_immortalized(&_PyRuntime);
     }
 }
