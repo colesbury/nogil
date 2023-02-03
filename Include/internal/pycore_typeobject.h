@@ -63,7 +63,9 @@ _PyStaticType_GET_WEAKREFS_LISTPTR(static_builtin_state *state)
 }
 
 struct types_state {
+#ifndef Py_NOGIL
     struct type_cache type_cache;
+#endif
     size_t num_builtins_initialized;
     static_builtin_state builtins[_Py_MAX_STATIC_BUILTIN_TYPES];
 };

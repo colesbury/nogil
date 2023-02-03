@@ -84,7 +84,7 @@ extern int _PyTraceMalloc_NewReference(PyObject *op);
 // Fast inlined version of PyType_HasFeature()
 static inline int
 _PyType_HasFeature(PyTypeObject *type, unsigned long feature) {
-    return ((type->tp_flags & feature) != 0);
+    return PyType_HasFeature(type, feature);
 }
 
 extern void _PyType_InitCache(PyInterpreterState *interp);

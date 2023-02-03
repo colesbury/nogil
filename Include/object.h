@@ -1083,6 +1083,8 @@ PyType_HasFeature(PyTypeObject *type, unsigned long feature)
 #ifdef Py_LIMITED_API
     // PyTypeObject is opaque in the limited C API
     flags = PyType_GetFlags(type);
+#elif defined(_Py_THREAD_SANITIZER)
+    flags = _Py_atomic_load_ulong_relaxed(&type->tp_flags);
 #else
     flags = type->tp_flags;
 #endif
