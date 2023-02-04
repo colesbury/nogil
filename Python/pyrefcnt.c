@@ -163,7 +163,9 @@ _Py_queue_process_gc(PyThreadState *tstate, _PyObjectQueue **queue_ptr)
         // owned a reference.
         Py_ssize_t refcount = _Py_ExplicitMergeRefcount(ob, -1);
         if (refcount == 0) {
-            _PyObjectQueue_Push(queue_ptr, ob);
+            if (!PyObject_GC_IsTracked(ob)) {
+                _PyObjectQueue_Push(queue_ptr, ob);
+            }
         }
     }
 }

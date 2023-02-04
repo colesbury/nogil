@@ -349,6 +349,7 @@ PyAPI_FUNC(int) PyCallable_Check(PyObject *);
 PyAPI_FUNC(void) PyObject_ClearWeakRefs(PyObject *);
 #ifndef Py_LIMITED_API
 PyAPI_FUNC(void) _PyObject_ClearWeakRefsFromDealloc(PyObject *);
+PyAPI_FUNC(void) _PyObject_ClearWeakRefsFromGC(PyObject *);
 #endif
 
 /* PyObject_Dir(obj) acts like Python builtins.dir(obj), returning a

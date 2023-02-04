@@ -444,7 +444,11 @@ _PyType_PreHeaderSize(PyTypeObject *tp)
     return 0;
 }
 
-void _PyObject_GC_Link(PyObject *op);
+static inline uint32_t
+_Py_REF_PACK_SHARED(Py_ssize_t refcount, int flags)
+{
+    return _Py_STATIC_CAST(uint32_t, (refcount << _Py_REF_SHARED_SHIFT) + flags);
+}
 
 // Usage: assert(_Py_CheckSlotResult(obj, "__getitem__", result != NULL));
 extern int _Py_CheckSlotResult(

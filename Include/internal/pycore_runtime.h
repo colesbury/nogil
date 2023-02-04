@@ -83,6 +83,21 @@ typedef struct pyruntimestate {
     /* Is Python fully initialized? Set to 1 by Py_Initialize() */
     int initialized;
 
+    /* Has Python started the process of stopping all threads? Protected by HEAD_LOCK() */
+    int stop_the_world_requested;
+
+    /* Have all Python threads stopped? */
+    int stop_the_world;
+
+    /* Number of threads that must park themselves to stop-the-world.
+       Protected by HEAD_LOCK(runtime). */
+    Py_ssize_t stw_thread_countdown;
+
+    /* Signalled when all threads have stopped themselves */
+    _PyRawEvent stw_stop_event;
+
+    int gc_collecting;
+
     /* Set by Py_FinalizeEx(). Only reset to NULL if Py_Initialize()
        is called again.
 
@@ -194,6 +209,8 @@ typedef struct pyruntimestate {
     /* PyInterpreterState.interpreters.main */
     PyInterpreterState _main_interpreter;
 
+    _PyMutex stoptheworld_mutex;
+
     Py_ssize_t ref_total;
 } _PyRuntimeState;
 
@@ -212,6 +229,9 @@ PyAPI_FUNC(void) _PyRuntimeState_Fini(_PyRuntimeState *runtime);
 #ifdef HAVE_FORK
 extern PyStatus _PyRuntimeState_ReInitThreads(_PyRuntimeState *runtime);
 #endif
+
+PyAPI_FUNC(void) _PyRuntimeState_StopTheWorld(_PyRuntimeState *runtime);
+PyAPI_FUNC(void) _PyRuntimeState_StartTheWorld(_PyRuntimeState *runtime);
 
 PyAPI_FUNC(Py_ssize_t) _PyRuntimeState_GetRefTotal(_PyRuntimeState *runtime);
 

@@ -2605,8 +2605,7 @@ _Py_DecRefShared(PyObject *op)
     }
 
     if (queue) {
-        PyThreadState *tstate = _PyThreadState_GET();
-        if (tstate->interp->gc.collecting/* || _PyRuntime.ceval.gil.enabled */) {
+        if (_PyRuntime.stop_the_world/* || _PyRuntime.ceval.gil.enabled */) {
             Py_ssize_t refcount = _Py_ExplicitMergeRefcount(op, -1);
             if (refcount == 0) {
                 _Py_Dealloc(op);

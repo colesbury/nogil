@@ -829,6 +829,14 @@ _Py_HandlePending(PyThreadState *tstate)
     /* load eval breaker */
     uintptr_t b = _Py_atomic_load_uintptr(&tstate->eval_breaker);
 
+    /* Stop-the-world */
+    if ((b & EVAL_PLEASE_STOP) != 0) {
+        if (!tstate->cant_stop_wont_stop) {
+            _PyThreadState_Unsignal(tstate, EVAL_PLEASE_STOP);
+            _PyThreadState_GC_Stop(tstate);
+        }
+    }
+
     if ((b & EVAL_EXPLICIT_MERGE) != 0) {
         _PyThreadState_Unsignal(tstate, EVAL_EXPLICIT_MERGE);
         _Py_queue_process(tstate);

@@ -215,10 +215,10 @@ static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)
 {
     Py_ssize_t live = _Py_atomic_load_ssize_relaxed(&gcstate->gc_live);
-    return (live >= gcstate->gc_threshold &&
+    Py_ssize_t threshold = _Py_atomic_load_ssize_relaxed(&gcstate->gc_threshold);
+    return (live >= threshold &&
             gcstate->enabled &&
-            gcstate->gc_threshold &&
-            !gcstate->collecting);
+            threshold);
 }
 
 // Functions to clear types free lists
@@ -228,7 +228,6 @@ extern void _PyList_ClearFreeList(PyInterpreterState *interp);
 extern void _PyDict_ClearFreeList(PyInterpreterState *interp);
 extern void _PyAsyncGen_ClearFreeLists(PyInterpreterState *interp);
 extern void _PyContext_ClearFreeList(PyInterpreterState *interp);
-extern void _Py_ScheduleGC(PyInterpreterState *interp);
 extern void _Py_RunGC(PyThreadState *tstate);
 
 #ifdef __cplusplus

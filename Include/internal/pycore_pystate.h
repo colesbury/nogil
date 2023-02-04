@@ -27,6 +27,10 @@ enum {
     EVAL_GC = 1U << 6
 };
 
+#define for_each_thread(t)                                                      \
+    for (PyInterpreterState *i = _PyRuntime.interpreters.head; i; i = i->next)  \
+        for (t = i->threads.head; t; t = t->next)
+
 /* Check if the current thread is the main thread.
    Use _Py_IsMainInterpreter() to check if it's the main interpreter. */
 static inline int
@@ -184,6 +188,14 @@ _PyThreadState_IsSignalled(PyThreadState *tstate, uintptr_t bit)
     return (b & bit) != 0;
 }
 
+static inline void
+_Py_ScheduleGC(PyThreadState *tstate)
+{
+    if (!_PyThreadState_IsSignalled(tstate, EVAL_GC)) {
+        _PyThreadState_Signal(tstate, EVAL_GC);
+    }
+}
+
 
 static inline void
 _PyThreadState_UpdateTracingState(PyThreadState *tstate)
@@ -196,6 +208,8 @@ _PyThreadState_UpdateTracingState(PyThreadState *tstate)
 
 
 /* Other */
+PyAPI_FUNC(void) _PyThreadState_GC_Park(PyThreadState *tstate);
+PyAPI_FUNC(void) _PyThreadState_GC_Stop(PyThreadState *tstate);
 
 PyAPI_FUNC(PyThreadState *) _PyThreadState_Swap(
     struct _gilstate_runtime_state *gilstate,

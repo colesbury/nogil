@@ -48,10 +48,21 @@ new_weakref(PyTypeObject *type, PyWeakrefControl *root, PyObject *callback)
     return self;
 }
 
-/* This function clears the passed-in reference and removes it from the
- * list of weak references for the referent.  This is the only code that
- * removes an item from the doubly-linked list of weak references for an
- * object; it is also responsible for clearing the callback slot.
+/* Removes 'ref' from the list of weak references. */
+static void
+remove_weakref(PyWeakrefBase *ref)
+{
+    PyWeakrefBase *prev = ref->wr_prev;
+    if (prev != NULL) {
+        PyWeakrefBase *next = ref->wr_next;
+        prev->wr_next = next;
+        next->wr_prev = prev;
+    }
+    ref->wr_prev = ref->wr_next = NULL;
+}
+
+/* The _PyWeakref_DetachRef function clears the passed-in reference and
+ * removes it from the list of weak references for the referent.
  *
  * Cyclic gc uses this to *just* detach the passed-in reference, leaving
  * the callback intact and uncalled.  It must be possible to call self's
@@ -68,23 +79,11 @@ void
 _PyWeakref_DetachRef(PyWeakReference *ref)
 {
     PyWeakrefControl *ctrl = ref->wr_parent;
-    if (ctrl == NULL) {
-        return;
+    if (ctrl != NULL) {
+        remove_weakref(&ref->base);
+        ref->wr_parent = NULL;
+        Py_DECREF(ctrl);
     }
-
-    _PyMutex_lock(&ctrl->mutex);
-    PyWeakrefBase *base = (PyWeakrefBase *)ref;
-    PyWeakrefBase *prev = base->wr_prev;
-    if (prev != NULL) {
-        PyWeakrefBase *next = base->wr_next;
-        prev->wr_next = next;
-        next->wr_prev = prev;
-    }
-    base->wr_prev = base->wr_next = NULL;
-    _PyMutex_unlock(&ctrl->mutex);
-
-    ref->wr_parent = NULL;
-    Py_DECREF(ctrl);
 }
 
 
@@ -104,11 +103,19 @@ gc_clear(PyWeakReference *self)
 }
 
 static void
-weakref_dealloc(PyObject *self)
+weakref_dealloc(PyWeakReference *self)
 {
     PyObject_GC_UnTrack(self);
-    gc_clear((PyWeakReference *)self);
-    _PyWeakref_DetachRef((PyWeakReference *)self);
+    gc_clear(self);
+    if (self->wr_parent) {
+        PyWeakrefControl *ctrl = self->wr_parent;
+
+        _PyMutex_lock(&ctrl->mutex);
+        remove_weakref(&self->base);
+        _PyMutex_unlock(&ctrl->mutex);
+
+        Py_CLEAR(self->wr_parent);
+    }
     Py_TYPE(self)->tp_free(self);
 }
 
@@ -396,7 +403,7 @@ _PyWeakref_RefType = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     .tp_name = "weakref.ReferenceType",
     .tp_basicsize = sizeof(PyWeakReference),
-    .tp_dealloc = weakref_dealloc,
+    .tp_dealloc = (destructor)weakref_dealloc,
     .tp_vectorcall_offset = offsetof(PyWeakReference, vectorcall),
     .tp_call = PyVectorcall_Call,
     .tp_repr = (reprfunc)weakref_repr,
@@ -894,20 +901,37 @@ _PyWeakref_DetachRefs(PyWeakrefControl *ctrl, PyWeakReference *list[], Py_ssize_
     return count;
 }
 
+// Clears weakrefs without calling callabacks. Called from subtype_dealloc.
 void
 _PyObject_ClearWeakRefsFromDealloc(PyObject *object)
 {
     PyWeakrefControl **wrptr = _PyObject_GET_WEAKREFS_CONTROLPTR(object);
     PyWeakrefControl *root = *wrptr;
-    if (!root)
+    if (!root) {
         return;
+    }
 
     *wrptr = NULL;
-
     _PyMutex_lock(&root->mutex);
     root->wr_object = Py_None;
     _PyMutex_unlock(&root->mutex);
+    Py_DECREF(root);
+}
 
+// Clears weakrefs without calling callabacks or acquiring locks. Called
+// during stop-the-world garbage collection.
+void
+_PyObject_ClearWeakRefsFromGC(PyObject *object)
+{
+    PyWeakrefControl **wrptr = _PyObject_GET_WEAKREFS_CONTROLPTR(object);
+    PyWeakrefControl *root = *wrptr;
+    if (!root) {
+        return;
+    }
+
+    assert(_PyRuntime.stop_the_world && "should only be called during GC");
+    *wrptr = NULL;
+    root->wr_object = Py_None;
     Py_DECREF(root);
 }
 

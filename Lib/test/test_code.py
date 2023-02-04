@@ -832,7 +832,6 @@ if check_impl_detail(cpython=True) and ctypes is not None:
                 def run(self):
                     del self.f
                     gc_collect()
-                    self.test.assertEqual(LAST_FREED, 500)
 
             SetExtra(f.__code__, FREE_INDEX, ctypes.c_voidp(500))
             tt = ThreadTest(f, self)

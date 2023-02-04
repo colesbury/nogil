@@ -1312,7 +1312,6 @@ _PyType_AllocNoTrack(PyTypeObject *type, Py_ssize_t nitems)
         }
         memset(alloc, '\0', size + presize);
         obj = (PyObject *)(alloc + presize);
-        _PyObject_GC_Link(obj);
     }
     else {
         obj = PyObject_Malloc(size);

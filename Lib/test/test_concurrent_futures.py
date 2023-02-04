@@ -1036,7 +1036,10 @@ class ProcessPoolExecutorTest(ExecutorTest):
         self.assertTrue(obj.event.wait(timeout=1))
 
         # explicitly destroy the object to ensure that EventfulGCObj.__del__()
-        # is called while manager is still running.
+        # is called while manager is still running. The first gc_collect() removes
+        # cyclic trash referring to obj so that the obj = None immediately calls
+        # the destructor (before remote finalization).
+        support.gc_collect()
         obj = None
         support.gc_collect()
 
