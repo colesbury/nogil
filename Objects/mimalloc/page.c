@@ -341,7 +341,10 @@ void _mi_page_unfull(mi_page_t* page) {
   mi_heap_t* heap = mi_page_heap(page);
   if (page->tag == mi_heap_tag_gc) {
     PyThreadState *tstate = _PyThreadState_GET();
-    _Py_atomic_add_ssize(&tstate->interp->gc.gc_live, -page->capacity);
+    // tstate may be NULL during interpreter finalization
+    if (tstate) {
+      _Py_atomic_add_ssize(&tstate->interp->gc.gc_live, -page->capacity);
+    }
   }
   mi_page_queue_t* pqfull = &heap->pages[MI_BIN_FULL];
   mi_page_set_in_full(page, false); // to get the right queue
@@ -361,8 +364,9 @@ static void mi_page_to_full(mi_page_t* page, mi_page_queue_t* pq) {
 
   if (page->tag == mi_heap_tag_gc) {
     PyThreadState *tstate = _PyThreadState_GET();
-    struct _gc_runtime_state *gcstate = &tstate->interp->gc;
-    _Py_atomic_add_ssize(&gcstate->gc_live, page->capacity);
+    if (tstate) {
+      _Py_atomic_add_ssize(&tstate->interp->gc.gc_live, page->capacity);
+    }
   }
 }
 
