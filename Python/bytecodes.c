@@ -1131,7 +1131,6 @@ dummy_func(
                     }
                     goto error;
                 }
-                Py_INCREF(v);
             }
             else {
                 /* Slow-path if globals or builtins is not a dict */

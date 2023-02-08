@@ -19,6 +19,9 @@ PyAPI_DATA(PyTypeObject) PyDict_Type;
 #define PyDict_CheckExact(op) Py_IS_TYPE((op), &PyDict_Type)
 
 PyAPI_FUNC(PyObject *) PyDict_New(void);
+PyAPI_FUNC(PyObject *) PyDict_FetchItem(PyObject *mp, PyObject *key);
+PyAPI_FUNC(PyObject *) PyDict_FetchItemString(PyObject *dp, const char *key);
+PyAPI_FUNC(PyObject *) PyDict_FetchItemWithError(PyObject *mp, PyObject *key);
 PyAPI_FUNC(PyObject *) PyDict_GetItem(PyObject *mp, PyObject *key);
 PyAPI_FUNC(PyObject *) PyDict_GetItemWithError(PyObject *mp, PyObject *key);
 PyAPI_FUNC(int) PyDict_SetItem(PyObject *mp, PyObject *key, PyObject *item);
@@ -67,9 +70,9 @@ PyAPI_DATA(PyTypeObject) PyDictKeys_Type;
 PyAPI_DATA(PyTypeObject) PyDictValues_Type;
 PyAPI_DATA(PyTypeObject) PyDictItems_Type;
 
-#define PyDictKeys_Check(op) PyObject_TypeCheck((op), &PyDictKeys_Type)
-#define PyDictValues_Check(op) PyObject_TypeCheck((op), &PyDictValues_Type)
-#define PyDictItems_Check(op) PyObject_TypeCheck((op), &PyDictItems_Type)
+#define PyDictKeys_Check(op) Py_IS_TYPE((op), &PyDictKeys_Type)
+#define PyDictValues_Check(op) Py_IS_TYPE((op), &PyDictValues_Type)
+#define PyDictItems_Check(op) Py_IS_TYPE((op), &PyDictItems_Type)
 /* This excludes Values, since they are not sets. */
 # define PyDictViewSet_Check(op) \
     (PyDictKeys_Check(op) || PyDictItems_Check(op))

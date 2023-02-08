@@ -14,6 +14,112 @@ struct mutex_entry {
     int handoff;
 };
 
+PyDictValues*
+_PyDictValues_LockSlow(PyDictOrValues *dorv_ptr)
+{
+    _PyTime_t now = _PyTime_GetMonotonicClock();
+
+    struct mutex_entry entry;
+    entry.time_to_be_fair = now + TIME_TO_BE_FAIR_NS;
+
+    for (;;) {
+        PyDictOrValues dorv;
+        dorv.values = _Py_atomic_load_ptr(dorv_ptr);
+
+        if (!_PyDictOrValues_IsValues(dorv)) {
+            return NULL;
+        }
+
+        uintptr_t v = (uintptr_t)dorv.values;
+        if (!(v & LOCKED)) {
+            if (_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, dorv.values + LOCKED)) {
+                return (PyDictValues *)(v & ~7);
+            }
+            continue;
+        }
+
+        char *new_values = dorv.values;
+        if (!(v & HAS_PARKED)) {
+            new_values += HAS_PARKED;
+            if (!_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, new_values)) {
+                continue;
+            }
+        }
+
+        int ret = _PyParkingLot_Park(dorv_ptr, (uintptr_t)new_values, &entry, -1);
+        if (ret == PY_PARK_OK) {
+            if (entry.handoff) {
+                // we own the lock now
+                v = (uintptr_t)_Py_atomic_load_ptr(dorv_ptr);
+                return (PyDictValues *)(v & ~7);
+            }
+        }
+    }
+}
+
+void
+_PyDictValues_UnlockSlow(PyDictOrValues *dorv_ptr)
+{
+    for (;;) {
+        PyDictOrValues dorv;
+        dorv.values = _Py_atomic_load_ptr(dorv_ptr);
+        uintptr_t v = (uintptr_t)dorv.values;
+
+        if ((v & LOCKED) == UNLOCKED) {
+            Py_FatalError("unlocking mutex that is not locked");
+        }
+        else if ((v & HAS_PARKED)) {
+            int more_waiters;
+            struct wait_entry *wait;
+            struct mutex_entry *entry;
+
+            entry = _PyParkingLot_BeginUnpark(dorv_ptr, &wait, &more_waiters);
+            v &= ~(HAS_PARKED | LOCKED);
+            if (entry) {
+                int should_be_fair = _PyTime_GetMonotonicClock() > entry->time_to_be_fair;
+                entry->handoff = should_be_fair;
+                if (should_be_fair) {
+                    v |= LOCKED;
+                }
+                if (more_waiters) {
+                    v |= HAS_PARKED;
+                }
+            }
+            _Py_atomic_store_ptr(dorv_ptr, (char *)v);
+            _PyParkingLot_FinishUnpark(dorv_ptr, wait);
+            return;
+        }
+        else if (_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, dorv.values - LOCKED)) {
+            return;
+        }
+    }
+}
+
+
+void
+_PyDictValues_UnlockDict(PyDictOrValues *dorv_ptr, PyObject *dict)
+{
+    if (dict == NULL) {
+        _PyDictValues_UnlockSlow(dorv_ptr);
+        return;
+    }
+    for (;;) {
+        PyDictOrValues dorv;
+        dorv.values = _Py_atomic_load_ptr(dorv_ptr);
+        uintptr_t v = (uintptr_t)dorv.values;
+
+        if ((v & LOCKED) == UNLOCKED) {
+            Py_FatalError("unlocking mutex that is not locked");
+        }
+        else if (_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, dict)) {
+            if ((v & HAS_PARKED)) {
+                _PyParkingLot_UnparkAll(dorv_ptr);
+            }
+            return;
+        }
+    }
+}
+
 void
 _PyMutex_lock_slow(_PyMutex *m) {
     _PyMutex_LockSlowEx(m, _PY_LOCK_DETACH);

@@ -11,6 +11,7 @@ extern "C" {
 
 #include "pycore_dict_state.h"
 #include "pycore_runtime.h"         // _PyRuntime
+#include "pycore_pystate.h"         // _PyThreadState_GET()
 
 
 /* runtime lifecycle */
@@ -22,9 +23,9 @@ extern void _PyDict_Fini(PyInterpreterState *interp);
 
 typedef struct {
     /* Cached hash code of me_key. */
-    Py_hash_t me_hash;
     PyObject *me_key;
     PyObject *me_value; /* This field is only meaningful for combined tables */
+    Py_hash_t me_hash;
 } PyDictKeyEntry;
 
 typedef struct {
@@ -64,12 +65,13 @@ extern PyObject *_PyDict_Pop_KnownHash(PyObject *, PyObject *, Py_hash_t, PyObje
 typedef enum {
     DICT_KEYS_GENERAL = 0,
     DICT_KEYS_UNICODE = 1,
-    DICT_KEYS_SPLIT = 2
+    DICT_KEYS_SPLIT = 2,
 } DictKeysKind;
 
 /* See dictobject.c for actual layout of DictKeysObject */
 struct _dictkeysobject {
-    Py_ssize_t dk_refcnt;
+    /* Mutex to prevent concurrent modification of shared keys. */
+    _PyMutex dk_mutex;
 
     /* Size of the hash table (dk_indices). It must be a power of 2. */
     uint8_t dk_log2_size;
@@ -108,6 +110,13 @@ struct _dictkeysobject {
        see the DK_ENTRIES() macro */
 };
 
+typedef struct PyDictSharedKeysObject {
+    uint8_t tracked;
+    uint8_t marked;
+    struct PyDictSharedKeysObject *next;
+    struct _dictkeysobject keys;
+} PyDictSharedKeysObject;
+
 /* This must be no more than 250, for the prefix size to fit in one byte. */
 #define SHARED_KEYS_MAX_SIZE 30
 #define NEXT_LOG2_SHARED_KEYS_MAX_SIZE 6
@@ -142,14 +151,31 @@ static inline PyDictUnicodeEntry* DK_UNICODE_ENTRIES(PyDictKeysObject *dk) {
     assert(dk->dk_kind != DICT_KEYS_GENERAL);
     return (PyDictUnicodeEntry*)_DK_ENTRIES(dk);
 }
+static inline PyDictSharedKeysObject* DK_AS_SPLIT(PyDictKeysObject *dk) {
+    assert(dk->dk_kind == DICT_KEYS_SPLIT);
+    char *mem = (char *)dk - offsetof(PyDictSharedKeysObject, keys);
+    return (PyDictSharedKeysObject *)mem;
+}
 
 #define DK_IS_UNICODE(dk) ((dk)->dk_kind != DICT_KEYS_GENERAL)
 
 #define DICT_VERSION_INCREMENT (1 << DICT_MAX_WATCHERS)
+#define DICT_GLOBAL_VERSION_INCREMENT (DICT_VERSION_INCREMENT * 256)
 #define DICT_VERSION_MASK (DICT_VERSION_INCREMENT - 1)
 
-#define DICT_NEXT_VERSION() \
-    (_PyRuntime.dict_state.global_version += DICT_VERSION_INCREMENT)
+static inline uint64_t
+_PyDict_NextVersion(PyThreadState *tstate)
+{
+    uint64_t version = tstate->dict_state.dict_version;
+    if (version % DICT_GLOBAL_VERSION_INCREMENT == 0) {
+        version = _Py_atomic_add_uint64(
+            &_PyRuntime.dict_state.global_version,
+            DICT_GLOBAL_VERSION_INCREMENT);
+    }
+    version += DICT_VERSION_INCREMENT;
+    tstate->dict_state.dict_version = version;
+    return version;
+}
 
 void
 _PyDict_SendEvent(int watcher_bits,
@@ -167,9 +193,9 @@ _PyDict_NotifyEvent(PyDict_WatchEvent event,
     int watcher_bits = mp->ma_version_tag & DICT_VERSION_MASK;
     if (watcher_bits) {
         _PyDict_SendEvent(watcher_bits, event, mp, key, value);
-        return DICT_NEXT_VERSION() | watcher_bits;
+        return _PyDict_NextVersion(_PyThreadState_GET()) | watcher_bits;
     }
-    return DICT_NEXT_VERSION();
+    return _PyDict_NextVersion(_PyThreadState_GET());
 }
 
 extern PyObject *_PyObject_MakeDictFromInstanceAttributes(PyObject *obj, PyDictValues *values);
@@ -184,7 +210,7 @@ _PyDictValues_AddToInsertionOrder(PyDictValues *values, Py_ssize_t ix)
     assert(ix < SHARED_KEYS_MAX_SIZE);
     uint8_t *size_ptr = ((uint8_t *)values)-2;
     int size = *size_ptr;
-    assert(size+2 < ((uint8_t *)values)[-1]);
+    assert(size < ((uint8_t *)values)[-1]);
     size++;
     size_ptr[-size] = (uint8_t)ix;
     *size_ptr = size;

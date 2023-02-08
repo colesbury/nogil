@@ -29,6 +29,8 @@ struct _Py_dict_runtime_state {
 
 #define DICT_MAX_WATCHERS 8
 
+typedef struct PyDictSharedKeysObject PyDictSharedKeysObject;
+
 struct _Py_dict_state {
 #if PyDict_MAXFREELIST > 0
     /* Dictionary reuse scheme to save calls to malloc and free */
@@ -38,6 +40,8 @@ struct _Py_dict_state {
     int keys_numfree;
 #endif
     PyDict_WatchCallback watchers[DICT_MAX_WATCHERS];
+    /* shared keys from deallocated types (i.e., potentially dead) */
+    PyDictSharedKeysObject *tracked_shared_keys;
 };
 
 

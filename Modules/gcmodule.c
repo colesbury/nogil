@@ -25,6 +25,7 @@
 
 #include "Python.h"
 #include "pycore_context.h"
+#include "pycore_dict.h"
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"      // PyInterpreterState.gc
 #include "pycore_object.h"
@@ -452,6 +453,58 @@ end:
     return err;
 }
 
+struct debug_visitor_args {
+    mi_block_visit_fun *visitor;
+    void *arg;
+};
+
+static bool
+debug_visitor(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size_t block_size, void* arg)
+{
+    struct debug_visitor_args *args = (struct debug_visitor_args *)arg;
+    if (block) {
+        block = (char *)block + 2 * sizeof(size_t);
+    }
+    block_size -= 2 * sizeof(size_t);
+    return args->visitor(heap, area, block, block_size, args->arg);
+}
+
+static void
+visit_heaps2(int heap_tag, mi_block_visit_fun *visitor, void *arg)
+{
+    _PyRuntimeState *runtime = &_PyRuntime;
+    PyThreadState *t;
+    struct debug_visitor_args debug_args = { visitor, arg };
+
+    HEAD_LOCK(runtime);
+    using_debug_allocator = _PyMem_DebugEnabled();
+
+    // FIXME(sgross): dict keys don't go through debug allocator
+    if (using_debug_allocator && heap_tag != mi_heap_tag_dict_keys) {
+        visitor = debug_visitor;
+        arg = &debug_args;
+    }
+
+    for_each_thread(t) {
+        mi_heap_t *heap = t->heaps[heap_tag];
+        if (heap && !heap->visited) {
+            mi_heap_visit_blocks(heap, true, visitor, arg);
+            heap->visited = true;
+        }
+    }
+
+    _mi_abandoned_visit_blocks(heap_tag, true, visitor, arg);
+
+    for_each_thread(t) {
+        mi_heap_t *heap = t->heaps[heap_tag];
+        if (heap) {
+            heap->visited = false;
+        }
+    }
+
+    HEAD_UNLOCK(runtime);
+}
+
 struct find_object_args {
     PyObject *op;
     int found;
@@ -600,13 +653,64 @@ visit_decref(PyObject *op, void *arg)
     return 0;
 }
 
+static void
+find_dead_shared_keys(_PyObjectQueue **queue, int *num_unmarked)
+{
+    PyInterpreterState *interp = _PyRuntime.interpreters.head;
+    while (interp) {
+        struct _Py_dict_state *dict_state = &interp->dict_state;
+        PyDictSharedKeysObject **prev_nextptr = &dict_state->tracked_shared_keys;
+        PyDictSharedKeysObject *keys = dict_state->tracked_shared_keys;
+        while (keys) {
+            assert(keys->tracked);
+            PyDictSharedKeysObject *next = keys->next;
+            if (keys->marked) {
+                keys->marked = 0;
+                prev_nextptr = &keys->next;
+                *num_unmarked += 1;
+            }
+            else {
+                *prev_nextptr = next;
+                // FIXME: bad cast
+                _PyObjectQueue_Push(queue, (PyObject *)keys);
+            }
+            keys = next;
+        }
+
+        interp = interp->next;
+    }
+}
+
+struct update_refs_args {
+    PyGC_Head *list;
+    int split_keys_marked;
+};
+
 // Compute the number of external references to objects in the heap
 // by subtracting internal references from the refcount.
-static int
-update_refs(PyGC_Head *gc, void *args)
+static bool
+update_refs(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size_t block_size, void* args)
 {
-    PyGC_Head *list = (PyGC_Head *)args;
+    PyGC_Head *gc = (PyGC_Head *)block;
+    if (!gc) return true;
+
+    struct update_refs_args *arg = (struct update_refs_args *)args;
+
     PyObject *op = FROM_GC(gc);
+    if (PyDict_CheckExact(op)) {
+        PyDictObject *mp = (PyDictObject *)op;
+        if (mp->ma_keys && mp->ma_keys->dk_kind == DICT_KEYS_SPLIT) {
+            PyDictSharedKeysObject *shared = DK_AS_SPLIT(mp->ma_keys);
+            if (shared->tracked) {
+                shared->marked = 1;
+                arg->split_keys_marked++;
+            }
+        }
+    }
+    if (!_PyGC_TRACKED(gc)) {
+        return true;
+    }
+    PyGC_Head *list = arg->list;
 
     assert(_PyGC_TRACKED(gc));
 
@@ -614,14 +718,14 @@ update_refs(PyGC_Head *gc, void *args)
         _PyTuple_MaybeUntrack(op);
         if (!_PyObject_GC_IS_TRACKED(op)) {
             gc->_gc_prev &= ~_PyGC_PREV_MASK_FINALIZED;
-            return 0;
+            return true;
         }
     }
     else if (PyDict_CheckExact(op)) {
         _PyDict_MaybeUntrack(op);
         if (!_PyObject_GC_IS_TRACKED(op)) {
             gc->_gc_prev &= ~_PyGC_PREV_MASK_FINALIZED;
-            return 0;
+            return true;
         }
     }
 
@@ -639,7 +743,7 @@ update_refs(PyGC_Head *gc, void *args)
     prev->_gc_next = (uintptr_t)gc;
     gc->_gc_next = (uintptr_t)list;
     list->_gc_prev = (uintptr_t)gc;
-    return 0;
+    return true;
 }
 
 /* A traversal callback for subtract_refs. */
@@ -1168,7 +1272,19 @@ dealloc_non_gc(_PyObjectQueue **queue_ptr)
 
         _Py_Dealloc(op);
     }
+    assert(*queue_ptr == NULL);
+}
 
+static void
+free_dict_keys(_PyObjectQueue **queue_ptr)
+{
+    for (;;) {
+        PyDictSharedKeysObject *keys = (PyDictSharedKeysObject *)_PyObjectQueue_Pop(queue_ptr);
+        if (keys == NULL) {
+            break;
+        }
+        PyMem_Free(keys);
+    }
     assert(*queue_ptr == NULL);
 }
 
@@ -1465,7 +1581,14 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     validate_tracked_heap(_PyGC_PREV_MASK|_PyGC_PREV_MASK_UNREACHABLE, 0);
 
     gc_list_init(&young);
-    visit_heaps(update_refs, &young);
+    struct update_refs_args args = { .list = &young, .split_keys_marked = 0 };
+    visit_heaps2(mi_heap_tag_gc, update_refs, &args);
+
+    _PyObjectQueue *dead_keys = NULL;
+    int split_keys_unmarked = 0;
+    find_dead_shared_keys(&dead_keys, &split_keys_unmarked);
+    free_dict_keys(&dead_keys);
+    assert(args.split_keys_marked == split_keys_unmarked);
     deduce_unreachable(&young, &unreachable);
 
     gcstate->long_lived_pending = 0;
@@ -2291,7 +2414,6 @@ _PyGC_DumpShutdownStats(PyInterpreterState *interp)
         }
     }
 }
-
 
 static void
 gc_fini_untrack(GCState *gcstate)

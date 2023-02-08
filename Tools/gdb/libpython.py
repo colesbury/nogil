@@ -515,9 +515,9 @@ class HeapTypeObjectPtr(PyObjectPtr):
         charptrptr_t = _type_char_ptr().pointer()
         ptr = self._gdbval.cast(charptrptr_t) + MANAGED_DICT_OFFSET
         char_ptr = ptr.dereference()
-        if (int(char_ptr) & 1) == 0:
+        if (int(char_ptr) & 4) == 0:
             return None
-        char_ptr += 1
+        char_ptr -= (int(char_ptr) & 7)
         values_ptr = char_ptr.cast(gdb.lookup_type("PyDictValues").pointer())
         values = values_ptr['values']
         return PyKeysValuesPair(self.get_cached_keys(), values)

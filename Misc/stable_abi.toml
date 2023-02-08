@@ -2225,6 +2225,15 @@
     added = '3.12'
     abi_only = true
 
+# New reference versions of existing APIs
+
+[function.PyDict_FetchItem]
+    added = '3.12'
+[function.PyDict_FetchItemString]
+    added = '3.12'
+[function.PyDict_FetchItemWithError]
+    added = '3.12'
+
 # Support for Stable ABI in debug builds
 
 [function._Py_NegativeRefcount]

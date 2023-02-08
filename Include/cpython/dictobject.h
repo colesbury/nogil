@@ -26,6 +26,10 @@ typedef struct {
        If ma_values is not NULL, the table is split:
        keys are stored in ma_keys and values are stored in ma_values */
     PyDictValues *ma_values;
+
+    PyMutex ma_mutex;
+
+    uint8_t ma_maybe_shared;
 } PyDictObject;
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,
@@ -36,12 +40,15 @@ PyAPI_FUNC(PyObject *) _PyDict_GetItemIdWithError(PyObject *dp,
 PyAPI_FUNC(PyObject *) _PyDict_GetItemStringWithError(PyObject *, const char *);
 PyAPI_FUNC(PyObject *) PyDict_SetDefault(
     PyObject *mp, PyObject *key, PyObject *defaultobj);
+PyAPI_FUNC(PyObject *) _PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj,
+                                          int incref, int *is_insert);
 PyAPI_FUNC(int) _PyDict_SetItem_KnownHash(PyObject *mp, PyObject *key,
                                           PyObject *item, Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItem_KnownHash(PyObject *mp, PyObject *key,
                                           Py_hash_t hash);
 PyAPI_FUNC(int) _PyDict_DelItemIf(PyObject *mp, PyObject *key,
-                                  int (*predicate)(PyObject *value));
+                                  int (*predicate)(PyObject *value, void *data),
+                                  void *data);
 PyAPI_FUNC(int) _PyDict_Next(
     PyObject *mp, Py_ssize_t *pos, PyObject **key, PyObject **value, Py_hash_t *hash);
 

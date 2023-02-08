@@ -38,7 +38,7 @@ _weakref_getweakrefcount_impl(PyObject *module, PyObject *object)
 
 
 static int
-is_dead_weakref(PyObject *value)
+is_dead_weakref(PyObject *value, void *_unused)
 {
     int is_dead;
     if (!PyWeakref_Check(value)) {
@@ -68,7 +68,7 @@ _weakref__remove_dead_weakref_impl(PyObject *module, PyObject *dct,
                                    PyObject *key)
 /*[clinic end generated code: output=d9ff53061fcb875c input=19fc91f257f96a1d]*/
 {
-    if (_PyDict_DelItemIf(dct, key, is_dead_weakref) < 0) {
+    if (_PyDict_DelItemIf(dct, key, is_dead_weakref, NULL) < 0) {
         if (PyErr_ExceptionMatches(PyExc_KeyError))
             /* This function is meant to allow safe weak-value dicts
                with GC in another thread (see issue #28427), so it's

@@ -489,17 +489,25 @@ _PyObject_DictOrValuesPointer(PyObject *obj)
     return (PyDictOrValues *)((char *)obj + MANAGED_DICT_OFFSET);
 }
 
+static inline PyDictOrValues
+_PyObject_DictOrValues(PyObject *obj)
+{
+    PyDictOrValues dorv;
+    dorv.values = _Py_atomic_load_ptr_relaxed(_PyObject_DictOrValuesPointer(obj));
+    return dorv;
+}
+
 static inline int
 _PyDictOrValues_IsValues(PyDictOrValues dorv)
 {
-    return ((uintptr_t)dorv.values) & 1;
+    return ((uintptr_t)dorv.values & 4) != 0;
 }
 
 static inline PyDictValues *
 _PyDictOrValues_GetValues(PyDictOrValues dorv)
 {
     assert(_PyDictOrValues_IsValues(dorv));
-    return (PyDictValues *)(dorv.values + 1);
+    return (PyDictValues *)((uintptr_t)dorv.values & ~7);
 }
 
 static inline PyObject *
@@ -512,7 +520,47 @@ _PyDictOrValues_GetDict(PyDictOrValues dorv)
 static inline void
 _PyDictOrValues_SetValues(PyDictOrValues *ptr, PyDictValues *values)
 {
-    ptr->values = ((char *)values) - 1;
+    ptr->values = ((char *)values) + 4;
+}
+
+extern PyDictValues*
+_PyDictValues_LockSlow(PyDictOrValues *dorv_ptr);
+
+extern void
+_PyDictValues_UnlockSlow(PyDictOrValues *dorv_ptr);
+
+extern void
+_PyDictValues_UnlockDict(PyDictOrValues *dorv_ptr, PyObject *dict);
+
+static inline PyDictValues *
+_PyDictValues_Lock(PyDictOrValues *dorv_ptr)
+{
+    PyDictOrValues dorv;
+    dorv.values = _Py_atomic_load_ptr_relaxed(dorv_ptr);
+    if (!_PyDictOrValues_IsValues(dorv)) {
+        return NULL;
+    }
+    uintptr_t v = (uintptr_t)dorv.values;
+    if ((v & LOCKED) == UNLOCKED) {
+        if (_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, dorv.values + LOCKED)) {
+            return _PyDictOrValues_GetValues(dorv);
+        }
+    }
+    return _PyDictValues_LockSlow(dorv_ptr);
+}
+
+static inline void
+_PyDictValues_Unlock(PyDictOrValues *dorv_ptr)
+{
+    char *values = _Py_atomic_load_ptr_relaxed(&dorv_ptr->values);
+    uintptr_t v = (uintptr_t)values;
+    assert((v & LOCKED));
+    if ((v & HAS_PARKED) == 0) {
+        if (_Py_atomic_compare_exchange_ptr(dorv_ptr, values, values - LOCKED)) {
+            return;
+        }
+    }
+    _PyDictValues_UnlockSlow(dorv_ptr);
 }
 
 extern PyObject ** _PyObject_ComputedDictPointer(PyObject *);
