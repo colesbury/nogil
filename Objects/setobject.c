@@ -962,6 +962,7 @@ make_new_set(PyTypeObject *type, PyObject *iterable)
     so->hash = -1;
     so->finger = 0;
     so->weakreflist = NULL;
+    memset(&so->mutex, 0, sizeof(so->mutex));
 
     if (iterable != NULL) {
         if (set_update_internal(so, iterable)) {

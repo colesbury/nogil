@@ -19,7 +19,16 @@ typedef struct {
      * the list is not yet visible outside the function that builds it.
      */
     Py_ssize_t allocated;
+
+    _PyMutex mutex;
+
+    uint8_t maybe_shared;
 } PyListObject;
+
+typedef struct {
+    Py_ssize_t allocated;
+    PyObject *ob_item[1];
+} _PyListArray;
 
 PyAPI_FUNC(PyObject *) _PyList_Extend(PyListObject *, PyObject *);
 PyAPI_FUNC(void) _PyList_DebugMallocStats(FILE *out);

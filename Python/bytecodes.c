@@ -2287,15 +2287,14 @@ dummy_func(
             DEOPT_IF(Py_TYPE(it) != &PyListIter_Type, FOR_ITER);
             STAT_INC(FOR_ITER, hit);
             PyListObject *seq = it->it_seq;
-            if (seq) {
+            if (it->it_index >= 0) {
                 if (it->it_index < PyList_GET_SIZE(seq)) {
                     PyObject *next = PyList_GET_ITEM(seq, it->it_index++);
                     PUSH(Py_NewRef(next));
                     JUMPBY(INLINE_CACHE_ENTRIES_FOR_ITER);
                     goto end_for_iter_list;  // End of this instruction
                 }
-                it->it_seq = NULL;
-                Py_DECREF(seq);
+                it->it_index = -1;
             }
             STACK_SHRINK(1);
             Py_DECREF(it);

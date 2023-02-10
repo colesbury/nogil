@@ -56,6 +56,7 @@ typedef struct {
 
     setentry smalltable[PySet_MINSIZE];
     PyObject *weakreflist;      /* List of weak references */
+    _PyMutex mutex;
 } PySetObject;
 
 #define _PySet_CAST(so) \

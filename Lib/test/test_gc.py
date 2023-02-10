@@ -1162,7 +1162,7 @@ class GCCallbackTests(unittest.TestCase):
         p.stderr.close()
         # Verify that stderr has a useful error message:
         self.assertRegex(stderr,
-            br'gcmodule\.c:[0-9]+: .*Assertion "gc_get_refs\(gc\) > 0" failed.')
+            br'gcmodule\.c:[0-9]+: .*Assertion.* failed: refcount is too small')
         self.assertRegex(stderr,
             br'refcount is too small')
         # "address : 0x7fb5062efc18"

@@ -37,6 +37,9 @@ struct _Py_list_state {
 
 #define _PyList_ITEMS(op) _Py_RVALUE(_PyList_CAST(op)->ob_item)
 
+// append without acquiring lock
+PyAPI_FUNC(int) _PyList_AppendPrivate(PyObject *, PyObject *);
+
 extern int
 _PyList_AppendTakeRefListResize(PyListObject *self, PyObject *newitem);
 

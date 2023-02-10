@@ -2233,6 +2233,8 @@
     added = '3.12'
 [function.PyDict_FetchItemWithError]
     added = '3.12'
+[function.PyList_FetchItem]
+    added = '3.12'
 
 # Support for Stable ABI in debug builds
 
