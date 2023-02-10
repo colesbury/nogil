@@ -692,13 +692,15 @@ static inline uintptr_t mi_rotr(uintptr_t x, uintptr_t shift) {
 }
 
 static inline void* mi_ptr_decode(const void* null, const mi_encoded_t x, const uintptr_t* keys) {
-  void* p = (void*)(mi_rotr(x - keys[0], keys[0]) ^ keys[1]);
+  void* p = (void*)((x - keys[0]) ^ keys[1]);
   return (p==null ? NULL : p);
 }
 
 static inline mi_encoded_t mi_ptr_encode(const void* null, const void* p, const uintptr_t* keys) {
+  mi_assert_internal((keys[0] & 1) == 0);
+  mi_assert_internal((keys[1] & 1) == 0);
   uintptr_t x = (uintptr_t)(p==NULL ? null : p);
-  return mi_rotl(x ^ keys[1], keys[0]) + keys[0];
+  return (x ^ keys[1]) + keys[0];
 }
 
 static inline mi_block_t* mi_block_nextx( const void* null, const mi_block_t* block, const uintptr_t* keys ) {

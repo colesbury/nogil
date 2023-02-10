@@ -217,8 +217,8 @@ mi_decl_nodiscard mi_heap_t* mi_heap_new_in_arena( mi_arena_id_t arena_id ) {
   heap->arena_id = arena_id;
   _mi_random_split(&bheap->random, &heap->random);
   heap->cookie  = _mi_heap_random_next(heap) | 1;
-  heap->keys[0] = _mi_heap_random_next(heap);
-  heap->keys[1] = _mi_heap_random_next(heap);
+  heap->keys[0] = _mi_heap_random_next(heap) & ~1;
+  heap->keys[1] = _mi_heap_random_next(heap) & ~1;
   heap->no_reclaim = true;  // don't reclaim abandoned pages or otherwise destroy is unsafe
   // push on the thread local heaps list
   heap->next = heap->tld->heaps;

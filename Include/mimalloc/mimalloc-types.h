@@ -69,7 +69,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #if (MI_SECURE>=3 || MI_DEBUG>=1)
 // TODO(sgross): Don't encode free-list because it breaks the constraint that
 // freed blocks do not have the LSB of the first word set.
-//#define MI_ENCODE_FREELIST  1
+#define MI_ENCODE_FREELIST  1
 #endif
 
 
