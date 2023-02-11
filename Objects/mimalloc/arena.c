@@ -336,7 +336,7 @@ void _mi_arena_free(void* p, size_t size, size_t alignment, size_t align_offset,
     // and make it available to others again
     bool all_inuse = _mi_bitmap_unclaim_across(arena->blocks_inuse, arena->field_count, blocks, bitmap_idx);
     if (!all_inuse) {
-      _mi_error_message(EAGAIN, "trying to free an already freed block: %p, size %zu\n", p, size);
+      _mi_error_message(EFAULT, "trying to free an already freed block: %p, size %zu\n", p, size);
       return;
     };
   }
