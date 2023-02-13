@@ -42,10 +42,11 @@ PyModuleDef_Init(PyModuleDef* def)
 {
     assert(PyModuleDef_Type.tp_flags & Py_TPFLAGS_READY);
     if (def->m_base.m_index == 0) {
-        _PyRuntime.imports.last_module_index++;
+        Py_ssize_t last_module_index =
+            _Py_atomic_add_ssize(&_PyRuntime.imports.last_module_index, 1) + 1;
         assert(_PyObject_IS_IMMORTAL((PyObject*) def));
         Py_SET_TYPE(def, &PyModuleDef_Type);
-        def->m_base.m_index = _PyRuntime.imports.last_module_index;
+        def->m_base.m_index = last_module_index;
     }
     return (PyObject*)def;
 }
