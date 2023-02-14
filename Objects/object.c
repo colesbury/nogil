@@ -1257,9 +1257,9 @@ _PyObject_GetMethod(PyObject *obj, PyObject *name, PyObject **method)
     }
     if (dict != NULL) {
         Py_INCREF(dict);
-        PyObject *attr = PyDict_GetItemWithError(dict, name);
+        PyObject *attr = PyDict_FetchItemWithError(dict, name);
         if (attr != NULL) {
-            *method = Py_NewRef(attr);
+            *method = attr;
             Py_DECREF(dict);
             Py_XDECREF(descr);
             return 0;
@@ -1381,9 +1381,8 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
     }
     if (dict != NULL) {
         Py_INCREF(dict);
-        res = PyDict_GetItemWithError(dict, name);
+        res = PyDict_FetchItemWithError(dict, name);
         if (res != NULL) {
-            Py_INCREF(res);
             Py_DECREF(dict);
             goto done;
         }
