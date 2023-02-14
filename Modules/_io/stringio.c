@@ -2,6 +2,7 @@
 #include "Python.h"
 #include <stddef.h>               // offsetof()
 #include "pycore_object.h"
+#include "pycore_critical_section.h"
 #include "_iomodule.h"
 
 /* Implementation note: the buffer is always at least one character longer
@@ -19,6 +20,7 @@ class _io.StringIO "stringio *" "&PyStringIO_Type"
 
 typedef struct {
     PyObject_HEAD
+    _PyMutex mutex;
     Py_UCS4 *buf;
     Py_ssize_t pos;
     Py_ssize_t string_size;
@@ -267,14 +269,14 @@ fail:
 }
 
 /*[clinic input]
-_io.StringIO.getvalue
+_io.StringIO.getvalue @ mutex
 
 Retrieve the entire contents of the object.
 [clinic start generated code]*/
 
 static PyObject *
 _io_StringIO_getvalue_impl(stringio *self)
-/*[clinic end generated code: output=27b6a7bfeaebce01 input=d23cb81d6791cf88]*/
+/*[clinic end generated code: output=27b6a7bfeaebce01 input=7d8436fa1de4a09b]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -285,14 +287,14 @@ _io_StringIO_getvalue_impl(stringio *self)
 }
 
 /*[clinic input]
-_io.StringIO.tell
+_io.StringIO.tell @ mutex
 
 Tell the current file position.
 [clinic start generated code]*/
 
 static PyObject *
 _io_StringIO_tell_impl(stringio *self)
-/*[clinic end generated code: output=2e87ac67b116c77b input=ec866ebaff02f405]*/
+/*[clinic end generated code: output=2e87ac67b116c77b input=dcaabeaddc03a3dc]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -300,7 +302,7 @@ _io_StringIO_tell_impl(stringio *self)
 }
 
 /*[clinic input]
-_io.StringIO.read
+_io.StringIO.read @ mutex
     size: Py_ssize_t(accept={int, NoneType}) = -1
     /
 
@@ -312,7 +314,7 @@ is reached. Return an empty string at EOF.
 
 static PyObject *
 _io_StringIO_read_impl(stringio *self, Py_ssize_t size)
-/*[clinic end generated code: output=ae8cf6002f71626c input=0921093383dfb92d]*/
+/*[clinic end generated code: output=ae8cf6002f71626c input=23f378faea5757b8]*/
 {
     Py_ssize_t n;
     Py_UCS4 *output;
@@ -372,7 +374,7 @@ _stringio_readline(stringio *self, Py_ssize_t limit)
 }
 
 /*[clinic input]
-_io.StringIO.readline
+_io.StringIO.readline @ mutex
     size: Py_ssize_t(accept={int, NoneType}) = -1
     /
 
@@ -383,7 +385,7 @@ Returns an empty string if EOF is hit immediately.
 
 static PyObject *
 _io_StringIO_readline_impl(stringio *self, Py_ssize_t size)
-/*[clinic end generated code: output=cabd6452f1b7e85d input=a5bd70bf682aa276]*/
+/*[clinic end generated code: output=cabd6452f1b7e85d input=bf97fd83766de695]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -431,7 +433,7 @@ stringio_iternext(stringio *self)
 }
 
 /*[clinic input]
-_io.StringIO.truncate
+_io.StringIO.truncate @ mutex
     pos as size: Py_ssize_t(accept={int, NoneType}, c_default="self->pos") = None
     /
 
@@ -444,7 +446,7 @@ Returns the new absolute position.
 
 static PyObject *
 _io_StringIO_truncate_impl(stringio *self, Py_ssize_t size)
-/*[clinic end generated code: output=eb3aef8e06701365 input=5505cff90ca48b96]*/
+/*[clinic end generated code: output=eb3aef8e06701365 input=022cac3cb153cd02]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -466,7 +468,7 @@ _io_StringIO_truncate_impl(stringio *self, Py_ssize_t size)
 }
 
 /*[clinic input]
-_io.StringIO.seek
+_io.StringIO.seek @ mutex
     pos: Py_ssize_t
     whence: int = 0
     /
@@ -482,7 +484,7 @@ Returns the new absolute position.
 
 static PyObject *
 _io_StringIO_seek_impl(stringio *self, Py_ssize_t pos, int whence)
-/*[clinic end generated code: output=e9e0ac9a8ae71c25 input=e3855b24e7cae06a]*/
+/*[clinic end generated code: output=e9e0ac9a8ae71c25 input=4504a424db49932a]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -519,7 +521,7 @@ _io_StringIO_seek_impl(stringio *self, Py_ssize_t pos, int whence)
 }
 
 /*[clinic input]
-_io.StringIO.write
+_io.StringIO.write @ mutex
     s as obj: object
     /
 
@@ -530,8 +532,8 @@ the length of the string.
 [clinic start generated code]*/
 
 static PyObject *
-_io_StringIO_write(stringio *self, PyObject *obj)
-/*[clinic end generated code: output=0deaba91a15b94da input=cf96f3b16586e669]*/
+_io_StringIO_write_impl(stringio *self, PyObject *obj)
+/*[clinic end generated code: output=d53b1d841d7db288 input=335a99f79119fe15]*/
 {
     Py_ssize_t size;
 
@@ -553,7 +555,7 @@ _io_StringIO_write(stringio *self, PyObject *obj)
 }
 
 /*[clinic input]
-_io.StringIO.close
+_io.StringIO.close @ mutex
 
 Close the IO object.
 
@@ -565,7 +567,7 @@ This method has no effect if the file is already closed.
 
 static PyObject *
 _io_StringIO_close_impl(stringio *self)
-/*[clinic end generated code: output=04399355cbe518f1 input=cbc10b45f35d6d46]*/
+/*[clinic end generated code: output=04399355cbe518f1 input=b687abd019354006]*/
 {
     self->closed = 1;
     /* Free up some memory */
@@ -754,14 +756,14 @@ _io_StringIO___init___impl(stringio *self, PyObject *value,
 /* Properties and pseudo-properties */
 
 /*[clinic input]
-_io.StringIO.readable
+_io.StringIO.readable @ mutex
 
 Returns True if the IO object can be read.
 [clinic start generated code]*/
 
 static PyObject *
 _io_StringIO_readable_impl(stringio *self)
-/*[clinic end generated code: output=b19d44dd8b1ceb99 input=39ce068b224c21ad]*/
+/*[clinic end generated code: output=b19d44dd8b1ceb99 input=2554982f77127ba2]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -769,14 +771,14 @@ _io_StringIO_readable_impl(stringio *self)
 }
 
 /*[clinic input]
-_io.StringIO.writable
+_io.StringIO.writable @ mutex
 
 Returns True if the IO object can be written.
 [clinic start generated code]*/
 
 static PyObject *
 _io_StringIO_writable_impl(stringio *self)
-/*[clinic end generated code: output=13e4dd77187074ca input=7a691353aac38835]*/
+/*[clinic end generated code: output=13e4dd77187074ca input=7a859e5147c8b2c8]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
@@ -784,14 +786,14 @@ _io_StringIO_writable_impl(stringio *self)
 }
 
 /*[clinic input]
-_io.StringIO.seekable
+_io.StringIO.seekable @ mutex
 
 Returns True if the IO object can be seeked.
 [clinic start generated code]*/
 
 static PyObject *
 _io_StringIO_seekable_impl(stringio *self)
-/*[clinic end generated code: output=4d20b4641c756879 input=4c606d05b32952e6]*/
+/*[clinic end generated code: output=4d20b4641c756879 input=6176316901c26589]*/
 {
     CHECK_INITIALIZED(self);
     CHECK_CLOSED(self);
