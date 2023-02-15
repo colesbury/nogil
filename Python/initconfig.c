@@ -371,53 +371,87 @@ _PyWideStringList_CheckConsistency(const PyWideStringList *list)
 #endif   /* Py_DEBUG */
 
 
-void
-_PyWideStringList_Clear(PyWideStringList *list)
+static void
+_PyWideStringList_ClearEx(PyWideStringList *list,
+                          bool use_default_allocator)
 {
     assert(_PyWideStringList_CheckConsistency(list));
     for (Py_ssize_t i=0; i < list->length; i++) {
-        PyMem_RawFree(list->items[i]);
+        if (use_default_allocator) {
+            _PyMem_DefaultRawFree(list->items[i]);
+        }
+        else {
+            PyMem_RawFree(list->items[i]);
+        }
     }
-    PyMem_RawFree(list->items);
+    if (use_default_allocator) {
+        _PyMem_DefaultRawFree(list->items);
+    }
+    else {
+        PyMem_RawFree(list->items);
+    }
     list->length = 0;
     list->items = NULL;
 }
 
+void
+_PyWideStringList_Clear(PyWideStringList *list)
+{
+    _PyWideStringList_ClearEx(list, false);
+}
 
-int
-_PyWideStringList_Copy(PyWideStringList *list, const PyWideStringList *list2)
+static int
+_PyWideStringList_CopyEx(PyWideStringList *list,
+                         const PyWideStringList *list2,
+                         bool use_default_allocator)
 {
     assert(_PyWideStringList_CheckConsistency(list));
     assert(_PyWideStringList_CheckConsistency(list2));
 
     if (list2->length == 0) {
-        _PyWideStringList_Clear(list);
+        _PyWideStringList_ClearEx(list, use_default_allocator);
         return 0;
     }
 
     PyWideStringList copy = _PyWideStringList_INIT;
 
     size_t size = list2->length * sizeof(list2->items[0]);
-    copy.items = PyMem_RawMalloc(size);
+    if (use_default_allocator) {
+        copy.items = _PyMem_DefaultRawMalloc(size);
+    }
+    else {
+        copy.items = PyMem_RawMalloc(size);
+    }
     if (copy.items == NULL) {
         return -1;
     }
 
     for (Py_ssize_t i=0; i < list2->length; i++) {
-        wchar_t *item = _PyMem_RawWcsdup(list2->items[i]);
+        wchar_t *item;
+        if (use_default_allocator) {
+            item = _PyMem_DefaultRawWcsdup(list2->items[i]);
+        }
+        else {
+            item = _PyMem_RawWcsdup(list2->items[i]);
+        }
         if (item == NULL) {
-            _PyWideStringList_Clear(&copy);
+            _PyWideStringList_ClearEx(&copy, use_default_allocator);
             return -1;
         }
         copy.items[i] = item;
         copy.length = i + 1;
     }
 
-    _PyWideStringList_Clear(list);
+    _PyWideStringList_ClearEx(list, use_default_allocator);
     *list = copy;
     return 0;
 }
 
+int
+_PyWideStringList_Copy(PyWideStringList *list, const PyWideStringList *list2)
+{
+    return _PyWideStringList_CopyEx(list, list2, false);
+}
 
 PyStatus
 PyWideStringList_Insert(PyWideStringList *list,
@@ -536,8 +570,6 @@ Py_SetStandardStreamEncoding(const char *encoding, const char *errors)
     /* Py_SetStandardStreamEncoding() can be called before Py_Initialize(),
        but Py_Initialize() can change the allocator. Use a known allocator
        to be able to release the memory later. */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 
     /* Can't call PyErr_NoMemory() on errors, as Python hasn't been
      * initialised yet.
@@ -547,18 +579,18 @@ Py_SetStandardStreamEncoding(const char *encoding, const char *errors)
      * Py_Initialize hasn't been called yet.
      */
     if (encoding) {
-        PyMem_RawFree(_Py_StandardStreamEncoding);
-        _Py_StandardStreamEncoding = _PyMem_RawStrdup(encoding);
+        _PyMem_DefaultRawFree(_Py_StandardStreamEncoding);
+        _Py_StandardStreamEncoding = _PyMem_DefaultRawStrdup(encoding);
         if (!_Py_StandardStreamEncoding) {
             res = -2;
             goto done;
         }
     }
     if (errors) {
-        PyMem_RawFree(_Py_StandardStreamErrors);
-        _Py_StandardStreamErrors = _PyMem_RawStrdup(errors);
+        _PyMem_DefaultRawFree(_Py_StandardStreamErrors);
+        _Py_StandardStreamErrors = _PyMem_DefaultRawStrdup(errors);
         if (!_Py_StandardStreamErrors) {
-            PyMem_RawFree(_Py_StandardStreamEncoding);
+            _PyMem_DefaultRawFree(_Py_StandardStreamEncoding);
             _Py_StandardStreamEncoding = NULL;
             res = -3;
             goto done;
@@ -575,8 +607,6 @@ _Py_COMP_DIAG_POP
 #endif
 
 done:
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
     return res;
 }
 
@@ -585,20 +615,15 @@ void
 _Py_ClearStandardStreamEncoding(void)
 {
     /* Use the same allocator than Py_SetStandardStreamEncoding() */
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
     /* We won't need them anymore. */
     if (_Py_StandardStreamEncoding) {
-        PyMem_RawFree(_Py_StandardStreamEncoding);
+        _PyMem_DefaultRawFree(_Py_StandardStreamEncoding);
         _Py_StandardStreamEncoding = NULL;
     }
     if (_Py_StandardStreamErrors) {
-        PyMem_RawFree(_Py_StandardStreamErrors);
+        _PyMem_DefaultRawFree(_Py_StandardStreamErrors);
         _Py_StandardStreamErrors = NULL;
     }
-
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
 }
 
 
@@ -607,12 +632,7 @@ _Py_ClearStandardStreamEncoding(void)
 void
 _Py_ClearArgcArgv(void)
 {
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
-    _PyWideStringList_Clear(&_PyRuntime.orig_argv);
-
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
+    _PyWideStringList_ClearEx(&_PyRuntime.orig_argv, true);
 }
 
 
@@ -622,14 +642,10 @@ _Py_SetArgcArgv(Py_ssize_t argc, wchar_t * const *argv)
     const PyWideStringList argv_list = {.length = argc, .items = (wchar_t **)argv};
     int res;
 
-    PyMemAllocatorEx old_alloc;
-    _PyMem_SetDefaultAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
-
     // XXX _PyRuntime.orig_argv only gets cleared by Py_Main(),
     // so it it currently leaks for embedders.
-    res = _PyWideStringList_Copy(&_PyRuntime.orig_argv, &argv_list);
+    res = _PyWideStringList_CopyEx(&_PyRuntime.orig_argv, &argv_list, true);
 
-    PyMem_SetAllocator(PYMEM_DOMAIN_RAW, &old_alloc);
     return res;
 }
 

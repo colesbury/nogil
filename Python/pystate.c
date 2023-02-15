@@ -11,7 +11,7 @@
 #include "pycore_object.h"        // _PyType_InitCache()
 #include "pycore_pyerrors.h"
 #include "pycore_pylifecycle.h"
-#include "pycore_pymem.h"         // _PyMem_SetDefaultAllocator()
+#include "pycore_pymem.h"         // _PyMem_DefaultRawFree()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
 #include "pycore_qsbr.h"
 #include "pycore_runtime_init.h"  // _PyRuntimeState_INIT

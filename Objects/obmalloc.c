@@ -73,6 +73,82 @@ _PyMem_RawFree(void *Py_UNUSED(ctx), void *ptr)
     free(ptr);
 }
 
+/* runtime default raw allocator */
+
+void *
+_PyMem_DefaultRawMalloc(size_t size)
+{
+#ifdef Py_DEBUG
+    return _PyMem_DebugRawMalloc(&_PyRuntime.allocators.debug.raw, size);
+#else
+    return _PyMem_RawMalloc(NULL, size);
+#endif
+}
+
+void *
+_PyMem_DefaultRawCalloc(size_t nelem, size_t elsize)
+{
+#ifdef Py_DEBUG
+    return _PyMem_DebugRawCalloc(&_PyRuntime.allocators.debug.raw, nelem, elsize);
+#else
+    return _PyMem_RawCalloc(NULL, nelem, elsize);
+#endif
+
+}
+
+void *
+_PyMem_DefaultRawRealloc(void *ptr, size_t size)
+{
+#ifdef Py_DEBUG
+    return _PyMem_DebugRawRealloc(&_PyRuntime.allocators.debug.raw, ptr, size);
+#else
+    return _PyMem_RawRealloc(NULL, ptr, size);
+#endif
+}
+
+void
+_PyMem_DefaultRawFree(void *ptr)
+{
+#ifdef Py_DEBUG
+    _PyMem_DebugRawFree(&_PyRuntime.allocators.debug.raw, ptr);
+#else
+    _PyMem_RawFree(NULL, ptr);
+#endif
+}
+
+char *
+_PyMem_DefaultRawStrdup(const char *str)
+{
+    assert(str != NULL);
+    size_t size = strlen(str) + 1;
+    char *copy = _PyMem_DefaultRawMalloc(size);
+    if (copy == NULL) {
+        return NULL;
+    }
+    memcpy(copy, str, size);
+    return copy;
+}
+
+wchar_t*
+_PyMem_DefaultRawWcsdup(const wchar_t *str)
+{
+    assert(str != NULL);
+
+    size_t len = wcslen(str);
+    if (len > (size_t)PY_SSIZE_T_MAX / sizeof(wchar_t) - 1) {
+        return NULL;
+    }
+
+    size_t size = (len + 1) * sizeof(wchar_t);
+    wchar_t *str2 = _PyMem_DefaultRawMalloc(size);
+    if (str2 == NULL) {
+        return NULL;
+    }
+
+    memcpy(str2, str, size);
+    return str2;
+}
+
 #define MALLOC_ALLOC {NULL, _PyMem_RawMalloc, _PyMem_RawCalloc, _PyMem_RawRealloc, _PyMem_RawFree}
 
 /* the default object allocator */

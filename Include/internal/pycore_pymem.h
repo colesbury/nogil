@@ -92,6 +92,12 @@ PyAPI_FUNC(int) _PyMem_GetAllocatorName(
    PYMEM_ALLOCATOR_NOT_SET does nothing. */
 PyAPI_FUNC(int) _PyMem_SetupAllocators(PyMemAllocatorName allocator);
 
+extern void * _PyMem_DefaultRawMalloc(size_t);
+extern void * _PyMem_DefaultRawCalloc(size_t, size_t);
+extern void * _PyMem_DefaultRawRealloc(void *, size_t);
+extern void _PyMem_DefaultRawFree(void *);
+extern char * _PyMem_DefaultRawStrdup(const char *);
+extern wchar_t * _PyMem_DefaultRawWcsdup(const wchar_t *str);
 
 #ifdef __cplusplus
 }
