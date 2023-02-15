@@ -3109,6 +3109,17 @@ with_pymalloc="no"
 ],
 [AC_MSG_RESULT(no)])
 
+AC_MSG_CHECKING(for --with-thread-sanitizer)
+AC_ARG_WITH(thread_sanitizer,
+            AS_HELP_STRING([--with-thread-sanitizer],
+                           [enable ThreadSanitizer race detector, 'tsan' (default is no)]),
+[
+AC_MSG_RESULT($withval)
+BASECFLAGS="-fsanitize=thread -fno-omit-frame-pointer -DMI_TSAN=1 $BASECFLAGS"
+LDFLAGS="-fsanitize=thread $LDFLAGS"
+],
+[AC_MSG_RESULT(no)])
+
 AC_MSG_CHECKING(for --with-memory-sanitizer)
 AC_ARG_WITH(memory_sanitizer,
             AS_HELP_STRING([--with-memory-sanitizer],

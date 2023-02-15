@@ -1058,6 +1058,7 @@ with_lto
 enable_bolt
 with_dsymutil
 with_address_sanitizer
+with_thread_sanitizer
 with_memory_sanitizer
 with_undefined_behavior_sanitizer
 with_hash_algorithm
@@ -1832,6 +1833,8 @@ Optional Packages:
   --with-address-sanitizer
                           enable AddressSanitizer memory error detector,
                           'asan' (default is no)
+  --with-thread-sanitizer enable ThreadSanitizer race detector, 'tsan'
+                          (default is no)
   --with-memory-sanitizer enable MemorySanitizer allocation error detector,
                           'msan' (default is no)
   --with-undefined-behavior-sanitizer
@@ -11088,6 +11091,23 @@ BASECFLAGS="-fsanitize=address -fno-omit-frame-pointer $BASECFLAGS"
 LDFLAGS="-fsanitize=address $LDFLAGS"
 # ASan works by controlling memory allocation, our own malloc interferes.
 with_pymalloc="no"
+
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for --with-thread-sanitizer" >&5
+$as_echo_n "checking for --with-thread-sanitizer... " >&6; }
+
+# Check whether --with-thread_sanitizer was given.
+if test "${with_thread_sanitizer+set}" = set; then :
+  withval=$with_thread_sanitizer;
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $withval" >&5
+$as_echo "$withval" >&6; }
+BASECFLAGS="-fsanitize=thread -fno-omit-frame-pointer -DMI_TSAN=1 $BASECFLAGS"
+LDFLAGS="-fsanitize=thread $LDFLAGS"
 
 else
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
