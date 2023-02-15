@@ -29,7 +29,6 @@ extern "C" {
 #include "pycore_unicodeobject.h"   // struct _Py_unicode_runtime_ids
 
 struct _getargs_runtime_state {
-    PyThread_type_lock mutex;
     struct _PyArg_Parser *static_parsers;
 };
 
@@ -96,7 +95,7 @@ typedef struct pyruntimestate {
     struct _signals_runtime_state signals;
 
     struct pyinterpreters {
-        PyThread_type_lock mutex;
+        _PyRawMutex mutex;
         /* The linked list of interpreters, newest first. */
         PyInterpreterState *head;
         /* The runtime's initial interpreter, which has a special role
@@ -115,7 +114,7 @@ typedef struct pyruntimestate {
     } interpreters;
     // XXX Remove this field once we have a tp_* slot.
     struct _xidregistry {
-        PyThread_type_lock mutex;
+        _PyRawMutex mutex;
         struct _xidregitem *head;
     } xidregistry;
 
@@ -180,6 +179,10 @@ typedef struct pyruntimestate {
     PyInterpreterState _main_interpreter;
 } _PyRuntimeState;
 
+#define HEAD_LOCK(runtime) \
+    _PyRawMutex_lock(&(runtime)->interpreters.mutex)
+#define HEAD_UNLOCK(runtime) \
+    _PyRawMutex_unlock(&(runtime)->interpreters.mutex)
 
 /* other API */
 
