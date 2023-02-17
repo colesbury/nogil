@@ -157,11 +157,6 @@ size_t _mi_commit_mask_next_run(const mi_commit_mask_t* cm, size_t* idx) {
    Slices
 ----------------------------------------------------------- */
 
-
-static const mi_slice_t* mi_segment_slices_end(const mi_segment_t* segment) {
-  return &segment->slices[segment->slice_entries];
-}
-
 static uint8_t* mi_slice_start(const mi_slice_t* slice) {
   mi_segment_t* segment = _mi_ptr_segment(slice);
   mi_assert_internal(slice >= segment->slices && slice < mi_segment_slices_end(segment));
@@ -1276,14 +1271,6 @@ void _mi_segment_page_abandon(mi_page_t* page, mi_segments_tld_t* tld) {
 /* -----------------------------------------------------------
   Reclaim abandoned pages
 ----------------------------------------------------------- */
-
-static mi_slice_t* mi_slices_start_iterate(mi_segment_t* segment, const mi_slice_t** end) {
-  mi_slice_t* slice = &segment->slices[0];
-  *end = mi_segment_slices_end(segment);
-  mi_assert_internal(slice->slice_count>0 && slice->xblock_size>0); // segment allocated page
-  slice = slice + slice->slice_count; // skip the first segment allocated page
-  return slice;
-}
 
 // Possibly free pages and check if free space is available
 static bool mi_segment_check_free(mi_segment_t* segment, size_t slices_needed, size_t block_size, int tag, mi_segments_tld_t* tld)

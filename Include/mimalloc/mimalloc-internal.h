@@ -161,6 +161,7 @@ void       _mi_heap_set_default_direct(mi_heap_t* heap);
 bool       _mi_heap_memid_is_suitable(mi_heap_t* heap, size_t memid);
 void       _mi_heap_destroy_all(void);
 void       _mi_heap_absorb(mi_heap_t* heap, mi_heap_t* from);
+bool       _mi_abandoned_visit_blocks(int page_tag, bool visit_blocks, mi_block_visit_fun* visitor, void* arg);
 
 // "stats.c"
 void       _mi_stats_done(mi_stats_t* stats);
@@ -510,6 +511,18 @@ static inline mi_page_t* _mi_segment_page_of(const mi_segment_t* segment, const 
   mi_assert_internal(slice->slice_offset == 0);
   mi_assert_internal(slice >= segment->slices && slice < segment->slices + segment->slice_entries);
   return mi_slice_to_page(slice);
+}
+
+static inline const mi_slice_t* mi_segment_slices_end(const mi_segment_t* segment) {
+  return &segment->slices[segment->slice_entries];
+}
+
+static inline mi_slice_t* mi_slices_start_iterate(mi_segment_t* segment, const mi_slice_t** end) {
+  mi_slice_t* slice = &segment->slices[0];
+  *end = mi_segment_slices_end(segment);
+  mi_assert_internal(slice->slice_count>0 && slice->xblock_size>0); // segment allocated page
+  slice = slice + slice->slice_count; // skip the first segment allocated page
+  return slice;
 }
 
 // Quick page start for initialized pages
