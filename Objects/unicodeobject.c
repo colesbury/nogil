@@ -1924,7 +1924,7 @@ _PyUnicode_FromId(_Py_Identifier *id)
     return obj;
 }
 
-static int
+static void
 _PyUnicode_Immortalize(PyObject *obj)
 {
     assert(!_PyObject_IS_IMMORTAL(obj));
@@ -1937,8 +1937,11 @@ _PyUnicode_Immortalize(PyObject *obj)
         Py_ssize_t capacity = imm->capacity;
         PyObject **new_array = resize_array(imm->array, &capacity);
         if (new_array == NULL) {
+            PyErr_WriteUnraisable(NULL);
             _PyMutex_unlock(&imm->mutex);
-            return -1;
+            // mark the object as immortal anyways
+            _PyObject_SetImmortal(obj);
+            return;
         }
 
         imm->array = new_array;
@@ -1949,7 +1952,6 @@ _PyUnicode_Immortalize(PyObject *obj)
     imm->array[index] = obj;
     imm->size++;
     _PyMutex_unlock(&imm->mutex);
-    return 0;
 }
 
 
@@ -14667,6 +14669,12 @@ PyUnicode_InternInPlace(PyObject **p)
         set_interned_dict(interned);
     }
 
+    if (!_Py_ThreadLocal(s) && !_PyObject_IS_IMMORTAL(s)) {
+        /* Make a copy so that we can safely immortalize the string. */
+        s = _PyUnicode_Copy(s);
+        Py_SETREF(*p, s);
+    }
+
     PyObject *t = PyDict_SetDefault(interned, s, s);
     if (t == NULL) {
         PyErr_Clear();
@@ -14680,15 +14688,11 @@ PyUnicode_InternInPlace(PyObject **p)
 
     _PyUnicode_STATE(s).interned = 1;
 
-    if (_Py_ThreadLocal(t) && _PyUnicode_Immortalize(t) == 0) {
-        /* Nothing to do if we immortalize the string */
-        return;
+    if (_Py_ThreadLocal(t)) {
+        _PyUnicode_Immortalize(t);
     }
     else {
-        /* The two references in interned dict (key and value) are not counted by
-        refcnt. unicode_dealloc() and _PyUnicode_ClearInterned() take care of
-        this. */
-        Py_SET_REFCNT(s, Py_REFCNT(s) - 2);
+        assert(_PyObject_IS_IMMORTAL(t));
     }
 }
 
