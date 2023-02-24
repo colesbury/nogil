@@ -723,7 +723,7 @@ Py_DECREF(PyObject *op)
     _Py_DECREF_STAT_INC();
     // Non-limited C API and limited C API for Python 3.9 and older access
     // directly PyObject.ob_refcnt.
-    uintptr_t tid = op->ob_tid;
+    uintptr_t tid = _Py_atomic_load_uintptr_relaxed(&op->ob_tid);
     if (tid == _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL)) {
         return;
     }
@@ -736,8 +736,14 @@ Py_DECREF(PyObject *op)
             _Py_NegativeRefcount(filename, lineno, op);
         }
 #endif
-        op->ob_ref_local -= (1 << _Py_REF_LOCAL_SHIFT);
-        if (_PY_UNLIKELY(op->ob_ref_local == 0)) {
+        uint32_t local = op->ob_ref_local;
+        local -= (1 << _Py_REF_LOCAL_SHIFT);
+#ifdef _Py_THREAD_SANITIZER
+        _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
+#else
+        op->ob_ref_local = local;
+#endif
+        if (_PY_UNLIKELY(local == 0)) {
             _Py_MergeZeroRefcount(op);
         }
     }
