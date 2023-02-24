@@ -562,6 +562,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(err.rstrip(), b'child process ok')
 
     @support.requires_fork()
+    @unittest.skipIf(support.check_sanitizer(thread=True), "TSAN doesn't support threads after fork")
     def test_dummy_thread_after_fork(self):
         # Issue #14308: a dummy thread in the active list doesn't mess up
         # the after-fork mechanism.
@@ -653,6 +654,7 @@ class ThreadTests(BaseTestCase):
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     @support.requires_fork()
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
+    @unittest.skipIf(support.check_sanitizer(thread=True), "TSAN doesn't support threads after fork")
     def test_main_thread_after_fork_from_nonmain_thread(self):
         code = """if 1:
             import os, threading, sys, warnings
@@ -1071,6 +1073,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
     @support.requires_fork()
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
+    @unittest.skipIf(support.check_sanitizer(thread=True), "TSAN doesn't support threads after fork")
     def test_3_join_in_forked_from_thread(self):
         # Like the test above, but fork() was called from a worker thread
         # In the forked process, the main Thread object must be marked as stopped.
