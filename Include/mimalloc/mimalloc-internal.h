@@ -732,10 +732,10 @@ static inline mi_block_t* mi_block_nextx( const void* null, const mi_block_t* bl
 static inline void mi_block_set_nextx(const void* null, mi_block_t* block, const mi_block_t* next, const uintptr_t* keys) {
   mi_track_mem_undefined(block,sizeof(mi_block_t));
   #ifdef MI_ENCODE_FREELIST
-  block->next = mi_ptr_encode(null, next, keys);
+  _Py_atomic_store_uintptr_relaxed(&block->next, mi_ptr_encode(null, next, keys));
   #else
   MI_UNUSED(keys); MI_UNUSED(null);
-  block->next = (mi_encoded_t)next;
+  _Py_atomic_store_uintptr_relaxed(&block->next, (mi_encoded_t)next);
   #endif
   mi_track_mem_noaccess(block,sizeof(mi_block_t));
 }
