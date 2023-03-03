@@ -19,6 +19,9 @@ typedef struct _PyObjectQueue {
     PyObject *objs[PYOBJECT_QUEUE_SIZE];
 } _PyObjectQueue;
 
+#define _PyObjectQueue_ForEach(q, obj) \
+    for (obj = _PyObjectQueue_Pop(q); obj != NULL; obj = _PyObjectQueue_Pop(q))
+
 _PyObjectQueue *_PyObjectQueue_New(void);
 
 static inline void

@@ -20,6 +20,7 @@
 #include "pycore_opcode.h"        // EXTRA_CASES
 #include "pycore_pyerrors.h"      // _PyErr_Fetch()
 #include "pycore_pymem.h"         // _PyMem_IsPtrFreed()
+#include "pycore_refcnt.h"      // _PyObjectQueue
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_range.h"         // _PyRangeIterObject
 #include "pycore_sliceobject.h"   // _PyBuildSlice_ConsumeRefs
@@ -2571,6 +2572,28 @@ maybe_call_line_trace(Py_tracefunc func, PyObject *obj,
     return result;
 }
 
+static PyObject *
+thread_set_profile(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
+{
+    tstate->c_profilefunc = func;
+    PyObject *old_profileobj = tstate->c_profileobj;
+    tstate->c_profileobj = Py_XNewRef(arg);
+    /* Flag that tracing or profiling is turned on */
+    _PyThreadState_UpdateTracingState(tstate);
+    return old_profileobj;
+}
+
+static PyObject *
+thread_set_trace(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
+{
+    tstate->c_tracefunc = func;
+    PyObject *old_traceobj = tstate->c_traceobj;
+    tstate->c_traceobj = Py_XNewRef(arg);
+    /* Flag that tracing or profiling is turned on */
+    _PyThreadState_UpdateTracingState(tstate);
+    return old_traceobj;
+}
+
 int
 _PyEval_SetProfile(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
 {
@@ -2585,11 +2608,7 @@ _PyEval_SetProfile(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
         return -1;
     }
 
-    tstate->c_profilefunc = func;
-    PyObject *old_profileobj = tstate->c_profileobj;
-    tstate->c_profileobj = Py_XNewRef(arg);
-    /* Flag that tracing or profiling is turned on */
-    _PyThreadState_UpdateTracingState(tstate);
+    PyObject *old_profileobj = thread_set_profile(tstate, func, arg);
 
     // gh-98257: Only call Py_XDECREF() once the new profile function is fully
     // set, so it's safe to call sys.setprofile() again (reentrant call).
@@ -2612,20 +2631,32 @@ void
 PyEval_SetProfileAllThreads(Py_tracefunc func, PyObject *arg)
 {
     PyThreadState *this_tstate = _PyThreadState_GET();
-    PyInterpreterState* interp = this_tstate->interp;
+    if (_PySys_Audit(this_tstate, "sys.setprofile", NULL) < 0) {
+        /* Log _PySys_Audit() error */
+        _PyErr_WriteUnraisableMsg("in PyEval_SetProfileAllThreads", NULL);
+    }
 
+    PyInterpreterState* interp = this_tstate->interp;
     _PyRuntimeState *runtime = &_PyRuntime;
+
+    _PyObjectQueue *queue = NULL;
+
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
     HEAD_LOCK(runtime);
     PyThreadState* ts = PyInterpreterState_ThreadHead(interp);
-    HEAD_UNLOCK(runtime);
-
     while (ts) {
-        if (_PyEval_SetProfile(ts, func, arg) < 0) {
-            _PyErr_WriteUnraisableMsg("in PyEval_SetProfileAllThreads", NULL);
+        PyObject *old_profileobj = thread_set_profile(ts, func, arg);
+        if (old_profileobj) {
+            _PyObjectQueue_Push(&queue, old_profileobj);
         }
-        HEAD_LOCK(runtime);
         ts = PyThreadState_Next(ts);
-        HEAD_UNLOCK(runtime);
+    }
+    HEAD_UNLOCK(runtime);
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+
+    PyObject *old_profileobj;
+    _PyObjectQueue_ForEach(&queue, old_profileobj) {
+        Py_DECREF(old_profileobj);
     }
 }
 
@@ -2643,16 +2674,11 @@ _PyEval_SetTrace(PyThreadState *tstate, Py_tracefunc func, PyObject *arg)
         return -1;
     }
 
-    tstate->c_tracefunc = func;
-    PyObject *old_traceobj = tstate->c_traceobj;
-    tstate->c_traceobj = Py_XNewRef(arg);
-    /* Flag that tracing or profiling is turned on */
-    _PyThreadState_UpdateTracingState(tstate);
+    PyObject *old_traceobj = thread_set_trace(tstate, func, arg);
 
     // gh-98257: Only call Py_XDECREF() once the new trace function is fully
     // set, so it's safe to call sys.settrace() again (reentrant call).
     Py_XDECREF(old_traceobj);
-
     return 0;
 }
 
@@ -2670,20 +2696,37 @@ void
 PyEval_SetTraceAllThreads(Py_tracefunc func, PyObject *arg)
 {
     PyThreadState *this_tstate = _PyThreadState_GET();
-    PyInterpreterState* interp = this_tstate->interp;
 
+    if (_PySys_Audit(this_tstate, "sys.settrace", NULL) < 0) {
+        /* Log _PySys_Audit() error */
+        _PyErr_WriteUnraisableMsg("in PyEval_SetTraceAllThreads", NULL);
+    }
+
+    PyInterpreterState* interp = this_tstate->interp;
     _PyRuntimeState *runtime = &_PyRuntime;
+
+    _PyObjectQueue *queue = NULL;
+
+    _PyMutex_lock(&_PyRuntime.stoptheworld_mutex);
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
+
     HEAD_LOCK(runtime);
     PyThreadState* ts = PyInterpreterState_ThreadHead(interp);
+    while (ts) {
+        PyObject *old_traceobj = thread_set_trace(ts, func, arg);
+        if (old_traceobj) {
+            _PyObjectQueue_Push(&queue, old_traceobj);
+        }
+        ts = PyThreadState_Next(ts);
+    }
     HEAD_UNLOCK(runtime);
 
-    while (ts) {
-        if (_PyEval_SetTrace(ts, func, arg) < 0) {
-            _PyErr_WriteUnraisableMsg("in PyEval_SetTraceAllThreads", NULL);
-        }
-        HEAD_LOCK(runtime);
-        ts = PyThreadState_Next(ts);
-        HEAD_UNLOCK(runtime);
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+    _PyMutex_unlock(&_PyRuntime.stoptheworld_mutex);
+
+    PyObject *old_traceobj;
+    _PyObjectQueue_ForEach(&queue, old_traceobj) {
+        Py_DECREF(old_traceobj);
     }
 }
 
