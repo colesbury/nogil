@@ -169,6 +169,8 @@ PyAPI_FUNC(PyThreadState *) _PyThreadState_UnlinkExcept(
     int already_dead);
 PyAPI_FUNC(void) _PyThreadState_DeleteGarbage(PyThreadState *garbage);
 
+extern void _PyThreadState_Exit(PyThreadState *tstate);
+
 static inline void
 _PyThreadState_Signal(PyThreadState *tstate, uintptr_t bit)
 {

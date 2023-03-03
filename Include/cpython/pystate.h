@@ -132,6 +132,8 @@ struct _ts {
 
     mi_heap_t *heaps[Py_NUM_HEAPS];
 
+    Py_ssize_t refcount;
+
     /* Has been initialized to a safe state.
 
        In order to be effective, this must be set to 0 during or right

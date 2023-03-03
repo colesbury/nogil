@@ -992,6 +992,26 @@ free_threadstate(PyThreadState *tstate)
     }
 }
 
+static void
+_PyThreadState_DecRef(PyThreadState *tstate)
+{
+    if (tstate != &tstate->interp->_initial_thread.tstate) {
+        if (_Py_atomic_add_ssize(&tstate->refcount, -1) == 1) {
+            free_threadstate(tstate);
+        }
+    }
+}
+
+void
+_PyThreadState_Exit(PyThreadState *tstate)
+{
+    if (_PyThreadState_GetStatus(tstate) == _Py_THREAD_ATTACHED) {
+        _Py_atomic_store_int(&tstate->status, _Py_THREAD_DETACHED);
+    }
+    _PyThreadState_DecRef(tstate);
+    PyThread_exit_thread();
+}
+
 /* Get the thread state to a minimal consistent state.
    Further init happens in pylifecycle.c before it can be used.
    All fields not initialized here are expected to be zeroed out,
@@ -1061,6 +1081,7 @@ init_threadstate(PyThreadState *tstate,
     if (_PyRuntime.stop_the_world_requested) {
         tstate->status = _Py_THREAD_GC;
     }
+    tstate->refcount = 2;
     tstate->_initialized = 1;
 }
 
@@ -1562,7 +1583,12 @@ void
 _PyThreadState_DeleteExcept(_PyRuntimeState *runtime, PyThreadState *tstate)
 {
     PyThreadState *garbage = _PyThreadState_UnlinkExcept(runtime, tstate, 0);
-    _PyThreadState_DeleteGarbage(garbage);
+    PyThreadState *next;
+    for (PyThreadState *p = garbage; p; p = next) {
+        next = p->next;
+        PyThreadState_Clear(p);
+        _PyThreadState_DecRef(tstate);
+    }
 }
 
 PyThreadState *
