@@ -1372,7 +1372,11 @@ PyThreadState_Clear(PyThreadState *tstate)
 
     Py_CLEAR(tstate->dict);
     Py_CLEAR(tstate->async_exc);
-
+    if (tstate->slice_cache) {
+        PySliceObject *obj = tstate->slice_cache;
+        tstate->slice_cache = NULL;
+        PyObject_GC_Del(obj);
+    }
     Py_CLEAR(tstate->curexc_type);
     Py_CLEAR(tstate->curexc_value);
     Py_CLEAR(tstate->curexc_traceback);

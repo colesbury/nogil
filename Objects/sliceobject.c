@@ -95,11 +95,6 @@ PyObject _Py_EllipsisObject = _PyObject_STRUCT_INIT(&PyEllipsis_Type);
 
 void _PySlice_Fini(PyInterpreterState *interp)
 {
-    PySliceObject *obj = interp->slice_cache;
-    if (obj != NULL) {
-        interp->slice_cache = NULL;
-        PyObject_GC_Del(obj);
-    }
 }
 
 /* start, stop, and step are python objects with None indicating no
@@ -111,11 +106,11 @@ _PyBuildSlice_Consume2(PyObject *start, PyObject *stop, PyObject *step)
 {
     assert(start != NULL && stop != NULL && step != NULL);
 
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyThreadState *tstate = _PyThreadState_GET();
     PySliceObject *obj;
-    if (interp->slice_cache != NULL) {
-        obj = interp->slice_cache;
-        interp->slice_cache = NULL;
+    if (tstate->slice_cache != NULL) {
+        obj = tstate->slice_cache;
+        tstate->slice_cache = NULL;
         _Py_NewReference((PyObject *)obj);
     }
     else {
@@ -343,13 +338,13 @@ Create a slice object.  This is used for extended slicing (e.g. a[0:10:2]).");
 static void
 slice_dealloc(PySliceObject *r)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyThreadState *tstate = _PyThreadState_GET();
     _PyObject_GC_UNTRACK(r);
     Py_DECREF(r->step);
     Py_DECREF(r->start);
     Py_DECREF(r->stop);
-    if (interp->slice_cache == NULL) {
-        interp->slice_cache = r;
+    if (tstate->slice_cache == NULL) {
+        tstate->slice_cache = r;
     }
     else {
         PyObject_GC_Del(r);

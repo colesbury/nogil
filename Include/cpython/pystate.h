@@ -180,6 +180,10 @@ struct _ts {
 
     PyObject *dict;  /* Stores per-thread state */
 
+    /* Using a cache is very effective since typically only a single slice is
+       created and then deleted again. */
+    PySliceObject *slice_cache;
+
     int gilstate_counter;
 
     PyObject *async_exc; /* Asynchronous exception to raise */

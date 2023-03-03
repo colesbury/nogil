@@ -196,9 +196,6 @@ struct _is {
     struct _Py_unicode_state unicode;
     struct _Py_float_state float_state;
     struct _Py_long_state long_state;
-    /* Using a cache is very effective since typically only a single slice is
-       created and then deleted again. */
-    PySliceObject *slice_cache;
 
     struct _Py_tuple_state tuple;
     struct _Py_list_state list;
