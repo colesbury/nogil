@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #include "listobject.h"           // _PyList_CAST()
+#include <stddef.h>               // offsetof()
 
 
 /* runtime lifecycle */
@@ -57,6 +58,14 @@ _PyList_AppendTakeRef(PyListObject *self, PyObject *newitem)
         return 0;
     }
     return _PyList_AppendTakeRefListResize(self, newitem);
+}
+
+static inline Py_ssize_t
+_PyList_Capacity(PyObject **ob_item)
+{
+    char *mem = (char *)ob_item;
+    _PyListArray *arr = (_PyListArray *)(mem - offsetof(_PyListArray, ob_item));
+    return arr->allocated;
 }
 
 // Repeat the bytes of a buffer in place

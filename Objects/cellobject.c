@@ -11,6 +11,10 @@ PyCell_New(PyObject *obj)
     op = (PyCellObject *)PyObject_GC_New(PyCellObject, &PyCell_Type);
     if (op == NULL)
         return NULL;
+
+    if (obj) {
+        _PyObject_SetMaybeWeakref(obj);
+    }
     op->ob_ref = Py_XNewRef(obj);
 
     _PyObject_GC_TRACK(op);
@@ -67,6 +71,9 @@ PyCell_Set(PyObject *op, PyObject *value)
         return -1;
     }
     PyObject *old_value = PyCell_GET(op);
+    if (value) {
+        _PyObject_SetMaybeWeakref(value);
+    }
     PyCell_SET(op, Py_XNewRef(value));
     Py_XDECREF(old_value);
     return 0;
@@ -139,6 +146,9 @@ cell_get_contents(PyCellObject *op, void *closure)
 static int
 cell_set_contents(PyCellObject *op, PyObject *obj, void *Py_UNUSED(ignored))
 {
+    if (obj) {
+        _PyObject_SetMaybeWeakref(obj);
+    }
     Py_XSETREF(op->ob_ref, Py_XNewRef(obj));
     return 0;
 }

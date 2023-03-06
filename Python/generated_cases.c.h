@@ -529,7 +529,7 @@
             assert(cframe.use_tracing == 0);
             DEOPT_IF(!PyDict_CheckExact(dict), BINARY_SUBSCR);
             STAT_INC(BINARY_SUBSCR, hit);
-            res = PyDict_GetItemWithError(dict, sub);
+            res = PyDict_FetchItemWithError(dict, sub);
             if (res == NULL) {
                 if (!_PyErr_Occurred(tstate)) {
                     _PyErr_SetKeyError(sub);
@@ -538,7 +538,6 @@
                 Py_DECREF(sub);
                 if (true) goto pop_2_error;
             }
-            Py_INCREF(res);  // Do this before DECREF'ing dict, sub
             Py_DECREF(dict);
             Py_DECREF(sub);
             STACK_SHRINK(1);
@@ -1420,15 +1419,14 @@
         }
 
         TARGET(DELETE_DEREF) {
-            PyObject *cell = GETLOCAL(oparg);
-            PyObject *oldobj = PyCell_GET(cell);
+            PyCellObject *cell = (PyCellObject *)GETLOCAL(oparg);
+            PyObject *oldobj = _Py_atomic_exchange_ptr(&cell->ob_ref, NULL);
             // Can't use ERROR_IF here.
             // Fortunately we don't need its superpower.
             if (oldobj == NULL) {
                 format_exc_unbound(tstate, frame->f_code, oparg);
                 goto error;
             }
-            PyCell_SET(cell, NULL);
             Py_DECREF(oldobj);
             DISPATCH();
         }
@@ -1473,13 +1471,12 @@
 
         TARGET(LOAD_DEREF) {
             PyObject *value;
-            PyObject *cell = GETLOCAL(oparg);
-            value = PyCell_GET(cell);
+            PyCellObject *cell = (PyCellObject *)GETLOCAL(oparg);
+            value = _Py_XFetchRef(&cell->ob_ref);
             if (value == NULL) {
                 format_exc_unbound(tstate, frame->f_code, oparg);
                 if (true) goto error;
             }
-            Py_INCREF(value);
             STACK_GROW(1);
             POKE(1, value);
             DISPATCH();
@@ -1487,9 +1484,9 @@
 
         TARGET(STORE_DEREF) {
             PyObject *v = PEEK(1);
-            PyObject *cell = GETLOCAL(oparg);
-            PyObject *oldobj = PyCell_GET(cell);
-            PyCell_SET(cell, v);
+            PyCellObject *cell = (PyCellObject *)GETLOCAL(oparg);
+            _PyObject_SetMaybeWeakref(v);
+            PyObject *oldobj = _Py_atomic_exchange_ptr(&cell->ob_ref, v);
             Py_XDECREF(oldobj);
             STACK_SHRINK(1);
             DISPATCH();
@@ -1793,12 +1790,12 @@
             DEOPT_IF(tp->tp_version_tag != type_version, LOAD_ATTR);
             assert(tp->tp_dictoffset < 0);
             assert(tp->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-            PyDictOrValues dorv = *_PyObject_DictOrValuesPointer(owner);
+            PyDictOrValues dorv = _PyObject_DictOrValues(owner);
             DEOPT_IF(!_PyDictOrValues_IsValues(dorv), LOAD_ATTR);
-            res = _PyDictOrValues_GetValues(dorv)->values[cache->index];
+            PyDictValues *dv = _PyDictOrValues_GetValues(dorv);
+            res = _Py_TryXFetchRef(&dv->values[cache->index]);
             DEOPT_IF(res == NULL, LOAD_ATTR);
             STAT_INC(LOAD_ATTR, hit);
-            Py_INCREF(res);
             SET_TOP(NULL);
             STACK_GROW((oparg & 1));
             SET_TOP(res);
@@ -1815,15 +1812,14 @@
             DEOPT_IF(!PyModule_CheckExact(owner), LOAD_ATTR);
             PyDictObject *dict = (PyDictObject *)((PyModuleObject *)owner)->md_dict;
             assert(dict != NULL);
-            DEOPT_IF(dict->ma_keys->dk_version != read_u32(cache->version),
-                LOAD_ATTR);
-            assert(dict->ma_keys->dk_kind == DICT_KEYS_UNICODE);
-            assert(cache->index < dict->ma_keys->dk_nentries);
-            PyDictUnicodeEntry *ep = DK_UNICODE_ENTRIES(dict->ma_keys) + cache->index;
-            res = ep->me_value;
+            PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
+            DEOPT_IF(keys->dk_version != read_u32(cache->version), LOAD_ATTR);
+            assert(keys->dk_kind == DICT_KEYS_UNICODE);
+            assert(cache->index < keys->dk_nentries);
+            PyDictUnicodeEntry *ep = DK_UNICODE_ENTRIES(keys) + cache->index;
+            res = _Py_TryXFetchRef(&ep->me_value);
             DEOPT_IF(res == NULL, LOAD_ATTR);
             STAT_INC(LOAD_ATTR, hit);
-            Py_INCREF(res);
             SET_TOP(NULL);
             STACK_GROW((oparg & 1));
             SET_TOP(res);
@@ -1842,7 +1838,7 @@
             assert(type_version != 0);
             DEOPT_IF(tp->tp_version_tag != type_version, LOAD_ATTR);
             assert(tp->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-            PyDictOrValues dorv = *_PyObject_DictOrValuesPointer(owner);
+            PyDictOrValues dorv = _PyObject_DictOrValues(owner);
             DEOPT_IF(_PyDictOrValues_IsValues(dorv), LOAD_ATTR);
             PyDictObject *dict = (PyDictObject *)_PyDictOrValues_GetDict(dorv);
             DEOPT_IF(dict == NULL, LOAD_ATTR);
@@ -1988,18 +1984,17 @@
             assert(type_version != 0);
             DEOPT_IF(tp->tp_version_tag != type_version, STORE_ATTR);
             assert(tp->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-            PyDictOrValues dorv = *_PyObject_DictOrValuesPointer(owner);
-            DEOPT_IF(!_PyDictOrValues_IsValues(dorv), STORE_ATTR);
+            PyDictOrValues *dorv_ptr = _PyObject_DictOrValuesPointer(owner);
+            PyDictValues *values = _PyDictValues_Lock(dorv_ptr);
+            DEOPT_IF(values == NULL, STORE_ATTR);
             STAT_INC(STORE_ATTR, hit);
-            PyDictValues *values = _PyDictOrValues_GetValues(dorv);
             PyObject *old_value = values->values[index];
-            values->values[index] = value;
+            _Py_atomic_store_ptr_release(&values->values[index], value);
             if (old_value == NULL) {
                 _PyDictValues_AddToInsertionOrder(values, index);
             }
-            else {
-                Py_DECREF(old_value);
-            }
+            _PyDictValues_Unlock(dorv_ptr);
+            Py_XDECREF(old_value);
             Py_DECREF(owner);
             STACK_SHRINK(2);
             JUMPBY(4);
@@ -2016,30 +2011,31 @@
             assert(type_version != 0);
             DEOPT_IF(tp->tp_version_tag != type_version, STORE_ATTR);
             assert(tp->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-            PyDictOrValues dorv = *_PyObject_DictOrValuesPointer(owner);
+            PyDictOrValues dorv = _PyObject_DictOrValues(owner);
             DEOPT_IF(_PyDictOrValues_IsValues(dorv), STORE_ATTR);
             PyDictObject *dict = (PyDictObject *)_PyDictOrValues_GetDict(dorv);
             DEOPT_IF(dict == NULL, STORE_ATTR);
             assert(PyDict_CheckExact((PyObject *)dict));
             PyObject *name = GETITEM(names, oparg);
-            DEOPT_IF(hint >= (size_t)dict->ma_keys->dk_nentries, STORE_ATTR);
+            Py_BEGIN_CRITICAL_SECTION(&dict->ma_mutex);
+            DEOPT_UNLOCK_IF(hint >= (size_t)dict->ma_keys->dk_nentries, STORE_ATTR);
             PyObject *old_value;
             uint64_t new_version;
             if (DK_IS_UNICODE(dict->ma_keys)) {
                 PyDictUnicodeEntry *ep = DK_UNICODE_ENTRIES(dict->ma_keys) + hint;
-                DEOPT_IF(ep->me_key != name, STORE_ATTR);
+                DEOPT_UNLOCK_IF(ep->me_key != name, STORE_ATTR);
                 old_value = ep->me_value;
-                DEOPT_IF(old_value == NULL, STORE_ATTR);
+                DEOPT_UNLOCK_IF(old_value == NULL, STORE_ATTR);
                 new_version = _PyDict_NotifyEvent(PyDict_EVENT_MODIFIED, dict, name, value);
-                ep->me_value = value;
+                _Py_atomic_store_ptr_relaxed(&ep->me_value, value);
             }
             else {
                 PyDictKeyEntry *ep = DK_ENTRIES(dict->ma_keys) + hint;
-                DEOPT_IF(ep->me_key != name, STORE_ATTR);
+                DEOPT_UNLOCK_IF(ep->me_key != name, STORE_ATTR);
                 old_value = ep->me_value;
-                DEOPT_IF(old_value == NULL, STORE_ATTR);
+                DEOPT_UNLOCK_IF(old_value == NULL, STORE_ATTR);
                 new_version = _PyDict_NotifyEvent(PyDict_EVENT_MODIFIED, dict, name, value);
-                ep->me_value = value;
+                _Py_atomic_store_ptr_relaxed(&ep->me_value, value);
             }
             Py_DECREF(old_value);
             STAT_INC(STORE_ATTR, hit);
@@ -2049,6 +2045,7 @@
             }
             /* PEP 509 */
             dict->ma_version_tag = new_version;
+            Py_END_CRITICAL_SECTION;
             Py_DECREF(owner);
             STACK_SHRINK(2);
             JUMPBY(4);
@@ -2619,15 +2616,19 @@
             DEOPT_IF(Py_TYPE(it) != &PyListIter_Type, FOR_ITER);
             STAT_INC(FOR_ITER, hit);
             PyListObject *seq = it->it_seq;
-            if (it->it_index >= 0) {
-                if (it->it_index < PyList_GET_SIZE(seq)) {
-                    PyObject *next = PyList_GET_ITEM(seq, it->it_index++);
-                    PUSH(Py_NewRef(next));
-                    JUMPBY(INLINE_CACHE_ENTRIES_FOR_ITER);
-                    goto end_for_iter_list;  // End of this instruction
-                }
-                it->it_index = -1;
+            Py_ssize_t index = _Py_atomic_load_ssize_relaxed(&it->it_index);
+            Py_ssize_t size = _Py_atomic_load_ssize_relaxed(&((PyVarObject *)seq)->ob_size);
+            if ((size_t)index < (size_t)size) {
+                PyObject **ob_item = _Py_atomic_load_ptr_relaxed(&seq->ob_item);
+                DEOPT_IF(index >= _PyList_Capacity(ob_item), FOR_ITER);
+                PyObject *next = _Py_TryXFetchRef(&ob_item[index]);
+                DEOPT_IF(next == NULL, FOR_ITER);
+                _Py_atomic_store_ssize_relaxed(&it->it_index, index + 1);
+                PUSH(next);
+                JUMPBY(INLINE_CACHE_ENTRIES_FOR_ITER);
+                goto end_for_iter_list;  // End of this instruction
             }
+            _Py_atomic_store_ssize_relaxed(&it->it_index, -1);
             STACK_SHRINK(1);
             Py_DECREF(it);
             JUMPBY(INLINE_CACHE_ENTRIES_FOR_ITER + oparg + 1);
@@ -2829,7 +2830,7 @@
             assert(type_version != 0);
             DEOPT_IF(self_cls->tp_version_tag != type_version, LOAD_ATTR);
             assert(self_cls->tp_flags & Py_TPFLAGS_MANAGED_DICT);
-            PyDictOrValues dorv = *_PyObject_DictOrValuesPointer(self);
+            PyDictOrValues dorv = _PyObject_DictOrValues(self);
             DEOPT_IF(!_PyDictOrValues_IsValues(dorv), LOAD_ATTR);
             PyHeapTypeObject *self_heap_type = (PyHeapTypeObject *)self_cls;
             DEOPT_IF(self_heap_type->ht_cached_keys->dk_version !=
@@ -3313,11 +3314,16 @@
             PyObject *callable = PEEK(3);
             PyInterpreterState *interp = _PyInterpreterState_GET();
             DEOPT_IF(callable != interp->callable_cache.list_append, CALL);
-            PyObject *list = SECOND();
-            DEOPT_IF(!PyList_Check(list), CALL);
+            PyObject *self = SECOND();
+            DEOPT_IF(!PyList_Check(self), CALL);
             STAT_INC(CALL, hit);
             PyObject *arg = POP();
-            if (_PyList_AppendTakeRef((PyListObject *)list, arg) < 0) {
+            PyListObject *list = (PyListObject *)self;
+            int err;
+            Py_BEGIN_CRITICAL_SECTION(&list->mutex);
+            err = _PyList_AppendTakeRef(list, arg);
+            Py_END_CRITICAL_SECTION;
+            if (err < 0) {
                 goto error;
             }
             STACK_SHRINK(2);

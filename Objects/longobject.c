@@ -62,6 +62,7 @@ get_small_int(sdigit ival)
 {
     assert(IS_SMALL_INT(ival));
     PyObject *v = (PyObject *)&_PyLong_SMALL_INTS[_PY_NSMALLNEGINTS + ival];
+    assert(_PyObject_IS_IMMORTAL(v));
     return v;
 }
 
@@ -277,7 +278,7 @@ _PyLong_AssignValue(PyObject **target, Py_ssize_t value)
         return 0;
     }
     else if (old != NULL && PyLong_CheckExact(old) &&
-             Py_REFCNT(old) == 1 && Py_SIZE(old) == 1 &&
+             _PyObject_HasLocalRefcnt(old, 1) && Py_SIZE(old) == 1 &&
              (size_t)value <= PyLong_MASK)
     {
         // Mutate in place if there are no other references the old

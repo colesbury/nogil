@@ -301,13 +301,6 @@ valid_index(Py_ssize_t i, Py_ssize_t limit)
     return (size_t) i < (size_t) limit;
 }
 
-static Py_ssize_t
-list_capacity(PyObject **ob_item)
-{
-    _PyListArray *arr = list_array(ob_item);
-    return _Py_atomic_load_ssize_relaxed(&arr->allocated);
-}
-
 Py_NO_INLINE static PyObject *
 list_item_locked(PyListObject *self, Py_ssize_t idx, PyObject *dead)
 {
@@ -349,7 +342,7 @@ list_fetch_item(PyListObject *self, Py_ssize_t idx)
     if (ob_item == NULL) {
         return NULL;
     }
-    if (!valid_index(idx, list_capacity(ob_item))) {
+    if (!valid_index(idx, _PyList_Capacity(ob_item))) {
         return NULL;
     }
     PyObject *item = _Py_atomic_load_ptr(&ob_item[idx]);
