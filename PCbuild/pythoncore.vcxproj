@@ -251,6 +251,7 @@
     <ClInclude Include="..\Include\internal\pycore_pylifecycle.h" />
     <ClInclude Include="..\Include\internal\pycore_pymem.h" />
     <ClInclude Include="..\Include\internal\pycore_pymem_init.h" />
+    <ClInclude Include="..\Include\internal\pycore_pyqueue.h" />
     <ClInclude Include="..\Include\internal\pycore_pystate.h" />
     <ClInclude Include="..\Include\internal\pycore_pythread.h" />
     <ClInclude Include="..\Include\internal\pycore_qsbr.h" />
