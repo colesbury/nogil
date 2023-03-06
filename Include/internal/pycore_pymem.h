@@ -33,6 +33,13 @@ struct _pymem_allocators {
     PyObjectArenaAllocator obj_arena;
 };
 
+struct _mem_state {
+    _PyMutex mutex;
+    /* Queue of data pointers to be freed from dead threads */
+    struct _Py_queue_head/*<_PyMemWork>*/ work;
+    int nonempty;
+};
+
 
 /* Set the memory allocator of the specified domain to the default.
    Save the old allocator into *old_alloc if it's non-NULL.
@@ -91,6 +98,12 @@ PyAPI_FUNC(int) _PyMem_GetAllocatorName(
    Pass PYMEM_ALLOCATOR_DEFAULT to use default allocators.
    PYMEM_ALLOCATOR_NOT_SET does nothing. */
 PyAPI_FUNC(int) _PyMem_SetupAllocators(PyMemAllocatorName allocator);
+
+/* Free the pointer after all threads are quiescent. */
+extern void _PyMem_FreeQsbr(void *ptr);
+extern void _PyMem_QsbrPoll(PyThreadState *tstate);
+extern void _PyMem_AbandonQsbr(PyThreadState *tstate);
+extern void _PyMem_QsbrFini(PyInterpreterState *interp);
 
 extern void * _PyMem_DefaultRawMalloc(size_t);
 extern void * _PyMem_DefaultRawCalloc(size_t, size_t);

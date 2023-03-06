@@ -24,6 +24,7 @@ extern "C" {
 #include "pycore_list.h"          // struct _Py_list_state
 #include "pycore_llist.h"         // struct llist_node
 #include "pycore_global_objects.h"  // struct _Py_interp_static_objects
+#include "pycore_pymem.h"         // struct _mem_work
 #include "pycore_tuple.h"         // struct _Py_tuple_state
 #include "pycore_typeobject.h"    // struct type_cache
 #include "pycore_unicodeobject.h" // struct _Py_unicode_state
@@ -118,6 +119,7 @@ struct _is {
 
     struct _ceval_state ceval;
     struct _gc_runtime_state gc;
+    struct _mem_state mem;
 
     // sys.modules dictionary
     PyObject *modules;

@@ -76,6 +76,7 @@
 #include "cpython/cellobject.h"
 #include "iterobject.h"
 #include "cpython/initconfig.h"
+#include "cpython/pyqueue.h"
 #include "pystate.h"
 #include "cpython/genobject.h"
 #include "descrobject.h"

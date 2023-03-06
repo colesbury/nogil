@@ -13,6 +13,8 @@ struct qsbr {
     uint64_t            t_seq;
     struct qsbr_shared  *t_shared;
     struct qsbr         *t_next;
+    int                 t_deferred;
+    int                 t_limit;
     PyThreadState       *tstate;
 };
 
@@ -45,6 +47,9 @@ _Py_qsbr_init(struct qsbr_shared *shared);
 
 uint64_t
 _Py_qsbr_advance(struct qsbr_shared *shared);
+
+uint64_t
+_Py_qsbr_deferred_advance(struct qsbr *qsbr);
 
 bool
 _Py_qsbr_poll(struct qsbr *qsbr, uint64_t goal);

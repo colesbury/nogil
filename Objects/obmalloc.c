@@ -1,10 +1,11 @@
 #include "Python.h"
 #include "pycore_code.h"          // stats
 #include "pycore_pystate.h"       // _PyInterpreterState_GET
-
 #include "pycore_obmalloc.h"
 #include "pycore_pymem.h"
 #include "pycore_pymem_init.h"
+#include "pycore_pyqueue.h"
+#include "pycore_qsbr.h"
 
 #include <stdlib.h>               // malloc()
 #include <stdbool.h>
@@ -674,6 +675,150 @@ PyMem_Free(void *ptr)
     _PyMem.free(_PyMem.ctx, ptr);
 }
 
+
+typedef struct {
+    void *ptr;
+    uint64_t seq;
+} _PyMem_WorkItem;
+
+#define PY_MEM_WORK_ITEMS 127
+
+typedef struct _PyMemWork {
+    struct _Py_queue_node node;
+    unsigned int first;
+    unsigned int size;
+    _PyMem_WorkItem items[PY_MEM_WORK_ITEMS];
+} _PyMem_WorkBuf;
+
+void
+_PyMem_FreeQsbr(void *ptr)
+{
+    PyThreadState *tstate = _PyThreadState_GET();
+
+    // Try to get an non-full workbuf
+    _PyMem_WorkBuf *work = NULL;
+    if (!_Py_queue_is_empty(&tstate->mem_work)) {
+        work = _Py_queue_last(&tstate->mem_work, _PyMem_WorkBuf, node);
+        if (work->size == PY_MEM_WORK_ITEMS) {
+            work = NULL;
+        }
+    }
+
+    if (work == NULL) {
+        work = PyMem_RawMalloc(sizeof(_PyMem_WorkBuf));
+        if (work == NULL) {
+            Py_FatalError("out of memory (in _PyMem_FreeQsbr)");
+        }
+        work->first = work->size = 0;
+        _Py_queue_enqeue(&tstate->mem_work, &work->node);
+    }
+
+    PyThreadStateImpl *tstate_impl = (PyThreadStateImpl *)tstate;
+    work->items[work->size].ptr = ptr;
+    work->items[work->size].seq = _Py_qsbr_deferred_advance(tstate_impl->qsbr);
+    work->size++;
+
+    if (work->size == PY_MEM_WORK_ITEMS) {
+        // Now seems like a good time to check for any memory that can be freed.
+        _PyMem_QsbrPoll(tstate);
+    }
+}
+
+static int
+_PyMem_ProcessQueue(struct _Py_queue_head *queue, struct qsbr *qsbr, bool keep_empty)
+{
+    while (!_Py_queue_is_empty(queue)) {
+        _PyMem_WorkBuf *work = _Py_queue_first(queue, _PyMem_WorkBuf, node);
+        if (work->size == 0 && keep_empty) {
+            return 0;
+        }
+        while (work->first < work->size) {
+            _PyMem_WorkItem *item = &work->items[work->first];
+            if (!_Py_qsbr_poll(qsbr, item->seq)) {
+                return 1;
+            }
+            PyMem_Free(item->ptr);
+            work->first++;
+        }
+
+        // Remove the empty work buffer
+        _Py_queue_dequeue(queue);
+
+        // If the queue doesn't have an empty work buffer, stick this
+        // one at the end of the queue.  Otherwise, free it.
+        if (keep_empty && _Py_queue_is_empty(queue)) {
+            work->first = work->size = 0;
+            _Py_queue_enqeue(queue, &work->node);
+            return 0;
+        }
+        else if (keep_empty && _Py_queue_last(queue, _PyMem_WorkBuf, node)->size == 0) {
+            work->first = work->size = 0;
+            _Py_queue_enqeue(queue, &work->node);
+        }
+        else {
+            PyMem_RawFree(work);
+        }
+    }
+    return 0;
+}
+
+void
+_PyMem_QsbrPoll(PyThreadState *tstate)
+{
+    struct qsbr *qsbr = ((PyThreadStateImpl *)tstate)->qsbr;
+
+    // Process any work on the thread-local queue.
+    _PyMem_ProcessQueue(&tstate->mem_work, qsbr, true);
+
+    // Process any work on the interpreter queue if we can get the lock.
+    PyInterpreterState *interp = tstate->interp;
+    if (_Py_atomic_load_int_relaxed(&interp->mem.nonempty) &&
+            _PyMutex_TryLock(&interp->mem.mutex)) {
+        int more = _PyMem_ProcessQueue(&interp->mem.work, qsbr, false);
+        _Py_atomic_store_int_relaxed(&interp->mem.nonempty, more);
+        _PyMutex_unlock(&interp->mem.mutex);
+    }
+}
+
+void
+_PyMem_QsbrFini(PyInterpreterState *interp)
+{
+    struct _Py_queue_head *queue = &interp->mem.work;
+    while (!_Py_queue_is_empty(queue)) {
+        _PyMem_WorkBuf *work = _Py_queue_first(queue, _PyMem_WorkBuf, node);
+        while (work->first < work->size) {
+            _PyMem_WorkItem *item = &work->items[work->first];
+            PyMem_Free(item->ptr);
+            work->first++;
+        }
+        _Py_queue_dequeue(queue);
+        PyMem_RawFree(work);
+    }
+    interp->mem.nonempty = 0;
+}
+
+void
+_PyMem_AbandonQsbr(PyThreadState *tstate)
+{
+    PyInterpreterState *interp = tstate->interp;
+
+    while (!_Py_queue_is_empty(&tstate->mem_work)) {
+        struct _Py_queue_node *node = _Py_queue_dequeue(&tstate->mem_work);
+        if (node == NULL) {
+            break;
+        }
+        _PyMem_WorkBuf *work = _Py_queue_data(node, _PyMem_WorkBuf, node);
+        if (work->first == work->size) {
+            PyMem_RawFree(work);
+        }
+        else {
+            _PyMutex_lock(&interp->mem.mutex);
+            _Py_queue_enqeue(&interp->mem.work, node);
+            _Py_atomic_store_int_relaxed(&interp->mem.nonempty, 1);
+            _PyMutex_unlock(&interp->mem.mutex);
+        }
+    }
+}
 
 wchar_t*
 _PyMem_RawWcsdup(const wchar_t *str)

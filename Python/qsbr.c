@@ -58,6 +58,7 @@ _Py_qsbr_alloc(struct qsbr_shared *shared)
     }
     memset(qsbr, 0, sizeof(*qsbr));
     qsbr->t_shared = shared;
+    qsbr->t_limit = 32;
     return qsbr;
 }
 
@@ -93,6 +94,16 @@ _Py_qsbr_advance(struct qsbr_shared *shared)
 {
     // TODO(sgross): handle potential wrap around
     return _Py_atomic_add_uint64(&shared->s_wr, QSBR_INCR) + QSBR_INCR;
+}
+
+uint64_t
+_Py_qsbr_deferred_advance(struct qsbr *qsbr)
+{
+	if (++qsbr->t_deferred < qsbr->t_limit) {
+        return _Py_qsbr_shared_current(qsbr->t_shared) + QSBR_INCR;
+    }
+    qsbr->t_deferred = 0;
+    return _Py_qsbr_advance(qsbr->t_shared);
 }
 
 uint64_t
