@@ -675,31 +675,46 @@ PyMem_Free(void *ptr)
     _PyMem.free(_PyMem.ctx, ptr);
 }
 
-
-typedef struct {
+typedef union {
     void *ptr;
-    uint64_t seq;
-} _PyMem_WorkItem;
+    void (*func)(void *);
+    uint64_t tagged_seq;
+} workitem;
 
-#define PY_MEM_WORK_ITEMS 127
+#define PY_MEM_WORK_ITEMS 254
 
 typedef struct _PyMemWork {
     struct _Py_queue_node node;
     unsigned int first;
     unsigned int size;
-    _PyMem_WorkItem items[PY_MEM_WORK_ITEMS];
+    workitem items[PY_MEM_WORK_ITEMS];
 } _PyMem_WorkBuf;
 
+
 void
-_PyMem_FreeQsbr(void *ptr)
+_PyQsbr_Free(void *ptr, freefunc func)
 {
+    int nitems = (func == NULL ? 2 : 3);
+
+    if (_PyRuntime.stop_the_world) {
+        // Free immediately if the world is stopped, including during
+        // interpreter shutdown.
+        if (func == NULL) {
+            PyMem_Free(ptr);
+        }
+        else {
+            func(ptr);
+        }
+        return;
+    }
+
     PyThreadState *tstate = _PyThreadState_GET();
 
     // Try to get an non-full workbuf
     _PyMem_WorkBuf *work = NULL;
     if (!_Py_queue_is_empty(&tstate->mem_work)) {
         work = _Py_queue_last(&tstate->mem_work, _PyMem_WorkBuf, node);
-        if (work->size == PY_MEM_WORK_ITEMS) {
+        if (work->size + nitems >= PY_MEM_WORK_ITEMS) {
             work = NULL;
         }
     }
@@ -714,13 +729,39 @@ _PyMem_FreeQsbr(void *ptr)
     }
 
     PyThreadStateImpl *tstate_impl = (PyThreadStateImpl *)tstate;
-    work->items[work->size].ptr = ptr;
-    work->items[work->size].seq = _Py_qsbr_deferred_advance(tstate_impl->qsbr);
-    work->size++;
+    uint64_t seq = _Py_qsbr_deferred_advance(tstate_impl->qsbr);
+    assert(seq % 2 == 1);
+    work->items[work->size++].tagged_seq = seq - (func == NULL ? 1 : 0);
+    work->items[work->size++].ptr = ptr;
+    if (func != NULL) {
+        work->items[work->size++].func = func;
+    }
 
-    if (work->size == PY_MEM_WORK_ITEMS) {
+    if (work->size + 3 >= PY_MEM_WORK_ITEMS) {
         // Now seems like a good time to check for any memory that can be freed.
         _PyMem_QsbrPoll(tstate);
+    }
+}
+
+void
+_PyMem_FreeQsbr(void *ptr)
+{
+    _PyQsbr_Free(ptr, NULL);
+}
+
+static void
+free_next_workitem(_PyMem_WorkBuf *work)
+{
+    int tag = work->items[work->first].tagged_seq & 1;
+    void *ptr = work->items[work->first + 1].ptr;
+    if (tag) {
+        void (*func)(void *) = work->items[work->first + 2].func;
+        work->first += 3;
+        func(ptr);
+    }
+    else {
+        work->first += 2;
+        PyMem_Free(ptr);
     }
 }
 
@@ -732,13 +773,14 @@ _PyMem_ProcessQueue(struct _Py_queue_head *queue, struct qsbr *qsbr, bool keep_e
         if (work->size == 0 && keep_empty) {
             return 0;
         }
+
         while (work->first < work->size) {
-            _PyMem_WorkItem *item = &work->items[work->first];
-            if (!_Py_qsbr_poll(qsbr, item->seq)) {
+            uint64_t tagged_seq = work->items[work->first].tagged_seq;
+            uint64_t seq = tagged_seq | 1; /* seq numbers are always odd */
+            if (!_Py_qsbr_poll(qsbr, seq)) {
                 return 1;
             }
-            PyMem_Free(item->ptr);
-            work->first++;
+            free_next_workitem(work);
         }
 
         // Remove the empty work buffer
@@ -765,6 +807,8 @@ _PyMem_ProcessQueue(struct _Py_queue_head *queue, struct qsbr *qsbr, bool keep_e
 void
 _PyMem_QsbrPoll(PyThreadState *tstate)
 {
+    // FIXME(sgross): avoid re-entrancy
+
     struct qsbr *qsbr = ((PyThreadStateImpl *)tstate)->qsbr;
 
     // Process any work on the thread-local queue.
@@ -787,9 +831,7 @@ _PyMem_QsbrFini(PyInterpreterState *interp)
     while (!_Py_queue_is_empty(queue)) {
         _PyMem_WorkBuf *work = _Py_queue_first(queue, _PyMem_WorkBuf, node);
         while (work->first < work->size) {
-            _PyMem_WorkItem *item = &work->items[work->first];
-            PyMem_Free(item->ptr);
-            work->first++;
+            free_next_workitem(work);
         }
         _Py_queue_dequeue(queue);
         PyMem_RawFree(work);

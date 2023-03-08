@@ -136,6 +136,14 @@ typedef struct {
  * backwards-compatibility */
 typedef Py_ssize_t printfunc;
 
+struct _Py_mro_cache_entry;
+
+typedef struct {
+    struct _Py_mro_cache_entry *buckets;
+    uint32_t mask;
+} _Py_mro_cache;
+
+
 // If this structure is modified, Doc/includes/typestruct.h should be updated
 // as well.
 struct _typeobject {
@@ -220,6 +228,9 @@ struct _typeobject {
 
     destructor tp_finalize;
     vectorcallfunc tp_vectorcall;
+
+    /* Added in version 3.13 */
+    _Py_mro_cache tp_mro_cache;
 
     /* bitset of which type-watchers care about this type */
     char tp_watched;

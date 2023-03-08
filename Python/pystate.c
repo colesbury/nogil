@@ -466,6 +466,7 @@ init_interpreter(PyInterpreterState *interp,
     PyConfig_InitPythonConfig(&interp->config);
     _PyType_InitCache(interp);
     _Py_queue_init(&interp->mem.work);
+    _Py_queue_init(&interp->mro_buckets_to_free);
 
     interp->_initialized = 1;
 }

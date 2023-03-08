@@ -13,6 +13,8 @@ extern "C" {
 // struct _Py_queue_head which contains pointers to the first and
 // last node in the queue.
 
+#define _Py_QUEUE_INIT(name) { { NULL }, &name.first }
+
 static inline void
 _Py_queue_init(struct _Py_queue_head *head)
 {

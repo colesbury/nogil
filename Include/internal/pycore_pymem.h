@@ -101,6 +101,7 @@ PyAPI_FUNC(int) _PyMem_SetupAllocators(PyMemAllocatorName allocator);
 
 /* Free the pointer after all threads are quiescent. */
 extern void _PyMem_FreeQsbr(void *ptr);
+extern void _PyQsbr_Free(void *ptr, freefunc func);
 extern void _PyMem_QsbrPoll(PyThreadState *tstate);
 extern void _PyMem_AbandonQsbr(PyThreadState *tstate);
 extern void _PyMem_QsbrFini(PyInterpreterState *interp);

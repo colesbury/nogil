@@ -223,6 +223,7 @@
     <ClCompile Include="..\Python\lock.c" />
     <ClCompile Include="..\Python\marshal.c" />
     <ClCompile Include="..\Python\modsupport.c" />
+    <ClCompile Include="..\Python\mrocache.c" />
     <ClCompile Include="..\Python\mysnprintf.c" />
     <ClCompile Include="..\Python\mystrtoul.c" />
     <ClCompile Include="..\Python\parking_lot.c" />

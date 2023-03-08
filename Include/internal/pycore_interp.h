@@ -23,6 +23,7 @@ extern "C" {
 #include "pycore_gc.h"            // struct _gc_runtime_state
 #include "pycore_list.h"          // struct _Py_list_state
 #include "pycore_llist.h"         // struct llist_node
+#include "pycore_mrocache.h"      // struct _mro_cache_state
 #include "pycore_global_objects.h"  // struct _Py_interp_static_objects
 #include "pycore_pymem.h"         // struct _mem_work
 #include "pycore_tuple.h"         // struct _Py_tuple_state
@@ -78,8 +79,6 @@ typedef struct PyThreadStateImpl {
     struct brc_state brc;
 
     struct qsbr *qsbr;
-
-    struct type_cache type_cache;
 } PyThreadStateImpl;
 
 
@@ -127,6 +126,7 @@ struct _is {
     struct _ceval_state ceval;
     struct _gc_runtime_state gc;
     struct _mem_state mem;
+    struct _mro_cache_state mro_cache;
 
     // sys.modules dictionary
     PyObject *modules;
@@ -210,6 +210,8 @@ struct _is {
     struct types_state types;
     struct callable_cache callable_cache;
     PyCodeObject *interpreter_trampoline;
+
+    struct _Py_queue_head mro_buckets_to_free;
 
     struct _Py_interp_cached_objects cached_objects;
     struct _Py_interp_static_objects static_objects;

@@ -286,6 +286,9 @@
     <ClCompile Include="..\Objects\moduleobject.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\Python\mrocache.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\PC\msvcrtmodule.c">
       <Filter>Source Files</Filter>
     </ClCompile>

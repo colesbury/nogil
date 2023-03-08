@@ -26,21 +26,6 @@ extern void _PyTypes_Fini(PyInterpreterState *);
 
 typedef struct wrapperbase pytype_slotdef;
 
-
-// Type attribute lookup cache: speed up attribute and method lookups,
-// see _PyType_Lookup().
-struct type_cache_entry {
-    unsigned int version;  // initialized from type->tp_version_tag
-    PyObject *name;        // reference to exactly a str or None
-    PyObject *value;       // borrowed reference or NULL
-};
-
-#define MCACHE_SIZE_EXP 12
-
-struct type_cache {
-    struct type_cache_entry hashtable[1 << MCACHE_SIZE_EXP];
-};
-
 /* For now we hard-code this to a value for which we are confident
    all the static builtin types will fit (for all builds). */
 #define _Py_MAX_STATIC_BUILTIN_TYPES 200
@@ -63,9 +48,6 @@ _PyStaticType_GET_WEAKREFS_LISTPTR(static_builtin_state *state)
 }
 
 struct types_state {
-#ifndef Py_NOGIL
-    struct type_cache type_cache;
-#endif
     size_t num_builtins_initialized;
     static_builtin_state builtins[_Py_MAX_STATIC_BUILTIN_TYPES];
 };

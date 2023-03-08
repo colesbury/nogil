@@ -2825,6 +2825,9 @@ PyInit__testbuffer(void)
 {
     PyObject *m;
 
+    if (PyType_Ready(&NDArray_Type) < 0)
+        return NULL;
+
     m = PyModule_Create(&_testbuffermodule);
     if (m == NULL)
         return NULL;

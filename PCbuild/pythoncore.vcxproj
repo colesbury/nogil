@@ -240,6 +240,7 @@
     <ClInclude Include="..\Include\internal\pycore_lock.h" />
     <ClInclude Include="..\Include\internal\pycore_long.h" />
     <ClInclude Include="..\Include\internal\pycore_moduleobject.h" />
+    <ClInclude Include="..\Include\internal\pycore_mrocache.h" />
     <ClInclude Include="..\Include\internal\pycore_namespace.h" />
     <ClInclude Include="..\Include\internal\pycore_object.h" />
     <ClInclude Include="..\Include\internal\pycore_obmalloc.h" />
@@ -554,6 +555,7 @@
     <ClCompile Include="..\Python\lock.c" />
     <ClCompile Include="..\Python\marshal.c" />
     <ClCompile Include="..\Python\modsupport.c" />
+    <ClCompile Include="..\Python\mrocache.c" />
     <ClCompile Include="..\Python\mysnprintf.c" />
     <ClCompile Include="..\Python\mystrtoul.c" />
     <ClCompile Include="..\Python\parking_lot.c" />

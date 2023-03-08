@@ -7,6 +7,7 @@
 #include "pycore_dict.h"          // _PyDict_KeysSize()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_moduleobject.h"  // _PyModule_GetDef()
+#include "pycore_mrocache.h"      // _Py_mro_cache_lookup
 #include "pycore_object.h"        // _PyType_HasFeature()
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
 #include "pycore_pystate.h"       // _PyThreadState_GET()
@@ -28,27 +29,10 @@ class object "PyObject *" "&PyBaseObject_Type"
 
 /* Support type attribute lookup cache */
 
-/* The cache can keep references to the names alive for longer than
-   they normally would.  This is why the maximum size is limited to
-   MCACHE_MAX_ATTR_SIZE, since it might be a problem if very large
-   strings are used as attribute names. */
-#define MCACHE_MAX_ATTR_SIZE    100
-#define MCACHE_HASH(version, name_hash)                                 \
-        (((unsigned int)(version) ^ (unsigned int)(name_hash))          \
-         & ((1 << MCACHE_SIZE_EXP) - 1))
-
-static inline unsigned int
-MCACHE_HASH_METHOD(PyTypeObject *type, PyObject *name)
-{
-    unsigned int version = _Py_atomic_load_uint32_relaxed(&type->tp_version_tag);
-    return MCACHE_HASH(version, ((Py_ssize_t)(name)) >> 3);
-}
-
 #define MCACHE_CACHEABLE_NAME(name)                             \
         PyUnicode_CheckExact(name) &&                           \
         PyUnicode_IS_READY(name) &&                             \
-        PyUnicode_CHECK_INTERNED(name) &&                       \
-        (PyUnicode_GET_LENGTH(name) <= MCACHE_MAX_ATTR_SIZE)
+        PyUnicode_CHECK_INTERNED(name)
 
 #define next_version_tag (_PyRuntime.types.next_version_tag)
 
@@ -292,45 +276,22 @@ _PyType_GetTextSignatureFromInternalDoc(const char *name, const char *internal_d
 }
 
 
-static struct type_cache*
-get_type_cache(void)
-{
-    PyThreadState *tstate = _PyThreadState_GET();
-#ifdef Py_NOGIL
-    return &((PyThreadStateImpl *)tstate)->type_cache;
-#else
-    return &tstate->interp->types.type_cache;
-#endif
-}
-
-
 void
 _PyType_InitCache(PyInterpreterState *interp)
 {
 }
 
-
-static unsigned int
-_PyType_ClearCache(PyThreadStateImpl *tstate)
-{
-    memset(&tstate->type_cache, 0, sizeof(tstate->type_cache));
-    return next_version_tag - 1;
-}
-
-
 unsigned int
 PyType_ClearCache(void)
 {
     // TODO: clear all threads type caches or merge type caches
-    PyThreadState *tstate = _PyThreadState_GET();
-    return _PyType_ClearCache((PyThreadStateImpl *)tstate);
+    return next_version_tag - 1;
 }
 
 
 void
 _PyTypes_Fini(PyInterpreterState *interp)
 {
-    _PyType_ClearCache(&interp->_initial_thread);
     assert(interp->types.num_builtins_initialized == 0);
     // All the static builtin types should have been finalized already.
     for (size_t i = 0; i < _Py_MAX_STATIC_BUILTIN_TYPES; i++) {
@@ -474,6 +435,7 @@ _PyType_ModifiedEx(PyTypeObject *type)
         }
     }
 
+    _Py_mro_cache_erase(&type->tp_mro_cache);
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
     type->tp_version_tag = 0; /* 0 is not a valid version tag */
 }
@@ -484,6 +446,7 @@ PyType_Modified(PyTypeObject *type)
     _PyMutex_lock(&_PyRuntime.mutex);
     _PyType_ModifiedEx(type);
     _PyMutex_unlock(&_PyRuntime.mutex);
+    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
 }
 
 static void
@@ -535,8 +498,12 @@ type_mro_modified(PyTypeObject *type, PyObject *bases) {
     }
     return;
  clear:
+    _PyMutex_lock(&_PyRuntime.mutex);
+    _Py_mro_cache_erase(&type->tp_mro_cache);
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
     type->tp_version_tag = 0; /* 0 is not a valid version tag */
+    _PyMutex_unlock(&_PyRuntime.mutex);
+    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
 }
 
 static unsigned int
@@ -1150,6 +1117,16 @@ type_set_annotations(PyTypeObject *type, PyObject *value, void *context)
     return result;
 }
 
+static PyObject *
+type_get_mro_cache(PyTypeObject *type, void *context)
+{
+    PyObject *res;
+    _PyMutex_lock(&_PyRuntime.mutex);
+    res = _Py_mro_cache_as_dict(&type->tp_mro_cache);
+    _PyMutex_unlock(&_PyRuntime.mutex);
+    return res;
+}
+
 
 /*[clinic input]
 type.__instancecheck__ -> bool
@@ -1195,6 +1172,7 @@ static PyGetSetDef type_getsets[] = {
     {"__doc__", (getter)type_get_doc, (setter)type_set_doc, NULL},
     {"__text_signature__", (getter)type_get_text_signature, NULL, NULL},
     {"__annotations__", (getter)type_get_annotations, (setter)type_set_annotations, NULL},
+    {"__mro_cache__", (getter)type_get_mro_cache, NULL, NULL},
     {0}
 };
 
@@ -4160,31 +4138,12 @@ is_dunder_name(PyObject *name)
     return 0;
 }
 
-/* Internal API to look for a name through the MRO.
-   This returns a borrowed reference, and doesn't set an exception! */
-PyObject *
-_PyType_Lookup(PyTypeObject *type, PyObject *name)
-{
-    PyObject *res;
+Py_NO_INLINE static PyObject *
+_PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
+    // TODO(sgross): perform lookup and insert under lock
+
     int error;
-
-    unsigned int h = MCACHE_HASH_METHOD(type, name);
-    struct type_cache *cache = get_type_cache();
-    struct type_cache_entry *entry = &cache->hashtable[h];
-    if (entry->version == type->tp_version_tag &&
-        entry->name == name) {
-        assert(_PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG));
-        OBJECT_STAT_INC_COND(type_cache_hits, !is_dunder_name(name));
-        OBJECT_STAT_INC_COND(type_cache_dunder_hits, is_dunder_name(name));
-        return entry->value;
-    }
-    OBJECT_STAT_INC_COND(type_cache_misses, !is_dunder_name(name));
-    OBJECT_STAT_INC_COND(type_cache_dunder_misses, is_dunder_name(name));
-
-    /* We may end up clearing live exceptions below, so make sure it's ours. */
-    assert(!PyErr_Occurred());
-
-    res = find_name_in_mro(type, name, &error);
+    PyObject *res = find_name_in_mro(type, name, &error);
     /* Only put NULL results into cache if there was no error. */
     if (error) {
         /* It's not ideal to clear the error condition,
@@ -4201,18 +4160,36 @@ _PyType_Lookup(PyTypeObject *type, PyObject *name)
         return NULL;
     }
 
-    if (MCACHE_CACHEABLE_NAME(name) && assign_version_tag(type)) {
-        h = MCACHE_HASH_METHOD(type, name);
-        struct type_cache_entry *entry = &cache->hashtable[h];
-        entry->version = type->tp_version_tag;
-        entry->value = res;  /* borrowed */
-        assert(_PyASCIIObject_CAST(name)->hash != -1);
-        OBJECT_STAT_INC_COND(type_cache_collisions, entry->name != NULL && entry->name != name);
-        assert(_PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG));
-        assert(_PyObject_IS_IMMORTAL(name));
-        entry->name = name;
+    /* We may end up clearing live exceptions below, so make sure it's ours. */
+    assert(!PyErr_Occurred());
+
+    if (MCACHE_CACHEABLE_NAME(name)) {
+        // TODO(sgross): want consistency with find_name_in_mros
+        _PyMutex_lock(&_PyRuntime.mutex);
+        if (assign_version_tag(type)) {
+            _Py_mro_cache_insert(&type->tp_mro_cache, name, res);
+        }
+        _PyMutex_unlock(&_PyRuntime.mutex);
+        _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
     }
+
     return res;
+}
+
+/* Internal API to look for a name through the MRO.
+   This returns a borrowed reference, and doesn't set an exception! */
+PyObject *
+_PyType_Lookup(PyTypeObject *type, PyObject *name)
+{
+    _Py_mro_cache_result r = _Py_mro_cache_lookup(&type->tp_mro_cache, name);
+    if (r.hit) {
+        OBJECT_STAT_INC_COND(type_cache_hits, !is_dunder_name(name));
+        OBJECT_STAT_INC_COND(type_cache_dunder_hits, is_dunder_name(name));
+        return r.value;
+    }
+    OBJECT_STAT_INC_COND(type_cache_misses, !is_dunder_name(name));
+    OBJECT_STAT_INC_COND(type_cache_dunder_misses, is_dunder_name(name));
+    return _PyType_LookupSlow(type, name);
 }
 
 PyObject *
@@ -4407,6 +4384,8 @@ type_dealloc_common(PyTypeObject *type)
         remove_all_subclasses(type, type->tp_bases);
         PyErr_Restore(tp, val, tb);
     }
+    _Py_mro_cache_fini_type(type);
+    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
 }
 
 
@@ -4744,6 +4723,10 @@ type_traverse(PyTypeObject *type, visitproc visit, void *arg)
     Py_VISIT(type->tp_bases);
     Py_VISIT(type->tp_base);
     Py_VISIT(((PyHeapTypeObject *)type)->ht_module);
+    int err =_Py_mro_cache_visit(&type->tp_mro_cache, visit, arg);
+    if (err != 0) {
+        return err;
+    }
 
     /* There's no need to visit others because they can't be involved
        in cycles:
@@ -6979,6 +6962,10 @@ PyType_Ready(PyTypeObject *type)
     if (!(type->tp_flags & Py_TPFLAGS_HEAPTYPE)) {
         type->tp_flags |= Py_TPFLAGS_IMMUTABLETYPE;
     }
+
+    _PyMutex_lock(&_PyRuntime.mutex);
+    _Py_mro_cache_init_type(type);
+    _PyMutex_unlock(&_PyRuntime.mutex);
 
     if (type_ready(type) < 0) {
         type->tp_flags &= ~Py_TPFLAGS_READYING;

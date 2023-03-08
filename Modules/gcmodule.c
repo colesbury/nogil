@@ -33,6 +33,7 @@
 #include "pycore_pymem.h"
 #include "pycore_pystate.h"
 #include "pycore_refcnt.h"
+#include "pycore_qsbr.h"
 #include "pycore_gc.h"
 #include "frameobject.h"        /* for PyFrame_ClearFreeList */
 #include "pydtrace.h"
@@ -1696,6 +1697,10 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
      * this if they insist on creating this type of structure.
      */
     handle_legacy_finalizers(tstate, gcstate, &finalizers);
+
+    _Py_qsbr_advance(&_PyRuntime.qsbr_shared);
+    _Py_qsbr_quiescent_state(tstate);
+    _PyMem_QsbrPoll(tstate);
 
     if (_PyErr_Occurred(tstate)) {
         if (reason == GC_REASON_SHUTDOWN) {

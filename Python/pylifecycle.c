@@ -15,6 +15,7 @@
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_list.h"          // _PyList_Fini()
 #include "pycore_long.h"          // _PyLong_InitTypes()
+#include "pycore_mrocache.h"      // _Py_mro_cache_init()
 #include "pycore_object.h"        // _PyDebug_PrintTotalRefs()
 #include "pycore_pathconfig.h"    // _PyConfig_WritePathConfig()
 #include "pycore_pyerrors.h"      // _PyErr_Occurred()
@@ -900,6 +901,11 @@ pycore_interp_init(PyThreadState *tstate)
     // can use it instead of creating a heap allocated string.
     if (_Py_Deepfreeze_Init() < 0) {
         return _PyStatus_ERR("failed to initialize deep-frozen modules");
+    }
+
+    status = _Py_mro_cache_init(interp);
+    if (_PyStatus_EXCEPTION(status)) {
+        goto done;
     }
 
     status = pycore_init_types(interp);
@@ -1797,6 +1803,7 @@ finalize_interp_clear(PyThreadState *tstate)
     }
 
     finalize_interp_types(tstate);
+    _Py_mro_cache_fini(tstate->interp);
 }
 
 
