@@ -135,7 +135,7 @@ PyAPI_FUNC(int) Py_Is(PyObject *x, PyObject *y);
 #define Py_Is(x, y) ((x) == (y))
 
 static inline void
-_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal);
+_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal, int *deferred);
 
 static inline void
 _PyRef_UnpackShared(uint32_t bits, Py_ssize_t *refcount, int *queued, int *merged);
@@ -148,7 +148,7 @@ static inline Py_ssize_t Py_REFCNT(PyObject *ob) {
     int immortal;
 
     uint32_t local = _Py_atomic_load_uint32_relaxed(&ob->ob_ref_local);
-    _PyRef_UnpackLocal(local, &local_refcount, &immortal);
+    _PyRef_UnpackLocal(local, &local_refcount, &immortal, NULL);
 
     if (immortal) {
         return 999;
@@ -617,7 +617,7 @@ _Py_ThreadLocal(PyObject *op)
 #define _Py_REF_LOCAL_SHIFT     0
 #define _Py_REF_LOCAL_INIT      1
 #define Py_REF_IMMORTAL         -1
-#define _Py_REF_DEFERRED_MASK   0x40000000
+#define _Py_REF_DEFERRED_MASK 0xC0000000
 
 // 30         2
 // [refcount] [bits]
@@ -884,10 +884,17 @@ static inline PyObject* _Py_XNewRef(PyObject *obj)
 #endif
 
 static inline void
-_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal)
+_PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal, int *deferred)
 {
     *refcount = bits >> _Py_REF_LOCAL_SHIFT;
     *immortal = _Py_REF_IS_IMMORTAL(bits);
+    int is_deferred = _Py_STATIC_CAST(int32_t, bits) < Py_REF_IMMORTAL;
+    if (is_deferred) {
+        *refcount -= _Py_REF_DEFERRED_MASK;
+    }
+    if (deferred) {
+        *deferred = is_deferred;
+    }
 }
 
 static inline void
@@ -925,7 +932,7 @@ _PyObject_IsReferened(PyObject *op)
     int immortal;
 
     uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
-    _PyRef_UnpackLocal(local, &local_refcount, &immortal);
+    _PyRef_UnpackLocal(local, &local_refcount, &immortal, NULL);
 
     if (immortal) {
         return 1;
@@ -938,6 +945,13 @@ _PyObject_IsReferened(PyObject *op)
     _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
 
     return (local_refcount + shared_refcount) > 0;
+}
+
+static inline int
+_PyObject_HasDeferredRefcount(PyObject *op)
+{
+    uint32_t local = _Py_atomic_load_uint32_relaxed(&op->ob_ref_local);
+    return _Py_STATIC_CAST(int32_t, local) < Py_REF_IMMORTAL;
 }
 
 static inline void

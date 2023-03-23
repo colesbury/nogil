@@ -1371,6 +1371,10 @@ _PyDict_MaybeUntrack(PyObject *op)
     if (!PyDict_CheckExact(op) || !_PyObject_GC_IS_TRACKED(op))
         return;
 
+    if (_PyObject_HasDeferredRefcount(op)) {
+        return;
+    }
+
     mp = (PyDictObject *) op;
     numentries = mp->ma_keys->dk_nentries;
     if (_PyDict_HasSplitTable(mp)) {

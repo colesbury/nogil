@@ -360,6 +360,34 @@ _PyObject_SetMaybeWeakref(PyObject *op)
     }
 }
 
+/* Marks the object as support deferred reference counting.
+ *
+ * The object's type must be GC-enabled. This function is not thread-safe with
+ * respect to concurrent modifications; it must be called before the object
+ * becomes visible to other threads.
+ *
+ * Deferred refcounted objects are marked as "queued" to prevent merging
+ * reference count fields outside the garbage collector.
+ */
+static inline void
+_PyObject_SetDeferredRefcount(PyObject *op)
+{
+    assert(_Py_ThreadLocal(op) && "non thread-safe");
+    assert(!_PyObject_HasDeferredRefcount(op) && "already uses deferred refcounting");
+    assert(PyType_IS_GC(Py_TYPE(op)));
+    op->ob_ref_local += _Py_REF_DEFERRED_MASK + 1;
+    op->ob_ref_shared = (op->ob_ref_shared & ~_Py_REF_SHARED_FLAG_MASK) | _Py_REF_QUEUED;
+}
+
+#define _PyObject_SET_DEFERRED_REFCOUNT(op) _PyObject_SetDeferredRefcount(_PyObject_CAST(op))
+
+// Check is refcount is deferred or immortal
+static inline int
+_Py_REF_NON_IMMEDIATE(uint32_t local)
+{
+    return _Py_STATIC_CAST(int32_t, local) <= Py_REF_IMMORTAL;
+}
+
 #ifdef Py_REF_DEBUG
 extern void _PyDebug_PrintTotalRefs(void);
 #endif

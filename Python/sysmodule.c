@@ -1876,9 +1876,9 @@ sys_getfullrefcount(PyObject *module, PyObject *object)
     uintptr_t tid = _PyObject_ThreadId(object);
 
     Py_ssize_t local, shared;
-    int immortal, queued, merged;
+    int immortal, deferred, queued, merged;
 
-    _PyRef_UnpackLocal(object->ob_ref_local, &local, &immortal);
+    _PyRef_UnpackLocal(object->ob_ref_local, &local, &immortal, &deferred);
     _PyRef_UnpackShared(object->ob_ref_shared, &shared, &queued, &merged);
 
     PyDict_SetItemString(res, "local", PyLong_FromSsize_t(local));
@@ -1886,6 +1886,7 @@ sys_getfullrefcount(PyObject *module, PyObject *object)
     PyDict_SetItemString(res, "merged", PyBool_FromLong(merged));
     PyDict_SetItemString(res, "queued", PyBool_FromLong(queued));
     PyDict_SetItemString(res, "immortal", PyBool_FromLong(immortal));
+    PyDict_SetItemString(res, "deferred", PyBool_FromLong(deferred));
     if (queued) {
         Py_INCREF(Py_None);
         PyDict_SetItemString(res, "tid", Py_None);

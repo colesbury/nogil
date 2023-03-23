@@ -107,6 +107,9 @@ new_module_notrack(PyTypeObject *mt)
     m->md_name = NULL;
     m->md_dict = PyDict_New();
     if (m->md_dict != NULL) {
+        PyObject_GC_Track(m->md_dict);
+        _PyObject_SET_DEFERRED_REFCOUNT(m->md_dict);
+        _PyObject_SET_DEFERRED_REFCOUNT(m);
         return m;
     }
     Py_DECREF(m);

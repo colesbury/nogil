@@ -318,13 +318,13 @@ static Py_ssize_t
 _Py_GC_REFCNT(PyObject *op)
 {
     Py_ssize_t local, shared;
-    int immortal;
+    int immortal, deferred;
 
-    _PyRef_UnpackLocal(op->ob_ref_local, &local, &immortal);
+    _PyRef_UnpackLocal(op->ob_ref_local, &local, &immortal, &deferred);
     _PyRef_UnpackShared(op->ob_ref_shared, &shared, NULL, NULL);
     assert(!immortal);
 
-    return local + shared;
+    return local + shared - deferred;
 }
 
 typedef int (gc_visit_fn)(PyGC_Head* gc, void *arg);
@@ -682,9 +682,35 @@ find_dead_shared_keys(_PyObjectQueue **queue, int *num_unmarked)
     }
 }
 
+static void
+merge_refcount(PyObject *op, Py_ssize_t extra)
+{
+    Py_ssize_t local_refcount, shared_refcount;
+    int immortal, deferred;
+
+    assert(_PyRuntime.stop_the_world);
+
+    _PyRef_UnpackLocal(op->ob_ref_local, &local_refcount, &immortal, &deferred);
+    _PyRef_UnpackShared(op->ob_ref_shared, &shared_refcount, NULL, NULL);
+    assert(!immortal && "immortal objects should not be in garbage");
+
+    Py_ssize_t refcount = local_refcount + shared_refcount;
+    refcount += extra;
+    refcount -= deferred;
+
+#ifdef Py_REF_DEBUG
+    _Py_IncRefTotalN(extra);
+#endif
+
+    op->ob_tid = 0;
+    op->ob_ref_local = 0;
+    op->ob_ref_shared = _Py_REF_PACK_SHARED(refcount, _Py_REF_MERGED);
+}
+
 struct update_refs_args {
     PyGC_Head *list;
     int split_keys_marked;
+    _PyGC_Reason gc_reason;
 };
 
 // Compute the number of external references to objects in the heap
@@ -727,6 +753,15 @@ update_refs(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size
         if (!_PyObject_GC_IS_TRACKED(op)) {
             gc->_gc_prev &= ~_PyGC_PREV_MASK_FINALIZED;
             return true;
+        }
+    }
+
+    if (arg->gc_reason == GC_REASON_SHUTDOWN) {
+        if (_PyObject_HasDeferredRefcount(op)) {
+            // Disable deferred reference counting when we're shutting down.
+            // This is useful for interp->sysdict because the last reference
+            // to it is cleared after the last GC cycle.
+            merge_refcount(op, 0);
         }
     }
 
@@ -1008,23 +1043,7 @@ move_legacy_finalizer_reachable(PyGC_Head *finalizers)
 static void
 incref_merge(PyObject *op)
 {
-    Py_ssize_t local_refcount, shared_refcount;
-    int immortal;
-
-    assert(_PyRuntime.stop_the_world);
-
-#ifdef Py_REF_DEBUG
-    _Py_IncRefTotal();
-#endif
-
-    _PyRef_UnpackLocal(op->ob_ref_local, &local_refcount, &immortal);
-    _PyRef_UnpackShared(op->ob_ref_shared, &shared_refcount, NULL, NULL);
-    assert(!immortal && "immortal objects should not be in garbage");
-
-    Py_ssize_t refcount = local_refcount + shared_refcount + 1;
-    op->ob_tid = 0;
-    op->ob_ref_local = 0;
-    op->ob_ref_shared = _Py_REF_PACK_SHARED(refcount, _Py_REF_MERGED);
+    merge_refcount(op, 1);
 }
 
 /* Subtracts one from the refcount field. */
@@ -1594,7 +1613,11 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     validate_tracked_heap(_PyGC_PREV_MASK|_PyGC_PREV_MASK_UNREACHABLE, 0);
 
     gc_list_init(&young);
-    struct update_refs_args args = { .list = &young, .split_keys_marked = 0 };
+    struct update_refs_args args = {
+        .list = &young,
+        .split_keys_marked = 0,
+        .gc_reason = reason,
+    };
     visit_heaps2(mi_heap_tag_gc, update_refs, &args);
 
     _PyObjectQueue *dead_keys = NULL;

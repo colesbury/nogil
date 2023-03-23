@@ -2887,6 +2887,7 @@ type_new_alloc(type_new_ctx *ctx)
     if (type == NULL) {
         return NULL;
     }
+    _PyObject_SET_DEFERRED_REFCOUNT(type);
     PyHeapTypeObject *et = (PyHeapTypeObject *)type;
 
     // Initialize tp_flags.
@@ -3775,6 +3776,7 @@ PyType_FromMetaclass(PyTypeObject *metaclass, PyObject *module,
     if (res == NULL) {
         goto finally;
     }
+    _PyObject_SET_DEFERRED_REFCOUNT(res);
     res_start = (char*)res;
 
     type = &res->ht_type;
