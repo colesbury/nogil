@@ -1,0 +1,158 @@
+name: Linux
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  OPENSSL_VER: 1.1.1t
+  OPENSSL_SHA256SUM: 8dee9b24bdb1dcbf0c3d1e9b02fb8f6bf22165e807f45adeb7c9677536859d3b
+  XZ_VERSION: 5.2.5
+  XZ_SHA256SUM: f6f4910fd033078738bd82bfba4f49219d03b17eb0794eb91efbae419f4aba10
+  BZIP2_VERSION: 1.0.8
+  BZIP2_SHA256SUM: ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+  E2FSPROGS_VERSION: 1.47.0
+  E2FSPROGS_SHA256SUM: 144af53f2bbd921cef6f8bea88bb9faddca865da3fbc657cc9b4d2001097d5db
+  LIBXCRYPT_VERSION: 4.4.33
+  LIBXCRYPT_SHA256SUM: e87acf9c652c573a4713d5582159f98f305d56ed5f754ce64f57d4194d6b3a6f
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux2014_x86_64:latest
+
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+
+      - name: Setup environment variables
+        run: |
+          echo "XZ_INSTALL_DIR=$GITHUB_WORKSPACE/deps/xz" >> $GITHUB_ENV
+          echo "OPENSSL_INSTALL_DIR=$GITHUB_WORKSPACE/deps/openssl" >> $GITHUB_ENV
+          echo "BZIP2_INSTALL_DIR=$GITHUB_WORKSPACE/deps/bzip2" >> $GITHUB_ENV
+          echo "INSTALL_DIR=$GITHUB_WORKSPACE/python-3.9.10-nogil-linux" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        id: cache-openssl
+        with:
+          path: ${{ env.OPENSSL_INSTALL_DIR }}
+          key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VER }}
+
+      - name: Build OpenSSL
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        run: |
+          curl "https://www.openssl.org/source/openssl-${OPENSSL_VER}.tar.gz" -o openssl-${OPENSSL_VER}.tar.gz
+          echo "$OPENSSL_SHA256SUM  openssl-${OPENSSL_VER}.tar.gz" > checksum
+          sha256sum -c checksum
+          tar xf openssl-${OPENSSL_VER}.tar.gz
+          cd openssl-${OPENSSL_VER}
+          ./config
+          make depend
+          make all -j
+          make install_sw DESTDIR=$OPENSSL_INSTALL_DIR
+
+      - name: Install OpenSSL
+        run: cp -r ${OPENSSL_INSTALL_DIR}/usr/local /usr/
+
+      - name: Build XZ
+        run: |
+          curl -L "https://tukaani.org/xz/xz-${XZ_VERSION}.tar.gz" -o xz-${XZ_VERSION}.tar.gz
+          echo "$XZ_SHA256SUM  xz-${XZ_VERSION}.tar.gz" > checksum
+          sha256sum -c checksum
+          tar xf xz-${XZ_VERSION}.tar.gz
+          cd xz-${XZ_VERSION}
+          CFLAGS="-O2 -g -fPIC" ./configure --enable-static --disable-shared --disable-dependency-tracking
+          make -j
+          make install
+
+      - name: Build bzip2
+        run: |
+          curl -L https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VERSION}.tar.gz -o bzip2-${BZIP2_VERSION}.tar.gz
+          echo "$BZIP2_SHA256SUM bzip2-${BZIP2_VERSION}.tar.gz" > checksum
+          sha256sum -c checksum
+          tar xf bzip2-${BZIP2_VERSION}.tar.gz
+          cd bzip2-${BZIP2_VERSION}
+          make install CFLAGS="-Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64 -fPIC"
+
+      - name: Build UUID
+        run: |
+          curl -L https://mirrors.edge.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v${E2FSPROGS_VERSION}/e2fsprogs-${E2FSPROGS_VERSION}.tar.xz -o e2fsprogs-${E2FSPROGS_VERSION}.tar.xz
+          echo "$E2FSPROGS_SHA256SUM e2fsprogs-${E2FSPROGS_VERSION}.tar.xz" > checksum
+          sha256sum -c checksum
+          tar xf e2fsprogs-${E2FSPROGS_VERSION}.tar.xz
+          cd e2fsprogs-${E2FSPROGS_VERSION}
+          ./configure CFLAGS="-O2 -fPIC"
+          make -j
+          make install
+
+      # - name: Build libxcrypt
+      #   run: |
+      #     curl -L https://github.com/besser82/libxcrypt/releases/download/v${LIBXCRYPT_VERSION}/libxcrypt-${LIBXCRYPT_VERSION}.tar.xz -o libxcrypt-${LIBXCRYPT_VERSION}.tar.xz
+      #     echo "$LIBXCRYPT_SHA256SUM libxcrypt-${LIBXCRYPT_VERSION}.tar.xz" > checksum
+      #     sha256sum -c checksum
+      #     tar xf libxcrypt-${LIBXCRYPT_VERSION}.tar.xz
+      #     cd libxcrypt-${LIBXCRYPT_VERSION}
+      #     ./configure --enable-static --disable-shared CFLAGS="-fPIC -g -O2"
+      #     make -j
+      #     make install
+
+      - name: Install system packages
+        run: |
+          yum install -y libffi-devel readline-devel
+          # delete libcrypt shared libraries so that we statically link it
+          rm -rf /usr/local/lib/libcrypt.*so*
+
+      - name: configure
+        run: |
+          ./configure \
+            --enable-loadable-sqlite-extensions \
+            --enable-option-checking=fatal \
+            --enable-shared \
+            --enable-optimizations \
+            --with-ensurepip \
+            --prefix=
+
+          # Disable tkinter
+          echo "*disabled*" >> Modules/Setup
+          echo "_tkinter" >> Modules/Setup
+
+      - name: build
+        run: |
+          make -j
+
+      - name: install
+        run: |
+          make install DESTDIR="${INSTALL_DIR}"
+          patchelf --set-rpath '$ORIGIN/../lib' ${INSTALL_DIR}/bin/python3.9
+          for dep in libssl.so.1.1 libcrypto.so.1.1; do
+            cp /usr/local/lib64/$dep ${INSTALL_DIR}/lib/
+          done
+          for dep in libffi.so.6  libreadline.so.6 libsqlite3.so.0 libtinfo.so.5 libz.so.1; do
+            cp /usr/lib64/$dep ${INSTALL_DIR}/lib/
+          done
+          for dep in libssl.so.1.1 libpython3.so; do
+            patchelf --set-rpath '$ORIGIN' ${INSTALL_DIR}/lib/${dep}
+          done
+          for sharedlib in _ssl _hashlib; do
+            patchelf --set-rpath '$ORIGIN/../..' ${INSTALL_DIR}/lib/python3.9/lib-dynload/${sharedlib}*.so
+          done
+          ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/2to3-3.9
+          ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/idle3.9
+          ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/pydoc3.9
+          ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/python3.9-config
+          ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/pip3.9
+          rm ${INSTALL_DIR}/bin/pip3
+          ln -sf pip3.9 ${INSTALL_DIR}/bin/pip3
+          ln -sf pip3.9 ${INSTALL_DIR}/bin/pip
+          ln -sf python3.9 ${INSTALL_DIR}/bin/python
+          tar czf python-3.9.10-nogil-linux.tar.gz -C ${INSTALL_DIR}/.. $(basename $INSTALL_DIR)
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: python-3.9.10-nogil-linux.tar.gz
+          path: python-3.9.10-nogil-linux.tar.gz

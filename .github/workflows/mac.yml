@@ -7,7 +7,6 @@ on:
 
 env:
   OPENSSL_VER: 1.1.1m
-  LIB_DIR: ${{ github.workspace }}/../lib
   OPENSSL_INSTALL_DIR: ${{ github.workspace }}/deps/openssl
   XZ_INSTALL_DIR: ${{ github.workspace }}/deps/xz
   XZ_VERSION: 5.2.5
