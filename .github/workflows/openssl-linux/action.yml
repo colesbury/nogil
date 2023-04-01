@@ -1,0 +1,30 @@
+name: Build OpenSSL for Linux
+
+inputs:
+  version:
+    default: 1.1.1t
+  sha256sum:
+    default: 8dee9b24bdb1dcbf0c3d1e9b02fb8f6bf22165e807f45adeb7c9677536859d3b
+  prefix:
+    default: /usr/local/openssl
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download OpenSSL
+      shell: bash
+      run: |
+        curl "https://www.openssl.org/source/openssl-${{ inputs.version }}.tar.gz" -o openssl-${{ inputs.version }}.tar.gz
+        echo "${{ inputs.sha256sum }}  openssl-${{ inputs.version }}.tar.gz" > checksum
+        sha256sum -c checksum
+        tar xf openssl-${{ inputs.version }}.tar.gz
+
+    - name: Build OpenSSL
+      shell: bash
+      run: |
+        cd openssl-${{ inputs.version }}
+        ./config --prefix=${{ inputs.prefix }} --openssldir=/usr/local/ssl
+        make depend
+        make all -j
+        make install
+

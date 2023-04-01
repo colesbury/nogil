@@ -6,6 +6,10 @@ on:
     types: [published]
 
 jobs:
+  linux:
+    uses: ./.github/workflows/linux.yml
+    secrets: inherit
+
   mac:
     uses: ./.github/workflows/mac.yml
     secrets: inherit
@@ -21,6 +25,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v3
         with:
+          name: python-3.9.10-nogil-linux.tar.gz
+
+      - uses: actions/download-artifact@v3
+        with:
           name: python-3.9.10-nogil-macos.tar.gz
 
       - uses: actions/download-artifact@v3
@@ -31,5 +39,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
+            python-3.9.10-nogil-linux.tar.gz
             python-3.9.10-nogil-macos.tar.gz
             python-3.9.10-amd64.exe

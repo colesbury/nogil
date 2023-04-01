@@ -1,0 +1,29 @@
+name: Build XZ for Linux
+
+inputs:
+  version:
+    default: 5.2.5
+  sha256sum:
+    default: f6f4910fd033078738bd82bfba4f49219d03b17eb0794eb91efbae419f4aba10
+  prefix:
+    default: ${{ github.workspace }}/../lib/xz
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download XZ
+      shell: bash
+      run: |
+        curl -L "https://tukaani.org/xz/xz-${{  inputs.version  }}.tar.gz" -o xz-${{  inputs.version  }}.tar.gz
+        shasum -a 256 xz-${{  inputs.version  }}.tar.gz
+        echo "${{ inputs.sha256sum }}  xz-${{  inputs.version  }}.tar.gz" > checksum
+        shasum -a 256 -c checksum
+        tar xf xz-${{ inputs.version }}.tar.gz
+
+    - name: Build XZ
+      shell: bash
+      run: |
+        cd xz-${{ inputs.version }}
+        ./configure --prefix=${{  inputs.prefix  }} --enable-static --disable-shared --disable-dependency-tracking
+        make -j
+        make install
