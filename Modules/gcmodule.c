@@ -594,7 +594,7 @@ _PyGC_VisitorType(visitproc visit)
 }
 
 void
-_PyGC_TraverseStack(struct ThreadState *ts, visitproc visit, void *arg)
+_PyGC_TraverseStack(struct _PyThreadStack *ts, visitproc visit, void *arg)
 {
     Register *max = ts->maxstack;
     struct stack_walk w;
@@ -691,7 +691,7 @@ visit_thread_stacks(void)
 
         // Visit all deferred refcount items on the thread's stack to ensure
         // they're not collected.
-        struct ThreadState *ts = vm_active(t);
+        struct _PyThreadStack *ts = vm_active(t);
         while (ts != NULL) {
             _PyGC_TraverseStack(ts, visit_incref, NULL);
             ts = ts->prev;
@@ -996,7 +996,7 @@ incref_unreachable(PyObject *obj)
 }
 
 static void
-upgrade_deferred_rc(struct ThreadState *ts)
+upgrade_deferred_rc(struct _PyThreadStack *ts)
 {
     Register *max = ts->maxstack;
     struct stack_walk w;

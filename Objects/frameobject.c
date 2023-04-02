@@ -42,7 +42,7 @@ PyFrame_GetLineNumber(PyFrameObject *f)
     if (f->f_trace) {
         return f->f_lineno;
     }
-    struct ThreadState *ts = f->f_ts;
+    struct _PyThreadStack *ts = f->f_ts;
     PyThreadState *tstate = PyThreadState_GET();
     // We are supposed to update the current line number when we're not tracing,
     // but that's not safe to do from another thread. If we're not in the owning
@@ -400,7 +400,7 @@ frame_tp_clear(PyFrameObject *f)
 static PyObject *
 frame_clear(PyFrameObject *f, PyObject *Py_UNUSED(ignored))
 {
-    struct ThreadState *ts = f->f_ts;
+    struct _PyThreadStack *ts = f->f_ts;
     if (ts && ts->thread_type == THREAD_GENERATOR) {
         PyGenObject *gen = PyGen_FromThread(ts);
         if (gen->status != GEN_RUNNING) {

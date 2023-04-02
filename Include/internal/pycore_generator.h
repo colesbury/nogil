@@ -21,7 +21,7 @@ enum PyGeneratorStatus {
 
 struct PyVirtualThread {
     PyObject_HEAD
-    struct ThreadState thread;
+    struct _PyThreadStack thread;
 };
 
 /* Generator object interface: move to genobject.h */
@@ -70,7 +70,7 @@ void _PyGen_Finalize(PyObject *self);
 PyObject *_PyCoro_GetAwaitableIter(PyObject *o);
 
 static inline PyGenObject *
-PyGen_FromThread(struct ThreadState *ts)
+PyGen_FromThread(struct _PyThreadStack *ts)
 {
     assert(ts->thread_type == THREAD_GENERATOR);
     return (PyGenObject *)((char*)ts - offsetof(PyGenObject, base.thread));

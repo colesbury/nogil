@@ -602,7 +602,7 @@ _PyErr_ChainStackItem(_PyErr_StackItem *exc_info)
 }
 
 void
-_PyErr_ChainExceptionsFrom(struct ThreadState *ts)
+_PyErr_ChainExceptionsFrom(struct _PyThreadStack *ts)
 {
     PyThreadState *tstate = _PyThreadState_GET();
     assert(_PyErr_Occurred(tstate));

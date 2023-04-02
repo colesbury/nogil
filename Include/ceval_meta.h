@@ -147,7 +147,7 @@ enum {
     THREAD_GENERATOR = 2
 };
 
-struct ThreadState {
+typedef struct _PyThreadStack {
     // registers for current function (points within stack)
     Register *regs;
 
@@ -162,22 +162,22 @@ struct ThreadState {
 
     struct _ts *ts;
 
-    struct ThreadState *prev;
+    struct _PyThreadStack *prev;
 
     char thread_type;
     char gc_visited;
-};
+} _PyThreadStack;
 
 // ceval2.c
 PyObject *_PyEval_Fast(PyThreadState *ts, Register acc, const uint8_t *pc);
 PyObject *PyEval2_EvalGen(PyGenObject *gen, PyObject *opt_value);
 
 // Used by pstate.c
-struct ThreadState *vm_new_threadstate(PyThreadState *tstate);
-void vm_free_threadstate(struct ThreadState *ts);
-struct ThreadState *vm_active(PyThreadState *tstate);
+_PyThreadStack *vm_new_threadstate(PyThreadState *tstate);
+void vm_free_threadstate(_PyThreadStack *ts);
+_PyThreadStack *vm_active(PyThreadState *tstate);
 
-void vm_push_thread_stack(PyThreadState *tstate, struct ThreadState *ts);
+void vm_push_thread_stack(PyThreadState *tstate, _PyThreadStack *ts);
 void vm_pop_thread_stack(PyThreadState *tstate);
 
 PyObject *vm_locals(struct _frame *frame);
@@ -186,7 +186,7 @@ PyObject *vm_locals(struct _frame *frame);
 PyObject *vm_compute_cr_origin(PyThreadState *ts);
 
 struct _frame *vm_frame(PyThreadState *ts);
-struct _frame *vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset);
+struct _frame *vm_frame_at_offset(_PyThreadStack *ts, Py_ssize_t offset);
 void vm_clear_frame(PyThreadState *ts);
 Py_ssize_t vm_regs_frame_size(Register *regs);
 
@@ -207,7 +207,7 @@ int vm_exit_async_with(PyThreadState *ts, Py_ssize_t opA);
 int vm_exit_with_res(PyThreadState *ts, Py_ssize_t opA, PyObject *exit_res);
 
 PyObject *vm_handled_exc(PyThreadState *ts);
-PyObject *vm_handled_exc2(struct ThreadState *ts);
+PyObject *vm_handled_exc2(_PyThreadStack *ts);
 int vm_set_handled_exc(PyThreadState *ts, PyObject *exc);
 
 const uint8_t *

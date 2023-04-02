@@ -27,9 +27,9 @@
 
 #include <ctype.h>
 
-struct ThreadState *
+struct _PyThreadStack *
 vm_active(PyThreadState *tstate) {
-    struct ThreadState *active = tstate->active;
+    struct _PyThreadStack *active = tstate->active;
     if (active) {
         active->regs = tstate->regs;
         active->pc = tstate->pc;
@@ -205,7 +205,7 @@ vm_dump_stack(void)
         return;
     }
 
-    struct ThreadState *ts = vm_active(tstate);
+    struct _PyThreadStack *ts = vm_active(tstate);
     if (ts == NULL) {
         fprintf(stderr, "no vm thread state\n");
         return;
@@ -228,7 +228,7 @@ vm_dump_stack(void)
 Py_ssize_t
 vm_stack_depth(PyThreadState *tstate)
 {
-    struct ThreadState *ts = vm_active(tstate);
+    struct _PyThreadStack *ts = vm_active(tstate);
     if (!ts) {
         return 0;
     }
@@ -277,7 +277,7 @@ vm_handled_exc(PyThreadState *ts)
 
 /* returns the currently handled exception or NULL */
 PyObject *
-vm_handled_exc2(struct ThreadState *ts)
+vm_handled_exc2(struct _PyThreadStack *ts)
 {
     struct stack_walk w;
     vm_stack_walk_init(&w, ts);
@@ -824,7 +824,7 @@ int
 vm_frame_info(PyFunctionObject **out_func, int *out_lineno, int depth,
               int skip_importlib_frames)
 {
-    struct ThreadState *ts = vm_active(_PyThreadState_GET());
+    struct _PyThreadStack *ts = vm_active(_PyThreadState_GET());
 
     struct stack_walk w;
     vm_stack_walk_init(&w, ts);
@@ -2357,7 +2357,7 @@ vm_resize_stack(PyThreadState *tstate, Py_ssize_t needed)
     tstate->regs = newstack + offset;
     tstate->maxstack = newstack + newsize - PY_STACK_EXTRA;
 
-    struct ThreadState *ts = tstate->active;
+    struct _PyThreadStack *ts = tstate->active;
     ts->stack = tstate->stack;
     ts->regs = tstate->regs;
     ts->maxstack = tstate->maxstack;
@@ -2367,7 +2367,7 @@ vm_resize_stack(PyThreadState *tstate, Py_ssize_t needed)
 }
 
 static int
-vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
+vm_init_stack(struct _PyThreadStack *ts, Py_ssize_t stack_size)
 {
     Register *stack = mi_malloc(stack_size * sizeof(Register));
     if (UNLIKELY(stack == NULL)) {
@@ -2381,14 +2381,14 @@ vm_init_stack(struct ThreadState *ts, Py_ssize_t stack_size)
     return 0;
 }
 
-struct ThreadState *
+struct _PyThreadStack *
 vm_new_threadstate(PyThreadState *tstate)
 {
-    struct ThreadState *ts = PyMem_RawMalloc(sizeof(struct ThreadState));
+    struct _PyThreadStack *ts = PyMem_RawMalloc(sizeof(struct _PyThreadStack));
     if (ts == NULL) {
         return NULL;
     }
-    memset(ts, 0, sizeof(struct ThreadState));
+    memset(ts, 0, sizeof(struct _PyThreadStack));
 
     Py_ssize_t stack_size = 256;
     if (UNLIKELY(vm_init_stack(ts, stack_size) != 0)) {
@@ -2400,7 +2400,7 @@ vm_new_threadstate(PyThreadState *tstate)
 }
 
 void
-vm_free_threadstate(struct ThreadState *ts)
+vm_free_threadstate(struct _PyThreadStack *ts)
 {
     assert(ts->prev == NULL);
     if (ts->regs != ts->stack) {
@@ -2415,9 +2415,9 @@ vm_free_threadstate(struct ThreadState *ts)
 }
 
 void
-vm_push_thread_stack(PyThreadState *tstate, struct ThreadState *ts)
+vm_push_thread_stack(PyThreadState *tstate, struct _PyThreadStack *ts)
 {
-    struct ThreadState *prev = tstate->active;
+    struct _PyThreadStack *prev = tstate->active;
     if (prev) {
         prev->pc = tstate->pc;
         prev->regs = tstate->regs;
@@ -2436,7 +2436,7 @@ vm_push_thread_stack(PyThreadState *tstate, struct ThreadState *ts)
 void
 vm_pop_thread_stack(PyThreadState *tstate)
 {
-    struct ThreadState *active, *prev;
+    struct _PyThreadStack *active, *prev;
     active = tstate->active;
     prev = active->prev;
 
@@ -2723,7 +2723,7 @@ vm_load_method_err(PyThreadState *ts, Register acc)
 int
 vm_init_thread_state(PyThreadState *tstate, PyGenObject *gen)
 {
-    struct ThreadState *ts = &gen->base.thread;
+    struct _PyThreadStack *ts = &gen->base.thread;
     memset(ts, 0, sizeof(*ts));
 
     Py_ssize_t generator_stack_size = 256;
@@ -2836,7 +2836,7 @@ PyObject *
 PyEval2_EvalGen(PyGenObject *gen, PyObject *opt_value)
 {
     PyThreadState *tstate = PyThreadState_GET();
-    struct ThreadState *ts = &gen->base.thread;
+    struct _PyThreadStack *ts = &gen->base.thread;
 
     if (UNLIKELY(_Py_EnterRecursiveCall(tstate, ""))) {
         return NULL;
@@ -3234,7 +3234,7 @@ exit:
 PyObject *
 PyEval_GetGlobals(void)
 {
-    struct ThreadState *ts = vm_active(_PyThreadState_GET());
+    struct _PyThreadStack *ts = vm_active(_PyThreadState_GET());
     if (ts == NULL) {
         return NULL;
     }
@@ -3257,7 +3257,7 @@ vm_frame(PyThreadState *ts)
 }
 
 PyFrameObject *
-vm_frame_at_offset(struct ThreadState *ts, Py_ssize_t offset)
+vm_frame_at_offset(struct _PyThreadStack *ts, Py_ssize_t offset)
 {
     if (ts == PyThreadState_GET()->active) {
         vm_active(PyThreadState_GET());

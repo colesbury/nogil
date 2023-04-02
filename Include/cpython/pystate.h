@@ -61,7 +61,7 @@ struct _ts {
     const uint8_t *pc;
     Register *stack;
     Register *maxstack;
-    struct ThreadState *active;
+    struct _PyThreadStack *active;
     uintptr_t eval_breaker;
     PyObject **cargs;
 

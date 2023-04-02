@@ -18,7 +18,7 @@ struct _frame {
     PyObject_VAR_HEAD
     struct _frame *f_back;      /* previous frame, or NULL */
     PyCodeObject *f_code;       /* code segment */
-    struct ThreadState *f_ts;
+    struct _PyThreadStack *f_ts;
     PyObject *f_builtins;       /* builtin symbol table (PyDictObject) */
     PyObject *f_globals;        /* global symbol table (PyDictObject) */
     PyObject *f_locals;         /* local symbol table (any mapping) */

@@ -445,7 +445,7 @@ gen_close_iter(PyObject *yf)
 static PyObject *
 gen_throw_current(PyGenObject *gen)
 {
-    struct ThreadState *ts = &gen->base.thread;
+    struct _PyThreadStack *ts = &gen->base.thread;
     if (gen->status == GEN_CLOSED) {
         if (PyCoro_CheckExact(gen)) {
             return gen_status_error(gen, NULL);
@@ -529,7 +529,7 @@ _gen_throw(PyGenObject *gen, int close_on_genexit,
         }
         if (ret == NULL) {
             // Terminate repetition of YIELD_FROM
-            struct ThreadState *ts = &gen->base.thread;
+            struct _PyThreadStack *ts = &gen->base.thread;
             if (ts->pc[0] == WIDE) {
                 assert(ts->pc[1] == YIELD_FROM);
                 ts->pc += OP_SIZE_WIDE_YIELD_FROM;
@@ -892,7 +892,7 @@ gen_get_frame(PyGenObject *op, void *Py_UNUSED(ignored))
     }
 
     // get the bottom frame in the thread
-    struct ThreadState *ts = &op->base.thread;
+    struct _PyThreadStack *ts = &op->base.thread;
     PyObject *frame = (PyObject *)vm_frame_at_offset(ts, FRAME_EXTRA);
     if (frame == NULL && !PyErr_Occurred()) {
         return Py_None;

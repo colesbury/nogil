@@ -13,7 +13,7 @@ extern "C" {
 
 
 struct stack_walk {
-    struct ThreadState *ts;
+    struct _PyThreadStack *ts;
     Register *regs;
     const uint8_t *pc;
     intptr_t offset;
@@ -21,7 +21,7 @@ struct stack_walk {
 };
 
 static inline void
-vm_stack_walk_init(struct stack_walk *w, struct ThreadState *ts)
+vm_stack_walk_init(struct stack_walk *w, struct _PyThreadStack *ts)
 {
     memset(w, 0, sizeof(*w));
     w->ts = ts;
@@ -33,7 +33,7 @@ vm_stack_walk_lineno(struct stack_walk *w);
 static inline int
 vm_stack_walk_thread(struct stack_walk *w)
 {
-    struct ThreadState *ts = w->ts;
+    struct _PyThreadStack *ts = w->ts;
     if (w->regs == NULL) {
         w->regs = ts->regs;
         w->pc = ts->pc;
@@ -59,7 +59,7 @@ vm_stack_walk_thread(struct stack_walk *w)
 static inline int
 vm_stack_walk_all(struct stack_walk *w)
 {
-    struct ThreadState *ts = w->ts;
+    struct _PyThreadStack *ts = w->ts;
     while (ts != NULL) {
         if (vm_stack_walk_thread(w) == 0) {
             // switch to calling virtual thread

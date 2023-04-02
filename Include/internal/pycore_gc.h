@@ -185,7 +185,7 @@ enum {
 PyAPI_FUNC(void) _PyGC_InitState(struct _gc_runtime_state *);
 PyAPI_FUNC(void) _PyGC_ResetHeap(void);
 PyAPI_FUNC(Py_ssize_t) _PyGC_Collect(PyThreadState *);
-PyAPI_FUNC(void) _PyGC_TraverseStack(struct ThreadState *ts, visitproc visit, void *arg);
+PyAPI_FUNC(void) _PyGC_TraverseStack(struct _PyThreadStack *ts, visitproc visit, void *arg);
 int _PyGC_VisitorType(visitproc visit);
 
 static inline int

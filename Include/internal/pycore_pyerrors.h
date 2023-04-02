@@ -53,7 +53,7 @@ PyAPI_FUNC(void) _PyErr_SetObject(
 PyAPI_FUNC(void) _PyErr_ChainStackItem(
     _PyErr_StackItem *exc_info);
 
-PyAPI_FUNC(void) _PyErr_ChainExceptionsFrom(struct ThreadState *ts);
+PyAPI_FUNC(void) _PyErr_ChainExceptionsFrom(struct _PyThreadStack *ts);
 
 PyAPI_FUNC(void) _PyErr_Clear(PyThreadState *tstate);
 

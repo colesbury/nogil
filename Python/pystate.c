@@ -996,7 +996,7 @@ new_threadstate(PyInterpreterState *interp, int init, _PyEventRc *done_event)
     }
 
     // FIXME: leaks thread-state
-    struct ThreadState *ts = vm_new_threadstate(tstate);
+    struct _PyThreadStack *ts = vm_new_threadstate(tstate);
     if (ts == NULL) {
         PyMem_RawFree(tstate);
         return NULL;
