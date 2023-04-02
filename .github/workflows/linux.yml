@@ -138,7 +138,7 @@ jobs:
           for dep in libssl.so.1.1 libpython3.so; do
             patchelf --set-rpath '$ORIGIN' ${INSTALL_DIR}/lib/${dep}
           done
-          for sharedlib in _ssl _hashlib; do
+          for sharedlib in _ssl _hashlib _ctypes readline; do
             patchelf --set-rpath '$ORIGIN/../..' ${INSTALL_DIR}/lib/python3.9/lib-dynload/${sharedlib}*.so
           done
           ./.github/workflows/fix-header.sh ${INSTALL_DIR}/bin/2to3-3.9
