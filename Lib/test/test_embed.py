@@ -362,6 +362,7 @@ class EmbeddingTests(EmbeddingTestsMixin, unittest.TestCase):
                         opname in opcode._specialized_instructions
                         # Exclude superinstructions:
                         and "__" not in opname
+                        and not opname.endswith("_PROFILE")
                     ):
                         return True
                 return False

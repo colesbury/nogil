@@ -202,6 +202,7 @@ dummy_func(
 
         family(binary_op, INLINE_CACHE_ENTRIES_BINARY_OP) = {
             BINARY_OP,
+            BINARY_OP_GENERIC,
             BINARY_OP_ADD_FLOAT,
             BINARY_OP_ADD_INT,
             BINARY_OP_ADD_UNICODE,
@@ -333,22 +334,30 @@ dummy_func(
 
         family(binary_subscr, INLINE_CACHE_ENTRIES_BINARY_SUBSCR) = {
             BINARY_SUBSCR,
+            BINARY_SUBSCR_GENERIC,
             BINARY_SUBSCR_DICT,
             BINARY_SUBSCR_GETITEM,
             BINARY_SUBSCR_LIST_INT,
             BINARY_SUBSCR_TUPLE_INT,
         };
 
-        inst(BINARY_SUBSCR, (unused/4, container, sub -- res)) {
+        inst(BINARY_SUBSCR, (unused/4, container, sub -- unused)) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyBinarySubscrCache *cache = (_PyBinarySubscrCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_BinarySubscr(container, sub, next_instr);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(BINARY_SUBSCR, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(BINARY_SUBSCR_GENERIC);
+        }
+
+        inst(BINARY_SUBSCR_GENERIC, (unused/4, container, sub -- res)) {
             res = PyObject_GetItem(container, sub);
             DECREF_INPUTS();
             ERROR_IF(res == NULL, error);
@@ -475,20 +484,28 @@ dummy_func(
 
         family(store_subscr) = {
             STORE_SUBSCR,
+            STORE_SUBSCR_GENERIC,
             STORE_SUBSCR_DICT,
             STORE_SUBSCR_LIST_INT,
         };
 
-        inst(STORE_SUBSCR, (counter/1, v, container, sub -- )) {
-            if (ADAPTIVE_COUNTER_IS_ZERO(counter)) {
+        inst(STORE_SUBSCR, (unused/1, unused, container, sub -- )) {
+            _PyMutex_lock(&_PyRuntime.mutex);
+            _PyStoreSubscrCache *cache = (_PyStoreSubscrCache *)next_instr;
+            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_StoreSubscr(container, sub, next_instr);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(STORE_SUBSCR, deferred);
-            _PyStoreSubscrCache *cache = (_PyStoreSubscrCache *)next_instr;
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(STORE_SUBSCR_GENERIC);
+        }
+
+        inst(STORE_SUBSCR_GENERIC, (unused/1, v, container, sub -- )) {
             /* container[sub] = v */
             int err = PyObject_SetItem(container, sub, v);
             DECREF_INPUTS();
@@ -911,16 +928,24 @@ dummy_func(
 
         // stack effect: (__0 -- __array[oparg])
         inst(UNPACK_SEQUENCE) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyUnpackSequenceCache *cache = (_PyUnpackSequenceCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 PyObject *seq = TOP();
                 next_instr--;
                 _Py_Specialize_UnpackSequence(seq, next_instr, oparg);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(UNPACK_SEQUENCE, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(UNPACK_SEQUENCE_GENERIC);
+        }
+
+        // stack effect: (__0 -- __array[oparg])
+        inst(UNPACK_SEQUENCE_GENERIC) {
             PyObject *seq = POP();
             PyObject **top = stack_pointer + oparg;
             if (!unpack_iterable(tstate, seq, oparg, -1, top)) {
@@ -989,22 +1014,30 @@ dummy_func(
 
         family(store_attr) = {
             STORE_ATTR,
+            STORE_ATTR_GENERIC,
             STORE_ATTR_INSTANCE_VALUE,
             STORE_ATTR_SLOT,
             STORE_ATTR_WITH_HINT,
         };
 
-        inst(STORE_ATTR, (counter/1, unused/3, v, owner --)) {
-            if (ADAPTIVE_COUNTER_IS_ZERO(counter)) {
+        inst(STORE_ATTR, (unused/1, unused/3, unused, owner --)) {
+            _PyMutex_lock(&_PyRuntime.mutex);
+            _PyAttrCache *cache = (_PyAttrCache *)next_instr;
+            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 PyObject *name = GETITEM(names, oparg);
                 next_instr--;
                 _Py_Specialize_StoreAttr(owner, next_instr, name);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(STORE_ATTR, deferred);
-            _PyAttrCache *cache = (_PyAttrCache *)next_instr;
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(STORE_ATTR_GENERIC);
+        }
+
+        inst(STORE_ATTR_GENERIC, (unused/1, unused/3, v, owner --)) {
             PyObject *name = GETITEM(names, oparg);
             int err = PyObject_SetAttr(owner, name, v);
             Py_DECREF(v);
@@ -1103,16 +1136,24 @@ dummy_func(
 
         // error: LOAD_GLOBAL has irregular stack effect
         inst(LOAD_GLOBAL) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyLoadGlobalCache *cache = (_PyLoadGlobalCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 PyObject *name = GETITEM(names, oparg>>1);
                 next_instr--;
                 _Py_Specialize_LoadGlobal(GLOBALS(), BUILTINS(), next_instr, name);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(LOAD_GLOBAL, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(LOAD_GLOBAL_GENERIC);
+        }
+
+        // error: LOAD_GLOBAL has irregular stack effect
+        inst(LOAD_GLOBAL_GENERIC) {
             int push_null = oparg & 1;
             PEEK(0) = NULL;
             PyObject *name = GETITEM(names, oparg>>1);
@@ -1496,6 +1537,7 @@ dummy_func(
 
         // error: LOAD_ATTR has irregular stack effect
         inst(LOAD_ATTR) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyAttrCache *cache = (_PyAttrCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
@@ -1503,10 +1545,17 @@ dummy_func(
                 PyObject *name = GETITEM(names, oparg>>1);
                 next_instr--;
                 _Py_Specialize_LoadAttr(owner, next_instr, name);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(LOAD_ATTR, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(LOAD_ATTR_GENERIC);
+        }
+
+        // error: LOAD_ATTR has irregular stack effect
+        inst(LOAD_ATTR_GENERIC) {
             PyObject *name = GETITEM(names, oparg >> 1);
             PyObject *owner = TOP();
             if (oparg & 1) {
@@ -1829,21 +1878,29 @@ dummy_func(
 
         family(compare_op) = {
             COMPARE_OP,
+            COMPARE_OP_GENERIC,
             _COMPARE_OP_FLOAT,
             _COMPARE_OP_INT,
             _COMPARE_OP_STR,
         };
 
-        inst(COMPARE_OP, (unused/2, left, right -- res)) {
+        inst(COMPARE_OP, (unused/2, left, right -- unused)) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyCompareOpCache *cache = (_PyCompareOpCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_CompareOp(left, right, next_instr, oparg);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(COMPARE_OP, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(COMPARE_OP_GENERIC);
+        }
+
+        inst(COMPARE_OP_GENERIC, (unused/2, left, right -- res)) {
             assert(oparg <= Py_GE);
             res = PyObject_RichCompare(left, right, oparg);
             Py_DECREF(left);
@@ -2244,15 +2301,23 @@ dummy_func(
 
         // stack effect: ( -- __0)
         inst(FOR_ITER) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyForIterCache *cache = (_PyForIterCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_ForIter(TOP(), next_instr, oparg);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(FOR_ITER, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(FOR_ITER_GENERIC);
+        }
+
+        // stack effect: ( -- __0)
+        inst(FOR_ITER_GENERIC) {
             /* before: [iter]; after: [iter, iter()] *or* [] */
             PyObject *iter = TOP();
             PyObject *next = (*Py_TYPE(iter)->tp_iternext)(iter);
@@ -2571,6 +2636,7 @@ dummy_func(
 
         // stack effect: (__0, __array[oparg] -- )
         inst(CALL) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyCallCache *cache = (_PyCallCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
@@ -2579,10 +2645,17 @@ dummy_func(
                 PyObject *callable = PEEK(nargs + 1);
                 next_instr--;
                 _Py_Specialize_Call(callable, next_instr, nargs, kwnames);
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(CALL, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(CALL_GENERIC);
+        }
+
+        // stack effect: (__0, __array[oparg] -- )
+        inst(CALL_GENERIC) {
             int total_args, is_meth;
             is_meth = is_method(stack_pointer, oparg);
             PyObject *function = PEEK(oparg + 1);
@@ -3319,16 +3392,23 @@ dummy_func(
             PUSH(Py_NewRef(peek));
         }
 
-        inst(BINARY_OP, (unused/1, lhs, rhs -- res)) {
+        inst(BINARY_OP, (unused/1, lhs, rhs -- unused)) {
+            _PyMutex_lock(&_PyRuntime.mutex);
             _PyBinaryOpCache *cache = (_PyBinaryOpCache *)next_instr;
             if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_BinaryOp(lhs, rhs, next_instr, oparg, &GETLOCAL(0));
+                _PyMutex_unlock(&_PyRuntime.mutex);
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(BINARY_OP, deferred);
             DECREMENT_ADAPTIVE_COUNTER(cache->counter);
+            _PyMutex_unlock(&_PyRuntime.mutex);
+            GO_TO_INSTRUCTION(BINARY_OP_GENERIC);
+        }
+
+        inst(BINARY_OP_GENERIC, (unused/1, lhs, rhs -- res)) {
             assert(0 <= oparg);
             assert((unsigned)oparg < Py_ARRAY_LENGTH(binary_ops));
             assert(binary_ops[oparg]);
@@ -3378,7 +3458,7 @@ dummy_func(
 // Future families go below this point //
 
 family(call) = {
-    CALL, CALL_PY_EXACT_ARGS,
+    CALL, CALL_GENERIC, CALL_PY_EXACT_ARGS,
     CALL_PY_WITH_DEFAULTS, CALL_BOUND_METHOD_EXACT_ARGS, CALL_BUILTIN_CLASS,
     CALL_BUILTIN_FAST_WITH_KEYWORDS, CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS, CALL_NO_KW_BUILTIN_FAST,
     CALL_NO_KW_BUILTIN_O, CALL_NO_KW_ISINSTANCE, CALL_NO_KW_LEN,
@@ -3386,18 +3466,18 @@ family(call) = {
     CALL_NO_KW_METHOD_DESCRIPTOR_O, CALL_NO_KW_STR_1, CALL_NO_KW_TUPLE_1,
     CALL_NO_KW_TYPE_1 };
 family(for_iter) = {
-    FOR_ITER, FOR_ITER_LIST,
+    FOR_ITER, FOR_ITER_GENERIC, FOR_ITER_LIST,
     FOR_ITER_RANGE };
 family(load_attr) = {
-    LOAD_ATTR, LOAD_ATTR_CLASS,
+    LOAD_ATTR, LOAD_ATTR_GENERIC, LOAD_ATTR_CLASS,
     LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN, LOAD_ATTR_INSTANCE_VALUE, LOAD_ATTR_MODULE,
     LOAD_ATTR_PROPERTY, LOAD_ATTR_SLOT, LOAD_ATTR_WITH_HINT,
     LOAD_ATTR_METHOD_LAZY_DICT, LOAD_ATTR_METHOD_NO_DICT,
     LOAD_ATTR_METHOD_WITH_VALUES };
 family(load_global) = {
-    LOAD_GLOBAL, LOAD_GLOBAL_BUILTIN,
+    LOAD_GLOBAL, LODA_GLOBAL_GENERIC, LOAD_GLOBAL_BUILTIN,
     LOAD_GLOBAL_MODULE };
 family(store_fast) = { STORE_FAST, STORE_FAST__LOAD_FAST, STORE_FAST__STORE_FAST };
 family(unpack_sequence) = {
-    UNPACK_SEQUENCE, UNPACK_SEQUENCE_LIST,
+    UNPACK_SEQUENCE, UNPACK_SEQUENCE_GENERIC, UNPACK_SEQUENCE_LIST,
     UNPACK_SEQUENCE_TUPLE, UNPACK_SEQUENCE_TWO_TUPLE };

@@ -142,8 +142,11 @@ class BaseLocalTest:
                 # This is expected -- we haven't set obj.x in this thread yet!
                 self._failed = ""  # passed
             else:
+                sys.getfullrefcount(foo)
                 self._failed = ('Incorrectly got value %r from class %r\n' %
                                 (foo, c))
+                import dis
+                dis.dis(f2, adaptive=True, show_caches=True)
                 sys.stderr.write(self._failed)
 
         t1 = threading.Thread(target=f1)

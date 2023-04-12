@@ -753,7 +753,8 @@ GETITEM(PyObject *v, Py_ssize_t i) {
 /* The integer overflow is checked by an assertion below. */
 #define INSTR_OFFSET() ((int)(next_instr - _PyCode_CODE(frame->f_code)))
 #define NEXTOPARG()  do { \
-        _Py_CODEUNIT word = *next_instr; \
+        _Py_CODEUNIT word; \
+        word.cache = _Py_atomic_load_uint16(&next_instr->cache); \
         opcode = _Py_OPCODE(word); \
         oparg = _Py_OPARG(word); \
     } while (0)
@@ -886,7 +887,7 @@ GETITEM(PyObject *v, Py_ssize_t i) {
         /* This is only a single jump on release builds! */ \
         UPDATE_MISS_STATS((INSTNAME));                      \
         assert(_PyOpcode_Deopt[opcode] == (INSTNAME));      \
-        GO_TO_INSTRUCTION(INSTNAME);                        \
+        GO_TO_INSTRUCTION(INSTNAME ## _GENERIC);            \
     }
 
 #define DEOPT_UNLOCK_IF(COND, INSTNAME)                     \
@@ -895,7 +896,7 @@ GETITEM(PyObject *v, Py_ssize_t i) {
         UPDATE_MISS_STATS((INSTNAME));                      \
         assert(_PyOpcode_Deopt[opcode] == (INSTNAME));      \
         _Py_critical_section_end(&_cs);                     \
-        GO_TO_INSTRUCTION(INSTNAME);                        \
+        GO_TO_INSTRUCTION(INSTNAME ## _GENERIC);            \
     }
 
 

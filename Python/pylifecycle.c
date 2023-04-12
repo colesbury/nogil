@@ -846,6 +846,9 @@ pycore_init_builtins(PyThreadState *tstate)
     PyObject *object__getattribute__ = _PyType_Lookup(&PyBaseObject_Type, &_Py_ID(__getattribute__));
     assert(object__getattribute__);
     interp->callable_cache.object__getattribute__ = object__getattribute__;
+    PyObject *object__class__ = _PyType_Lookup(&PyBaseObject_Type, &_Py_ID(__class__));
+    assert(object__class__);
+    interp->callable_cache.object__class__ = object__class__;
     interp->interpreter_trampoline = _Py_MakeShimCode(&INTERPRETER_TRAMPOLINE_CODEDEF);
     if (interp->interpreter_trampoline == NULL) {
         return _PyStatus_ERR("failed to create interpreter trampoline.");

@@ -30,7 +30,9 @@ typedef union {
 static inline void
 _py_set_opcode(_Py_CODEUNIT *word, uint8_t opcode)
 {
-    word->opcode = opcode;
+    _Py_CODEUNIT new_word = *word;
+    new_word.opcode = opcode;
+    _Py_atomic_store_uint16(&word->cache, new_word.cache);
 }
 
 #define _Py_SET_OPCODE(word, opcode) _py_set_opocde(&(word), opcode)

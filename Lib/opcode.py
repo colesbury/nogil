@@ -275,6 +275,7 @@ _nb_ops = [
 
 _specializations = {
     "BINARY_OP": [
+        "BINARY_OP_GENERIC",
         "BINARY_OP_ADD_FLOAT",
         "BINARY_OP_ADD_INT",
         "BINARY_OP_ADD_UNICODE",
@@ -285,12 +286,14 @@ _specializations = {
         "BINARY_OP_SUBTRACT_INT",
     ],
     "BINARY_SUBSCR": [
+        "BINARY_SUBSCR_GENERIC",
         "BINARY_SUBSCR_DICT",
         "BINARY_SUBSCR_GETITEM",
         "BINARY_SUBSCR_LIST_INT",
         "BINARY_SUBSCR_TUPLE_INT",
     ],
     "CALL": [
+        "CALL_GENERIC",
         "CALL_PY_EXACT_ARGS",
         "CALL_PY_WITH_DEFAULTS",
         "CALL_BOUND_METHOD_EXACT_ARGS",
@@ -310,11 +313,13 @@ _specializations = {
         "CALL_NO_KW_TYPE_1",
     ],
     "COMPARE_OP": [
+        "COMPARE_OP_GENERIC",
         "COMPARE_OP_FLOAT_JUMP",
         "COMPARE_OP_INT_JUMP",
         "COMPARE_OP_STR_JUMP",
     ],
     "FOR_ITER": [
+        "FOR_ITER_GENERIC",
         "FOR_ITER_LIST",
         "FOR_ITER_TUPLE",
         "FOR_ITER_RANGE",
@@ -322,6 +327,7 @@ _specializations = {
     ],
     "LOAD_ATTR": [
         # These potentially push [NULL, bound method] onto the stack.
+        "LOAD_ATTR_GENERIC",
         "LOAD_ATTR_CLASS",
         "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN",
         "LOAD_ATTR_INSTANCE_VALUE",
@@ -342,10 +348,12 @@ _specializations = {
         "LOAD_FAST__LOAD_FAST",
     ],
     "LOAD_GLOBAL": [
+        "LOAD_GLOBAL_GENERIC",
         "LOAD_GLOBAL_BUILTIN",
         "LOAD_GLOBAL_MODULE",
     ],
     "STORE_ATTR": [
+        "STORE_ATTR_GENERIC",
         "STORE_ATTR_INSTANCE_VALUE",
         "STORE_ATTR_SLOT",
         "STORE_ATTR_WITH_HINT",
@@ -355,10 +363,12 @@ _specializations = {
         "STORE_FAST__STORE_FAST",
     ],
     "STORE_SUBSCR": [
+        "STORE_SUBSCR_GENERIC",
         "STORE_SUBSCR_DICT",
         "STORE_SUBSCR_LIST_INT",
     ],
     "UNPACK_SEQUENCE": [
+        "UNPACK_SEQUENCE_GENERIC",
         "UNPACK_SEQUENCE_LIST",
         "UNPACK_SEQUENCE_TUPLE",
         "UNPACK_SEQUENCE_TWO_TUPLE",
