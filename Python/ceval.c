@@ -2707,9 +2707,7 @@ PyEval_SetTraceAllThreads(Py_tracefunc func, PyObject *arg)
 
     _PyObjectQueue *queue = NULL;
 
-    _PyMutex_lock(&_PyRuntime.stoptheworld_mutex);
     _PyRuntimeState_StopTheWorld(&_PyRuntime);
-
     HEAD_LOCK(runtime);
     PyThreadState* ts = PyInterpreterState_ThreadHead(interp);
     while (ts) {
@@ -2720,9 +2718,7 @@ PyEval_SetTraceAllThreads(Py_tracefunc func, PyObject *arg)
         ts = PyThreadState_Next(ts);
     }
     HEAD_UNLOCK(runtime);
-
     _PyRuntimeState_StartTheWorld(&_PyRuntime);
-    _PyMutex_unlock(&_PyRuntime.stoptheworld_mutex);
 
     PyObject *old_traceobj;
     _PyObjectQueue_ForEach(&queue, old_traceobj) {
