@@ -866,7 +866,7 @@ PyConfig_InitIsolatedConfig(PyConfig *config)
     config->use_environment = 0;
     config->user_site_directory = 0;
     config->dev_mode = 0;
-    config->disable_gil = 0;
+    config->disable_gil = 1;
     config->install_signal_handlers = 0;
     config->use_hash_seed = 0;
     config->faulthandler = 0;

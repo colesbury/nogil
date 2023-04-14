@@ -485,9 +485,11 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
         rc, out, err = assert_python_ok('-c', """if True:
             from concurrent.futures import ThreadPoolExecutor
             from test.test_concurrent_futures import sleep_and_print
+            import time
             if __name__ == "__main__":
                 t = ThreadPoolExecutor()
                 t.submit(sleep_and_print, .1, "apple")
+                time.sleep(0.01) # wait for thread to start sleep_and_print
                 t.shutdown(wait=False, cancel_futures=True)
             """)
         # Errors in atexit hooks don't change the process exit code, check

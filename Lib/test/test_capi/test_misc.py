@@ -247,7 +247,7 @@ class CAPITest(unittest.TestCase):
                 r'SystemError: <built-in function return_null_without_error> '
                     r'returned NULL without setting an exception\n'
                 r'\n'
-                r'Current thread.*:\n'
+                r'Stack.*:\n'
                 r'  File .*", line 6 in <module>\n')
         else:
             with self.assertRaises(SystemError) as cm:
@@ -281,7 +281,7 @@ class CAPITest(unittest.TestCase):
                         r'function return_result_with_error> '
                         r'returned a result with an exception set\n'
                     r'\n'
-                    r'Current thread.*:\n'
+                    r'Stack.*:\n'
                     r'  File .*, line 6 in <module>\n')
         else:
             with self.assertRaises(SystemError) as cm:

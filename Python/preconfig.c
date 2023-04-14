@@ -280,7 +280,7 @@ _PyPreCmdline_Read(_PyPreCmdline *cmdline, const PyPreConfig *preconfig)
             cmdline->disable_gil = (strcmp(env, "0") == 0);
         }
         else {
-            cmdline->disable_gil = 0;
+            cmdline->disable_gil = 1;
         }
     }
 
