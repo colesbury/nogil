@@ -1398,6 +1398,16 @@ PyThreadState_Clear(PyThreadState *tstate)
     Py_CLEAR(tstate->async_gen_finalizer);
 
     Py_CLEAR(tstate->context);
+
+    /* Clear the thread's free lists. If thread is still active we may still,
+       use the free-lists a bit before they are cleared a final timem in
+       finalize_interp_types. */
+    _PyTuple_ClearFreeList(tstate);
+    _PyFloat_ClearFreeList(tstate);
+    _PyList_ClearFreeList(tstate);
+    _PyDict_ClearFreeList(tstate);
+    _PyAsyncGen_ClearFreeLists(tstate);
+    _PyContext_ClearFreeList(tstate);
 }
 
 

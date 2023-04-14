@@ -246,12 +246,17 @@ get_dict_state(void)
     return &interp->dict_state;
 }
 
+static struct _Py_dict_thread_state *
+get_dict_thread_state(void)
+{
+    return &_PyThreadStateImpl_GET()->dict_state;
+}
 
 void
-_PyDict_ClearFreeList(PyInterpreterState *interp)
+_PyDict_ClearFreeList(PyThreadState *tstate)
 {
 #if PyDict_MAXFREELIST > 0
-    struct _Py_dict_state *state = &interp->dict_state;
+    struct _Py_dict_thread_state *state = &((PyThreadStateImpl *)tstate)->dict_state;
     while (state->numfree) {
         PyDictObject *op = state->free_list[--state->numfree];
         assert(PyDict_CheckExact(op));
@@ -263,17 +268,16 @@ _PyDict_ClearFreeList(PyInterpreterState *interp)
 #endif
 }
 
-
 void
-_PyDict_Fini(PyInterpreterState *interp)
+_PyDict_Fini(PyThreadState *tstate)
 {
-    _PyDict_ClearFreeList(interp);
-    struct _Py_dict_state *state = &interp->dict_state;
+    _PyDict_ClearFreeList(tstate);
 #if defined(Py_DEBUG) && PyDict_MAXFREELIST > 0
+    struct _Py_dict_thread_state *state = &((PyThreadStateImpl *)tstate)->dict_state;
     state->numfree = -1;
     state->keys_numfree = -1;
 #endif
-    PyDictSharedKeysObject **ptr = &state->tracked_shared_keys;
+    PyDictSharedKeysObject **ptr = &tstate->interp->dict_state.tracked_shared_keys;
     PyDictSharedKeysObject *value;
     while ((value = *ptr) != NULL) {
         *ptr = value->next;
@@ -293,7 +297,7 @@ void
 _PyDict_DebugMallocStats(FILE *out)
 {
 #if PyDict_MAXFREELIST > 0
-    struct _Py_dict_state *state = get_dict_state();
+    struct _Py_dict_thread_state *state = get_dict_thread_state();
     _PyDebugAllocatorStats(out, "free PyDictObject",
                            state->numfree, sizeof(PyDictObject));
 #endif
@@ -636,8 +640,7 @@ new_keys_object(uint8_t log2_size, bool unicode)
     }
 
 #if PyDict_MAXFREELIST > 0
-    PyThreadState *tstate = _PyThreadState_GET();
-    struct _Py_dict_state *state = &tstate->interp->dict_state;
+    struct _Py_dict_thread_state *state = get_dict_thread_state();
 #ifdef Py_DEBUG
     // new_keys_object() must not be called after _PyDict_Fini()
     assert(state->keys_numfree != -1);
@@ -700,7 +703,7 @@ free_keys_object(PyDictKeysObject *keys, bool use_qsbr)
         return;
     }
 #if PyDict_MAXFREELIST > 0
-    struct _Py_dict_state *state = get_dict_state();
+    struct _Py_dict_thread_state *state = get_dict_thread_state();
 #ifdef Py_DEBUG
     // free_keys_object() must not be called after _PyDict_Fini()
     assert(state->keys_numfree != -1);
@@ -760,7 +763,7 @@ new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free
     PyDictObject *mp;
     assert(keys != NULL);
 #if PyDict_MAXFREELIST > 0
-    struct _Py_dict_state *state = get_dict_state();
+    struct _Py_dict_thread_state *state = get_dict_thread_state();
 #ifdef Py_DEBUG
     // new_dict() must not be called after _PyDict_Fini()
     assert(state->numfree != -1);
@@ -1809,7 +1812,7 @@ dictresize(PyDictObject *mp, uint8_t log2_newsize, int unicode)
     ASSERT_CONSISTENT(mp);
     if (oldkeys != Py_EMPTY_KEYS && oldkeys->dk_kind != DICT_KEYS_SPLIT) {
 #if PyDict_MAXFREELIST > 0
-        struct _Py_dict_state *state = get_dict_state();
+        struct _Py_dict_thread_state *state = get_dict_thread_state();
 #ifdef Py_DEBUG
         // dictresize() must not be called after _PyDict_Fini()
         assert(state->keys_numfree != -1);
@@ -2703,7 +2706,7 @@ dict_dealloc(PyDictObject *mp)
         free_keys_object(keys, false);
     }
 #if PyDict_MAXFREELIST > 0
-    struct _Py_dict_state *state = get_dict_state();
+    struct _Py_dict_thread_state *state = get_dict_thread_state();
 #ifdef Py_DEBUG
     // new_dict() must not be called after _PyDict_Fini()
     assert(state->numfree != -1);

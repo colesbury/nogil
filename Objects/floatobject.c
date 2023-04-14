@@ -34,8 +34,7 @@ class float "PyObject *" "&PyFloat_Type"
 static struct _Py_float_state *
 get_float_state(void)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    return &interp->float_state;
+    return &_PyThreadStateImpl_GET()->float_state;
 }
 #endif
 
@@ -2012,10 +2011,10 @@ _PyFloat_InitTypes(PyInterpreterState *interp)
 }
 
 void
-_PyFloat_ClearFreeList(PyInterpreterState *interp)
+_PyFloat_ClearFreeList(PyThreadState *tstate)
 {
 #if PyFloat_MAXFREELIST > 0
-    struct _Py_float_state *state = &interp->float_state;
+    struct _Py_float_state *state = &((PyThreadStateImpl *)tstate)->float_state;
     PyFloatObject *f = state->free_list;
     while (f != NULL) {
         PyFloatObject *next = (PyFloatObject*) Py_TYPE(f);
@@ -2028,11 +2027,11 @@ _PyFloat_ClearFreeList(PyInterpreterState *interp)
 }
 
 void
-_PyFloat_Fini(PyInterpreterState *interp)
+_PyFloat_Fini(PyThreadState *tstate)
 {
-    _PyFloat_ClearFreeList(interp);
+    _PyFloat_ClearFreeList(tstate);
 #if defined(Py_DEBUG) && PyFloat_MAXFREELIST > 0
-    struct _Py_float_state *state = &interp->float_state;
+    struct _Py_float_state *state = &((PyThreadStateImpl *)tstate)->float_state;
     state->numfree = -1;
 #endif
 }

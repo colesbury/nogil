@@ -14,7 +14,7 @@ extern PyObject *_PyAsyncGenValueWrapperNew(PyThreadState *state, PyObject *);
 
 /* runtime lifecycle */
 
-extern void _PyAsyncGen_Fini(PyInterpreterState *);
+extern void _PyAsyncGen_Fini(PyThreadState *);
 
 
 /* other API */

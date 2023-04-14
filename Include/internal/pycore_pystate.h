@@ -106,6 +106,11 @@ _PyThreadState_GET(void)
     return _Py_current_tstate;
 #endif
 }
+static inline PyThreadStateImpl*
+_PyThreadStateImpl_GET(void)
+{
+    return (PyThreadStateImpl *)_PyThreadState_GET();
+}
 
 static inline void
 _PyThreadState_SET(PyThreadState *tstate)

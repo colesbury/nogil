@@ -15,7 +15,7 @@ extern "C" {
 
 extern PyStatus _PyTuple_InitGlobalObjects(PyInterpreterState *);
 extern PyStatus _PyTuple_InitTypes(PyInterpreterState *);
-extern void _PyTuple_Fini(PyInterpreterState *);
+extern void _PyTuple_Fini(PyThreadState *);
 
 
 /* other API */

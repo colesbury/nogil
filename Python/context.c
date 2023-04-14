@@ -68,8 +68,7 @@ contextvar_del(PyContextVar *var);
 static struct _Py_context_state *
 get_context_state(void)
 {
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    return &interp->context;
+    return &_PyThreadStateImpl_GET()->context;
 }
 #endif
 
@@ -1275,10 +1274,10 @@ get_token_missing(void)
 
 
 void
-_PyContext_ClearFreeList(PyInterpreterState *interp)
+_PyContext_ClearFreeList(PyThreadState *tstate)
 {
 #if PyContext_MAXFREELIST > 0
-    struct _Py_context_state *state = &interp->context;
+    struct _Py_context_state *state = &((PyThreadStateImpl *)tstate)->context;
     for (; state->numfree; state->numfree--) {
         PyContext *ctx = state->freelist;
         state->freelist = (PyContext *)ctx->ctx_weakreflist;
@@ -1290,11 +1289,11 @@ _PyContext_ClearFreeList(PyInterpreterState *interp)
 
 
 void
-_PyContext_Fini(PyInterpreterState *interp)
+_PyContext_Fini(PyThreadState *tstate)
 {
-    _PyContext_ClearFreeList(interp);
+    _PyContext_ClearFreeList(tstate);
 #if defined(Py_DEBUG) && PyContext_MAXFREELIST > 0
-    struct _Py_context_state *state = &interp->context;
+    struct _Py_context_state *state = &((PyThreadStateImpl *)tstate)->context;
     state->numfree = -1;
 #endif
 }

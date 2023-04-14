@@ -106,10 +106,6 @@ typedef struct _stack_chunk {
     PyObject * data[1]; /* Variable sized */
 } _PyStackChunk;
 
-typedef struct _Py_dict_thread_state {
-    uint64_t dict_version;
-} _Py_dict_thread_state;
-
 struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
 typedef struct _PyEventRc _PyEventRc;
@@ -155,8 +151,6 @@ struct _ts {
     /* Pointer to current _PyCFrame in the C stack frame of the currently,
      * or most recently, executing _PyEval_EvalFrameDefault. */
     _PyCFrame *cframe;
-
-    _Py_dict_thread_state dict_state;
 
     /* The thread will not stop for GC or other stop-the-world requests.
      * Used for *short* critical sections that to prevent deadlocks between

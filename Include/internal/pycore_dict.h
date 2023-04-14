@@ -16,7 +16,7 @@ extern "C" {
 
 /* runtime lifecycle */
 
-extern void _PyDict_Fini(PyInterpreterState *interp);
+extern void _PyDict_Fini(PyThreadState *tstate);
 
 
 /* other API */
@@ -166,14 +166,15 @@ static inline PyDictSharedKeysObject* DK_AS_SPLIT(PyDictKeysObject *dk) {
 static inline uint64_t
 _PyDict_NextVersion(PyThreadState *tstate)
 {
-    uint64_t version = tstate->dict_state.dict_version;
+    struct _Py_dict_thread_state *dict_state = &((PyThreadStateImpl *)tstate)->dict_state;
+    uint64_t version = dict_state->dict_version;
     if (version % DICT_GLOBAL_VERSION_INCREMENT == 0) {
         version = _Py_atomic_add_uint64(
             &_PyRuntime.dict_state.global_version,
             DICT_GLOBAL_VERSION_INCREMENT);
     }
     version += DICT_VERSION_INCREMENT;
-    tstate->dict_state.dict_version = version;
+    dict_state->dict_version = version;
     return version;
 }
 

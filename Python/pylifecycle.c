@@ -1733,13 +1733,14 @@ flush_std_files(void)
 
 
 static void
-finalize_interp_types(PyInterpreterState *interp)
+finalize_interp_types(PyThreadState *tstate)
 {
+    PyInterpreterState *interp = tstate->interp;
     _PyUnicode_FiniTypes(interp);
     _PySys_Fini(interp);
     _PyExc_Fini(interp);
-    _PyAsyncGen_Fini(interp);
-    _PyContext_Fini(interp);
+    _PyAsyncGen_Fini(tstate);
+    _PyContext_Fini(tstate);
     _PyFloat_FiniType(interp);
     _PyLong_FiniTypes(interp);
     _PyThread_FiniType(interp);
@@ -1752,14 +1753,14 @@ finalize_interp_types(PyInterpreterState *interp)
     // a dict internally.
     _PyUnicode_ClearInterned(interp);
 
-    _PyDict_Fini(interp);
-    _PyList_Fini(interp);
-    _PyTuple_Fini(interp);
+    _PyDict_Fini(tstate);
+    _PyList_Fini(tstate);
+    _PyTuple_Fini(tstate);
 
     _PySlice_Fini(interp);
 
     _PyUnicode_Fini(interp);
-    _PyFloat_Fini(interp);
+    _PyFloat_Fini(tstate);
 #ifdef Py_DEBUG
     _PyStaticObjects_CheckRefcnt(interp);
 #endif
@@ -1795,7 +1796,7 @@ finalize_interp_clear(PyThreadState *tstate)
         _PyPerfTrampoline_Fini();
     }
 
-    finalize_interp_types(tstate->interp);
+    finalize_interp_types(tstate);
 }
 
 

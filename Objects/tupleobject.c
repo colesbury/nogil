@@ -979,18 +979,18 @@ _PyTuple_InitTypes(PyInterpreterState *interp)
     return _PyStatus_OK();
 }
 
-static void maybe_freelist_clear(PyInterpreterState *, int);
+static void maybe_freelist_clear(PyThreadState *, int);
 
 void
-_PyTuple_Fini(PyInterpreterState *interp)
+_PyTuple_Fini(PyThreadState *tstate)
 {
-    maybe_freelist_clear(interp, 1);
+    maybe_freelist_clear(tstate, 1);
 }
 
 void
-_PyTuple_ClearFreeList(PyInterpreterState *interp)
+_PyTuple_ClearFreeList(PyThreadState *tstate)
 {
-    maybe_freelist_clear(interp, 0);
+    maybe_freelist_clear(tstate, 0);
 }
 
 /*********************** Tuple Iterator **************************/
@@ -1137,14 +1137,14 @@ tuple_iter(PyObject *seq)
  * freelists *
  *************/
 
-#define STATE (interp->tuple)
+#define STATE (((PyThreadStateImpl *)tstate)->tuple)
 #define FREELIST_FINALIZED (STATE.numfree[0] < 0)
 
 static inline PyTupleObject *
 maybe_freelist_pop(Py_ssize_t size)
 {
 #if PyTuple_NFREELISTS > 0
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyThreadState *tstate = _PyThreadState_GET();
 #ifdef Py_DEBUG
     /* maybe_freelist_pop() must not be called after maybe_freelist_fini(). */
     assert(!FREELIST_FINALIZED);
@@ -1182,7 +1182,7 @@ static inline int
 maybe_freelist_push(PyTupleObject *op)
 {
 #if PyTuple_NFREELISTS > 0
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyThreadState *tstate = _PyThreadState_GET();
 #ifdef Py_DEBUG
     /* maybe_freelist_push() must not be called after maybe_freelist_fini(). */
     assert(!FREELIST_FINALIZED);
@@ -1208,7 +1208,7 @@ maybe_freelist_push(PyTupleObject *op)
 }
 
 static void
-maybe_freelist_clear(PyInterpreterState *interp, int fini)
+maybe_freelist_clear(PyThreadState *tstate, int fini)
 {
 #if PyTuple_NFREELISTS > 0
     for (Py_ssize_t i = 0; i < PyTuple_NFREELISTS; i++) {
@@ -1229,7 +1229,8 @@ void
 _PyTuple_DebugMallocStats(FILE *out)
 {
 #if PyTuple_NFREELISTS > 0
-    PyInterpreterState *interp = _PyInterpreterState_GET();
+    PyThreadState *tstate = _PyThreadState_GET();
+    // PyInterpreterState *interp = _PyInterpreterState_GET();
     for (int i = 0; i < PyTuple_NFREELISTS; i++) {
         int len = i + 1;
         char buf[128];

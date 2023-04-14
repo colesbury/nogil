@@ -1359,20 +1359,32 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate,
     }
 }
 
+static void
+clear_freelists(PyThreadState *tstate)
+{
+    _PyTuple_ClearFreeList(tstate);
+    _PyFloat_ClearFreeList(tstate);
+    _PyList_ClearFreeList(tstate);
+    _PyDict_ClearFreeList(tstate);
+    _PyAsyncGen_ClearFreeLists(tstate);
+    _PyContext_ClearFreeList(tstate);
+}
+
 /* Clear all free lists
  * All free lists are cleared during the collection of the highest generation.
  * Allocated items in the free list may keep a pymalloc arena occupied.
  * Clearing the free lists may give back memory to the OS earlier.
  */
 static void
-clear_freelists(PyInterpreterState *interp)
+clear_all_freelists(PyInterpreterState *interp)
 {
-    _PyTuple_ClearFreeList(interp);
-    _PyFloat_ClearFreeList(interp);
-    _PyList_ClearFreeList(interp);
-    _PyDict_ClearFreeList(interp);
-    _PyAsyncGen_ClearFreeLists(interp);
-    _PyContext_ClearFreeList(interp);
+    HEAD_LOCK(&_PyRuntime);
+    PyThreadState *tstate = interp->threads.head;
+    while (tstate != NULL) {
+        clear_freelists(tstate);
+        tstate = tstate->next;
+    }
+    HEAD_UNLOCK(&_PyRuntime);
 }
 
 /* Deduce which objects among "base" are unreachable from outside the list
@@ -1644,6 +1656,12 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     PyGC_Head final_unreachable;
     handle_resurrected_objects(&unreachable, &final_unreachable);
 
+    /* Clear free list only during the collection of the highest
+     * generation */
+    if (generation == NUM_GENERATIONS-1) {
+        clear_all_freelists(tstate->interp);
+    }
+
     _PyRuntimeState_StartTheWorld(&_PyRuntime);
 
     /* Call tp_clear on objects in the final_unreachable set.  This will cause
@@ -1652,6 +1670,12 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
     */
     m += gc_list_size(&final_unreachable);
     delete_garbage(tstate, gcstate, &final_unreachable);
+
+    if (reason == GC_REASON_MANUAL) {
+        // Clear this thread's freelists again after deleting garbage
+        // for more precise block accounting when calling gc.collect().
+        clear_freelists(tstate);
+    }
 
     /* Collect statistics on uncollectable objects found and print
      * debugging information. */
@@ -1672,12 +1696,6 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
      * this if they insist on creating this type of structure.
      */
     handle_legacy_finalizers(tstate, gcstate, &finalizers);
-
-    /* Clear free list only during the collection of the highest
-     * generation */
-    if (generation == NUM_GENERATIONS-1) {
-        clear_freelists(tstate->interp);
-    }
 
     if (_PyErr_Occurred(tstate)) {
         if (reason == GC_REASON_SHUTDOWN) {

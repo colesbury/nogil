@@ -68,6 +68,13 @@ typedef struct PyThreadStateImpl {
     // semi-public fields are in PyThreadState
     PyThreadState tstate;
 
+    struct _Py_float_state float_state;
+    struct _Py_tuple_state tuple;
+    struct _Py_list_state list;
+    struct _Py_dict_thread_state dict_state;
+    struct _Py_async_gen_state async_gen;
+    struct _Py_context_state context;
+
     struct brc_state brc;
 
     struct qsbr *qsbr;
@@ -194,14 +201,9 @@ struct _is {
     uint8_t active_code_watchers;
 
     struct _Py_unicode_state unicode;
-    struct _Py_float_state float_state;
     struct _Py_long_state long_state;
 
-    struct _Py_tuple_state tuple;
-    struct _Py_list_state list;
     struct _Py_dict_state dict_state;
-    struct _Py_async_gen_state async_gen;
-    struct _Py_context_state context;
     struct _Py_exc_state exc_state;
 
     struct ast_state ast;
