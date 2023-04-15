@@ -828,6 +828,7 @@ Traceback \(most recent call first\):
 
     @unittest.skipIf(python_is_optimized(),
                      "Python was compiled with optimizations")
+    @unittest.skipIf(sys.flags.nogil, "Python is running without the GIL")
     def test_threads(self):
         'Verify that "py-bt" indicates threads that are waiting for the GIL'
         cmd = '''
