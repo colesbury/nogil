@@ -918,9 +918,9 @@ class ThreadPoolExecutorTest(ThreadPoolMixin, ExecutorTest, BaseTestCase):
 
     def test_idle_thread_reuse(self):
         executor = self.executor_type()
-        executor.submit(mul, 21, 2).result()
-        executor.submit(mul, 6, 7).result()
-        executor.submit(mul, 3, 14).result()
+        for args in [(21, 2), (6, 7), (3, 14)]:
+            executor.submit(mul, *args).result()
+            time.sleep(0.01)  # wait a tiny bit for the thread to be idle
         self.assertEqual(len(executor._threads), 1)
         executor.shutdown(wait=True)
 

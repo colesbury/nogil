@@ -477,6 +477,7 @@ class SysModuleTest(unittest.TestCase):
         # thread does sys._current_frames(), and verifies that the frames
         # returned make sense.
         entered_g = threading.Event()
+        raised_err = threading.Event()
         leave_g = threading.Event()
         thread_info = []  # the thread's id
 
@@ -490,6 +491,7 @@ class SysModuleTest(unittest.TestCase):
                 try:
                     raise ValueError("oops")
                 except ValueError:
+                    raised_err.set()
                     if leave_g.wait(timeout=support.LONG_TIMEOUT):
                         break
 
@@ -502,6 +504,8 @@ class SysModuleTest(unittest.TestCase):
         # to its leave_g.wait().
         self.assertEqual(len(thread_info), 1)
         thread_id = thread_info[0]
+
+        raised_err.wait()
 
         d = sys._current_exceptions()
         for tid in d:
@@ -529,7 +533,8 @@ class SysModuleTest(unittest.TestCase):
         # And the next record must be for g456().
         filename, lineno, funcname, sourceline = stack[i+1]
         self.assertEqual(funcname, "g456")
-        self.assertTrue(sourceline.startswith("if leave_g.wait("))
+        self.assertTrue(sourceline.startswith("if leave_g.wait(") or
+                        sourceline.startswith("raised_err.set("))
 
         # Reap the spawned thread.
         leave_g.set()
