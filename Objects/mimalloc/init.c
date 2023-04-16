@@ -149,8 +149,8 @@ mi_stats_t _mi_stats_main = { MI_STATS_NULL };
 static int debug_offsets[MI_NUM_HEAPS] = {
   [mi_heap_tag_default] = 0,
   [mi_heap_tag_obj] = offsetof(PyObject, ob_type),
-  [mi_heap_tag_gc] = sizeof(PyGC_Head) + offsetof(PyObject, ob_type),
-  [mi_heap_tag_gc_pre] = sizeof(PyGC_Head) + 2 * sizeof(PyObject *) + offsetof(PyObject, ob_type),
+  [mi_heap_tag_gc] = offsetof(PyObject, ob_type),
+  [mi_heap_tag_gc_pre] = 2 * sizeof(PyObject *) + offsetof(PyObject, ob_type),
 };
 
 static void _mi_heap_init_ex(mi_heap_t* heap, mi_tld_t* tld, int tag) {

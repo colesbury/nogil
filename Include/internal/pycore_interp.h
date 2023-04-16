@@ -79,6 +79,8 @@ typedef struct PyThreadStateImpl {
     struct brc_state brc;
 
     struct qsbr *qsbr;
+
+    _PyObjectQueue *cached_queue;
 } PyThreadStateImpl;
 
 

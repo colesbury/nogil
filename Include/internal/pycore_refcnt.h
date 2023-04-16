@@ -22,7 +22,8 @@ typedef struct _PyObjectQueue {
 #define _PyObjectQueue_ForEach(q, obj) \
     for (obj = _PyObjectQueue_Pop(q); obj != NULL; obj = _PyObjectQueue_Pop(q))
 
-_PyObjectQueue *_PyObjectQueue_New(void);
+extern _PyObjectQueue *_PyObjectQueue_New(void);
+extern void _PyObjectQueue_Free(_PyObjectQueue *);
 
 static inline void
 _PyObjectQueue_Push(_PyObjectQueue **queue_ptr, PyObject *obj)
@@ -46,7 +47,7 @@ _PyObjectQueue_Pop(_PyObjectQueue **queue_ptr)
     }
     while (q->n == 0) {
         _PyObjectQueue *prev = q->prev;
-        PyMem_RawFree(q);
+        _PyObjectQueue_Free(q);
         *queue_ptr = q = prev;
         if (q == NULL) {
             return NULL;

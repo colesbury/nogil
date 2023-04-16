@@ -40,6 +40,13 @@ find_thread_state(Bucket *bucket, uintptr_t thread_id)
 _PyObjectQueue *
 _PyObjectQueue_New(void)
 {
+    PyThreadStateImpl *tstate_impl = _PyThreadStateImpl_GET();
+    if (tstate_impl && tstate_impl->cached_queue) {
+        _PyObjectQueue *q = tstate_impl->cached_queue;
+        tstate_impl->cached_queue = NULL;
+        return q;
+    }
+
     _PyObjectQueue *q = PyMem_RawMalloc(sizeof(_PyObjectQueue));
     if (q == NULL) {
         Py_FatalError("gc: failed to allocate object queue");
@@ -47,6 +54,18 @@ _PyObjectQueue_New(void)
     q->prev = NULL;
     q->n = 0;
     return q;
+}
+
+void
+_PyObjectQueue_Free(_PyObjectQueue *q)
+{
+    PyThreadStateImpl *tstate_impl = _PyThreadStateImpl_GET();
+    if (tstate_impl && tstate_impl->cached_queue == NULL) {
+        tstate_impl->cached_queue = q;
+    }
+    else {
+        PyMem_RawFree(q);
+    }
 }
 
 void

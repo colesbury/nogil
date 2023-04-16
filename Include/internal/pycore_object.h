@@ -122,10 +122,6 @@ _PyObject_InitVar(PyVarObject *op, PyTypeObject *typeobj, Py_ssize_t size)
  * NB: While the object is tracked by the collector, it must be safe to call the
  * ob_traverse method.
  *
- * Internal note: interp->gc.generation0->_gc_prev doesn't have any bit flags
- * because it's not object header.  So we don't use _PyGCHead_PREV() and
- * _PyGCHead_SET_PREV() for it to avoid unnecessary bitwise operations.
- *
  * See also the public PyObject_GC_Track() function.
  */
 static inline void _PyObject_GC_TRACK(
@@ -138,9 +134,7 @@ static inline void _PyObject_GC_TRACK(
     _PyObject_ASSERT_FROM(op, !_PyObject_GC_IS_TRACKED(op),
                           "object already tracked by the garbage collector",
                           filename, lineno, __func__);
-
-    PyGC_Head *gc = _Py_AS_GC(op);
-    gc->_gc_prev |= _PyGC_PREV_MASK_TRACKED;
+    op->ob_gc_bits |= _PyGC_MASK_TRACKED;
 }
 
 /* Tell the GC to stop tracking this object.
@@ -164,18 +158,7 @@ static inline void _PyObject_GC_UNTRACK(
                           "object not tracked by the garbage collector",
                           filename, lineno, __func__);
 
-    PyGC_Head *gc = _Py_AS_GC(op);
-    if (gc->_gc_next != 0) {
-        PyGC_Head *prev = _PyGCHead_PREV(gc);
-        PyGC_Head *next = _PyGCHead_NEXT(gc);
-
-        _PyGCHead_SET_NEXT(prev, next);
-        _PyGCHead_SET_PREV(next, prev);
-
-        gc->_gc_next = 0;
-    }
-
-    gc->_gc_prev &= _PyGC_PREV_MASK_FINALIZED;
+    op->ob_gc_bits &= ~_PyGC_MASK_TRACKED;
 }
 
 // Macros to accept any type for the parameter, and to automatically pass
@@ -461,12 +444,12 @@ _PyObject_IS_GC(PyObject *obj)
 
 // Fast inlined version of PyType_IS_GC()
 #define _PyType_IS_GC(t) _PyType_HasFeature((t), Py_TPFLAGS_HAVE_GC)
-#define _PyGC_PREHEADER_SIZE (sizeof(PyGC_Head) + 2 * sizeof(PyObject *))
+#define _PyGC_PREHEADER_SIZE (2 * sizeof(PyObject *))
 
 static inline size_t
 _PyType_PreHeaderSize(PyTypeObject *tp)
 {
-    if (_PyType_IS_GC(tp)) {
+    if (_PyType_HasFeature(tp, Py_TPFLAGS_PREHEADER)) {
         return _PyGC_PREHEADER_SIZE;
     }
     return 0;

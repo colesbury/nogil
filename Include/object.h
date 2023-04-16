@@ -83,6 +83,7 @@ whose size is determined when the object is allocated.
 #define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
       _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL), \
+       0,                               \
       _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL), \
       0, type }
 
@@ -112,6 +113,7 @@ whose size is determined when the object is allocated.
 struct _object {
     _PyObject_HEAD_EXTRA
     uintptr_t ob_tid;
+    uint8_t ob_gc_bits;
     uint32_t ob_ref_local;
     uint32_t ob_ref_shared;
     PyTypeObject *ob_type;

@@ -691,7 +691,7 @@ PyInit__testinternalcapi(void)
     }
 
     if (PyModule_AddObject(module, "SIZEOF_PYGC_HEAD",
-                           PyLong_FromSsize_t(_PyGC_PREHEADER_SIZE)) < 0) {
+                           PyLong_FromSsize_t(0)) < 0) {
         goto error;
     }
 

@@ -2094,6 +2094,7 @@ _Py_NewReference(PyObject *op)
     _Py_IncRefTotal();
 #endif
     op->ob_tid = _Py_ThreadId();
+    op->ob_gc_bits = 0;
     op->ob_ref_local = _Py_REF_LOCAL_INIT;
     op->ob_ref_shared = _Py_REF_SHARED_INIT;
 #ifdef Py_TRACE_REFS
@@ -2303,7 +2304,8 @@ _PyTrash_thread_deposit_object(PyObject *op)
     _PyObject_ASSERT(op, _PyObject_IS_GC(op));
     _PyObject_ASSERT(op, !_PyObject_GC_IS_TRACKED(op));
     _PyObject_ASSERT(op, Py_REFCNT(op) == 0);
-    _PyGCHead_SET_PREV(_Py_AS_GC(op), (PyGC_Head*)tstate->trash_delete_later);
+    _PyObject_ASSERT(op, op->ob_tid == 0);
+    op->ob_tid = (uintptr_t)tstate->trash_delete_later;
     tstate->trash_delete_later = op;
 }
 
@@ -2330,9 +2332,8 @@ _PyTrash_thread_destroy_chain(void)
         PyObject *op = tstate->trash_delete_later;
         destructor dealloc = Py_TYPE(op)->tp_dealloc;
 
-        tstate->trash_delete_later =
-            (PyObject*) _PyGCHead_PREV(_Py_AS_GC(op));
-        _PyGCHead_SET_PREV(_Py_AS_GC(op), NULL);
+        tstate->trash_delete_later = (PyObject *)op->ob_tid;
+        op->ob_tid = 0;
 
         /* Call the deallocator directly.  This used to try to
          * fool Py_DECREF into calling it indirectly, but
