@@ -83,6 +83,10 @@ typedef struct pyruntimestate {
     /* Is Python fully initialized? Set to 1 by Py_Initialize() */
     int initialized;
 
+    /* Is there more than one thread? Set to 1 the first time another thread
+       is created ONLY IF the GIL is disabled. */
+    int multithreaded;
+
     /* Has Python started the process of stopping all threads? Protected by HEAD_LOCK() */
     int stop_the_world_requested;
 

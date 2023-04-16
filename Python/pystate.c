@@ -1058,6 +1058,33 @@ init_threadstate(PyThreadState *tstate,
     tstate->_initialized = 1;
 }
 
+static void
+set_multithreaded(void)
+{
+    if (!_PyRuntime.preconfig.disable_gil) {
+        /* If the GIL is enabled, treat the program as single-threaded */
+        return;
+    }
+    if (_Py_atomic_load_int(&_PyRuntime.multithreaded)) {
+        /* already set */
+        return;
+    }
+    if (_PyThreadState_GET() != NULL) {
+        /* creating a new thread from the main thread. */
+        _Py_atomic_store_int(&_PyRuntime.multithreaded, 1);
+    }
+    else {
+        /* If we don't have an active thread state, we might be creating a new
+         * thread from C and the main thread may not be aware of it yet. Pause
+         * it so that it stops doing non-thread safe things before setting
+         * multithreaded to 1.
+         */
+        _PyRuntimeState_StopTheWorld(&_PyRuntime);
+        _Py_atomic_store_int(&_PyRuntime.multithreaded, 1);
+        _PyRuntimeState_StartTheWorld(&_PyRuntime);
+    }
+}
+
 static PyThreadState *
 new_threadstate(PyInterpreterState *interp, _PyEventRc *done_event)
 {
@@ -1108,7 +1135,10 @@ new_threadstate(PyInterpreterState *interp, _PyEventRc *done_event)
     init_threadstate(tstate, interp, id, old_head, qsbr, done_event);
 
     HEAD_UNLOCK(runtime);
-    if (!used_newtstate) {
+    if (used_newtstate) {;
+        set_multithreaded();
+    }
+    else {
         // Must be called with lock unlocked to avoid re-entrancy deadlock.
         PyMem_RawFree(new_tstate);
     }
