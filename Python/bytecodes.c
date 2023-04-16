@@ -342,9 +342,9 @@ dummy_func(
         };
 
         inst(BINARY_SUBSCR, (unused/4, container, sub -- unused)) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyBinarySubscrCache *cache = (_PyBinarySubscrCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_BinarySubscr(container, sub, next_instr);
@@ -352,8 +352,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(BINARY_SUBSCR, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(BINARY_SUBSCR_GENERIC);
         }
 
@@ -490,9 +488,9 @@ dummy_func(
         };
 
         inst(STORE_SUBSCR, (unused/1, unused, container, sub -- )) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyStoreSubscrCache *cache = (_PyStoreSubscrCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_StoreSubscr(container, sub, next_instr);
@@ -500,8 +498,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(STORE_SUBSCR, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(STORE_SUBSCR_GENERIC);
         }
 
@@ -928,9 +924,9 @@ dummy_func(
 
         // stack effect: (__0 -- __array[oparg])
         inst(UNPACK_SEQUENCE) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyUnpackSequenceCache *cache = (_PyUnpackSequenceCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 PyObject *seq = TOP();
                 next_instr--;
@@ -939,8 +935,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(UNPACK_SEQUENCE, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(UNPACK_SEQUENCE_GENERIC);
         }
 
@@ -1021,9 +1015,9 @@ dummy_func(
         };
 
         inst(STORE_ATTR, (unused/1, unused/3, unused, owner --)) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyAttrCache *cache = (_PyAttrCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 PyObject *name = GETITEM(names, oparg);
                 next_instr--;
@@ -1032,8 +1026,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(STORE_ATTR, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(STORE_ATTR_GENERIC);
         }
 
@@ -1136,9 +1128,9 @@ dummy_func(
 
         // error: LOAD_GLOBAL has irregular stack effect
         inst(LOAD_GLOBAL) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyLoadGlobalCache *cache = (_PyLoadGlobalCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 PyObject *name = GETITEM(names, oparg>>1);
                 next_instr--;
@@ -1147,8 +1139,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(LOAD_GLOBAL, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(LOAD_GLOBAL_GENERIC);
         }
 
@@ -1537,9 +1527,9 @@ dummy_func(
 
         // error: LOAD_ATTR has irregular stack effect
         inst(LOAD_ATTR) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyAttrCache *cache = (_PyAttrCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 PyObject *owner = TOP();
                 PyObject *name = GETITEM(names, oparg>>1);
@@ -1549,8 +1539,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(LOAD_ATTR, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(LOAD_ATTR_GENERIC);
         }
 
@@ -1885,9 +1873,9 @@ dummy_func(
         };
 
         inst(COMPARE_OP, (unused/2, left, right -- unused)) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyCompareOpCache *cache = (_PyCompareOpCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_CompareOp(left, right, next_instr, oparg);
@@ -1895,8 +1883,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(COMPARE_OP, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(COMPARE_OP_GENERIC);
         }
 
@@ -2301,9 +2287,9 @@ dummy_func(
 
         // stack effect: ( -- __0)
         inst(FOR_ITER) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyForIterCache *cache = (_PyForIterCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_ForIter(TOP(), next_instr, oparg);
@@ -2311,8 +2297,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(FOR_ITER, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(FOR_ITER_GENERIC);
         }
 
@@ -2636,9 +2620,9 @@ dummy_func(
 
         // stack effect: (__0, __array[oparg] -- )
         inst(CALL) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyCallCache *cache = (_PyCallCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 int is_meth = is_method(stack_pointer, oparg);
                 int nargs = oparg + is_meth;
@@ -2649,8 +2633,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(CALL, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(CALL_GENERIC);
         }
 
@@ -3393,9 +3375,9 @@ dummy_func(
         }
 
         inst(BINARY_OP, (unused/1, lhs, rhs -- unused)) {
-            _PyMutex_lock(&_PyRuntime.mutex);
             _PyBinaryOpCache *cache = (_PyBinaryOpCache *)next_instr;
-            if (ADAPTIVE_COUNTER_IS_ZERO(cache->counter)) {
+            if (DECREMENT_ADAPTIVE_COUNTER(&cache->counter)) {
+                _PyMutex_lock(&_PyRuntime.mutex);
                 assert(cframe.use_tracing == 0);
                 next_instr--;
                 _Py_Specialize_BinaryOp(lhs, rhs, next_instr, oparg, &GETLOCAL(0));
@@ -3403,8 +3385,6 @@ dummy_func(
                 DISPATCH_SAME_OPARG();
             }
             STAT_INC(BINARY_OP, deferred);
-            DECREMENT_ADAPTIVE_COUNTER(cache->counter);
-            _PyMutex_unlock(&_PyRuntime.mutex);
             GO_TO_INSTRUCTION(BINARY_OP_GENERIC);
         }
 

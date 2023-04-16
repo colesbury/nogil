@@ -460,6 +460,17 @@ _PyCode_Quicken(PyCodeObject *code)
 #define SPEC_FAIL_UNPACK_SEQUENCE_ITERATOR 9
 #define SPEC_FAIL_UNPACK_SEQUENCE_SEQUENCE 10
 
+static void
+_py_set_opcode_failure(_Py_CODEUNIT *instr, uint8_t opcode_generic)
+{
+    if (!_PyRuntime.multithreaded) {
+        _py_set_opcode(instr, _PyOpcode_Deopt[opcode_generic]);
+    }
+    else {
+        _py_set_opcode(instr, opcode_generic);
+    }
+}
+
 static int function_kind(PyCodeObject *code);
 static bool function_check_args(PyObject *o, int expected_argcount, int opcode);
 static uint32_t function_get_version(PyObject *o, int opcode);
@@ -712,7 +723,7 @@ static int specialize_class_load_attr(PyObject* owner, _Py_CODEUNIT* instr, PyOb
 void
 _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
 {
-    if (instr->opcode != LOAD_ATTR) {
+    if (_PyRuntime.multithreaded && instr->opcode != LOAD_ATTR) {
         // another thread concurrently specialized this instruction
         STAT_INC(LOAD_ATTR, failure);
         return;
@@ -884,7 +895,7 @@ _Py_Specialize_LoadAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
 fail:
     STAT_INC(LOAD_ATTR, failure);
     assert(!PyErr_Occurred());
-    _py_set_opcode(instr, LOAD_ATTR_GENERIC);
+    _py_set_opcode_failure(instr, LOAD_ATTR_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -896,7 +907,7 @@ success:
 void
 _Py_Specialize_StoreAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
 {
-    if (instr->opcode != STORE_ATTR) {
+    if (_PyRuntime.multithreaded && instr->opcode != STORE_ATTR) {
         // another thread concurrently specialized this instruction
         STAT_INC(STORE_ATTR, failure);
         return;
@@ -991,7 +1002,7 @@ _Py_Specialize_StoreAttr(PyObject *owner, _Py_CODEUNIT *instr, PyObject *name)
 fail:
     STAT_INC(STORE_ATTR, failure);
     assert(!PyErr_Occurred());
-    _py_set_opcode(instr, STORE_ATTR_GENERIC);
+    _py_set_opcode_failure(instr, STORE_ATTR_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -1191,7 +1202,7 @@ _Py_Specialize_LoadGlobal(
     PyObject *globals, PyObject *builtins,
     _Py_CODEUNIT *instr, PyObject *name)
 {
-    if (instr->opcode != LOAD_GLOBAL) {
+    if (_PyRuntime.multithreaded && instr->opcode != LOAD_GLOBAL) {
         // another thread concurrently specialized this instruction
         STAT_INC(LOAD_GLOBAL, failure);
         return;
@@ -1269,7 +1280,7 @@ _Py_Specialize_LoadGlobal(
 fail:
     STAT_INC(LOAD_GLOBAL, failure);
     assert(!PyErr_Occurred());
-    _py_set_opcode(instr, LOAD_GLOBAL_GENERIC);
+    _py_set_opcode_failure(instr, LOAD_GLOBAL_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -1367,7 +1378,7 @@ void
 _Py_Specialize_BinarySubscr(
      PyObject *container, PyObject *sub, _Py_CODEUNIT *instr)
 {
-    if (instr->opcode != BINARY_SUBSCR) {
+    if (_PyRuntime.multithreaded && instr->opcode != BINARY_SUBSCR) {
         // another thread concurrently specialized this instruction
         STAT_INC(BINARY_SUBSCR, failure);
         return;
@@ -1447,7 +1458,7 @@ _Py_Specialize_BinarySubscr(
 fail:
     STAT_INC(BINARY_SUBSCR, failure);
     assert(!PyErr_Occurred());
-    _py_set_opcode(instr, BINARY_SUBSCR_GENERIC);
+    _py_set_opcode_failure(instr, BINARY_SUBSCR_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -1459,7 +1470,7 @@ success:
 void
 _Py_Specialize_StoreSubscr(PyObject *container, PyObject *sub, _Py_CODEUNIT *instr)
 {
-    if (instr->opcode != STORE_SUBSCR) {
+    if (_PyRuntime.multithreaded && instr->opcode != STORE_SUBSCR) {
         // another thread concurrently specialized this instruction
         STAT_INC(STORE_SUBSCR, failure);
         return;
@@ -1562,7 +1573,7 @@ _Py_Specialize_StoreSubscr(PyObject *container, PyObject *sub, _Py_CODEUNIT *ins
 fail:
     STAT_INC(STORE_SUBSCR, failure);
     assert(!PyErr_Occurred());
-    _py_set_opcode(instr, STORE_SUBSCR_GENERIC);
+    _py_set_opcode_failure(instr, STORE_SUBSCR_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -1849,7 +1860,7 @@ void
 _Py_Specialize_Call(PyObject *callable, _Py_CODEUNIT *instr, int nargs,
                     PyObject *kwnames)
 {
-    if (instr->opcode != CALL) {
+    if (_PyRuntime.multithreaded && instr->opcode != CALL) {
         // another thread concurrently specialized this instruction
         STAT_INC(CALL, failure);
         return;
@@ -1888,7 +1899,7 @@ _Py_Specialize_Call(PyObject *callable, _Py_CODEUNIT *instr, int nargs,
     if (fail) {
         STAT_INC(CALL, failure);
         assert(!PyErr_Occurred());
-        _py_set_opcode(instr, CALL_GENERIC);
+        _py_set_opcode_failure(instr, CALL_GENERIC);
         cache->counter = adaptive_counter_backoff(cache->counter);
     }
     else {
@@ -1972,7 +1983,7 @@ void
 _Py_Specialize_BinaryOp(PyObject *lhs, PyObject *rhs, _Py_CODEUNIT *instr,
                         int oparg, PyObject **locals)
 {
-    if (instr->opcode != BINARY_OP) {
+    if (_PyRuntime.multithreaded && instr->opcode != BINARY_OP) {
         // another thread concurrently specialized this instruction
         STAT_INC(BINARY_OP, failure);
         return;
@@ -2036,7 +2047,7 @@ _Py_Specialize_BinaryOp(PyObject *lhs, PyObject *rhs, _Py_CODEUNIT *instr,
     }
     SPECIALIZATION_FAIL(BINARY_OP, binary_op_fail_kind(oparg, lhs, rhs));
     STAT_INC(BINARY_OP, failure);
-    _py_set_opcode(instr, BINARY_OP_GENERIC);
+    _py_set_opcode_failure(instr, BINARY_OP_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -2098,7 +2109,7 @@ void
 _Py_Specialize_CompareOp(PyObject *lhs, PyObject *rhs, _Py_CODEUNIT *instr,
                          int oparg)
 {
-    if (instr->opcode != COMPARE_OP) {
+    if (_PyRuntime.multithreaded && instr->opcode != COMPARE_OP) {
         // another thread concurrently specialized this instruction
         STAT_INC(COMPARE_OP, failure);
         return;
@@ -2153,7 +2164,7 @@ _Py_Specialize_CompareOp(PyObject *lhs, PyObject *rhs, _Py_CODEUNIT *instr,
     SPECIALIZATION_FAIL(COMPARE_OP, compare_op_fail_kind(lhs, rhs));
 failure:
     STAT_INC(COMPARE_OP, failure);
-    _py_set_opcode(instr, COMPARE_OP_GENERIC);
+    _py_set_opcode_failure(instr, COMPARE_OP_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -2178,7 +2189,7 @@ unpack_sequence_fail_kind(PyObject *seq)
 void
 _Py_Specialize_UnpackSequence(PyObject *seq, _Py_CODEUNIT *instr, int oparg)
 {
-    if (instr->opcode != UNPACK_SEQUENCE) {
+    if (_PyRuntime.multithreaded && instr->opcode != UNPACK_SEQUENCE) {
         // another thread concurrently specialized this instruction
         STAT_INC(UNPACK_SEQUENCE, failure);
         return;
@@ -2209,7 +2220,7 @@ _Py_Specialize_UnpackSequence(PyObject *seq, _Py_CODEUNIT *instr, int oparg)
     SPECIALIZATION_FAIL(UNPACK_SEQUENCE, unpack_sequence_fail_kind(seq));
 failure:
     STAT_INC(UNPACK_SEQUENCE, failure);
-    _py_set_opcode(instr, UNPACK_SEQUENCE_GENERIC);
+    _py_set_opcode_failure(instr, UNPACK_SEQUENCE_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
@@ -2292,7 +2303,7 @@ int
 void
 _Py_Specialize_ForIter(PyObject *iter, _Py_CODEUNIT *instr, int oparg)
 {
-    if (instr->opcode != FOR_ITER) {
+    if (_PyRuntime.multithreaded && instr->opcode != FOR_ITER) {
         // another thread concurrently specialized this instruction
         STAT_INC(FOR_ITER, failure);
         return;
@@ -2322,7 +2333,7 @@ _Py_Specialize_ForIter(PyObject *iter, _Py_CODEUNIT *instr, int oparg)
     SPECIALIZATION_FAIL(FOR_ITER,
                         _PySpecialization_ClassifyIterator(iter));
     STAT_INC(FOR_ITER, failure);
-    _py_set_opcode(instr, FOR_ITER_GENERIC);
+    _py_set_opcode_failure(instr, FOR_ITER_GENERIC);
     cache->counter = adaptive_counter_backoff(cache->counter);
     return;
 success:
