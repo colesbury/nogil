@@ -41,8 +41,11 @@
 #endif
 
 #if defined(__linux__) && defined(HAVE_VFORK) && defined(HAVE_SIGNAL_H) && \
-    defined(HAVE_PTHREAD_SIGMASK) && !defined(HAVE_BROKEN_PTHREAD_SIGMASK)
-/* If this is ever expanded to non-Linux platforms, verify what calls are
+    defined(HAVE_PTHREAD_SIGMASK) && !defined(HAVE_BROKEN_PTHREAD_SIGMASK) && \
+    !defined(_Py_ADDRESS_SANITIZER)
+/* Older versions of ASAN do not support vfork(). For example, GCC 9.4.0
+ * will generate false positives with vfork() and ASAN.
+ * If this is ever expanded to non-Linux platforms, verify what calls are
  * allowed after vfork(). Ex: setsid() may be disallowed on macOS? */
 # include <signal.h>
 # define VFORK_USABLE 1
