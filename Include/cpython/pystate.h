@@ -110,9 +110,6 @@ struct mi_heap_s;
 typedef struct mi_heap_s mi_heap_t;
 typedef struct _PyEventRc _PyEventRc;
 
-// must match MI_NUM_HEAPS in mimalloc.h
-#define Py_NUM_HEAPS 5
-
 // The PyThreadState typedef is in Include/pystate.h.
 struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
@@ -126,7 +123,8 @@ struct _ts {
 
     uintptr_t eval_breaker;
 
-    mi_heap_t *heaps[Py_NUM_HEAPS];
+    mi_heap_t *heaps;
+    mi_heap_t *curheap;
 
     Py_ssize_t refcount;
 

@@ -193,8 +193,7 @@ typedef enum mi_heap_tag_e {
   mi_heap_tag_default,
   mi_heap_tag_obj,
   mi_heap_tag_gc,
-  mi_heap_tag_list_array,
-  mi_heap_tag_dict_keys,
+  mi_heap_tag_gc_pre,
   MI_NUM_HEAPS
 } mi_heap_tag_t;
 

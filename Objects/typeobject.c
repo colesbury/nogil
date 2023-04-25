@@ -17,6 +17,9 @@
 #include "opcode.h"               // MAKE_CELL
 #include "structmember.h"         // PyMemberDef
 
+#include "mimalloc.h"
+#include "mimalloc-internal.h"
+
 #include <ctype.h>
 
 /*[clinic input]
@@ -1281,8 +1284,15 @@ _PyType_AllocNoTrack(PyTypeObject *type, Py_ssize_t nitems)
     const size_t size = _PyObject_VAR_SIZE(type, nitems+1);
     /* note that we need to add one, for the sentinel */
 
-    const size_t presize = _PyType_PreHeaderSize(type);
-    if (presize) {
+    if (_PyType_IS_GC(type)) {
+        PyThreadState *tstate = _PyThreadState_GET();
+        const size_t presize = _PyType_PreHeaderSize(type);
+        if (presize != 0) {
+            tstate->curheap = &tstate->heaps[mi_heap_tag_gc_pre];
+        }
+        else {
+            tstate->curheap = &tstate->heaps[mi_heap_tag_gc];
+        }
         PyMemAllocatorEx *a = &_PyRuntime.allocators.standard.gc;
         char *alloc = a->malloc(a->ctx, size + presize);
         if (alloc == NULL) {

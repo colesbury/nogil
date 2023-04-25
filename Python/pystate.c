@@ -46,10 +46,6 @@ to avoid the expense of doing their own locking).
 extern "C" {
 #endif
 
-#if PY_NUM_HEAPS != MI_NUM_HEAPS
-#error "PY_NUM_HEAPS does not match MI_NUM_HEAPS"
-#endif
-
 #define _PyRuntimeGILState_GetThreadState(gilstate) _PyThreadState_GET()
 #define _PyRuntimeGILState_SetThreadState(gilstate, value) _PyThreadState_SET(value)
 
@@ -1213,9 +1209,7 @@ _PyThreadState_SetCurrent(PyThreadState *tstate)
     mi_tld_t *tld = mi_heap_get_default()->tld;
     assert(tld->status == MI_THREAD_ALIVE);
     mi_atomic_add_acq_rel(&tld->refcount, 1);
-    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
-        tstate->heaps[tag] = &tld->heaps[tag];
-    }
+    tstate->heaps = tld->heaps;
     _PyParkingLot_InitThread();
     _Py_queue_create(tstate);
     _PyGILState_NoteThreadState(&tstate->interp->runtime->gilstate, tstate);
@@ -1440,13 +1434,11 @@ tstate_delete_common(PyThreadState *tstate,
     _Py_qsbr_unregister(tstate_impl->qsbr);
     tstate_impl->qsbr = NULL;
 
-    if (tstate->heaps[0] != NULL) {
-        _mi_thread_abandon(tstate->heaps[0]->tld);
+    if (tstate->heaps != NULL) {
+        _mi_thread_abandon(tstate->heaps[0].tld);
     }
 
-    for (int tag = 0; tag < Py_NUM_HEAPS; tag++) {
-        tstate->heaps[tag] = NULL;
-    }
+    tstate->heaps = NULL;
 
     _PyEventRc *done_event;
     _PyRuntimeState *runtime = interp->runtime;
@@ -1570,8 +1562,8 @@ _PyThreadState_UnlinkExcept(_PyRuntimeState *runtime, PyThreadState *tstate, int
     HEAD_UNLOCK(runtime);
 
     for (PyThreadState *p = garbage; p; p = p->next) {
-        if (p->heaps[0] != NULL) {
-            mi_tld_t *tld = p->heaps[0]->tld;
+        if (p->heaps != NULL) {
+            mi_tld_t *tld = p->heaps[0].tld;
             if (already_dead) {
                 assert(tld->status == 0);
                 tld->status = MI_THREAD_DEAD;

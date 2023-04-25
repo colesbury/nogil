@@ -375,7 +375,7 @@ visit_segments(mi_segment_t* segment, gc_visit_fn* visitor, void *arg)
         while (slice < end) {
             if (slice->xblock_size > 0) {
                 mi_page_t* const page = mi_slice_to_page(slice);
-                if (page->tag == mi_heap_tag_gc) {
+                if (page->tag == mi_heap_tag_gc_pre) {
                     int err = visit_page(page, visitor, arg);
                     if (err) {
                         return err;
@@ -400,7 +400,7 @@ visit_heap(mi_heap_t *heap, gc_visit_fn* visitor, void *arg)
         const mi_page_queue_t *pq = &heap->pages[i];
         mi_page_t *page = pq->first;
         while (page != NULL) {
-            assert(page->tag == mi_heap_tag_gc);
+            assert(page->tag == mi_heap_tag_gc_pre);
             int err = visit_page(page, visitor, arg);
             if (err) {
                 return err;
@@ -425,10 +425,12 @@ visit_heaps(gc_visit_fn* visitor, void *arg)
     using_debug_allocator = _PyMem_DebugEnabled();
 
     for_each_thread(t) {
-        mi_heap_t *heap = t->heaps[mi_heap_tag_gc];
-        int err = visit_heap(heap, visitor, arg);
-        if (err) {
-            goto end;
+        for (mi_heap_tag_t tag = mi_heap_tag_gc; tag <= mi_heap_tag_gc_pre; tag++) {
+            mi_heap_t *heap = &t->heaps[tag];
+            int err = visit_heap(heap, visitor, arg);
+            if (err) {
+                goto end;
+            }
         }
     }
 
@@ -444,9 +446,11 @@ visit_heaps(gc_visit_fn* visitor, void *arg)
 
 end:
     for_each_thread(t) {
-        mi_heap_t *heap = t->heaps[mi_heap_tag_gc];
-        if (heap) {
-            heap->visited = false;
+        if (t->heaps) {
+            for (mi_heap_tag_t tag = mi_heap_tag_gc; tag <= mi_heap_tag_gc_pre; tag++) {
+                mi_heap_t *heap = &t->heaps[tag];
+                heap->visited = false;
+            }
         }
     }
 
@@ -481,13 +485,13 @@ visit_heaps2(int heap_tag, mi_block_visit_fun *visitor, void *arg)
     using_debug_allocator = _PyMem_DebugEnabled();
 
     // FIXME(sgross): dict keys don't go through debug allocator
-    if (using_debug_allocator && heap_tag != mi_heap_tag_dict_keys) {
+    if (using_debug_allocator) {
         visitor = debug_visitor;
         arg = &debug_args;
     }
 
     for_each_thread(t) {
-        mi_heap_t *heap = t->heaps[heap_tag];
+        mi_heap_t *heap = &t->heaps[heap_tag];
         if (heap && !heap->visited) {
             mi_heap_visit_blocks(heap, true, visitor, arg);
             heap->visited = true;
@@ -497,7 +501,7 @@ visit_heaps2(int heap_tag, mi_block_visit_fun *visitor, void *arg)
     _mi_abandoned_visit_blocks(heap_tag, true, visitor, arg);
 
     for_each_thread(t) {
-        mi_heap_t *heap = t->heaps[heap_tag];
+        mi_heap_t *heap = &t->heaps[heap_tag];
         if (heap) {
             heap->visited = false;
         }
@@ -1618,7 +1622,7 @@ gc_collect_main(PyThreadState *tstate, int generation, _PyGC_Reason reason)
         .split_keys_marked = 0,
         .gc_reason = reason,
     };
-    visit_heaps2(mi_heap_tag_gc, update_refs, &args);
+    visit_heaps2(mi_heap_tag_gc_pre, update_refs, &args);
 
     _PyObjectQueue *dead_keys = NULL;
     int split_keys_unmarked = 0;
@@ -2571,11 +2575,20 @@ gc_alloc(size_t basicsize, size_t presize)
         return _PyErr_NoMemory(tstate);
     }
     size_t size = presize + basicsize;
+    if (presize != 0) {
+        tstate->curheap = &tstate->heaps[mi_heap_tag_gc_pre];
+    }
+    else {
+        tstate->curheap = &tstate->heaps[mi_heap_tag_gc];
+    }
     PyMemAllocatorEx *a = &_PyRuntime.allocators.standard.gc;
     char *mem = a->malloc(a->ctx, size);
     if (mem == NULL) {
         return _PyErr_NoMemory(tstate);
     }
+#ifdef Py_DEBUG
+    tstate->curheap = NULL;
+#endif
     memset(mem, 0, presize);
     return (PyObject *)(mem + presize);
 }
@@ -2619,6 +2632,14 @@ _PyObject_GC_Resize(PyVarObject *op, Py_ssize_t nitems)
     _PyObject_ASSERT((PyObject *)op, !_PyObject_GC_IS_TRACKED(op));
     if (basicsize > (size_t)PY_SSIZE_T_MAX - presize) {
         return (PyVarObject *)PyErr_NoMemory();
+    }
+
+    PyThreadState *tstate = _PyThreadState_GET();
+    if (presize != 0) {
+        tstate->curheap = &tstate->heaps[mi_heap_tag_gc_pre];
+    }
+    else {
+        tstate->curheap = &tstate->heaps[mi_heap_tag_gc];
     }
 
     PyMemAllocatorEx *a = &_PyRuntime.allocators.standard.gc;

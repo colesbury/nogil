@@ -10,6 +10,7 @@
 #include <stdlib.h>               // malloc()
 #include <stdbool.h>
 #include "mimalloc.h"
+#include "mimalloc-internal.h"
 
 
 #undef  uint
@@ -982,15 +983,8 @@ _Py_GetAllocatedBlocks(void)
     // TODO(sgross): this only counts the current thread's blocks.
     size_t allocated_blocks = 0;
 
-    mi_heap_tag_t tags[] = {
-        mi_heap_tag_default,
-        mi_heap_tag_obj,
-        mi_heap_tag_gc,
-        mi_heap_tag_list_array,
-        mi_heap_tag_dict_keys,
-    };
-    for (size_t i = 0; i != sizeof(tags)/sizeof(*tags); i++) {
-        mi_heap_t *heap = mi_heap_get_tag(tags[i]);
+    for (mi_heap_tag_t tag = 0; tag != MI_NUM_HEAPS; tag++) {
+        mi_heap_t *heap = mi_heap_get_tag(tag);
         mi_heap_visit_blocks(heap, false, &count_blocks, &allocated_blocks);
     }
 
@@ -1003,21 +997,21 @@ void *
 _PyMem_Malloc(void *ctx, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_malloc(tstate->heaps[mi_heap_tag_default], nbytes);
+    return mi_heap_malloc(&tstate->heaps[mi_heap_tag_default], nbytes);
 }
 
 void *
 _PyMem_Calloc(void *ctx, size_t nelem, size_t elsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_calloc(tstate->heaps[mi_heap_tag_default], nelem, elsize);
+    return mi_heap_calloc(&tstate->heaps[mi_heap_tag_default], nelem, elsize);
 }
 
 void *
 _PyMem_Realloc(void *ctx, void *ptr, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_realloc(tstate->heaps[mi_heap_tag_default], ptr, nbytes);
+    return mi_heap_realloc(&tstate->heaps[mi_heap_tag_default], ptr, nbytes);
 }
 
 void
@@ -1030,42 +1024,42 @@ void *
 _PyObject_Malloc(void *ctx, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_malloc(tstate->heaps[mi_heap_tag_obj], nbytes);
+    return mi_heap_malloc(&tstate->heaps[mi_heap_tag_obj], nbytes);
 }
 
 void *
 _PyObject_Calloc(void *ctx, size_t nelem, size_t elsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_calloc(tstate->heaps[mi_heap_tag_obj], nelem, elsize);
+    return mi_heap_calloc(&tstate->heaps[mi_heap_tag_obj], nelem, elsize);
 }
 
 void *
 _PyObject_Realloc(void *ctx, void *ptr, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_realloc(tstate->heaps[mi_heap_tag_obj], ptr, nbytes);
+    return mi_heap_realloc(&tstate->heaps[mi_heap_tag_obj], ptr, nbytes);
 }
 
 void *
 _PyGC_Malloc(void *ctx, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_malloc(tstate->heaps[mi_heap_tag_gc], nbytes);
+    return mi_heap_malloc(tstate->curheap, nbytes);
 }
 
 void *
 _PyGC_Calloc(void *ctx, size_t nelem, size_t elsize)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_calloc(tstate->heaps[mi_heap_tag_gc], nelem, elsize);
+    return mi_heap_calloc(tstate->curheap, nelem, elsize);
 }
 
 void *
 _PyGC_Realloc(void *ctx, void *ptr, size_t nbytes)
 {
     PyThreadState *tstate = _PyThreadState_GET();
-    return mi_heap_realloc(tstate->heaps[mi_heap_tag_gc], ptr, nbytes);
+    return mi_heap_realloc(tstate->curheap, ptr, nbytes);
 }
 
 /*==========================================================================*/
