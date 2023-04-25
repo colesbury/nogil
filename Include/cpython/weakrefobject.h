@@ -17,10 +17,6 @@ struct _PyWeakrefBase {
 struct _PyWeakrefControl {
     struct _PyWeakrefBase base;
 
-    /* Protectes the weakref linked-list and wr_object from
-     * concurrent accesses. */
-    _PyMutex mutex;
-
     /* The object to which this is a weak reference, or Py_None if none.
      * Note that this is a stealth reference:  wr_object's refcount is
      * not incremented to reflect this pointer.

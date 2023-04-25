@@ -793,7 +793,6 @@ new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free
     mp->ma_values = values;
     mp->ma_used = used;
     mp->ma_version_tag = _PyDict_NextVersion(_PyThreadState_GET());
-    memset(&mp->ma_mutex, 0, sizeof(mp->ma_mutex));
     mp->ma_maybe_shared = 0;
     ASSERT_CONSISTENT(mp);
     return (PyObject *)mp;
@@ -1224,7 +1223,7 @@ static Py_ssize_t
 _Py_dict_fetch_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject **value_addr)
 {
     Py_ssize_t ix;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     if (!mp->ma_maybe_shared) {
         _Py_atomic_store_uint8_relaxed(&mp->ma_maybe_shared, 1);
     }
@@ -2173,7 +2172,7 @@ _PyDict_SetItem_Take2(PyDictObject *mp, PyObject *key, PyObject *value)
         }
     }
     int err;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     if (mp->ma_keys == Py_EMPTY_KEYS) {
         err = insert_to_emptydict(mp, key, hash, value);
     }
@@ -2220,7 +2219,7 @@ _PyDict_SetItem_KnownHash(PyObject *op, PyObject *key, PyObject *value,
     mp = (PyDictObject *)op;
 
     int err;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     if (mp->ma_keys == Py_EMPTY_KEYS) {
         err = insert_to_emptydict(mp, Py_NewRef(key), hash, Py_NewRef(value));
     }
@@ -2320,7 +2319,7 @@ _PyDict_DelItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
     assert(key);
     assert(hash != -1);
     mp = (PyDictObject *)op;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     ix = _Py_dict_lookup(mp, key, hash, &old_value);
     if (ix == DKIX_ERROR) {
         err = -1;
@@ -2390,7 +2389,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
     if (hash == -1)
         return -1;
     mp = (PyDictObject *)op;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     res = _PyDict_DelItemIf_KnownHash(mp, key, hash, predicate, arg);
     Py_END_CRITICAL_SECTION;
     return res;
@@ -2434,7 +2433,7 @@ PyDict_Clear(PyObject *op)
     if (!PyDict_Check(op))
         return;
     PyDictObject *mp = ((PyDictObject *)op);
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     _dict_clear(mp, mp->ma_maybe_shared);
     Py_END_CRITICAL_SECTION;
 }
@@ -2567,7 +2566,7 @@ _PyDict_Pop_KnownHash(PyObject *dict, PyObject *key, Py_hash_t hash, PyObject *d
     assert(PyDict_Check(dict));
     PyObject *old_value;
     PyDictObject *mp = (PyDictObject *)dict;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     old_value = dict_pop_known_hash_locked(mp, key, hash, deflt);
     Py_END_CRITICAL_SECTION;
     return old_value;
@@ -2816,7 +2815,7 @@ static PyObject *
 dict_repr(PyDictObject *mp)
 {
     PyObject *result;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     result = dict_repr_locked(mp);
     Py_END_CRITICAL_SECTION;
     return result;
@@ -2943,7 +2942,7 @@ dict_items(PyDictObject *mp)
      * the loop over the items, which could trigger GC, which
      * could resize the dict. :-(
      */
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
   again:
     n = mp->ma_used;
     v = PyList_New(n);
@@ -3155,7 +3154,7 @@ dict_merge_dict(PyDictObject *a, PyDictObject *b, int override)
         /* a.update(a) or a.update({}); nothing to do */
         return 0;
 
-    Py_BEGIN_CRITICAL_SECTION2(&a->ma_mutex, &b->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION2(a, b);
     if (mp->ma_used == 0) {
         /* Since the target dict is empty, PyDict_GetItem()
             * always returns NULL.  Setting override to 1
@@ -3396,7 +3395,6 @@ PyDict_Copy(PyObject *o)
             PyObject *value = mp->ma_values->values[i];
             split_copy->ma_values->values[i] = Py_XNewRef(value);
         }
-        memset(&split_copy->ma_mutex, 0, sizeof(split_copy->ma_mutex));
         split_copy->ma_maybe_shared = 0;
         if (_PyObject_GC_IS_TRACKED(mp))
             _PyObject_GC_TRACK(split_copy);
@@ -3745,7 +3743,7 @@ _PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *defaultobj,
     }
 
     PyObject *res;
-    Py_BEGIN_CRITICAL_SECTION(&mp->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(mp);
     res = _PyDict_SetDefault_Hash(mp, key, hash, defaultobj, incref, is_insert);
     Py_END_CRITICAL_SECTION;
     return res;
@@ -3835,7 +3833,7 @@ dict_popitem_impl(PyDictObject *self)
     if (res == NULL)
         return NULL;
 
-    Py_BEGIN_CRITICAL_SECTION(&self->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (self->ma_used == 0) {
         Py_CLEAR(res);
         PyErr_SetString(PyExc_KeyError, "popitem(): dictionary is empty");
@@ -4423,7 +4421,7 @@ dict_next_entry_with_lock(PyDictObject *d, PyDictKeysObject *k, Py_ssize_t i,
                           PyObject **out_key, PyObject **out_value)
 {
     assert(k->dk_kind != DICT_KEYS_SPLIT);
-    Py_BEGIN_CRITICAL_SECTION(&d->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(d);
     if (d->ma_keys != k) {
         i = -CONCURRENT_MODIFICATION;
         goto exit;
@@ -4465,7 +4463,7 @@ dict_next_split_entry_with_lock(PyDictObject *d, PyDictKeysObject *k, Py_ssize_t
                                  PyObject **out_key, PyObject **out_value)
 {
     assert(k->dk_kind == DICT_KEYS_SPLIT);
-    Py_BEGIN_CRITICAL_SECTION(&d->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION(d);
     if (d->ma_keys != k) {
         i = -CONCURRENT_MODIFICATION;
         goto exit;

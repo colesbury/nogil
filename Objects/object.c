@@ -2094,6 +2094,8 @@ _Py_NewReference(PyObject *op)
     _Py_IncRefTotal();
 #endif
     op->ob_tid = _Py_ThreadId();
+    op->__padding = 0;
+    op->ob_mutex.v = 0;
     op->ob_gc_bits = 0;
     op->ob_ref_local = _Py_REF_LOCAL_INIT;
     op->ob_ref_shared = _Py_REF_SHARED_INIT;

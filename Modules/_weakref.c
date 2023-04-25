@@ -108,17 +108,18 @@ _weakref_getweakrefs(PyObject *module, PyObject *object)
         return result;
     }
 
-    _PyMutex_lock(&root->mutex);
+    PyMutex *mutex = &((PyObject *)root)->ob_mutex;
+    _PyMutex_lock(mutex);
     PyWeakrefBase *next = root->base.wr_next;
     while (next != (PyWeakrefBase *)root) {
         if (PyList_Append(result, (PyObject *)next) < 0) {
-            _PyMutex_unlock(&root->mutex);
+            _PyMutex_unlock(mutex);
             Py_DECREF(result);
             return NULL;
         }
         next = next->wr_next;
     }
-    _PyMutex_unlock(&root->mutex);
+    _PyMutex_unlock(mutex);
     return result;
 }
 

@@ -362,7 +362,7 @@ set_add_key(PySetObject *so, PyObject *key)
         return -1;
     }
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     ret = set_add_entry(so, key, hash);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -376,7 +376,7 @@ set_contains_key(PySetObject *so, PyObject *key)
     if (hash == -1) {
         return -1;
     }
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     ret = set_contains_entry(so, key, hash);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -395,7 +395,7 @@ set_discard_key(PySetObject *so, PyObject *key)
             return -1;
     }
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     ret = set_discard_entry(so, key, hash);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -466,7 +466,7 @@ set_clear_with_lock(PySetObject *so)
 {
     int ret;
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     ret = set_clear_internal(so);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -602,7 +602,7 @@ set_merge(PySetObject *so, PyObject *otherset)
         /* a.update(a); nothing to do */
         return 0;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     if (other->used == 0)
         /* a.update(set()); nothing to do */
         goto done;
@@ -679,7 +679,7 @@ set_merge_dict(PySetObject *so, PyObject *other)
     PyDictObject *otherdict = (PyDictObject *)other;
     int ret = 0;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &otherdict->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, otherdict);
     dictsize = PyDict_GET_SIZE(other);
 
     /* Do one big resize at the start, rather than
@@ -712,7 +712,7 @@ set_pop(PySetObject *so, PyObject *Py_UNUSED(ignored))
 {
     PyObject *key = NULL;
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     /* Make sure the search finger is in bounds */
     setentry *entry = so->table + (so->finger & so->mask);
     setentry *limit = so->table + so->mask;
@@ -887,7 +887,7 @@ static PyObject *setiter_iternext(setiterobject *si)
         return NULL;
     assert (PyAnySet_Check(so));
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     if (si->si_used != so->used) {
         PyErr_SetString(PyExc_RuntimeError,
                         "Set changed size during iteration");
@@ -973,7 +973,7 @@ set_update_internal(PySetObject *so, PyObject *other)
     if (it == NULL)
         return -1;
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     while ((key = PyIter_Next(it)) != NULL) {
         Py_hash_t hash = compute_hash(key);
         if (hash == -1) {
@@ -1032,7 +1032,6 @@ make_new_set(PyTypeObject *type, PyObject *iterable)
     so->hash = -1;
     so->finger = 0;
     so->weakreflist = NULL;
-    memset(&so->mutex, 0, sizeof(so->mutex));
 
     if (iterable != NULL) {
         if (set_update_internal(so, iterable)) {
@@ -1255,7 +1254,7 @@ set_intersection_set(PySetObject *so, PySetObject *other)
     if (result == NULL)
         return NULL;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     if (PySet_GET_SIZE(other) > PySet_GET_SIZE(so)) {
         PySetObject *tmp = so;
         so = other;
@@ -1313,7 +1312,7 @@ set_intersection(PySetObject *so, PyObject *other)
         return NULL;
     }
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     while ((key = PyIter_Next(it)) != NULL) {
         hash = PyObject_Hash(key);
         if (hash == -1) {
@@ -1380,7 +1379,7 @@ set_intersection_update(PySetObject *so, PyObject *other)
     tmp = set_intersection(so, other);
     if (tmp == NULL)
         return NULL;
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     set_swap_bodies(so, (PySetObject *)tmp);
     Py_END_CRITICAL_SECTION;
     Py_DECREF(tmp);
@@ -1395,7 +1394,7 @@ set_intersection_update_multi(PySetObject *so, PyObject *args)
     tmp = set_intersection_multi(so, args);
     if (tmp == NULL)
         return NULL;
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     set_swap_bodies(so, (PySetObject *)tmp);
     Py_END_CRITICAL_SECTION;
     Py_DECREF(tmp);
@@ -1434,7 +1433,7 @@ set_isdisjoint_set(PySetObject *so, PySetObject *other)
     setentry *entry;
     int ret = 0;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     if (PySet_GET_SIZE(other) > PySet_GET_SIZE(so)) {
         PySetObject *tmp = so;
         so = other;
@@ -1473,7 +1472,7 @@ set_isdisjoint(PySetObject *so, PyObject *other)
     if (it == NULL)
         return NULL;
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     while ((key = PyIter_Next(it)) != NULL) {
         Py_hash_t hash = compute_hash(key);
         if (hash == -1) {
@@ -1525,7 +1524,7 @@ set_difference_update_set(PySetObject *so, PySetObject *other)
         Py_INCREF(other);
     }
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     while (set_next(other, &pos, &entry)) {
         PyObject *key = Py_NewRef(entry->key);
         if (set_discard_entry(so, key, entry->hash) < 0) {
@@ -1560,7 +1559,7 @@ set_difference_update_internal(PySetObject *so, PyObject *other)
     if (it == NULL)
         return -1;
 
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     while ((key = PyIter_Next(it)) != NULL) {
         Py_hash_t hash = PyObject_Hash(key);
         if (hash == -1) {
@@ -1624,7 +1623,7 @@ set_difference_dict(PySetObject *so, PyDictObject *other)
     if (result == NULL)
         return NULL;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     while (set_next(so, &pos, &entry)) {
         key = Py_NewRef(entry->key);
         hash = entry->hash;
@@ -1687,7 +1686,7 @@ set_difference(PySetObject *so, PyObject *other)
         return result;
     }
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &otherset->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, otherset);
     /* Iterate over so, checking for common elements in other. */
     while (set_next(so, &pos, &entry)) {
         key = entry->key;
@@ -1767,7 +1766,7 @@ set_symmetric_difference_update_dict(PySetObject *so, PyDictObject *other)
     Py_hash_t hash;
     PyObject *ret = Py_None;
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &other->ma_mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, other);
     while (_PyDict_Next((PyObject *)other, &pos, &key, &value, &hash)) {
         Py_INCREF(key);
         int rv = set_discard_entry(so, key, hash);
@@ -1815,7 +1814,7 @@ set_symmetric_difference_update(PySetObject *so, PyObject *other)
             return NULL;
     }
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &otherset->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, otherset);
     while (set_next(otherset, &pos, &entry)) {
         key = entry->key;
         hash = entry->hash;
@@ -1912,7 +1911,7 @@ set_issubset(PySetObject *so, PyObject *other)
         return Py_True;
     }
 
-    Py_BEGIN_CRITICAL_SECTION2(&so->mutex, &otherset->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(so, otherset);
     if (PySet_GET_SIZE(so) > PySet_GET_SIZE(other)) {
         ret = Py_False;
         goto exit;
@@ -2146,7 +2145,7 @@ static PyObject *
 set_sizeof(PySetObject *so, PyObject *Py_UNUSED(ignored))
 {
     size_t res;
-    Py_BEGIN_CRITICAL_SECTION(&so->mutex);
+    Py_BEGIN_CRITICAL_SECTION(so);
     res = _PyObject_SIZE(Py_TYPE(so));
     if (so->table != so->smalltable)
         res = res + (so->mask + 1) * sizeof(setentry);

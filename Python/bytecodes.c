@@ -1819,7 +1819,7 @@ dummy_func(
             DEOPT_IF(dict == NULL, STORE_ATTR);
             assert(PyDict_CheckExact((PyObject *)dict));
             PyObject *name = GETITEM(names, oparg);
-            Py_BEGIN_CRITICAL_SECTION(&dict->ma_mutex);
+            Py_BEGIN_CRITICAL_SECTION(dict);
             DEOPT_UNLOCK_IF(hint >= (size_t)dict->ma_keys->dk_nentries, STORE_ATTR);
             PyObject *old_value;
             uint64_t new_version;
@@ -3040,7 +3040,7 @@ dummy_func(
             PyObject *arg = POP();
             PyListObject *list = (PyListObject *)self;
             int err;
-            Py_BEGIN_CRITICAL_SECTION(&list->mutex);
+            Py_BEGIN_CRITICAL_SECTION(list);
             err = _PyList_AppendTakeRef(list, arg);
             Py_END_CRITICAL_SECTION;
             if (err < 0) {

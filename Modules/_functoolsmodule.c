@@ -1282,7 +1282,7 @@ static PyObject *
 lru_cache_call(lru_cache_object *self, PyObject *args, PyObject *kwds)
 {
     PyObject *result;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     result = self->wrapper(self, args, kwds);
     Py_END_CRITICAL_SECTION;
     return result;
@@ -1310,7 +1310,7 @@ _functools__lru_cache_wrapper_cache_info_impl(PyObject *self)
     Py_ssize_t hits, misses, maxsize, size;
     lru_cache_object *_self = (lru_cache_object *) self;
 
-    Py_BEGIN_CRITICAL_SECTION(&_self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(_self);
     hits = _self->hits;
     misses = _self->misses;
     maxsize = _self->maxsize;
@@ -1336,7 +1336,7 @@ _functools__lru_cache_wrapper_cache_clear_impl(PyObject *self)
 /*[clinic end generated code: output=58423b35efc3e381 input=6ca59dba09b12584]*/
 {
     lru_cache_object *_self = (lru_cache_object *) self;
-    Py_BEGIN_CRITICAL_SECTION(&_self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(_self);
     lru_list_elem *list = lru_cache_unlink_list(_self);
     _self->hits = _self->misses = 0;
     PyDict_Clear(_self->cache);

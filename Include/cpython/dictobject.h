@@ -27,8 +27,6 @@ typedef struct {
        keys are stored in ma_keys and values are stored in ma_values */
     PyDictValues *ma_values;
 
-    PyMutex ma_mutex;
-
     uint8_t ma_maybe_shared;
 } PyDictObject;
 

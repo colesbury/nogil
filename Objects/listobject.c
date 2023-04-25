@@ -253,7 +253,6 @@ list_new(Py_ssize_t size)
         op->allocated = capacity;
     }
     Py_SET_SIZE(op, size);
-    memset(&op->mutex, 0, sizeof(op->mutex));
     op->maybe_shared = 0;
     _PyObject_GC_TRACK(op);
     return op;
@@ -306,7 +305,7 @@ list_item_locked(PyListObject *self, Py_ssize_t idx, PyObject *dead)
     Py_XDECREF(dead);
 
     PyObject *item = NULL;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (!self->maybe_shared) {
         _Py_atomic_store_uint8_relaxed(&self->maybe_shared, 1);
     }
@@ -429,7 +428,7 @@ PyList_SetItem(PyObject *op, Py_ssize_t i,
 
     int ret;
     PyListObject *self = ((PyListObject *)op);
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = setitem(self, i, newitem);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -476,7 +475,7 @@ PyList_Insert(PyObject *op, Py_ssize_t where, PyObject *newitem)
     }
     int err;
     PyListObject *self = (PyListObject *)op;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     err = ins1(self, where, newitem);
     Py_END_CRITICAL_SECTION;
     return err;
@@ -523,7 +522,7 @@ PyList_Append(PyObject *op, PyObject *newitem)
     }
     int ret;
     PyListObject *self = (PyListObject *)op;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = app1(self, newitem);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -625,7 +624,7 @@ list_repr(PyListObject *v)
         return PyUnicode_FromString("[]");
     }
     PyObject *ret;
-    Py_BEGIN_CRITICAL_SECTION(&v->mutex);
+    Py_BEGIN_CRITICAL_SECTION(v);
     ret = list_repr_locked(v);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -713,7 +712,7 @@ static PyObject *
 list_slice_clamp(PyListObject *a, Py_ssize_t ilow, Py_ssize_t ihigh)
 {
     PyObject *res;
-    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+    Py_BEGIN_CRITICAL_SECTION(a);
     Py_ssize_t len = clamp_indices(Py_SIZE(a), &ilow, &ihigh);
     res = list_slice_locked(a, ilow, len);
     Py_END_CRITICAL_SECTION;
@@ -773,7 +772,7 @@ list_concat(PyListObject *a, PyObject *bb)
     }
     PyObject *ret;
     PyListObject *b = (PyListObject *)bb;
-    Py_BEGIN_CRITICAL_SECTION2(&a->mutex, &b->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(a, b);
     ret = list_concat_locked(a, b);
     Py_END_CRITICAL_SECTION2;
     return ret;
@@ -824,7 +823,7 @@ static PyObject *
 list_repeat(PyListObject *a, Py_ssize_t n)
 {
     PyObject *ret;
-    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+    Py_BEGIN_CRITICAL_SECTION(a);
     ret = list_repeat_locked(a, n);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -999,7 +998,7 @@ list_ass_slice(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t st
     /* protect against a[::-1] = a */
     int ret;
     if (a == (PyListObject*)v) {
-        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        Py_BEGIN_CRITICAL_SECTION(a);
         Py_ssize_t n = PyList_GET_SIZE(a);
         PyListObject *copy = (PyListObject *)list_slice_locked(a, 0, n);
         if (copy == NULL) {
@@ -1011,13 +1010,13 @@ list_ass_slice(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t st
         Py_END_CRITICAL_SECTION;
     }
     else if (v == NULL) {
-        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        Py_BEGIN_CRITICAL_SECTION(a);
         ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, NULL, NULL, 0);
         Py_END_CRITICAL_SECTION;
     }
     else if (PyList_CheckExact(v)) {
         PyListObject *b = (PyListObject *)v;
-        Py_BEGIN_CRITICAL_SECTION2(&a->mutex, &b->mutex);
+        Py_BEGIN_CRITICAL_SECTION2(a, b);
         Py_ssize_t n = PyList_GET_SIZE(b);
         ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, b->ob_item, n);
         Py_END_CRITICAL_SECTION2;
@@ -1031,7 +1030,7 @@ list_ass_slice(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t st
         Py_ssize_t n = PySequence_Fast_GET_SIZE(seq);
         PyObject **seqitems = PySequence_Fast_ITEMS(seq);
 
-        Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+        Py_BEGIN_CRITICAL_SECTION(a);
         ret = list_ass_slice_locked(a, start, stop, step, wrap_mode, v, seqitems, n);
         Py_END_CRITICAL_SECTION;
         Py_DECREF(seq);
@@ -1090,7 +1089,7 @@ static PyObject *
 list_inplace_repeat(PyListObject *self, Py_ssize_t n)
 {
     PyObject *ret;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = list_inplace_repeat_locked(self, n);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -1123,7 +1122,7 @@ static int
 list_ass_item(PyListObject *a, Py_ssize_t i, PyObject *v)
 {
     int ret;
-    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+    Py_BEGIN_CRITICAL_SECTION(a);
     ret = list_ass_item_locked(a, i, v);
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -1144,7 +1143,7 @@ list_insert_impl(PyListObject *self, Py_ssize_t index, PyObject *object)
 /*[clinic end generated code: output=7f35e32f60c8cb78 input=858514cf894c7eab]*/
 {
     PyObject *ret = Py_None;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (ins1(self, index, object) < 0) {
         ret = NULL;
     }
@@ -1162,7 +1161,7 @@ static PyObject *
 list_clear_impl(PyListObject *self)
 /*[clinic end generated code: output=67a1896c01f74362 input=ca3c1646856742f6]*/
 {
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     _list_clear(self);
     Py_END_CRITICAL_SECTION;
     Py_RETURN_NONE;
@@ -1195,7 +1194,7 @@ list_append(PyListObject *self, PyObject *object)
 /*[clinic end generated code: output=7c096003a29c0eae input=43a3fe48a7066e91]*/
 {
     int ret;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = app1(self, object);
     Py_END_CRITICAL_SECTION;
     return ret == 0 ? Py_None : NULL;
@@ -1358,7 +1357,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     else if (PyList_CheckExact(iterable)) {
         PyListObject *other = (PyListObject *)iterable;
         PyObject *ret;
-        Py_BEGIN_CRITICAL_SECTION2(&self->mutex, &other->mutex);
+        Py_BEGIN_CRITICAL_SECTION2(self, other);
         ret = list_extend_fast(self, other->ob_item, Py_SIZE(other));
         Py_END_CRITICAL_SECTION2;
         return ret;
@@ -1366,7 +1365,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     else if (PyTuple_CheckExact(iterable)) {
         PyTupleObject *other = (PyTupleObject *)iterable;
         PyObject *ret;
-        Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+        Py_BEGIN_CRITICAL_SECTION(self);
         ret = list_extend_fast(self, _PyTuple_ITEMS(other), Py_SIZE(other));
         Py_END_CRITICAL_SECTION;
         return ret;
@@ -1376,7 +1375,7 @@ list_extend(PyListObject *self, PyObject *iterable)
         // atomic with respect to other set modifications.
         PySetObject *other = (PySetObject *)iterable;
         PyObject *ret;
-        Py_BEGIN_CRITICAL_SECTION2(&self->mutex, &other->mutex);
+        Py_BEGIN_CRITICAL_SECTION2(self, other);
         ret = list_extend_set(self, other);
         Py_END_CRITICAL_SECTION2;
         return ret;
@@ -1384,7 +1383,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     else if (PyDictKeys_Check(iterable)) {
         PyObject *ret;
         PyDictObject *dict = ((_PyDictViewObject *)iterable)->dv_dict;
-        Py_BEGIN_CRITICAL_SECTION2(&self->mutex, &dict->ma_mutex);
+        Py_BEGIN_CRITICAL_SECTION2(self, dict);
         ret = list_extend_dict(self, dict, 0 /*keys*/);
         Py_END_CRITICAL_SECTION2;
         return ret;
@@ -1392,7 +1391,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     else if (PyDictValues_Check(iterable)) {
         PyObject *ret;
         PyDictObject *dict = ((_PyDictViewObject *)iterable)->dv_dict;
-        Py_BEGIN_CRITICAL_SECTION2(&self->mutex, &dict->ma_mutex);
+        Py_BEGIN_CRITICAL_SECTION2(self, dict);
         ret = list_extend_dict(self, dict, 1 /*values*/);
         Py_END_CRITICAL_SECTION2;
         return ret;
@@ -1400,7 +1399,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     else if (PyDictItems_Check(iterable)) {
         PyObject *ret;
         PyDictObject *dict = ((_PyDictViewObject *)iterable)->dv_dict;
-        Py_BEGIN_CRITICAL_SECTION2(&self->mutex, &dict->ma_mutex);
+        Py_BEGIN_CRITICAL_SECTION2(self, dict);
         ret = list_extend_dictitems(self, dict);
         Py_END_CRITICAL_SECTION2;
         return ret;
@@ -1419,7 +1418,7 @@ list_extend(PyListObject *self, PyObject *iterable)
     }
 
     PyObject *ret;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = list_extend_iterator(self, it, n);
     Py_END_CRITICAL_SECTION;
     Py_DECREF(it);
@@ -1460,7 +1459,7 @@ list_pop_impl(PyListObject *self, Py_ssize_t index)
 /*[clinic end generated code: output=6bd69dcb3f17eca8 input=b83675976f329e6f]*/
 {
     PyObject *v = NULL;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     Py_ssize_t size = Py_SIZE(self);
     if (index < 0) {
         index += size;
@@ -2974,7 +2973,7 @@ static PyObject *
 list_reverse_impl(PyListObject *self)
 /*[clinic end generated code: output=482544fc451abea9 input=eefd4c3ae1bc9887]*/
 {
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (Py_SIZE(self) > 1)
         reverse_slice(self->ob_item, self->ob_item + Py_SIZE(self));
     Py_END_CRITICAL_SECTION;
@@ -2990,7 +2989,7 @@ PyList_Reverse(PyObject *v)
         PyErr_BadInternalCall();
         return -1;
     }
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (Py_SIZE(self) > 1)
         reverse_slice(self->ob_item, self->ob_item + Py_SIZE(self));
     Py_END_CRITICAL_SECTION;
@@ -3006,7 +3005,7 @@ PyList_AsTuple(PyObject *v)
     }
     PyObject *ret;
     PyListObject *self = (PyListObject *)v;
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     ret = _PyTuple_FromArray(((PyListObject *)v)->ob_item, Py_SIZE(v));
     Py_END_CRITICAL_SECTION;
     return ret;
@@ -3037,7 +3036,7 @@ static PyObject *
 list_slice_wrap(PyListObject *a, Py_ssize_t start, Py_ssize_t stop, Py_ssize_t step)
 {
     PyObject *res = NULL;
-    Py_BEGIN_CRITICAL_SECTION(&a->mutex);
+    Py_BEGIN_CRITICAL_SECTION(a);
     Py_ssize_t len = PySlice_AdjustIndices(Py_SIZE(a), &start, &stop, step);
     if (len <= 0) {
         res = PyList_New(0);
@@ -3150,7 +3149,7 @@ list_remove(PyListObject *self, PyObject *value)
     PyObject *ret = NULL;
     Py_ssize_t i;
 
-    Py_BEGIN_CRITICAL_SECTION(&self->mutex);
+    Py_BEGIN_CRITICAL_SECTION(self);
     for (i = 0; i < Py_SIZE(self); i++) {
         PyObject *obj = Py_NewRef(self->ob_item[i]);
         int cmp = PyObject_RichCompareBool(obj, value, Py_EQ);
@@ -3243,7 +3242,7 @@ list_richcompare(PyObject *v, PyObject *w, int op)
     wl = (PyListObject *)w;
 
     PyObject *ret;
-    Py_BEGIN_CRITICAL_SECTION2(&vl->mutex, &wl->mutex);
+    Py_BEGIN_CRITICAL_SECTION2(vl, wl);
     ret = list_richcompare_locked(vl, wl, op);
     Py_END_CRITICAL_SECTION2;
     return ret;

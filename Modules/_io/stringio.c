@@ -20,7 +20,6 @@ class _io.StringIO "stringio *" "&PyStringIO_Type"
 
 typedef struct {
     PyObject_HEAD
-    _PyMutex mutex;
     Py_UCS4 *buf;
     Py_ssize_t pos;
     Py_ssize_t string_size;

@@ -1382,7 +1382,7 @@ class CLanguage(Language):
                 data.lock_statement.append('_PyRecursiveMutex_lock(&{self_name}->{lock_name});')
                 data.unlock_statement.append('_PyRecursiveMutex_unlock(&{self_name}->{lock_name});')
             else:
-                data.lock_statement.append('Py_BEGIN_CRITICAL_SECTION(&{self_name}->{lock_name});')
+                data.lock_statement.append('Py_BEGIN_CRITICAL_SECTION({self_name});')
                 data.unlock_statement.append('Py_END_CRITICAL_SECTION;')
 
         last_group = 0
