@@ -12,10 +12,6 @@ typedef struct {
     uintptr_t v;
 } _PyOnceFlag;
 
-typedef struct {
-    uint8_t v;
-} _PyMutex;
-
 typedef _PyMutex PyMutex;
 
 typedef struct {

@@ -83,6 +83,7 @@ whose size is determined when the object is allocated.
 #define _PyObject_STRUCT_INIT(type)     \
     { _PyObject_EXTRA_INIT              \
       _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL), \
+      { 0 },                            \
        0,                               \
       _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL), \
       0, type }
@@ -104,6 +105,9 @@ whose size is determined when the object is allocated.
 
 #define _PyObject_ThreadId(ob) (_Py_atomic_load_uintptr_relaxed(&_PyObject_CAST(ob)->ob_tid))
 
+typedef struct {
+    uint8_t v;
+} _PyMutex;
 
 /* Nothing is actually declared to be a PyObject, but every pointer to
  * a Python object can be cast to a PyObject*.  This is inheritance built
@@ -113,6 +117,7 @@ whose size is determined when the object is allocated.
 struct _object {
     _PyObject_HEAD_EXTRA
     uintptr_t ob_tid;
+    _PyMutex ob_mutex;
     uint8_t ob_gc_bits;
     uint32_t ob_ref_local;
     uint32_t ob_ref_shared;
