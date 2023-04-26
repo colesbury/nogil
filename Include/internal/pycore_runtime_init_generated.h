@@ -985,7 +985,6 @@ extern "C" {
     INIT_ID(kw1), \
     INIT_ID(kw2), \
     INIT_ID(lambda), \
-    INIT_ID(last), \
     INIT_ID(last_node), \
     INIT_ID(last_traceback), \
     INIT_ID(last_type), \
