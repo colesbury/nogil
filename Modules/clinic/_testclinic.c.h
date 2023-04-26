@@ -1258,7 +1258,6 @@ keywords(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kw
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1314,7 +1313,6 @@ keywords_kwonly(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObj
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1370,7 +1368,6 @@ keywords_opt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1439,7 +1436,6 @@ keywords_opt_kwonly(PyObject *module, PyObject *const *args, Py_ssize_t nargs, P
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1519,7 +1515,6 @@ keywords_kwonly_opt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, P
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1587,7 +1582,6 @@ posonly_keywords(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyOb
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1643,7 +1637,6 @@ posonly_kwonly(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObje
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1700,7 +1693,6 @@ posonly_keywords_kwonly(PyObject *module, PyObject *const *args, Py_ssize_t narg
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1759,7 +1751,6 @@ posonly_keywords_opt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, 
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1830,7 +1821,6 @@ posonly_opt_keywords_opt(PyObject *module, PyObject *const *args, Py_ssize_t nar
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1906,7 +1896,6 @@ posonly_kwonly_opt(PyObject *module, PyObject *const *args, Py_ssize_t nargs, Py
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1977,7 +1966,6 @@ posonly_opt_kwonly_opt(PyObject *module, PyObject *const *args, Py_ssize_t nargs
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2053,7 +2041,6 @@ posonly_keywords_kwonly_opt(PyObject *module, PyObject *const *args, Py_ssize_t 
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2128,7 +2115,6 @@ posonly_keywords_opt_kwonly_opt(PyObject *module, PyObject *const *args, Py_ssiz
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2212,7 +2198,6 @@ posonly_opt_keywords_opt_kwonly_opt(PyObject *module, PyObject *const *args, Py_
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2291,7 +2276,6 @@ keyword_only_parameter(PyObject *module, PyObject *const *args, Py_ssize_t nargs
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2346,7 +2330,6 @@ posonly_vararg(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObje
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2441,7 +2424,6 @@ vararg(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwna
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2499,7 +2481,6 @@ vararg_with_default(PyObject *module, PyObject *const *args, Py_ssize_t nargs, P
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2566,7 +2547,6 @@ vararg_with_only_defaults(PyObject *module, PyObject *const *args, Py_ssize_t na
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2630,7 +2610,6 @@ gh_32092_oob(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2705,7 +2684,6 @@ gh_32092_kw_pass(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyOb
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -2817,4 +2795,4 @@ gh_99240_double_free(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=b1b68dec5fd880d6 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=1e2a1d175fa083d9 input=a9049054013a1b77]*/

@@ -21,12 +21,6 @@ typedef struct {
     uintptr_t _gc_next;
 } PyGC_Head;
 
-typedef struct {
-    PyObject *_dict_or_values;
-    PyObject *_weakref;
-} _PyGC_Preheader_UNUSED;
-#define _PyGC_Head_UNUSED _PyGC_Preheader_UNUSED
-
 #define PyGC_Head_OFFSET (((Py_ssize_t)sizeof(PyObject *))*-4)
 
 /* Bit 0 is set if the object is tracked by the GC */

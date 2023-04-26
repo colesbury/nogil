@@ -90,7 +90,6 @@ _imp_module_initialized(PyObject *module, PyObject *const *args, Py_ssize_t narg
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -264,7 +263,6 @@ _imp_find_frozen(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyOb
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -620,7 +618,6 @@ _imp_source_hash(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyOb
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -678,4 +675,4 @@ exit:
 #ifndef _IMP_EXEC_DYNAMIC_METHODDEF
     #define _IMP_EXEC_DYNAMIC_METHODDEF
 #endif /* !defined(_IMP_EXEC_DYNAMIC_METHODDEF) */
-/*[clinic end generated code: output=c116db5eadfd91bd input=a9049054013a1b77]*/
+/*[clinic end generated code: output=b6a46c0bc78f054a input=a9049054013a1b77]*/

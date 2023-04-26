@@ -27,7 +27,6 @@ module___init__(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -77,4 +76,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=b496d4d7d7df5c9d input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c3b92ad74e1fad2f input=a9049054013a1b77]*/

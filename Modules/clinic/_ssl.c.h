@@ -358,7 +358,6 @@ _ssl__SSLSocket_get_channel_binding(PySSLSocket *self, PyObject *const *args, Py
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -564,7 +563,6 @@ _ssl__SSLContext_load_cert_chain(PySSLContext *self, PyObject *const *args, Py_s
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -635,7 +633,6 @@ _ssl__SSLContext_load_verify_locations(PySSLContext *self, PyObject *const *args
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -719,7 +716,6 @@ _ssl__SSLContext__wrap_socket(PySSLContext *self, PyObject *const *args, Py_ssiz
 
     #define NUM_KEYWORDS 5
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -811,7 +807,6 @@ _ssl__SSLContext__wrap_bio(PySSLContext *self, PyObject *const *args, Py_ssize_t
 
     #define NUM_KEYWORDS 6
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -978,7 +973,6 @@ _ssl__SSLContext_get_ca_certs(PySSLContext *self, PyObject *const *args, Py_ssiz
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1298,7 +1292,6 @@ _ssl_txt2obj(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1411,7 +1404,6 @@ _ssl_enum_certificates(PyObject *module, PyObject *const *args, Py_ssize_t nargs
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1487,7 +1479,6 @@ _ssl_enum_crls(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObje
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1543,4 +1534,4 @@ exit:
 #ifndef _SSL_ENUM_CRLS_METHODDEF
     #define _SSL_ENUM_CRLS_METHODDEF
 #endif /* !defined(_SSL_ENUM_CRLS_METHODDEF) */
-/*[clinic end generated code: output=d0df1bbc4ddedc58 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=15bd91aad52da403 input=a9049054013a1b77]*/

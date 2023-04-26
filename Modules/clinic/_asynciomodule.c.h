@@ -36,7 +36,6 @@ _asyncio_Future___init__(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -246,7 +245,6 @@ _asyncio_Future_add_done_callback(FutureObj *self, PyTypeObject *cls, PyObject *
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -359,7 +357,6 @@ _asyncio_Future_cancel(FutureObj *self, PyTypeObject *cls, PyObject *const *args
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -499,7 +496,6 @@ _asyncio_Task___init__(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -617,7 +613,6 @@ _asyncio_Task_cancel(TaskObj *self, PyObject *const *args, Py_ssize_t nargs, PyO
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -740,7 +735,6 @@ _asyncio_Task_get_stack(TaskObj *self, PyTypeObject *cls, PyObject *const *args,
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -807,7 +801,6 @@ _asyncio_Task_print_stack(TaskObj *self, PyTypeObject *cls, PyObject *const *arg
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1029,7 +1022,6 @@ _asyncio__register_task(PyObject *module, PyObject *const *args, Py_ssize_t narg
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1086,7 +1078,6 @@ _asyncio__unregister_task(PyObject *module, PyObject *const *args, Py_ssize_t na
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1145,7 +1136,6 @@ _asyncio__enter_task(PyObject *module, PyObject *const *args, Py_ssize_t nargs, 
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1206,7 +1196,6 @@ _asyncio__leave_task(PyObject *module, PyObject *const *args, Py_ssize_t nargs, 
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1263,7 +1252,6 @@ _asyncio_current_task(PyObject *module, PyObject *const *args, Py_ssize_t nargs,
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1302,4 +1290,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=061216ba972b5879 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=c70026a23ac637e1 input=a9049054013a1b77]*/

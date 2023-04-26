@@ -493,7 +493,6 @@ _io_BytesIO___init__(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -534,4 +533,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=b48edb013df25d7e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=2cd08b701a109613 input=a9049054013a1b77]*/

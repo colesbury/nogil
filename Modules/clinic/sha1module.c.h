@@ -95,7 +95,6 @@ _sha1_sha1(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -148,4 +147,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=a83d659f6027f4e4 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=28a5347778d971ae input=a9049054013a1b77]*/

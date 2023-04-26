@@ -575,7 +575,6 @@ def declare_parser(f, *, hasformat=False):
 
             #define NUM_KEYWORDS %d
             static struct {{
-                _PyGC_Head_UNUSED _this_is_not_used;
                 PyObject_VAR_HEAD
                 PyObject *ob_item[NUM_KEYWORDS];
             }} _kwtuple = {{

@@ -30,7 +30,6 @@ stringlib_expandtabs(PyObject *self, PyObject *const *args, Py_ssize_t nargs, Py
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -278,4 +277,4 @@ stringlib_zfill(PyObject *self, PyObject *arg)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=49e00e0e141ec369 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=f9c0e2c371e3e7f5 input=a9049054013a1b77]*/

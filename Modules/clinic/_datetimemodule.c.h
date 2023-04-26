@@ -32,7 +32,6 @@ iso_calendar_date_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -107,7 +106,6 @@ datetime_datetime_now(PyTypeObject *type, PyObject *const *args, Py_ssize_t narg
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -146,4 +144,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=5e9f0f378bcc6f3d input=a9049054013a1b77]*/
+/*[clinic end generated code: output=0bfb7820a58ac44c input=a9049054013a1b77]*/

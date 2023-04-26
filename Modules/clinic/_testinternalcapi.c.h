@@ -29,7 +29,6 @@ _testinternalcapi_compiler_codegen(PyObject *module, PyObject *const *args, Py_s
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -92,7 +91,6 @@ _testinternalcapi_optimize_cfg(PyObject *module, PyObject *const *args, Py_ssize
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -128,4 +126,4 @@ _testinternalcapi_optimize_cfg(PyObject *module, PyObject *const *args, Py_ssize
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=d34252ad59b27f02 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=ca649342ef974a9a input=a9049054013a1b77]*/

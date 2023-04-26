@@ -33,7 +33,6 @@ winsound_PlaySound(PyObject *module, PyObject *const *args, Py_ssize_t nargs, Py
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -99,7 +98,6 @@ winsound_Beep(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObjec
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -164,7 +162,6 @@ winsound_MessageBeep(PyObject *module, PyObject *const *args, Py_ssize_t nargs, 
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -206,4 +203,4 @@ skip_optional_pos:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=9b1523d70559e10f input=a9049054013a1b77]*/
+/*[clinic end generated code: output=92ff5b97fe9e9d7e input=a9049054013a1b77]*/

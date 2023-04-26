@@ -34,7 +34,6 @@ _io_IncrementalNewlineDecoder___init__(PyObject *self, PyObject *args, PyObject 
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -103,7 +102,6 @@ _io_IncrementalNewlineDecoder_decode(nldecoder_object *self, PyObject *const *ar
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -238,7 +236,6 @@ _io_TextIOWrapper___init__(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 6
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -376,7 +373,6 @@ _io_TextIOWrapper_reconfigure(textio *self, PyObject *const *args, Py_ssize_t na
 
     #define NUM_KEYWORDS 5
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -835,4 +831,4 @@ _io_TextIOWrapper_close(textio *self, PyObject *Py_UNUSED(ignored))
 
     return return_value;
 }
-/*[clinic end generated code: output=f5b3537a61940b3e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=ddf47d3c6638ed7d input=a9049054013a1b77]*/

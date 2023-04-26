@@ -196,7 +196,6 @@ pysqlite_cursor_fetchmany(pysqlite_Cursor *self, PyObject *const *args, Py_ssize
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -318,4 +317,4 @@ pysqlite_cursor_close(pysqlite_Cursor *self, PyObject *Py_UNUSED(ignored))
 {
     return pysqlite_cursor_close_impl(self);
 }
-/*[clinic end generated code: output=2920e9ea2948300f input=a9049054013a1b77]*/
+/*[clinic end generated code: output=0084c11c8745bf20 input=a9049054013a1b77]*/

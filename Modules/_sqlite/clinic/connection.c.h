@@ -24,7 +24,6 @@ pysqlite_connection_init(PyObject *self, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 9
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -166,7 +165,6 @@ pysqlite_connection_cursor(pysqlite_Connection *self, PyObject *const *args, Py_
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -238,7 +236,6 @@ blobopen(pysqlite_Connection *self, PyObject *const *args, Py_ssize_t nargs, PyO
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -416,7 +413,6 @@ pysqlite_connection_create_function(pysqlite_Connection *self, PyTypeObject *cls
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -580,7 +576,6 @@ pysqlite_connection_create_aggregate(pysqlite_Connection *self, PyTypeObject *cl
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -656,7 +651,6 @@ pysqlite_connection_set_authorizer(pysqlite_Connection *self, PyTypeObject *cls,
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -713,7 +707,6 @@ pysqlite_connection_set_progress_handler(pysqlite_Connection *self, PyTypeObject
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -775,7 +768,6 @@ pysqlite_connection_set_trace_callback(pysqlite_Connection *self, PyTypeObject *
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1034,7 +1026,6 @@ pysqlite_connection_backup(pysqlite_Connection *self, PyObject *const *args, Py_
 
     #define NUM_KEYWORDS 5
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1215,7 +1206,6 @@ serialize(pysqlite_Connection *self, PyObject *const *args, Py_ssize_t nargs, Py
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1304,7 +1294,6 @@ deserialize(pysqlite_Connection *self, PyObject *const *args, Py_ssize_t nargs, 
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1532,4 +1521,4 @@ exit:
 #ifndef DESERIALIZE_METHODDEF
     #define DESERIALIZE_METHODDEF
 #endif /* !defined(DESERIALIZE_METHODDEF) */
-/*[clinic end generated code: output=478d7f2979daf210 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=fbc3d050e7d7e89d input=a9049054013a1b77]*/

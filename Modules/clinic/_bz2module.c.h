@@ -105,7 +105,6 @@ _bz2_BZ2Decompressor_decompress(BZ2Decompressor *self, PyObject *const *args, Py
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -168,4 +167,4 @@ exit:
 
     return return_value;
 }
-/*[clinic end generated code: output=0f68daff494536e9 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=4eca356ab48c9e4d input=a9049054013a1b77]*/

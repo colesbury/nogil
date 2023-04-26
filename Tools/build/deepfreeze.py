@@ -295,7 +295,6 @@ class Printer:
         self.write("static")
         with self.indent():
             with self.block("struct"):
-                self.write("_PyGC_Head_UNUSED _gc_head;")
                 with self.block("struct", "_object;"):
                     self.write("PyObject_VAR_HEAD")
                     if t:

@@ -178,7 +178,6 @@ _elementtree_Element_find(ElementObject *self, PyObject *const *args, Py_ssize_t
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -241,7 +240,6 @@ _elementtree_Element_findtext(ElementObject *self, PyObject *const *args, Py_ssi
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -310,7 +308,6 @@ _elementtree_Element_findall(ElementObject *self, PyObject *const *args, Py_ssiz
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -372,7 +369,6 @@ _elementtree_Element_iterfind(ElementObject *self, PyObject *const *args, Py_ssi
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -434,7 +430,6 @@ _elementtree_Element_get(ElementObject *self, PyObject *const *args, Py_ssize_t 
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -495,7 +490,6 @@ _elementtree_Element_iter(ElementObject *self, PyObject *const *args, Py_ssize_t
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -738,7 +732,6 @@ _elementtree_TreeBuilder___init__(PyObject *self, PyObject *args, PyObject *kwar
 
     #define NUM_KEYWORDS 5
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -972,7 +965,6 @@ _elementtree_XMLParser___init__(PyObject *self, PyObject *args, PyObject *kwargs
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1105,4 +1097,4 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=92c0a66ce8e8d103 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=a5087c09a68f9855 input=a9049054013a1b77]*/

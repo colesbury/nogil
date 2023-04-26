@@ -26,7 +26,6 @@ tb_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     #define NUM_KEYWORDS 4
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -78,4 +77,4 @@ tb_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=9174db91d261f729 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3bf933acf585a05f input=a9049054013a1b77]*/

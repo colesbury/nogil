@@ -29,7 +29,6 @@ zoneinfo_ZoneInfo_from_file(PyTypeObject *type, PyObject *const *args, Py_ssize_
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -91,7 +90,6 @@ zoneinfo_ZoneInfo_no_cache(PyTypeObject *type, PyObject *const *args, Py_ssize_t
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -146,7 +144,6 @@ zoneinfo_ZoneInfo_clear_cache(PyTypeObject *type, PyObject *const *args, Py_ssiz
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -185,4 +182,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=87001a7344aaea4a input=a9049054013a1b77]*/
+/*[clinic end generated code: output=4461ddc0a69e7334 input=a9049054013a1b77]*/

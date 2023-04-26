@@ -28,7 +28,6 @@ pysqlite_complete_statement(PyObject *module, PyObject *const *args, Py_ssize_t 
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -211,4 +210,4 @@ skip_optional:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=e476f311b156db9e input=a9049054013a1b77]*/
+/*[clinic end generated code: output=09b66298ff95e7d3 input=a9049054013a1b77]*/

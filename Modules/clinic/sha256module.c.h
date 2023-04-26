@@ -95,7 +95,6 @@ _sha256_sha256(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObje
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -169,7 +168,6 @@ _sha256_sha224(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObje
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -222,4 +220,4 @@ skip_optional_kwonly:
 exit:
     return return_value;
 }
-/*[clinic end generated code: output=dfa401247739beb6 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=3fe9966a425d48c1 input=a9049054013a1b77]*/

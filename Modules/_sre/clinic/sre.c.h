@@ -185,7 +185,6 @@ _sre_SRE_Pattern_match(PatternObject *self, PyTypeObject *cls, PyObject *const *
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -278,7 +277,6 @@ _sre_SRE_Pattern_fullmatch(PatternObject *self, PyTypeObject *cls, PyObject *con
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -373,7 +371,6 @@ _sre_SRE_Pattern_search(PatternObject *self, PyTypeObject *cls, PyObject *const 
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -465,7 +462,6 @@ _sre_SRE_Pattern_findall(PatternObject *self, PyObject *const *args, Py_ssize_t 
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -560,7 +556,6 @@ _sre_SRE_Pattern_finditer(PatternObject *self, PyTypeObject *cls, PyObject *cons
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -652,7 +647,6 @@ _sre_SRE_Pattern_scanner(PatternObject *self, PyTypeObject *cls, PyObject *const
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -744,7 +738,6 @@ _sre_SRE_Pattern_split(PatternObject *self, PyObject *const *args, Py_ssize_t na
 
     #define NUM_KEYWORDS 2
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -818,7 +811,6 @@ _sre_SRE_Pattern_sub(PatternObject *self, PyTypeObject *cls, PyObject *const *ar
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -895,7 +887,6 @@ _sre_SRE_Pattern_subn(PatternObject *self, PyTypeObject *cls, PyObject *const *a
 
     #define NUM_KEYWORDS 3
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -997,7 +988,6 @@ _sre_compile(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject
 
     #define NUM_KEYWORDS 6
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1127,7 +1117,6 @@ _sre_SRE_Match_expand(MatchObject *self, PyObject *const *args, Py_ssize_t nargs
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1185,7 +1174,6 @@ _sre_SRE_Match_groups(MatchObject *self, PyObject *const *args, Py_ssize_t nargs
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1248,7 +1236,6 @@ _sre_SRE_Match_groupdict(MatchObject *self, PyObject *const *args, Py_ssize_t na
 
     #define NUM_KEYWORDS 1
     static struct {
-        _PyGC_Head_UNUSED _this_is_not_used;
         PyObject_VAR_HEAD
         PyObject *ob_item[NUM_KEYWORDS];
     } _kwtuple = {
@@ -1460,4 +1447,4 @@ _sre_SRE_Scanner_search(ScannerObject *self, PyTypeObject *cls, PyObject *const 
     }
     return _sre_SRE_Scanner_search_impl(self, cls);
 }
-/*[clinic end generated code: output=5a73c55583cae403 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=bd298bcde018ba22 input=a9049054013a1b77]*/
