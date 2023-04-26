@@ -54,7 +54,7 @@ static inline void _Py_RefcntAdd(PyObject* op, Py_ssize_t n)
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
     }
     else {
-        _Py_atomic_add_uint32(&op->ob_ref_shared, _Py_STATIC_CAST(uint32_t, n << _Py_REF_SHARED_SHIFT));
+        _Py_atomic_add_ssize(&op->ob_ref_shared, (n << _Py_REF_SHARED_SHIFT));
     }
 }
 #define _Py_RefcntAdd(op, n) _Py_RefcntAdd(_PyObject_CAST(op), n)
@@ -205,7 +205,7 @@ static _Py_ALWAYS_INLINE int
 _Py_TryIncRefShared(PyObject *op)
 {
     for (;;) {
-        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
 
         // If the shared refcount is zero and the object is either merged
         // or may not have weak references, then we cannot incref it.
@@ -213,7 +213,7 @@ _Py_TryIncRefShared(PyObject *op)
             return 0;
         }
 
-        if (_Py_atomic_compare_exchange_uint32(
+        if (_Py_atomic_compare_exchange_ssize(
                 &op->ob_ref_shared,
                 shared,
                 shared + (1 << _Py_REF_SHARED_SHIFT))) {
@@ -298,12 +298,12 @@ _Py_NewRefWithLock(PyObject *op)
     }
     else {
         for (;;) {
-            uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
-            uint32_t new_shared = shared + (1 << _Py_REF_SHARED_SHIFT);
+            Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
+            Py_ssize_t new_shared = shared + (1 << _Py_REF_SHARED_SHIFT);
             if ((shared & _Py_REF_SHARED_FLAG_MASK) == 0) {
                 new_shared |= _Py_REF_MAYBE_WEAKREF;
             }
-            if (_Py_atomic_compare_exchange_uint32(
+            if (_Py_atomic_compare_exchange_ssize(
                     &op->ob_ref_shared,
                     shared,
                     new_shared)) {
@@ -330,11 +330,12 @@ _PyObject_SetMaybeWeakref(PyObject *op)
         return;
     }
     for (;;) {
-        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
         if ((shared & _Py_REF_SHARED_FLAG_MASK) != 0) {
+            // Nothing to do if it's in WEAKREFS, QUEUED, or MERGED states.
             return;
         }
-        if (_Py_atomic_compare_exchange_uint32(
+        if (_Py_atomic_compare_exchange_ssize(
                 &op->ob_ref_shared,
                 shared,
                 shared | _Py_REF_MAYBE_WEAKREF)) {
@@ -455,10 +456,10 @@ _PyType_PreHeaderSize(PyTypeObject *tp)
     return 0;
 }
 
-static inline uint32_t
+static inline Py_ssize_t
 _Py_REF_PACK_SHARED(Py_ssize_t refcount, int flags)
 {
-    return _Py_STATIC_CAST(uint32_t, (refcount << _Py_REF_SHARED_SHIFT) + flags);
+    return (refcount << _Py_REF_SHARED_SHIFT) + flags;
 }
 
 // Usage: assert(_Py_CheckSlotResult(obj, "__getitem__", result != NULL));

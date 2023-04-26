@@ -208,7 +208,7 @@ _PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount)
         // set local refcount to zero and shared refcount to desired refcount
         op->ob_tid = 0;
         op->ob_ref_local = (local & _Py_REF_DEFERRED_MASK);
-        op->ob_ref_shared = (uint32_t)(refcount << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED;
+        op->ob_ref_shared = (refcount << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED;
     }
 }
 
@@ -2490,10 +2490,10 @@ _Py_MergeZeroRefcountSlow(PyObject *op)
 {
     _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
     for (;;) {
-        uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
-        uint32_t new_shared = (shared & ~_Py_REF_SHARED_FLAG_MASK) | _Py_REF_MERGED;
-        if (_Py_atomic_compare_exchange_uint32(&op->ob_ref_shared,
-                                               shared, new_shared))
+        Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
+        Py_ssize_t new_shared = (shared & ~_Py_REF_SHARED_FLAG_MASK) | _Py_REF_MERGED;
+        if (_Py_atomic_compare_exchange_ssize(&op->ob_ref_shared,
+                                              shared, new_shared))
         {
             if (new_shared == _Py_REF_MERGED) {
                 _Py_Dealloc(op);
@@ -2507,7 +2507,7 @@ void
 _Py_MergeZeroRefcount(PyObject *op)
 {
     assert(op->ob_ref_local == 0);
-    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
     if (_PY_LIKELY(shared == 0)) {
         _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
         _Py_Dealloc(op);
@@ -2520,14 +2520,14 @@ _Py_MergeZeroRefcount(PyObject *op)
 Py_ssize_t
 _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
 {
-    uint32_t old_shared;
-    uint32_t new_shared;
+    Py_ssize_t old_shared;
+    Py_ssize_t new_shared;
     int ok;
 
     Py_ssize_t refcount;
 
     do {
-        old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        old_shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
 
         int queued, merged;
         _PyRef_UnpackShared(old_shared, &refcount, &queued, &merged);
@@ -2542,9 +2542,9 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
 
         assert(refcount >= 0 /*|| _PyObject_IS_DEFERRED_RC(op)*/);
 
-        new_shared = (((uint32_t)refcount) << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED;
+        new_shared = (refcount << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED;
 
-        ok = _Py_atomic_compare_exchange_uint32(
+        ok = _Py_atomic_compare_exchange_ssize(
             &op->ob_ref_shared,
             old_shared,
             new_shared);
@@ -2558,13 +2558,13 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
 void
 _Py_IncRefShared(PyObject *op)
 {
-    _Py_atomic_add_uint32(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+    _Py_atomic_add_ssize(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
 }
 
 void
 _Py_DecRefShared(PyObject *op)
 {
-    uint32_t new_shared;
+    Py_ssize_t new_shared;
 
     // We need to grab the thread-id before modifying the refcount
     // because the owning thread may set it to zero if we mark the
@@ -2573,7 +2573,7 @@ _Py_DecRefShared(PyObject *op)
     int queue;
 
     for (;;) {
-        uint32_t old_shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+        Py_ssize_t old_shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
 
         queue = (old_shared == _Py_REF_SHARED_INIT || old_shared == _Py_REF_MAYBE_WEAKREF);
         if (queue && tid != 0) {
@@ -2598,14 +2598,14 @@ _Py_DecRefShared(PyObject *op)
 
 #ifdef Py_DEBUG
         if (_Py_REF_IS_MERGED(new_shared)) {
-            assert(((int32_t)new_shared) >= 0 && "negative refcount");
+            assert(new_shared >= 0 && "negative refcount");
         }
 #endif
 
-        if (_Py_atomic_compare_exchange_uint32(
-            &op->ob_ref_shared,
-            old_shared,
-            new_shared)) {
+        if (_Py_atomic_compare_exchange_ssize(
+                &op->ob_ref_shared,
+                old_shared,
+                new_shared)) {
             break;
         }
     }

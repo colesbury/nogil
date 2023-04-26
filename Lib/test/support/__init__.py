@@ -767,7 +767,7 @@ def python_is_optimized():
     return final_opt not in ('', '-O0', '-Og')
 
 
-_header = 'PBIIP'
+_header = 'PhBBInP'
 _align = '0n'
 _vheader = _header + 'n'
 

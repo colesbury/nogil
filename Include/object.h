@@ -122,7 +122,7 @@ struct _object {
     _PyMutex ob_mutex;
     uint8_t ob_gc_bits;
     uint32_t ob_ref_local;
-    uint32_t ob_ref_shared;
+    Py_ssize_t ob_ref_shared;
     PyTypeObject *ob_type;
 };
 
@@ -147,7 +147,7 @@ static inline void
 _PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal, int *deferred);
 
 static inline void
-_PyRef_UnpackShared(uint32_t bits, Py_ssize_t *refcount, int *queued, int *merged);
+_PyRef_UnpackShared(Py_ssize_t bits, Py_ssize_t *refcount, int *queued, int *merged);
 
 PyAPI_FUNC(void)
 _PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount);
@@ -163,7 +163,7 @@ static inline Py_ssize_t Py_REFCNT(PyObject *ob) {
         return 999;
     }
 
-    uint32_t shared = _Py_atomic_load_uint32_relaxed(&ob->ob_ref_shared);
+    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&ob->ob_ref_shared);
     _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
 
     return local_refcount + shared_refcount;
@@ -667,19 +667,19 @@ _PyObject_IS_IMMORTAL(PyObject *op)
 }
 
 static inline Py_ssize_t
-_Py_REF_SHARED_COUNT(uint32_t shared)
+_Py_REF_SHARED_COUNT(Py_ssize_t shared)
 {
-    return (shared >> _Py_REF_SHARED_SHIFT);
+    return Py_ARITHMETIC_RIGHT_SHIFT(Py_ssize_t, shared, _Py_REF_SHARED_SHIFT);
 }
 
 static inline int
-_Py_REF_IS_MERGED(uint32_t shared)
+_Py_REF_IS_MERGED(Py_ssize_t shared)
 {
     return (shared & _Py_REF_SHARED_FLAG_MASK) == _Py_REF_MERGED;
 }
 
 static inline int
-_Py_REF_IS_QUEUED(uint32_t shared)
+_Py_REF_IS_QUEUED(Py_ssize_t shared)
 {
     return (shared & _Py_REF_SHARED_FLAG_MASK) == _Py_REF_QUEUED;
 }
@@ -707,7 +707,7 @@ _Py_INCREF(PyObject *op)
         _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, local);
     }
     else {
-        _Py_atomic_add_uint32(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
+        _Py_atomic_add_ssize(&op->ob_ref_shared, (1 << _Py_REF_SHARED_SHIFT));
     }
 #endif
 }
@@ -907,10 +907,10 @@ _PyRef_UnpackLocal(uint32_t bits, Py_ssize_t *refcount, int *immortal, int *defe
 }
 
 static inline void
-_PyRef_UnpackShared(uint32_t bits, Py_ssize_t *refcount, int *queued, int *merged)
+_PyRef_UnpackShared(Py_ssize_t bits, Py_ssize_t *refcount, int *queued, int *merged)
 {
-    *refcount = Py_ARITHMETIC_RIGHT_SHIFT(int32_t,
-                                          (int32_t)bits,
+    *refcount = Py_ARITHMETIC_RIGHT_SHIFT(Py_ssize_t,
+                                          bits,
                                           _Py_REF_SHARED_SHIFT);
     if (queued) {
         *queued = _Py_REF_IS_QUEUED(bits);
@@ -930,7 +930,7 @@ _PyObject_HasLocalRefcnt(PyObject *op, Py_ssize_t v)
     if (local != v) {
         return 0;
     }
-    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
     return shared == 0;
 }
 
@@ -950,7 +950,7 @@ _PyObject_IsReferened(PyObject *op)
         return 1;
     }
 
-    uint32_t shared = _Py_atomic_load_uint32_relaxed(&op->ob_ref_shared);
+    Py_ssize_t shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
     _PyRef_UnpackShared(shared, &shared_refcount, NULL, NULL);
 
     return (local_refcount + shared_refcount) > 0;
@@ -969,14 +969,14 @@ _Py_RESURRECT(PyObject *op, Py_ssize_t refcnt)
     assert(!_PyObject_IS_IMMORTAL(op));
     op->ob_tid = 0;
     op->ob_ref_local = 0;
-    op->ob_ref_shared = _Py_STATIC_CAST(uint32_t, (refcnt << _Py_REF_SHARED_SHIFT) | _Py_REF_MERGED);
+    op->ob_ref_shared = (refcnt << _Py_REF_SHARED_SHIFT) + _Py_REF_MERGED;
 }
 
 static inline int
 _Py_FINISH_RESURRECT(PyObject *op)
 {
     assert(!_PyObject_IS_IMMORTAL(op));
-    uint32_t old_shared = _Py_atomic_add_uint32(
+    Py_ssize_t old_shared = _Py_atomic_add_ssize(
         &op->ob_ref_shared,
         -(1 << _Py_REF_SHARED_SHIFT));
 
