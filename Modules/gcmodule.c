@@ -766,7 +766,6 @@ delete_garbage(PyThreadState *tstate, GCState *gcstate)
                 }
             }
         }
-        assert((op->ob_gc_bits & ~(_PyGC_MASK_TRACKED|_PyGC_MASK_FINALIZED)) == 0);
         Py_DECREF(op);
     }
 }

@@ -114,7 +114,7 @@ list_ensure_capacity_slow(PyListObject *self, Py_ssize_t base, Py_ssize_t extra)
     }
 
     if (!_Py_ThreadLocal((PyObject *)self)) {
-        _Py_atomic_store_uint8_relaxed(&self->maybe_shared, 1);
+        _PyObject_GC_SET_SHARED(self);
     }
 
     size_t capacity = list_good_size(reqsize);
@@ -130,7 +130,7 @@ list_ensure_capacity_slow(PyListObject *self, Py_ssize_t base, Py_ssize_t extra)
     _Py_atomic_store_ptr_release(&self->ob_item, &arr->ob_item);
     self->allocated = capacity;
     if (old) {
-        free_list_array(old, self->maybe_shared);
+        free_list_array(old, _PyObject_GC_IS_SHARED(self));
     }
     return 0;
 }
@@ -253,7 +253,6 @@ list_new(Py_ssize_t size)
         op->allocated = capacity;
     }
     Py_SET_SIZE(op, size);
-    op->maybe_shared = 0;
     _PyObject_GC_TRACK(op);
     return op;
 }
@@ -306,8 +305,8 @@ list_item_locked(PyListObject *self, Py_ssize_t idx, PyObject *dead)
 
     PyObject *item = NULL;
     Py_BEGIN_CRITICAL_SECTION(self);
-    if (!self->maybe_shared) {
-        _Py_atomic_store_uint8_relaxed(&self->maybe_shared, 1);
+    if (!_PyObject_GC_IS_SHARED(self)) {
+        _PyObject_GC_SET_SHARED(self);
     }
     Py_ssize_t size = Py_SIZE(self);
     if (!valid_index(idx, size)) {
@@ -323,7 +322,7 @@ static int
 list_needs_read_lock(PyListObject *self)
 {
     return (!_Py_ThreadLocal((PyObject *)self) &&
-            !_Py_atomic_load_uint8_relaxed(&self->maybe_shared));
+            !_PyObject_GC_IS_SHARED(self));
 }
 
 static inline PyObject *
@@ -844,7 +843,7 @@ _list_clear_impl(PyListObject *a, bool is_resize)
         while (--i >= 0) {
             Py_XDECREF(item[i]);
         }
-        free_list_array(item, is_resize && a->maybe_shared);
+        free_list_array(item, is_resize && _PyObject_GC_IS_SHARED(a));
     }
     /* Note that there is no guarantee that the list is actually empty
        at this point, because XDECREF may have populated it again! */
@@ -2942,7 +2941,7 @@ keyfunc_fail:
         while (--i >= 0) {
             Py_XDECREF(final_ob_item[i]);
         }
-        free_list_array(final_ob_item, self->maybe_shared);
+        free_list_array(final_ob_item, _PyObject_GC_IS_SHARED(self));
     }
     return Py_XNewRef(result);
 }

@@ -26,8 +26,6 @@ typedef struct {
        If ma_values is not NULL, the table is split:
        keys are stored in ma_keys and values are stored in ma_values */
     PyDictValues *ma_values;
-
-    uint8_t ma_maybe_shared;
 } PyDictObject;
 
 PyAPI_FUNC(PyObject *) _PyDict_GetItem_KnownHash(PyObject *mp, PyObject *key,

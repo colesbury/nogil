@@ -39,6 +39,8 @@ typedef struct {
 #define _PyGC_MASK_FINALIZED   (2)
 /* Bit 2 is set when the object is not currently reachable */
 #define _PyGC_UNREACHABLE      (4)
+/* Bit 3 is used by list and dict */
+#define _PyGC_MASK_SHARED      (8)
 
 static inline PyGC_Head* _Py_AS_GC(PyObject *op) {
     char *mem = _Py_STATIC_CAST(char*, op);
@@ -69,6 +71,16 @@ static inline int _PyGC_FINALIZED(PyObject *op) {
 static inline void _PyGC_SET_FINALIZED(PyObject *op) {
     op->ob_gc_bits |= _PyGC_MASK_FINALIZED;
 }
+
+static inline int _PyObject_GC_IS_SHARED(PyObject *op) {
+    return (op->ob_gc_bits & _PyGC_MASK_SHARED) != 0;
+}
+#define _PyObject_GC_IS_SHARED(op) _PyObject_GC_IS_SHARED(_Py_CAST(PyObject*, op))
+
+static inline int _PyObject_GC_SET_SHARED(PyObject *op) {
+    return op->ob_gc_bits |= _PyGC_MASK_SHARED;
+}
+#define _PyObject_GC_SET_SHARED(op) _PyObject_GC_SET_SHARED(_Py_CAST(PyObject*, op))
 
 
 /* GC runtime state */

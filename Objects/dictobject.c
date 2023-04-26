@@ -793,7 +793,6 @@ new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free
     mp->ma_values = values;
     mp->ma_used = used;
     mp->ma_version_tag = _PyDict_NextVersion(_PyThreadState_GET());
-    mp->ma_maybe_shared = 0;
     ASSERT_CONSISTENT(mp);
     return (PyObject *)mp;
 }
@@ -1224,8 +1223,8 @@ _Py_dict_fetch_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject 
 {
     Py_ssize_t ix;
     Py_BEGIN_CRITICAL_SECTION(mp);
-    if (!mp->ma_maybe_shared) {
-        _Py_atomic_store_uint8_relaxed(&mp->ma_maybe_shared, 1);
+    if (!_PyObject_GC_IS_SHARED(mp)) {
+        _PyObject_GC_SET_SHARED(mp);
     }
     ix = _Py_dict_lookup(mp, key, hash, value_addr);
     if (*value_addr) {
@@ -1239,8 +1238,7 @@ _Py_dict_fetch_locked(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject 
 static int
 _Py_dict_needs_read_lock(PyDictObject *mp)
 {
-    return (!_Py_ThreadLocal((PyObject *)mp) &&
-            !_Py_atomic_load_uint8_relaxed(&mp->ma_maybe_shared));
+    return (!_Py_ThreadLocal((PyObject *)mp) && !_PyObject_GC_IS_SHARED(mp));
 }
 
 /*
@@ -1830,7 +1828,7 @@ dictresize(PyDictObject *mp, uint8_t log2_newsize, int unicode)
         else
 #endif
         {
-            if (mp->ma_maybe_shared) {
+            if (_PyObject_GC_IS_SHARED(mp)) {
                 _PyMem_FreeQsbr(oldkeys);
             }
             else {
@@ -2434,7 +2432,7 @@ PyDict_Clear(PyObject *op)
         return;
     PyDictObject *mp = ((PyDictObject *)op);
     Py_BEGIN_CRITICAL_SECTION(mp);
-    _dict_clear(mp, mp->ma_maybe_shared);
+    _dict_clear(mp, _PyObject_GC_IS_SHARED(mp));
     Py_END_CRITICAL_SECTION;
 }
 
@@ -3177,7 +3175,7 @@ dict_merge_dict(PyDictObject *a, PyDictObject *b, int override)
             PyDictKeysObject *oldkeys = mp->ma_keys;
             _Py_atomic_store_ptr_release(&mp->ma_keys, keys);
             if (oldkeys != Py_EMPTY_KEYS && oldkeys->dk_kind != DICT_KEYS_SPLIT) {
-                free_keys_object(oldkeys, mp->ma_maybe_shared);
+                free_keys_object(oldkeys, _PyObject_GC_IS_SHARED(mp));
             }
             if (mp->ma_values != NULL) {
                 free_values(mp->ma_values);
@@ -3395,7 +3393,6 @@ PyDict_Copy(PyObject *o)
             PyObject *value = mp->ma_values->values[i];
             split_copy->ma_values->values[i] = Py_XNewRef(value);
         }
-        split_copy->ma_maybe_shared = 0;
         if (_PyObject_GC_IS_TRACKED(mp))
             _PyObject_GC_TRACK(split_copy);
         return (PyObject *)split_copy;
@@ -4426,8 +4423,8 @@ dict_next_entry_with_lock(PyDictObject *d, PyDictKeysObject *k, Py_ssize_t i,
         i = -CONCURRENT_MODIFICATION;
         goto exit;
     }
-    if (!d->ma_maybe_shared) {
-        _Py_atomic_store_uint8_relaxed(&d->ma_maybe_shared, 1);
+    if (!_PyObject_GC_IS_SHARED(d)) {
+        _PyObject_GC_SET_SHARED(d);
     }
     while (i < k->dk_nentries) {
         PyObject *key, *value;
