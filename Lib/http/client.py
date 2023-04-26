@@ -428,7 +428,7 @@ class HTTPResponse(io.BufferedIOBase):
 
     def flush(self):
         super().flush()
-        if self.fp:
+        if self.fp and not self.fp.closed:
             self.fp.flush()
 
     def readable(self):
