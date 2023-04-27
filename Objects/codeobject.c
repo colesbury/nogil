@@ -6,6 +6,7 @@
 #include "pycore_code.h"          // _PyCodeConstructor
 #include "pycore_frame.h"         // FRAME_SPECIALS_SIZE
 #include "pycore_interp.h"        // PyInterpreterState.co_extra_freefuncs
+#include "pycore_object.h"        // _PyObject_SET_DEFERRED_REFCOUNT
 #include "pycore_opcode.h"        // _PyOpcode_Deopt
 #include "pycore_pystate.h"       // _PyInterpreterState_GET()
 #include "pycore_tuple.h"         // _PyTuple_ITEMS()
@@ -550,13 +551,15 @@ _PyCode_New(struct _PyCodeConstructor *con)
     }
 
     Py_ssize_t size = PyBytes_GET_SIZE(con->code) / sizeof(_Py_CODEUNIT);
-    PyCodeObject *co = PyObject_NewVar(PyCodeObject, &PyCode_Type, size);
+    PyCodeObject *co = PyObject_GC_NewVar(PyCodeObject, &PyCode_Type, size);
     if (co == NULL) {
         Py_XDECREF(replacement_locations);
         PyErr_NoMemory();
         return NULL;
     }
     init_code(co, con);
+    _PyObject_SET_DEFERRED_REFCOUNT(co);
+    _PyObject_GC_TRACK(co);
     Py_XDECREF(replacement_locations);
     return co;
 }
@@ -1668,6 +1671,7 @@ code_dealloc(PyCodeObject *co)
 {
     notify_code_watchers(PY_CODE_EVENT_DESTROY, co);
 
+    _PyObject_GC_UNTRACK(co);
     if (co->co_extra != NULL) {
         PyInterpreterState *interp = _PyInterpreterState_GET();
         _PyCodeObjectExtra *co_extra = co->co_extra;
@@ -1705,7 +1709,14 @@ code_dealloc(PyCodeObject *co)
     if (co->_co_linearray) {
         PyMem_Free(co->_co_linearray);
     }
-    PyObject_Free(co);
+    PyObject_GC_Del(co);
+}
+
+static int
+code_traverse(PyCodeObject *co, visitproc visit, void *arg)
+{
+    Py_VISIT(co->co_consts);
+    return 0;
 }
 
 static PyObject *
@@ -2114,9 +2125,9 @@ PyTypeObject PyCode_Type = {
     PyObject_GenericGetAttr,            /* tp_getattro */
     0,                                  /* tp_setattro */
     0,                                  /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                 /* tp_flags */
+    Py_TPFLAGS_DEFAULT|Py_TPFLAGS_HAVE_GC,      /* tp_flags */
     code_new__doc__,                    /* tp_doc */
-    0,                                  /* tp_traverse */
+    (traverseproc)code_traverse,        /* tp_traverse */
     0,                                  /* tp_clear */
     code_richcompare,                   /* tp_richcompare */
     offsetof(PyCodeObject, co_weakreflist),     /* tp_weaklistoffset */

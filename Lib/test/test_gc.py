@@ -220,12 +220,12 @@ class GCTests(unittest.TestCase):
 
     def test_function(self):
         # Tricky: f -> d -> f, code should call d.clear() after the exec to
-        # break the cycle.
+        # break the cycle. May collect f.__code__ as well.
         d = {}
         exec("def f(): pass\n", d)
         gc.collect()
         del d
-        self.assertEqual(gc.collect(), 2)
+        self.assertTrue(2 <= gc.collect() <= 3)
 
     def test_function_tp_clear_leaves_consistent_state(self):
         # https://github.com/python/cpython/issues/91636
