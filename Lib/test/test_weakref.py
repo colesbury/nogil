@@ -689,6 +689,7 @@ class ReferencesTestCase(TestBase):
         del c1, c2, C, D
         gc.collect()
 
+    @support.dont_immortalize()
     def test_callback_in_cycle_resurrection(self):
         import gc
 
@@ -824,6 +825,7 @@ class ReferencesTestCase(TestBase):
         # No exception should be raised here
         gc.collect()
 
+    @support.dont_immortalize()
     def test_classes(self):
         # Check that classes are weakrefable.
         class A(object):

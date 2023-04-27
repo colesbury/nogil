@@ -15,6 +15,7 @@
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_list.h"          // _PyList_Fini()
 #include "pycore_long.h"          // _PyLong_InitTypes()
+#include "pycore_moduleobject.h"  //  PyModuleObject
 #include "pycore_mrocache.h"      // _Py_mro_cache_init()
 #include "pycore_object.h"        // _PyDebug_PrintTotalRefs()
 #include "pycore_pathconfig.h"    // _PyConfig_WritePathConfig()
@@ -1446,6 +1447,15 @@ finalize_modules_delete_special(PyThreadState *tstate, int verbose)
     }
 }
 
+static void
+module_swap_dict(PyObject *module)
+{
+    PyModuleObject *m = (PyModuleObject *)module;
+    if (_PyObject_IS_IMMORTAL(m->md_dict)) {
+        PyObject *copy = PyDict_Copy(m->md_dict);
+        Py_SETREF(m->md_dict, copy);
+    }
+}
 
 static PyObject*
 finalize_remove_modules(PyObject *modules, int verbose)
@@ -1476,6 +1486,7 @@ finalize_remove_modules(PyObject *modules, int verbose)
             if (verbose && PyUnicode_Check(name)) { \
                 PySys_FormatStderr("# cleanup[2] removing %U\n", name); \
             } \
+            module_swap_dict(mod); \
             STORE_MODULE_WEAKREF(name, mod); \
             if (PyObject_SetItem(modules, name, Py_None) < 0) { \
                 PyErr_WriteUnraisable(NULL); \

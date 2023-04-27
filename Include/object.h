@@ -665,6 +665,7 @@ _PyObject_IS_IMMORTAL(PyObject *op)
 {
     return _Py_REF_IS_IMMORTAL(_Py_atomic_load_uint32_relaxed(&op->ob_ref_local));
 }
+#define _PyObject_IS_IMMORTAL(op) _PyObject_IS_IMMORTAL(_PyObject_CAST(op))
 
 static inline Py_ssize_t
 _Py_REF_SHARED_COUNT(Py_ssize_t shared)

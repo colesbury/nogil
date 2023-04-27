@@ -456,6 +456,33 @@ exit:
     return return_value;
 }
 
+PyDoc_STRVAR(sys__setimmortalize_deferred__doc__,
+"_setimmortalize_deferred($module, immortalize, /)\n"
+"--\n"
+"\n");
+
+#define SYS__SETIMMORTALIZE_DEFERRED_METHODDEF    \
+    {"_setimmortalize_deferred", (PyCFunction)sys__setimmortalize_deferred, METH_O, sys__setimmortalize_deferred__doc__},
+
+static PyObject *
+sys__setimmortalize_deferred_impl(PyObject *module, int immortalize);
+
+static PyObject *
+sys__setimmortalize_deferred(PyObject *module, PyObject *arg)
+{
+    PyObject *return_value = NULL;
+    int immortalize;
+
+    immortalize = PyObject_IsTrue(arg);
+    if (immortalize < 0) {
+        goto exit;
+    }
+    return_value = sys__setimmortalize_deferred_impl(module, immortalize);
+
+exit:
+    return return_value;
+}
+
 PyDoc_STRVAR(sys_set_coroutine_origin_tracking_depth__doc__,
 "set_coroutine_origin_tracking_depth($module, /, depth)\n"
 "--\n"
@@ -1337,4 +1364,4 @@ sys_is_stack_trampoline_active(PyObject *module, PyObject *Py_UNUSED(ignored))
 #ifndef SYS_GETANDROIDAPILEVEL_METHODDEF
     #define SYS_GETANDROIDAPILEVEL_METHODDEF
 #endif /* !defined(SYS_GETANDROIDAPILEVEL_METHODDEF) */
-/*[clinic end generated code: output=1ef6c758bfe857f7 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=42dcbfb142888cb7 input=a9049054013a1b77]*/

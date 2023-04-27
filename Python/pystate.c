@@ -1096,6 +1096,8 @@ set_multithreaded(void)
     if (_PyThreadState_GET() != NULL) {
         /* creating a new thread from the main thread. */
         _Py_atomic_store_int(&_PyRuntime.multithreaded, 1);
+        _Py_atomic_store_int(&_PyRuntime.immortalize_deferred, 1);
+        _PyGC_DeferredToImmortal();
     }
     else {
         /* If we don't have an active thread state, we might be creating a new
@@ -1105,6 +1107,8 @@ set_multithreaded(void)
          */
         _PyRuntimeState_StopTheWorld(&_PyRuntime);
         _Py_atomic_store_int(&_PyRuntime.multithreaded, 1);
+        _Py_atomic_store_int(&_PyRuntime.immortalize_deferred, 1);
+        _PyGC_DeferredToImmortal();
         _PyRuntimeState_StartTheWorld(&_PyRuntime);
     }
 }

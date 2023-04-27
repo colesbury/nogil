@@ -1225,6 +1225,21 @@ sys_setrecursionlimit_impl(PyObject *module, int new_limit)
 }
 
 /*[clinic input]
+sys._setimmortalize_deferred
+
+    immortalize: bool
+    /
+[clinic start generated code]*/
+
+static PyObject *
+sys__setimmortalize_deferred_impl(PyObject *module, int immortalize)
+/*[clinic end generated code: output=42893d14cade9246 input=a4e06e800eb305ba]*/
+{
+    _PyRuntime.immortalize_deferred = immortalize;
+    Py_RETURN_NONE;
+}
+
+/*[clinic input]
 sys.set_coroutine_origin_tracking_depth
 
   depth: int
@@ -2282,6 +2297,7 @@ static PyMethodDef sys_methods[] = {
     SYS__SETPROFILEALLTHREADS_METHODDEF
     SYS_GETPROFILE_METHODDEF
     SYS_SETRECURSIONLIMIT_METHODDEF
+    SYS__SETIMMORTALIZE_DEFERRED_METHODDEF
     {"settrace", sys_settrace, METH_O, settrace_doc},
     SYS__SETTRACEALLTHREADS_METHODDEF
     SYS_GETTRACE_METHODDEF

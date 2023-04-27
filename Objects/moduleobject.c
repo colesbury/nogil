@@ -120,7 +120,7 @@ static PyObject *
 new_module(PyTypeObject *mt, PyObject *args, PyObject *kws)
 {
     PyObject *m = (PyObject *)new_module_notrack(mt);
-    if (m != NULL) {
+    if (m != NULL && !_PyObject_IS_IMMORTAL(m)) {
         PyObject_GC_Track(m);
     }
     return m;
@@ -135,7 +135,9 @@ PyModule_NewObject(PyObject *name)
     m->md_initialized = 1;
     if (module_init_dict(m, m->md_dict, name, NULL) != 0)
         goto fail;
-    PyObject_GC_Track(m);
+    if (!_PyObject_IS_IMMORTAL(m)) {
+        PyObject_GC_Track(m);
+    }
     return (PyObject *)m;
 
  fail:

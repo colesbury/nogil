@@ -2192,6 +2192,15 @@ def set_recursion_limit(limit):
     finally:
         sys.setrecursionlimit(original_limit)
 
+@contextlib.contextmanager
+def dont_immortalize():
+    """Temporarily change immortalization/deferred behavior."""
+    try:
+        sys._setimmortalize_deferred(False)
+        yield
+    finally:
+        sys._setimmortalize_deferred(True)
+
 def infinite_recursion(max_depth=75):
     """Set a lower limit for tests that interact with infinite recursions
     (e.g test_ast.ASTHelpers_Test.test_recursion_direct) since on some

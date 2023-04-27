@@ -1,7 +1,8 @@
 import unittest
 
 from contextlib import contextmanager, ExitStack
-from test.support import catch_unraisable_exception, import_helper, gc_collect
+from test.support import (catch_unraisable_exception, import_helper,
+                          gc_collect, dont_immortalize)
 
 
 # Skip this test if the _testcapi module isn't available.
@@ -357,6 +358,7 @@ class TestCodeObjectWatchers(unittest.TestCase):
         self.assertEqual(
             exp_destroyed_1, _testcapi.get_code_watcher_num_destroyed_events(1))
 
+    @dont_immortalize()
     def test_code_object_events_dispatched(self):
         # verify that all counts are zero before any watchers are registered
         self.assert_event_counts(0, 0, 0, 0)

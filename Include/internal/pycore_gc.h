@@ -200,6 +200,7 @@ extern void _PyGC_InitState(struct _gc_runtime_state *);
 
 extern Py_ssize_t _PyGC_CollectNoFail(PyThreadState *tstate);
 extern void _PyGC_ResetHeap(void);
+extern void _PyGC_DeferredToImmortal(void);
 
 static inline int
 _PyGC_ShouldCollect(struct _gc_runtime_state *gcstate)

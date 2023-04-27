@@ -140,7 +140,7 @@ except ImportError:
     ctypes = None
 from test.support import (cpython_only,
                           check_impl_detail, requires_debug_ranges,
-                          gc_collect)
+                          gc_collect, dont_immortalize)
 from test.support.script_helper import assert_python_ok
 from test.support import threading_helper
 from opcode import opmap, opname
@@ -545,6 +545,7 @@ class CodeConstsTest(unittest.TestCase):
 
 class CodeWeakRefTest(unittest.TestCase):
 
+    @dont_immortalize()
     def test_basic(self):
         # Create a code object in a clean environment so that we know we have
         # the only reference to it left.

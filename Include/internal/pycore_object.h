@@ -134,7 +134,9 @@ static inline void _PyObject_GC_TRACK(
     _PyObject_ASSERT_FROM(op, !_PyObject_GC_IS_TRACKED(op),
                           "object already tracked by the garbage collector",
                           filename, lineno, __func__);
-    op->ob_gc_bits |= _PyGC_MASK_TRACKED;
+    if (!_PyObject_IS_IMMORTAL(op)) {
+        op->ob_gc_bits |= _PyGC_MASK_TRACKED;
+    }
 }
 
 /* Tell the GC to stop tracking this object.
@@ -359,8 +361,16 @@ _PyObject_SetDeferredRefcount(PyObject *op)
     assert(_Py_ThreadLocal(op) && "non thread-safe");
     assert(!_PyObject_HasDeferredRefcount(op) && "already uses deferred refcounting");
     assert(PyType_IS_GC(Py_TYPE(op)));
-    op->ob_ref_local += _Py_REF_DEFERRED_MASK + 1;
-    op->ob_ref_shared = (op->ob_ref_shared & ~_Py_REF_SHARED_FLAG_MASK) | _Py_REF_QUEUED;
+    if (_PyRuntime.immortalize_deferred) {
+        _PyObject_SetImmortal(op);
+        if (_PyObject_GC_IS_TRACKED(op)) {
+            _PyObject_GC_UNTRACK(op);
+        }
+    }
+    else {
+        op->ob_ref_local += _Py_REF_DEFERRED_MASK + 1;
+        op->ob_ref_shared = (op->ob_ref_shared & ~_Py_REF_SHARED_FLAG_MASK) | _Py_REF_QUEUED;
+    }
 }
 
 #define _PyObject_SET_DEFERRED_REFCOUNT(op) _PyObject_SetDeferredRefcount(_PyObject_CAST(op))

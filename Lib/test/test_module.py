@@ -1,7 +1,7 @@
 # Test the module type
 import unittest
 import weakref
-from test.support import gc_collect
+from test.support import gc_collect, dont_immortalize
 from test.support import import_helper
 from test.support.script_helper import assert_python_ok
 
@@ -102,6 +102,7 @@ class ModuleTests(unittest.TestCase):
         gc_collect()
         self.assertEqual(f().__dict__["bar"], 4)
 
+    @dont_immortalize()
     def test_clear_dict_in_ref_cycle(self):
         destroyed = []
         m = ModuleType("foo")
@@ -117,6 +118,7 @@ a = A(destroyed)"""
         gc_collect()
         self.assertEqual(destroyed, [1])
 
+    @dont_immortalize()
     def test_weakref(self):
         m = ModuleType("foo")
         wr = weakref.ref(m)

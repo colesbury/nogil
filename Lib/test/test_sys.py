@@ -941,6 +941,7 @@ class SysModuleTest(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(sys, "getallocatedblocks"),
                          "sys.getallocatedblocks unavailable on this build")
+    @support.dont_immortalize()
     def test_getallocatedblocks(self):
         try:
             import _testcapi
@@ -965,14 +966,6 @@ class SysModuleTest(unittest.TestCase):
             # about the underlying implementation: the function might
             # return 0 or something greater.
             self.assertGreaterEqual(a, 0)
-        try:
-            # While we could imagine a Python session where the number of
-            # multiple buffer objects would exceed the sharing of references,
-            # it is unlikely to happen in a normal test run.
-            self.assertLess(a, sys.gettotalrefcount())
-        except AttributeError:
-            # gettotalrefcount() not available
-            pass
         gc.collect()
         b = sys.getallocatedblocks()
         self.assertLessEqual(b, a)

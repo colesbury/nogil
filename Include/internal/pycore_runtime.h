@@ -87,6 +87,11 @@ typedef struct pyruntimestate {
        is created ONLY IF the GIL is disabled. */
     int multithreaded;
 
+    /* Temporary: if 1, immortalize objects that would use deferred reference
+       counting in multithreaded programs. (Simluates deferred reference counting
+       scalability in multi-threaded programs). */
+    int immortalize_deferred;
+
     /* Has Python started the process of stopping all threads? Protected by HEAD_LOCK() */
     int stop_the_world_requested;
 

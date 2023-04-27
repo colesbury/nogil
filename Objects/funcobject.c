@@ -177,7 +177,9 @@ PyFunction_NewWithQualName(PyObject *code, PyObject *globals, PyObject *qualname
     if ((code_obj->co_flags & CO_NESTED) == 0) {
         _PyObject_SET_DEFERRED_REFCOUNT(op);
     }
-    _PyObject_GC_TRACK(op);
+    if (!_PyObject_IS_IMMORTAL(op)) {
+        _PyObject_GC_TRACK(op);
+    }
     handle_func_event(PyFunction_EVENT_CREATE, op, NULL);
     return (PyObject *)op;
 

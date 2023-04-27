@@ -296,7 +296,7 @@ static bool
 validate_refcount_visitor(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size_t block_size, void* args)
 {
     VISITOR_BEGIN(block, args);
-    if (_PyObject_GC_IS_TRACKED(op)) {
+    if (_PyObject_GC_IS_TRACKED(op) && !_PyObject_IS_IMMORTAL(op)) {
         assert(_Py_GC_REFCNT(op) >= 0);
         // assert((op->ob_gc_bits & _PyGC_MASK_TID_REFCOUNT) == 0);
     }
@@ -334,6 +334,31 @@ _PyGC_ResetHeap(void)
     // TODO(sgross): should we drop mi_heap here instead?
     struct visitor_args args;
     visit_heaps(reset_heap_visitor, &args);
+}
+
+static bool
+immortalize_heap_visitor(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size_t block_size, void* args)
+{
+    VISITOR_BEGIN(block, args);
+
+    Py_ssize_t refcount;
+    int immortal, deferred;
+    _PyRef_UnpackLocal(op->ob_ref_local, &refcount, &immortal, &deferred);
+
+    if (deferred) {
+        _PyObject_SetImmortal(op);
+        if (_PyObject_GC_IS_TRACKED(op)) {
+            _PyObject_GC_UNTRACK(op);
+        }
+    }
+    return true;
+}
+
+void
+_PyGC_DeferredToImmortal(void)
+{
+    struct visitor_args args;
+    visit_heaps(immortalize_heap_visitor, &args);
 }
 
 /* Subtracts incoming references. */
@@ -432,6 +457,15 @@ update_refs(const mi_heap_t* heap, const mi_heap_area_t* area, void* block, size
     if (!_PyObject_GC_IS_TRACKED(op)) {
         return true;
     };
+
+    if (_PyObject_IS_IMMORTAL(op)) {
+        _PyObject_GC_UNTRACK(op);
+        if (gc_is_unreachable(op)) {
+            gc_clear_unreachable(op);
+            _PyObject_SetImmortal(op);
+        }
+        return true;
+    }
 
     if (PyTuple_CheckExact(op)) {
         _PyTuple_MaybeUntrack(op);
