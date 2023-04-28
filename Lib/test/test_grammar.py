@@ -325,7 +325,7 @@ class GrammarTests(unittest.TestCase):
 
     def test_var_annot_basic_semantics(self):
         # execution order
-        with self.assertRaises(NameError):
+        with self.assertRaises(ZeroDivisionError):
             no_name[does_not_exist]: no_name_again = 1/0
         with self.assertRaises(NameError):
             no_name[does_not_exist]: 1/0 = 0

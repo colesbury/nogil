@@ -355,8 +355,12 @@ def _get_instructions_bytes(code, varnames=None, constants=None,
             argrepr = f"{argreprs[0]}.{argreprs[1]}"
         elif bytecode.name == 'STORE_ATTR':
             argrepr = f"{argreprs[0]}.{argreprs[1]}=acc"
+        elif bytecode.name == 'STORE_ATTR_REG':
+            argrepr = f"acc.{argreprs[1]}={argreprs[0]}"
         elif bytecode.name == 'STORE_SUBSCR':
             argrepr = f"{argreprs[0]}[{argreprs[1]}]=acc"
+        elif bytecode.name == 'STORE_SUBSCR_REG':
+            argrepr = f"{argreprs[1]}[acc]={argreprs[0]}"
         elif bytecode.name == 'BINARY_SUBSCR':
             argrepr = f"{argreprs[0]}[acc]"
         elif bytecode.name == 'MOVE' or bytecode.name == 'COPY':

@@ -1427,6 +1427,26 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
         DISPATCH(STORE_SUBSCR);
     }
 
+    TARGET(STORE_SUBSCR_REG) {
+        PyObject *value = AS_OBJ(regs[UImm(0)]);
+        if (UNLIKELY(value == NULL)) {
+            goto LABEL(unbound_local_error);
+        }
+        PyObject *container = AS_OBJ(regs[UImm(1)]);
+        if (UNLIKELY(container == NULL)) {
+            goto LABEL(unbound_local_error1);
+        }
+        PyObject *sub = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyObject_SetItem(container, sub, value));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(STORE_SUBSCR_REG);
+    }
+
     TARGET(STORE_ATTR) {
         PyObject *owner = AS_OBJ(regs[UImm(0)]);
         if (UNLIKELY(owner == NULL)) {
@@ -1442,6 +1462,23 @@ _PyEval_Fast(PyThreadState *ts, Register initial_acc, const uint8_t *initial_pc)
         DECREF(acc);
         acc.as_int64 = 0;
         DISPATCH(STORE_ATTR);
+    }
+
+    TARGET(STORE_ATTR_REG) {
+        PyObject *value = AS_OBJ(regs[UImm(0)]);
+        if (UNLIKELY(value == NULL)) {
+            goto LABEL(unbound_local_error);
+        }
+        PyObject *name = constants[UImm(1)];
+        PyObject *owner = AS_OBJ(acc);
+        int err;
+        CALL_VM(err = PyObject_SetAttr(owner, name, value));
+        if (UNLIKELY(err != 0)) {
+            goto error;
+        }
+        DECREF(acc);
+        acc.as_int64 = 0;
+        DISPATCH(STORE_ATTR_REG);
     }
 
     TARGET(LOAD_FAST) {

@@ -1331,6 +1331,19 @@ clear_reg(struct compiler *c, Py_ssize_t reg)
     }
 }
 
+static int
+is_fastlocal(struct compiler *c, expr_ty e)
+{
+    if (e->kind == Name_kind) {
+        PyObject *mangled = mangle(c, e->v.Name.id);
+        int access = compiler_access(c, mangled);
+        if (access == ACCESS_FAST) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* returns the register of `e` is a local variable name; otherwise -1*/
 static Py_ssize_t
 expr_as_reg(struct compiler *c, expr_ty e)
@@ -1618,24 +1631,6 @@ static int32_t
 const_none(struct compiler *c)
 {
     return compiler_const(c, Py_None);
-}
-
-static void
-const_to_reg(struct compiler *c, PyObject *name, Py_ssize_t reg)
-{
-    emit1(c, LOAD_CONST, compiler_const(c, name));
-    emit1(c, STORE_FAST, reg);
-    if (reg >= c->unit->next_register) {
-        reserve_regs(c, reg - c->unit->next_register + 1);
-    }
-}
-
-static Py_ssize_t
-const_to_any_reg(struct compiler *c, PyObject *name)
-{
-    Py_ssize_t reg = reserve_regs(c, 1);
-    const_to_reg(c, name, reg);
-    return reg;
 }
 
 /* These macros allows to check only for errors and not emit bytecode
@@ -3218,18 +3213,14 @@ compiler_assign_reg(struct compiler *c, expr_ty t, Py_ssize_t reg, bool preserve
         return;
     case Attribute_kind: {
         validate_name(c, t->v.Attribute.attr);
-        Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
-        emit1(c, LOAD_FAST, reg);
-        emit2(c, STORE_ATTR, owner, compiler_name(c, t->v.Attribute.attr));
-        clear_reg(c, owner);
+        compiler_visit_expr(c, t->v.Attribute.value);
+        emit2(c, STORE_ATTR_REG, reg, compiler_name(c, t->v.Attribute.attr));
         break;
     }
     case Subscript_kind: {
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
-        emit1(c, LOAD_FAST, reg);
-        emit2(c, STORE_SUBSCR, container, sub);
-        clear_reg(c, sub);
+        compiler_visit_expr(c, t->v.Subscript.slice);
+        emit2(c, STORE_SUBSCR_REG, reg, container);
         clear_reg(c, container);
         break;
     }
@@ -3272,15 +3263,8 @@ compiler_assign_acc(struct compiler *c, expr_ty t)
         return;
     }
     case Subscript_kind: {
-        // TODO: need slice_as_reg
+        // Fall-through to compiler_assign_reg
         break;
-        // Py_ssize_t container = expr_as_reg(c, t->v.Subscript.value);
-        // Py_ssize_t sub = expr_as_reg(c, t->v.Subscript.slice);
-        // if (container == -1 || sub == -1) {
-        //     break;
-        // }
-        // emit2(c, STORE_SUBSCR, container, sub);
-        // return;
     }
     case List_kind:
         assignment_helper(c, t->v.List.elts);
@@ -3318,19 +3302,27 @@ compiler_assign_expr(struct compiler *c, expr_ty t, expr_ty value)
         break;
     case Attribute_kind: {
         validate_name(c, t->v.Attribute.attr);
-        Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
-        compiler_visit_expr(c, value);
-        emit2(c, STORE_ATTR, owner, compiler_name(c, t->v.Attribute.attr));
-        clear_reg(c, owner);
+        if (value->kind == Constant_kind || is_fastlocal(c, t->v.Attribute.value)) {
+            Py_ssize_t owner = expr_to_any_reg(c, t->v.Attribute.value);
+            compiler_visit_expr(c, value);
+            emit2(c, STORE_ATTR, owner, compiler_name(c, t->v.Attribute.attr));
+            clear_reg(c, owner);
+        }
+        else {
+            Py_ssize_t reg_value = expr_to_any_reg(c, value);
+            compiler_visit_expr(c, t->v.Attribute.value);
+            emit2(c, STORE_ATTR_REG, reg_value, compiler_name(c, t->v.Attribute.attr));
+            clear_reg(c, reg_value);
+        }
         break;
     }
     case Subscript_kind: {
+        Py_ssize_t reg_value = expr_to_any_reg(c, value);
         Py_ssize_t container = expr_to_any_reg(c, t->v.Subscript.value);
-        Py_ssize_t sub = expr_to_any_reg(c, t->v.Subscript.slice);
-        compiler_visit_expr(c, value);
-        emit2(c, STORE_SUBSCR, container, sub);
-        clear_reg(c, sub);
+        compiler_visit_expr(c, t->v.Subscript.slice);
+        emit2(c, STORE_SUBSCR_REG, reg_value, container);
         clear_reg(c, container);
+        clear_reg(c, reg_value);
         break;
     }
     case List_kind:
@@ -4097,10 +4089,10 @@ kwdargs_to_reg(struct compiler *c, asdl_seq *kwds, Py_ssize_t reg)
                 emit1(c, BUILD_MAP, 8);
                 emit1(c, STORE_FAST, dict);
             }
-            Py_ssize_t reg_key = const_to_any_reg(c, key);
-            compiler_visit_expr(c, value);
-            emit2(c, STORE_SUBSCR, dict, reg_key);
-            clear_reg(c, reg_key);
+            Py_ssize_t reg_value = expr_to_any_reg(c, value);
+            emit1(c, LOAD_CONST, compiler_const(c, key));
+            emit2(c, STORE_SUBSCR_REG, reg_value, dict);
+            clear_reg(c, reg_value);
         }
     }
 
@@ -5119,12 +5111,12 @@ compiler_annassign(struct compiler *c, stmt_ty s)
         break;
     case Attribute_kind:
         validate_name(c, targ->v.Attribute.attr);
-        if (s->v.AnnAssign.value) {
+        if (!s->v.AnnAssign.value) {
             check_ann_expr(c, targ->v.Attribute.value);
         }
         break;
     case Subscript_kind:
-        if (s->v.AnnAssign.value) {
+        if (!s->v.AnnAssign.value) {
             check_ann_expr(c, targ->v.Subscript.value);
             check_ann_subscr(c, targ->v.Subscript.slice);
         }
