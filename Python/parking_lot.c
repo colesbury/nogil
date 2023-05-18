@@ -336,8 +336,6 @@ _PyParkingLot_ParkEx(const void *key,
                      int64_t ns,
                      int detach)
 {
-    ThreadData *this_thread = thread_data;
-    assert(thread_data->depth >= 0 && thread_data->depth < MAX_DEPTH);
     Bucket *bucket = &buckets[((uintptr_t)key) % NUM_BUCKETS];
 
     _PyRawMutex_lock(&bucket->mutex);
@@ -351,7 +349,7 @@ _PyParkingLot_ParkEx(const void *key,
 
     int res = _PyWakeup_Wait(wait->wakeup, ns, detach);
     if (res == PY_PARK_OK) {
-        this_thread->depth--;
+        _PyWakeup_Release(wait->wakeup);
         return res;
     }
 
