@@ -1439,7 +1439,8 @@ tstate_delete_common(PyThreadState *tstate,
     tstate_impl->qsbr = NULL;
 
     if (tstate->heaps != NULL) {
-        _mi_thread_abandon(tstate->heaps[0].tld);
+        mi_tld_t *tld = tstate->heaps[0].tld;
+        _mi_thread_abandon(tld, /*is_active=*/true);
     }
 
     tstate->heaps = NULL;
@@ -1572,7 +1573,7 @@ _PyThreadState_UnlinkExcept(_PyRuntimeState *runtime, PyThreadState *tstate, int
                 assert(tld->status == 0);
                 tld->status = MI_THREAD_DEAD;
             }
-            _mi_thread_abandon(tld);
+            _mi_thread_abandon(tld, /*is_active=*/false);
         }
     }
 

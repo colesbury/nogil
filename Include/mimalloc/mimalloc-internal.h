@@ -74,7 +74,7 @@ extern mi_decl_cache_align const mi_page_t  _mi_page_empty;
 bool       _mi_is_main_thread(void);
 size_t     _mi_current_thread_count(void);
 bool       _mi_preloading(void);  // true while the C runtime is not ready
-void       _mi_thread_abandon(mi_tld_t *tld);
+void       _mi_thread_abandon(mi_tld_t *tld, bool is_current);
 
 // os.c
 size_t     _mi_os_page_size(void);

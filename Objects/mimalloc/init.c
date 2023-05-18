@@ -294,8 +294,9 @@ static bool _mi_heap_init(void) {
 }
 
 static void _mi_tld_destroy(mi_tld_t *tld);
+static int _mi_tld_set_status(mi_tld_t *tld, uintptr_t new_status);
 
-void _mi_thread_abandon(mi_tld_t *tld) {
+void _mi_thread_abandon(mi_tld_t *tld, bool is_current) {
   uintptr_t refcount = mi_atomic_decrement_acq_rel(&tld->refcount) - 1;
   if (refcount != 0) {
     return;
@@ -332,17 +333,23 @@ void _mi_thread_abandon(mi_tld_t *tld) {
   // merge stats
   _mi_stats_done(&heap->tld->stats);
 
+  if (is_current || _mi_tld_set_status(tld, MI_THREAD_ABANDONED)) {
+    _mi_tld_destroy(tld);
+  }
+
+  // reset default heap
+  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
+}
+
+static int _mi_tld_set_status(mi_tld_t *tld, uintptr_t new_status) {
   uintptr_t status;
   do {
     status = mi_atomic_load_relaxed(&tld->status);
     if (status != MI_THREAD_ALIVE) {
-      _mi_tld_destroy(tld);
-      break;
+      return 1;
     }
-  } while (!mi_atomic_cas_strong_acq_rel(&tld->status, &status, MI_THREAD_ABANDONED));
-
-  // reset default heap
-  _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
+  } while (!mi_atomic_cas_strong_acq_rel(&tld->status, &status, new_status));
+  return 0;
 }
 
 static void _mi_tld_destroy(mi_tld_t *tld) {
@@ -477,15 +484,9 @@ static void _mi_thread_done(mi_heap_t* heap) {
   // reset default heap
   _mi_heap_set_default_direct(_mi_is_main_thread() ? &_mi_heap_main : (mi_heap_t*)&_mi_heap_empty);
 
-  mi_tld_t *tld = heap->tld;
-  uintptr_t status;
-  do {
-    status = mi_atomic_load_relaxed(&tld->status);
-    if (status != MI_THREAD_ALIVE) {
-      _mi_tld_destroy(tld);
-      break;
-    }
-  } while (!mi_atomic_cas_strong_acq_rel(&tld->status, &status, MI_THREAD_DEAD));
+  if (_mi_tld_set_status(heap->tld, MI_THREAD_DEAD)) {
+      _mi_tld_destroy(heap->tld);
+  }
 }
 
 void _mi_heap_set_default_direct(mi_heap_t* heap)  {
