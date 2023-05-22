@@ -845,6 +845,10 @@ _PyMem_AbandonQsbr(PyThreadState *tstate)
 {
     PyInterpreterState *interp = tstate->interp;
 
+    // First, process any work on both this thread's queue and the
+    // interpreter's queue.
+    _PyMem_QsbrPoll(tstate);
+
     while (!_Py_queue_is_empty(&tstate->mem_work)) {
         struct _Py_queue_node *node = _Py_queue_dequeue(&tstate->mem_work);
         if (node == NULL) {
