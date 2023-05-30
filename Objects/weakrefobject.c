@@ -959,6 +959,24 @@ _PyObject_ClearWeakRefsFromGC(PyObject *object)
 void
 PyObject_ClearWeakRefs(PyObject *object)
 {
+    if (object == NULL) {
+        fprintf(stderr, "PyObject_ClearWeakRefs called with NULL\n");
+        PyErr_BadInternalCall();
+        return;
+    }
+    uint32_t ob_ref_local = object->ob_ref_local;
+    Py_ssize_t ob_ref_shared = object->ob_ref_shared;
+    if (!_PyType_SUPPORTS_WEAKREFS(Py_TYPE(object))) {
+        fprintf(stderr, "PyObject_ClearWeakRefs called on object without weakrefs\n");
+        PyErr_BadInternalCall();
+        return;
+    }
+    if (Py_REFCNT(object) != 0) {
+        Py_ssize_t refcnt = Py_REFCNT(object);
+        fprintf(stderr, "PyObject_ClearWeakRefs called on object with refcnt != 0 (ob_ref_local=%u ob_ref_shared=%zd refcnt=%zd)\n", ob_ref_local, ob_ref_shared, refcnt);
+        PyErr_BadInternalCall();
+        return;
+    }
     if (object == NULL
         || !_PyType_SUPPORTS_WEAKREFS(Py_TYPE(object))
         || Py_REFCNT(object) != 0)
