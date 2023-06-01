@@ -462,7 +462,6 @@ init_interpreter(PyInterpreterState *interp,
     PyConfig_InitPythonConfig(&interp->config);
     _PyType_InitCache(interp);
     _Py_queue_init(&interp->mem.work);
-    _Py_queue_init(&interp->mro_buckets_to_free);
 
     interp->_initialized = 1;
 }
@@ -1074,6 +1073,7 @@ init_threadstate(PyThreadState *tstate,
     tstate->done_event = done_event;
     _PyEventRc_Incref(done_event);
     _Py_queue_init(&tstate->mem_work);
+    _Py_queue_init(&tstate->mro_buckets_to_free);
 
     if (_PyRuntime.stop_the_world_requested) {
         tstate->status = _Py_THREAD_GC;

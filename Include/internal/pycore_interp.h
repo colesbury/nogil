@@ -213,8 +213,6 @@ struct _is {
     struct callable_cache callable_cache;
     PyCodeObject *interpreter_trampoline;
 
-    struct _Py_queue_head mro_buckets_to_free;
-
     struct _Py_interp_cached_objects cached_objects;
     struct _Py_interp_static_objects static_objects;
 

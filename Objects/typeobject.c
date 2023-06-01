@@ -449,7 +449,7 @@ PyType_Modified(PyTypeObject *type)
     _PyMutex_lock(&_PyRuntime.mutex);
     _PyType_ModifiedEx(type);
     _PyMutex_unlock(&_PyRuntime.mutex);
-    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
+    _Py_mro_process_freed_buckets(_PyThreadState_GET());
 }
 
 static void
@@ -506,7 +506,7 @@ type_mro_modified(PyTypeObject *type, PyObject *bases) {
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
     type->tp_version_tag = 0; /* 0 is not a valid version tag */
     _PyMutex_unlock(&_PyRuntime.mutex);
-    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
+    _Py_mro_process_freed_buckets(_PyThreadState_GET());
 }
 
 static unsigned int
@@ -4182,7 +4182,7 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
             _Py_mro_cache_insert(&type->tp_mro_cache, name, res);
         }
         _PyMutex_unlock(&_PyRuntime.mutex);
-        _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
+        _Py_mro_process_freed_buckets(_PyThreadState_GET());
     }
 
     return res;
@@ -4397,7 +4397,7 @@ type_dealloc_common(PyTypeObject *type)
         PyErr_Restore(tp, val, tb);
     }
     _Py_mro_cache_fini_type(type);
-    _Py_mro_process_freed_buckets(_PyInterpreterState_GET());
+    _Py_mro_process_freed_buckets(_PyThreadState_GET());
 }
 
 

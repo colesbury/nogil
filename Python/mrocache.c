@@ -32,11 +32,12 @@ capacity_from_mask(Py_ssize_t mask)
 static void
 decref_empty_bucket(_Py_mro_cache_buckets *buckets)
 {
+    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
     assert(buckets->u.refcount > 0);
     buckets->u.refcount--;
     if (buckets->u.refcount == 0) {
-        PyInterpreterState *interp = _PyInterpreterState_GET();
-        _Py_queue_enqeue(&interp->mro_buckets_to_free, &buckets->node);
+        PyThreadState *tstate = _PyThreadState_GET();
+        _Py_queue_enqeue(&tstate->mro_buckets_to_free, &buckets->node);
     }
 }
 
@@ -47,8 +48,8 @@ clear_buckets(_Py_mro_cache_buckets *buckets)
         decref_empty_bucket(buckets);
     }
     else {
-        PyInterpreterState *interp = _PyInterpreterState_GET();
-        _Py_queue_enqeue(&interp->mro_buckets_to_free, &buckets->node);
+        PyThreadState *tstate = _PyThreadState_GET();
+        _Py_queue_enqeue(&tstate->mro_buckets_to_free, &buckets->node);
     }
 }
 
@@ -65,10 +66,10 @@ buckets_free(void *ptr)
 }
 
 void
-_Py_mro_process_freed_buckets(PyInterpreterState *interp)
+_Py_mro_process_freed_buckets(PyThreadState *tstate)
 {
     struct _Py_queue_node *node;
-    while ((node = _Py_queue_dequeue(&interp->mro_buckets_to_free)) != NULL) {
+    while ((node = _Py_queue_dequeue(&tstate->mro_buckets_to_free)) != NULL) {
         _Py_mro_cache_buckets *buckets = _Py_queue_data(node, _Py_mro_cache_buckets, node);
         if (buckets->used == 0 && buckets->available == 0) {
             // empty bucket; no contents to decref
@@ -137,15 +138,15 @@ _Py_mro_cache_erase(_Py_mro_cache *cache)
         return;
     }
 
-    PyInterpreterState *interp = _PyInterpreterState_GET();
-    struct _mro_cache_state *mro_cache = &interp->mro_cache;
+    PyThreadState *tstate = _PyThreadState_GET();
+    struct _mro_cache_state *mro_cache = &tstate->interp->mro_cache;
     assert(capacity_from_mask(cache->mask) <= (size_t)mro_cache->empty_buckets_capacity);
 
     _Py_mro_cache_buckets *empty_buckets = mro_cache->empty_buckets;
     empty_buckets->u.refcount++;
     _Py_atomic_store_ptr_release(&cache->buckets, empty_buckets->array);
 
-    _Py_queue_enqeue(&interp->mro_buckets_to_free, &old->node);
+    _Py_queue_enqeue(&tstate->mro_buckets_to_free, &old->node);
 }
 
 static int
@@ -266,7 +267,9 @@ _Py_mro_cache_fini_type(PyTypeObject *type)
         _Py_mro_cache_buckets *buckets = get_buckets(&type->tp_mro_cache);
         type->tp_mro_cache.buckets = NULL;
         type->tp_mro_cache.mask = 0;
+        _PyMutex_lock(&_PyRuntime.mutex);
         clear_buckets(buckets);
+        _PyMutex_unlock(&_PyRuntime.mutex);
     }
 }
 
@@ -309,7 +312,9 @@ _Py_mro_cache_fini(PyInterpreterState *interp)
     if (b != NULL) {
         interp->mro_cache.empty_buckets = NULL;
         interp->mro_cache.empty_buckets_capacity = 0;
+        _PyMutex_lock(&_PyRuntime.mutex);
         decref_empty_bucket(b);
-        _Py_mro_process_freed_buckets(interp);
+        _PyMutex_unlock(&_PyRuntime.mutex);
+        _Py_mro_process_freed_buckets(_PyThreadState_GET());
     }
 }

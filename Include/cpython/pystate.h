@@ -219,6 +219,9 @@ struct _ts {
     /* Queue of data pointers to be freed */
     struct _Py_queue_head/*<_PyMemWork>*/ mem_work;
 
+    /* Queue of mro buckets to be freed */
+    struct _Py_queue_head mro_buckets_to_free;
+
     /* XXX signal handlers should also be here */
 
     /* The following fields are here to avoid allocation during init.

@@ -45,7 +45,7 @@ extern int _Py_mro_cache_visit(_Py_mro_cache *cache, visitproc visit, void *arg)
 
 extern void _Py_mro_cache_erase(_Py_mro_cache *cache);
 extern void _Py_mro_cache_insert(_Py_mro_cache *cache, PyObject *name, PyObject *value);
-extern void _Py_mro_process_freed_buckets(PyInterpreterState *interp);
+extern void _Py_mro_process_freed_buckets(PyThreadState *tstate);
 
 extern PyObject *_Py_mro_cache_as_dict(_Py_mro_cache *cache);
 
