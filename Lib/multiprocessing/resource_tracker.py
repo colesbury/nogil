@@ -55,7 +55,7 @@ if os.name == 'posix':
 class ResourceTracker(object):
 
     def __init__(self):
-        self._lock = _thread.CriticalLock()
+        self._lock = _thread.RLock()
         self._fd = None
         self._pid = None
 

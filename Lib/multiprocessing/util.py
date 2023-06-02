@@ -176,7 +176,7 @@ def register_after_fork(obj, func):
 #
 
 import _thread
-_finalizer_registry_lock = _thread.CriticalLock()
+_finalizer_registry_lock = _thread.RLock()
 _finalizer_registry = {}
 _finalizer_counter = itertools.count()
 
