@@ -6899,9 +6899,9 @@ os_fork1_impl(PyObject *module)
         /* child: this clobbers and resets the import lock. */
         PyOS_AfterFork_Child();
     } else {
-        warn_about_fork_with_threads("fork1");
         /* parent: release the import lock. */
         PyOS_AfterFork_Parent();
+        warn_about_fork_with_threads("fork1");
     }
     if (pid == -1)
         return posix_error();
@@ -6939,9 +6939,9 @@ os_fork_impl(PyObject *module)
         /* child: this clobbers and resets the import lock. */
         PyOS_AfterFork_Child();
     } else {
-        warn_about_fork_with_threads("fork");
         /* parent: release the import lock. */
         PyOS_AfterFork_Parent();
+        warn_about_fork_with_threads("fork");
     }
     if (pid == -1)
         return posix_error();
@@ -7609,9 +7609,9 @@ os_forkpty_impl(PyObject *module)
         /* child: this clobbers and resets the import lock. */
         PyOS_AfterFork_Child();
     } else {
-        warn_about_fork_with_threads("forkpty");
         /* parent: release the import lock. */
         PyOS_AfterFork_Parent();
+        warn_about_fork_with_threads("forkpty");
     }
     if (pid == -1) {
         return posix_error();
