@@ -1438,6 +1438,9 @@ tstate_delete_common(PyThreadState *tstate,
     _Py_qsbr_unregister(tstate_impl->qsbr);
     tstate_impl->qsbr = NULL;
 
+    /* NOTE: _PyObjectQueue is used after PyThreadState_Clear() is called. */
+    _PyObjectQueue_ClearFreeList(tstate_impl);
+
     if (tstate->heaps != NULL) {
         mi_tld_t *tld = tstate->heaps[0].tld;
         _mi_thread_abandon(tld, /*is_active=*/true);

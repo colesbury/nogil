@@ -69,6 +69,16 @@ _PyObjectQueue_Free(_PyObjectQueue *q)
 }
 
 void
+_PyObjectQueue_ClearFreeList(PyThreadStateImpl *tstate_impl)
+{
+    _PyObjectQueue *q = tstate_impl->cached_queue;
+    if (q != NULL) {
+        tstate_impl->cached_queue = NULL;
+        PyMem_RawFree(q);
+    }
+}
+
+void
 _PyObjectQueue_Merge(_PyObjectQueue **dst_ptr, _PyObjectQueue **src_ptr)
 {
     _PyObjectQueue *dst = *dst_ptr;

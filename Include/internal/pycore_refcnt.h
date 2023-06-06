@@ -24,6 +24,7 @@ typedef struct _PyObjectQueue {
 
 extern _PyObjectQueue *_PyObjectQueue_New(void);
 extern void _PyObjectQueue_Free(_PyObjectQueue *);
+extern void _PyObjectQueue_ClearFreeList(PyThreadStateImpl *tstate_impl);
 
 static inline void
 _PyObjectQueue_Push(_PyObjectQueue **queue_ptr, PyObject *obj)
