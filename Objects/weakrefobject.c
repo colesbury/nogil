@@ -964,16 +964,23 @@ PyObject_ClearWeakRefs(PyObject *object)
         PyErr_BadInternalCall();
         return;
     }
-    uint32_t ob_ref_local = object->ob_ref_local;
-    Py_ssize_t ob_ref_shared = object->ob_ref_shared;
+    uintptr_t tid = _Py_atomic_load_uintptr(&object->ob_tid);
+    uint32_t ob_ref_local = _Py_atomic_load_uint32(&object->ob_ref_local);
+    Py_ssize_t ob_ref_shared = _Py_atomic_load_ssize(&object->ob_ref_shared);
+    Py_ssize_t refcnt = Py_REFCNT(object);
     if (!_PyType_SUPPORTS_WEAKREFS(Py_TYPE(object))) {
         fprintf(stderr, "PyObject_ClearWeakRefs called on object without weakrefs\n");
         PyErr_BadInternalCall();
         return;
     }
     if (Py_REFCNT(object) != 0) {
-        Py_ssize_t refcnt = Py_REFCNT(object);
-        fprintf(stderr, "PyObject_ClearWeakRefs called on object with refcnt != 0 (ob_ref_local=%u ob_ref_shared=%zd refcnt=%zd)\n", ob_ref_local, ob_ref_shared, refcnt);
+        uintptr_t new_tid = _Py_atomic_load_uintptr(&object->ob_tid);
+        uint32_t new_ob_ref_local = _Py_atomic_load_uint32(&object->ob_ref_local);
+        Py_ssize_t new_ob_ref_shared = _Py_atomic_load_ssize(&object->ob_ref_shared);
+        Py_ssize_t new_refcnt = Py_REFCNT(object);
+        fprintf(stderr, "PyObject_ClearWeakRefs called on object with refcnt != 0 (was ob_tid=%p ob_ref_local=%u ob_ref_shared=%zd refcnt=%zd) (now ob_tid=%p ob_ref_local=%u ob_ref_shared=%zd refcnt=%zd)\n",
+            (void*)tid, ob_ref_local, ob_ref_shared, refcnt,
+            (void*)new_tid, new_ob_ref_local, new_ob_ref_shared, new_refcnt);
         PyErr_BadInternalCall();
         return;
     }
