@@ -2524,8 +2524,14 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
     Py_ssize_t new_shared;
     int ok;
 
-    Py_ssize_t refcount;
+    Py_ssize_t local_refcount = (Py_ssize_t)op->ob_ref_local;
 
+    // NOTE: these must be cleared BEFORE the refcount is merged or another
+    // thread may deallocate the object before we write to them.
+    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
+    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
+
+    Py_ssize_t refcount;
     do {
         old_shared = _Py_atomic_load_ssize_relaxed(&op->ob_ref_shared);
 
@@ -2537,7 +2543,7 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
             return refcount;
         }
 
-        refcount += (op->ob_ref_local >> _Py_REF_LOCAL_SHIFT);
+        refcount += (local_refcount >> _Py_REF_LOCAL_SHIFT);
         refcount += extra;
 
         assert(refcount >= 0 /*|| _PyObject_IS_DEFERRED_RC(op)*/);
@@ -2550,8 +2556,6 @@ _Py_ExplicitMergeRefcount(PyObject *op, Py_ssize_t extra)
             new_shared);
     } while (!ok);
 
-    _Py_atomic_store_uint32_relaxed(&op->ob_ref_local, 0);
-    _Py_atomic_store_uintptr_relaxed(&op->ob_tid, 0);
     return refcount;
 }
 

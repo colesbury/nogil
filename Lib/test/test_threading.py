@@ -1848,6 +1848,34 @@ class AtexitTests(unittest.TestCase):
         self.assertIn("RuntimeError: can't register atexit after shutdown",
                 err.decode())
 
+    def test_concurrent_merge_dealloc(self):
+        rc, out, err = assert_python_ok("-c", """if True:
+            import threading
+            import queue
+
+            class MyObject:
+                pass
+
+            def thread1(work_queue):
+                while True:
+                    obj = work_queue.get()
+                    if obj is None:
+                        return
+                    del obj
+
+            work_queue = queue.SimpleQueue()
+            thread = threading.Thread(target=thread1, args=(work_queue,))
+            thread.start()
+            for _ in range(100000):
+                obj = MyObject()
+                work_queue.put(obj)
+                work_queue.put(obj)
+                work_queue.put(obj)
+                work_queue.put(obj)
+            work_queue.put(None)
+            thread.join()""")
+        self.assertFalse(err)
+
 
 if __name__ == "__main__":
     unittest.main()
