@@ -607,7 +607,11 @@ _Py_ThreadIdMatches(uintptr_t ob_tid)
 #if defined(__GNUC__) && defined(__GCC_ASM_FLAG_OUTPUTS__) && defined(__x86_64__)
     int out;
     __asm__ (
+#if defined(__MACH__) // x86_64 macOS uses GS
+        "cmp    %[tid], %%gs:0"
+#else
         "cmp    %[tid], %%fs:0"
+#endif
         : "=@ccz" (out)
         : [tid] "r"(ob_tid)
         : );
