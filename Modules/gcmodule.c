@@ -1521,7 +1521,10 @@ gc_get_referrers(PyObject *self, PyObject *args)
     struct gc_referrers_arg arg;
     arg.objs = args;
     arg.queue = NULL;
+
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
     visit_heaps(gc_referrers_visitor, &arg.base);
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
 
     return queue_to_list(&arg.queue);
 }
@@ -1617,7 +1620,11 @@ gc_get_objects_impl(PyObject *module, Py_ssize_t generation)
 
     struct gc_get_objects_arg arg;
     arg.queue = NULL;
+
+    _PyRuntimeState_StopTheWorld(&_PyRuntime);
     visit_heaps(gc_get_objects_visitor, &arg.base);
+    _PyRuntimeState_StartTheWorld(&_PyRuntime);
+
     return queue_to_list(&arg.queue);
 }
 
