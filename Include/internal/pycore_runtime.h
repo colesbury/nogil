@@ -221,6 +221,7 @@ typedef struct pyruntimestate {
     _PyMutex stoptheworld_mutex;
 
     Py_ssize_t ref_total;
+    Py_ssize_t immortal_count;
 } _PyRuntimeState;
 
 #define HEAD_LOCK(runtime) \

@@ -766,7 +766,8 @@ class GCTests(unittest.TestCase):
         for st in stats:
             self.assertIsInstance(st, dict)
             self.assertEqual(set(st),
-                             {"collected", "collections", "uncollectable"})
+                             {"collected", "collections", "uncollectable",
+                              "immortal", "live"})
             self.assertGreaterEqual(st["collected"], 0)
             self.assertGreaterEqual(st["collections"], 0)
             self.assertGreaterEqual(st["uncollectable"], 0)

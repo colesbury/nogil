@@ -187,6 +187,20 @@ _Py_DecRef(PyObject *o)
 }
 
 void
+_PyObject_SetImmortal(PyObject *op)
+{
+#ifdef Py_REF_DEBUG
+    _Py_DecRefTotalObj(op);
+#endif
+    if (!_PyObject_IS_IMMORTAL(op)) {
+        op->ob_tid = _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL);
+        op->ob_ref_local = _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL);
+        op->ob_ref_shared = 0;
+        _Py_atomic_add_ssize(&_PyRuntime.immortal_count, 1);
+    }
+}
+
+void
 _PyObject_SetRefcount(PyObject *op, Py_ssize_t refcount)
 {
     // "best-effort" -- works for the common use-case of resurrecting a

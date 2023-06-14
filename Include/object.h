@@ -642,18 +642,6 @@ _Py_ThreadLocal(PyObject *op)
 #define _Py_REF_QUEUED              0x2
 #define _Py_REF_MAYBE_WEAKREF       0x1
 
-static inline void
-_PyObject_SetImmortal(PyObject *op)
-{
-#ifdef Py_REF_DEBUG
-    _Py_DecRefTotalObj(op);
-#endif
-
-    op->ob_tid = _Py_STATIC_CAST(uintptr_t, Py_REF_IMMORTAL);
-    op->ob_ref_local = _Py_STATIC_CAST(uint32_t, Py_REF_IMMORTAL);
-    op->ob_ref_shared = 0;
-}
-
 static inline int
 _Py_REF_IS_IMMORTAL(uint32_t local)
 {

@@ -346,6 +346,8 @@ _PyObject_SetMaybeWeakref(PyObject *op)
     }
 }
 
+extern void _PyObject_SetImmortal(PyObject *op);
+
 /* Marks the object as support deferred reference counting.
  *
  * The object's type must be GC-enabled. This function is not thread-safe with

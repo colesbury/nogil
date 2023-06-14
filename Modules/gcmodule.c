@@ -1643,16 +1643,22 @@ gc_get_stats_impl(PyObject *module)
 
     /* To get consistent values despite allocations while constructing
        the result list, we use a snapshot of the running stats. */
-    stats = get_gc_state()->stats;
+    GCState *gcstate = get_gc_state();
+    stats = gcstate->stats;
 
     result = PyList_New(0);
     if (result == NULL)
         return NULL;
 
-    dict = Py_BuildValue("{snsnsn}",
+    Py_ssize_t live = _Py_atomic_load_ssize(&gcstate->gc_live);
+    Py_ssize_t immortal = _Py_atomic_load_ssize(&_PyRuntime.immortal_count);
+
+    dict = Py_BuildValue("{snsnsnsnsn}",
                          "collections", stats.collections,
                          "collected", stats.collected,
-                         "uncollectable", stats.uncollectable
+                         "uncollectable", stats.uncollectable,
+                         "live", live,
+                         "immortal", immortal
                         );
     if (dict == NULL)
         goto error;
