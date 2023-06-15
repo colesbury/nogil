@@ -1,4 +1,5 @@
 import dis
+import sys
 import textwrap
 import unittest
 
@@ -35,6 +36,7 @@ class TestLLTrace(unittest.TestCase):
             print()
         return result
 
+    @unittest.skipIf(sys.flags.nogil, "requires GIL")
     def test_lltrace(self):
         stdout = self.run_code("""
             def dont_trace_1():
@@ -63,6 +65,7 @@ class TestLLTrace(unittest.TestCase):
         self.assertNotIn("dont_trace_1", stdout)
         self.assertNotIn("'dont_trace_2' in module", stdout)
 
+    @unittest.skipIf(sys.flags.nogil, "requires GIL")
     def test_lltrace_different_module(self):
         stdout = self.run_code("""
             from test import test_lltrace
