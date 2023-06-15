@@ -19,8 +19,10 @@ _PyDictValues_LockSlow(PyDictOrValues *dorv_ptr)
 {
     _PyTime_t now = _PyTime_GetMonotonicClock();
 
-    struct mutex_entry entry;
-    entry.time_to_be_fair = now + TIME_TO_BE_FAIR_NS;
+    struct mutex_entry entry = {
+        .time_to_be_fair = now + TIME_TO_BE_FAIR_NS,
+        .handoff = 0,
+    };
 
     for (;;) {
         PyDictOrValues dorv;
@@ -50,8 +52,8 @@ _PyDictValues_LockSlow(PyDictOrValues *dorv_ptr)
         if (ret == PY_PARK_OK) {
             if (entry.handoff) {
                 // we own the lock now
-                v = (uintptr_t)_Py_atomic_load_ptr(dorv_ptr);
-                return (PyDictValues *)(v & ~7);
+                dorv.values = _Py_atomic_load_ptr(dorv_ptr);
+                return _PyDictOrValues_GetValues(dorv);
             }
         }
     }
@@ -111,6 +113,9 @@ _PyDictValues_UnlockDict(PyDictOrValues *dorv_ptr, PyObject *dict)
         if ((v & LOCKED) == UNLOCKED) {
             Py_FatalError("unlocking mutex that is not locked");
         }
+        else if (!_PyDictOrValues_IsValues(dorv)) {
+            Py_FatalError("_PyDictValues_UnlockDict: not a PyDictValues");
+        }
         else if (_Py_atomic_compare_exchange_ptr(dorv_ptr, dorv.values, dict)) {
             if ((v & HAS_PARKED)) {
                 _PyParkingLot_UnparkAll(dorv_ptr);
@@ -130,8 +135,10 @@ _PyMutex_LockSlowEx(_PyMutex *m, int detach)
 {
     _PyTime_t now = _PyTime_GetMonotonicClock();
 
-    struct mutex_entry entry;
-    entry.time_to_be_fair = now + TIME_TO_BE_FAIR_NS;
+    struct mutex_entry entry = {
+        .time_to_be_fair = now + TIME_TO_BE_FAIR_NS,
+        .handoff = 0,
+    };
 
     for (;;) {
         uint8_t v = _Py_atomic_load_uint8(&m->v);
@@ -181,8 +188,10 @@ _PyMutex_TimedLockEx(_PyMutex *m, _PyTime_t timeout, _PyLockFlags flags)
         endtime = _PyTime_Add(now, timeout);
     }
 
-    struct mutex_entry entry;
-    entry.time_to_be_fair = now + TIME_TO_BE_FAIR_NS;
+    struct mutex_entry entry = {
+        .time_to_be_fair = now + TIME_TO_BE_FAIR_NS,
+        .handoff = 0,
+    };
 
     for (;;) {
         uint8_t v = _Py_atomic_load_uint8(&m->v);
