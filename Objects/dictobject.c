@@ -451,8 +451,10 @@ static PyDictKeysObject empty_keys_struct = {
 
 #ifdef DEBUG_PYDICT
 #  define ASSERT_CONSISTENT(op) assert(_PyDict_CheckConsistency((PyObject *)(op), 1))
+#  define LOCK_AND_ASSERT_CONSISTENT(op) assert(_PyDict_LockCheckConsistency((PyObject *)(op), 1))
 #else
 #  define ASSERT_CONSISTENT(op) assert(_PyDict_CheckConsistency((PyObject *)(op), 0))
+#  define LOCK_AND_ASSERT_CONSISTENT(op) assert(_PyDict_LockCheckConsistency((PyObject *)(op), 0))
 #endif
 
 static inline int
@@ -495,6 +497,13 @@ _PyDict_CheckConsistency(PyObject *op, int check_content)
     assert(op != NULL);
     CHECK(PyDict_Check(op));
     PyDictObject *mp = (PyDictObject *)op;
+
+    // Concurrent modifications while _PyDict_CheckConsistency is running
+    // aren't safe. In general, the dict must be locked or some other condition
+    // must ensure that there aren't concurrent modifications.
+    assert(_PyMutex_is_locked(&op->ob_mutex) ||
+           _PyObject_HasLocalRefcnt(op, 1) ||
+           _PyRuntime.stop_the_world);
 
     PyDictKeysObject *keys = mp->ma_keys;
     int splitted = _PyDict_HasSplitTable(mp);
@@ -578,6 +587,16 @@ _PyDict_CheckConsistency(PyObject *op, int check_content)
     return 1;
 
 #undef CHECK
+}
+
+static int
+_PyDict_LockCheckConsistency(PyObject *op, int check_content)
+{
+    int res;
+    Py_BEGIN_CRITICAL_SECTION(op);
+    res = _PyDict_CheckConsistency(op, check_content);
+    Py_END_CRITICAL_SECTION;
+    return res;
 }
 
 /* Returns NULL if cannot allocate a new PyDictKeysObject,
@@ -3131,7 +3150,7 @@ PyDict_MergeFromSeq2(PyObject *d, PyObject *seq2, int override)
     }
 
     i = 0;
-    ASSERT_CONSISTENT(d);
+    LOCK_AND_ASSERT_CONSISTENT(d);
     goto Return;
 Fail:
     Py_XDECREF(item);
@@ -3325,7 +3344,7 @@ dict_merge(PyObject *a, PyObject *b, int override)
     if (PyErr_Occurred())
         /* Iterator completed, via error */
         return -1;
-    ASSERT_CONSISTENT(a);
+    LOCK_AND_ASSERT_CONSISTENT(a);
     return 0;
 }
 
@@ -3933,7 +3952,9 @@ dict_traverse(PyObject *op, visitproc visit, void *arg)
 static int
 dict_tp_clear(PyObject *op)
 {
+    Py_BEGIN_CRITICAL_SECTION(op);
     _dict_clear((PyDictObject *)op, false);
+    Py_END_CRITICAL_SECTION;
     return 0;
 }
 
@@ -6131,7 +6152,6 @@ _PyObjectDict_SetItem(PyTypeObject *tp, PyObject **dictptr,
             res = PyDict_SetItem(dict, key, value);
         }
     }
-    ASSERT_CONSISTENT(dict);
     return res;
 }
 
