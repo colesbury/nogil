@@ -4,6 +4,7 @@
 #include "pycore_call.h"
 #include "pycore_code.h"          // CO_FAST_FREE
 #include "pycore_compile.h"       // _Py_Mangle()
+#include "pycore_critical_section.h"  // Py_BEGIN_CRITICAL_SECTION_MUTEX
 #include "pycore_dict.h"          // _PyDict_KeysSize()
 #include "pycore_initconfig.h"    // _PyStatus_OK()
 #include "pycore_moduleobject.h"  // _PyModule_GetDef()
@@ -446,9 +447,9 @@ _PyType_ModifiedEx(PyTypeObject *type)
 void
 PyType_Modified(PyTypeObject *type)
 {
-    _PyMutex_lock(&_PyRuntime.mutex);
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
     _PyType_ModifiedEx(type);
-    _PyMutex_unlock(&_PyRuntime.mutex);
+    Py_END_CRITICAL_SECTION;
     _Py_mro_process_freed_buckets(_PyThreadState_GET());
 }
 
@@ -501,11 +502,11 @@ type_mro_modified(PyTypeObject *type, PyObject *bases) {
     }
     return;
  clear:
-    _PyMutex_lock(&_PyRuntime.mutex);
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
     _Py_mro_cache_erase(&type->tp_mro_cache);
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
     type->tp_version_tag = 0; /* 0 is not a valid version tag */
-    _PyMutex_unlock(&_PyRuntime.mutex);
+    Py_END_CRITICAL_SECTION;
     _Py_mro_process_freed_buckets(_PyThreadState_GET());
 }
 
@@ -1124,9 +1125,9 @@ static PyObject *
 type_get_mro_cache(PyTypeObject *type, void *context)
 {
     PyObject *res;
-    _PyMutex_lock(&_PyRuntime.mutex);
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
     res = _Py_mro_cache_as_dict(&type->tp_mro_cache);
-    _PyMutex_unlock(&_PyRuntime.mutex);
+    Py_END_CRITICAL_SECTION;
     return res;
 }
 
@@ -4152,10 +4153,11 @@ is_dunder_name(PyObject *name)
 
 Py_NO_INLINE static PyObject *
 _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
-    // TODO(sgross): perform lookup and insert under lock
-
     int error;
-    PyObject *res = find_name_in_mro(type, name, &error);
+    PyObject *res;
+
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
+    res = find_name_in_mro(type, name, &error);
     /* Only put NULL results into cache if there was no error. */
     if (error) {
         /* It's not ideal to clear the error condition,
@@ -4169,7 +4171,7 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
         if (error == -1) {
             PyErr_Clear();
         }
-        return NULL;
+        goto exit;
     }
 
     /* We may end up clearing live exceptions below, so make sure it's ours. */
@@ -4177,14 +4179,13 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
 
     if (MCACHE_CACHEABLE_NAME(name)) {
         // TODO(sgross): want consistency with find_name_in_mros
-        _PyMutex_lock(&_PyRuntime.mutex);
         if (assign_version_tag(type)) {
             _Py_mro_cache_insert(&type->tp_mro_cache, name, res);
         }
-        _PyMutex_unlock(&_PyRuntime.mutex);
         _Py_mro_process_freed_buckets(_PyThreadState_GET());
     }
-
+exit:
+    Py_END_CRITICAL_SECTION;
     return res;
 }
 
@@ -4373,9 +4374,9 @@ type_setattro(PyTypeObject *type, PyObject *name, PyObject *value)
         PyType_Modified(type);
 
         if (is_dunder_name(name)) {
-            _PyMutex_lock(&_PyRuntime.mutex);
+            Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
             res = update_slot(type, name);
-            _PyMutex_unlock(&_PyRuntime.mutex);
+            Py_END_CRITICAL_SECTION;
         }
         assert(_PyType_CheckConsistency(type));
     }
@@ -6974,9 +6975,9 @@ PyType_Ready(PyTypeObject *type)
         type->tp_flags |= Py_TPFLAGS_IMMUTABLETYPE;
     }
 
-    _PyMutex_lock(&_PyRuntime.mutex);
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
     _Py_mro_cache_init_type(type);
-    _PyMutex_unlock(&_PyRuntime.mutex);
+    Py_END_CRITICAL_SECTION;
 
     if (type_ready(type) < 0) {
         type->tp_flags &= ~Py_TPFLAGS_READYING;
@@ -9092,7 +9093,7 @@ update_all_slots(PyTypeObject* type)
 {
     pytype_slotdef *p;
 
-    _PyMutex_lock(&_PyRuntime.mutex);
+    Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
 
     /* Clear the VALID_VERSION flag of 'type' and all its subclasses. */
     _PyType_ModifiedEx(type);
@@ -9101,7 +9102,7 @@ update_all_slots(PyTypeObject* type)
         /* update_slot returns int but can't actually fail */
         update_slot(type, p->name_strobj);
     }
-    _PyMutex_unlock(&_PyRuntime.mutex);
+    Py_END_CRITICAL_SECTION;
 }
 
 

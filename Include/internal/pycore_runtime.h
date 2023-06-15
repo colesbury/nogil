@@ -190,6 +190,7 @@ typedef struct pyruntimestate {
     struct _py_func_runtime_state func_state;
 
     _PyMutex mutex;
+    _PyMutex mro_mutex;
     struct {
         /* Used to set PyTypeObject.tp_version_tag */
         // bpo-42745: next_version_tag remains shared by all interpreters

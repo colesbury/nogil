@@ -1,5 +1,6 @@
 #include "Python.h"
 
+#include "pycore_critical_section.h"    // Py_BEGIN_CRITICAL_SECTION_MUTEX
 #include "pycore_initconfig.h"
 #include "pycore_interp.h"
 #include "pycore_mrocache.h"
@@ -32,7 +33,7 @@ capacity_from_mask(Py_ssize_t mask)
 static void
 decref_empty_bucket(_Py_mro_cache_buckets *buckets)
 {
-    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
+    assert(_PyMutex_is_locked(&_PyRuntime.mro_mutex));
     assert(buckets->u.refcount > 0);
     buckets->u.refcount--;
     if (buckets->u.refcount == 0) {
@@ -132,7 +133,7 @@ allocate_buckets(Py_ssize_t capacity)
 void
 _Py_mro_cache_erase(_Py_mro_cache *cache)
 {
-    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
+    assert(_PyMutex_is_locked(&_PyRuntime.mro_mutex));
     _Py_mro_cache_buckets *old = get_buckets(cache);
     if (old->available == 0 && old->used == 0) {
         return;
@@ -184,7 +185,7 @@ _Py_mro_cache_insert(_Py_mro_cache *cache, PyObject *name, PyObject *value)
 {
     assert(PyUnicode_CheckExact(name) && PyUnicode_CHECK_INTERNED(name));
     // FIXME(sgross): need to lock runtime mutex
-    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
+    assert(_PyMutex_is_locked(&_PyRuntime.mro_mutex));
 
     _Py_mro_cache_buckets *buckets = get_buckets(cache);
     if (buckets->available == 0) {
@@ -227,7 +228,7 @@ _Py_mro_cache_as_dict(_Py_mro_cache *cache)
         return NULL;
     }
 
-    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
+    assert(_PyMutex_is_locked(&_PyRuntime.mro_mutex));
     _Py_mro_cache_entry *entry = cache->buckets;
     Py_ssize_t capacity = capacity_from_mask(cache->mask);
     for (Py_ssize_t i = 0; i < capacity; i++, entry++) {
@@ -250,7 +251,7 @@ _Py_mro_cache_as_dict(_Py_mro_cache *cache)
 void
 _Py_mro_cache_init_type(PyTypeObject *type)
 {
-    assert(_PyMutex_is_locked(&_PyRuntime.mutex));
+    assert(_PyMutex_is_locked(&_PyRuntime.mro_mutex));
     PyInterpreterState *interp = _PyInterpreterState_GET();
     if (type->tp_mro_cache.buckets == NULL) {
         struct _Py_mro_cache_buckets *empty_buckets = interp->mro_cache.empty_buckets;
@@ -267,9 +268,9 @@ _Py_mro_cache_fini_type(PyTypeObject *type)
         _Py_mro_cache_buckets *buckets = get_buckets(&type->tp_mro_cache);
         type->tp_mro_cache.buckets = NULL;
         type->tp_mro_cache.mask = 0;
-        _PyMutex_lock(&_PyRuntime.mutex);
+        Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
         clear_buckets(buckets);
-        _PyMutex_unlock(&_PyRuntime.mutex);
+        Py_END_CRITICAL_SECTION;
     }
 }
 
@@ -312,9 +313,9 @@ _Py_mro_cache_fini(PyInterpreterState *interp)
     if (b != NULL) {
         interp->mro_cache.empty_buckets = NULL;
         interp->mro_cache.empty_buckets_capacity = 0;
-        _PyMutex_lock(&_PyRuntime.mutex);
+        Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
         decref_empty_bucket(b);
-        _PyMutex_unlock(&_PyRuntime.mutex);
+        Py_END_CRITICAL_SECTION;
         _Py_mro_process_freed_buckets(_PyThreadState_GET());
     }
 }

@@ -60,6 +60,10 @@ enum {
     struct _Py_critical_section _cs;            \
     _Py_critical_section_begin(&_cs, &_PyObject_CAST(op)->ob_mutex)
 
+#define Py_BEGIN_CRITICAL_SECTION_MUTEX(m) {    \
+    struct _Py_critical_section _cs;            \
+    _Py_critical_section_begin(&_cs, m)
+
 #define Py_END_CRITICAL_SECTION                 \
     _Py_critical_section_end(&_cs);             \
 }
