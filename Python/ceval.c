@@ -40,7 +40,8 @@
 #include <ctype.h>
 #include <stdbool.h>
 
-#ifdef Py_DEBUG
+// TODO(sgross): lltrace isn't thread-safe right now
+#if defined(Py_DEBUG) && !defined(Py_NOGIL)
    /* For debugging the interpreter: */
 #  define LLTRACE  1      /* Low-level trace feature */
 #endif
