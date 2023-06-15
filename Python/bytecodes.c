@@ -1202,19 +1202,21 @@ dummy_func(
             assert(cframe.use_tracing == 0);
             DEOPT_IF(!PyDict_CheckExact(GLOBALS()), LOAD_GLOBAL);
             PyDictObject *dict = (PyDictObject *)GLOBALS();
+            assert(_PyObject_GC_IS_SHARED(dict));  // keys must not be freed while we access them
             _PyLoadGlobalCache *cache = (_PyLoadGlobalCache *)next_instr;
             uint32_t version = read_u32(cache->module_keys_version);
-            DEOPT_IF(dict->ma_keys->dk_version != version, LOAD_GLOBAL);
-            assert(DK_IS_UNICODE(dict->ma_keys));
-            PyDictUnicodeEntry *entries = DK_UNICODE_ENTRIES(dict->ma_keys);
-            PyObject *res = entries[cache->index].me_value;
+            PyDictKeysObject *keys = _Py_atomic_load_ptr_relaxed(&dict->ma_keys);
+            DEOPT_IF(keys->dk_version != version, LOAD_GLOBAL);
+            assert(DK_IS_UNICODE(keys));
+            PyDictUnicodeEntry *entries = DK_UNICODE_ENTRIES(keys);
+            PyObject *res = _Py_TryXFetchRef(&entries[cache->index].me_value);
             DEOPT_IF(res == NULL, LOAD_GLOBAL);
             int push_null = oparg & 1;
             PEEK(0) = NULL;
             JUMPBY(INLINE_CACHE_ENTRIES_LOAD_GLOBAL);
             STAT_INC(LOAD_GLOBAL, hit);
             STACK_GROW(push_null+1);
-            SET_TOP(Py_NewRef(res));
+            SET_TOP(res);
         }
 
         // error: LOAD_GLOBAL has irregular stack effect
@@ -1224,21 +1226,25 @@ dummy_func(
             DEOPT_IF(!PyDict_CheckExact(BUILTINS()), LOAD_GLOBAL);
             PyDictObject *mdict = (PyDictObject *)GLOBALS();
             PyDictObject *bdict = (PyDictObject *)BUILTINS();
+            assert(_PyObject_GC_IS_SHARED(mdict));  // keys must not be freed while we access them
+            assert(_PyObject_GC_IS_SHARED(bdict));
             _PyLoadGlobalCache *cache = (_PyLoadGlobalCache *)next_instr;
             uint32_t mod_version = read_u32(cache->module_keys_version);
             uint16_t bltn_version = cache->builtin_keys_version;
-            DEOPT_IF(mdict->ma_keys->dk_version != mod_version, LOAD_GLOBAL);
-            DEOPT_IF(bdict->ma_keys->dk_version != bltn_version, LOAD_GLOBAL);
-            assert(DK_IS_UNICODE(bdict->ma_keys));
-            PyDictUnicodeEntry *entries = DK_UNICODE_ENTRIES(bdict->ma_keys);
-            PyObject *res = entries[cache->index].me_value;
+            PyDictKeysObject *mkeys = _Py_atomic_load_ptr_relaxed(&mdict->ma_keys);
+            PyDictKeysObject *bkeys = _Py_atomic_load_ptr_relaxed(&bdict->ma_keys);
+            DEOPT_IF(mkeys->dk_version != mod_version, LOAD_GLOBAL);
+            DEOPT_IF(bkeys->dk_version != bltn_version, LOAD_GLOBAL);
+            assert(DK_IS_UNICODE(bkeys));
+            PyDictUnicodeEntry *entries = DK_UNICODE_ENTRIES(bkeys);
+            PyObject *res = _Py_TryXFetchRef(&entries[cache->index].me_value);
             DEOPT_IF(res == NULL, LOAD_GLOBAL);
             int push_null = oparg & 1;
             PEEK(0) = NULL;
             JUMPBY(INLINE_CACHE_ENTRIES_LOAD_GLOBAL);
             STAT_INC(LOAD_GLOBAL, hit);
             STACK_GROW(push_null+1);
-            SET_TOP(Py_NewRef(res));
+            SET_TOP(res);
         }
 
         inst(DELETE_FAST, (--)) {

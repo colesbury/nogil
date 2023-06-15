@@ -7,6 +7,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include "pycore_code.h"         // STATS
+#include "pycore_gc.h"           // _PyObject_GC_IS_SHARED
 
 /* See Objects/frame_layout.md for an explanation of the frame stack
  * including explanation of the PyFrameObject and _PyInterpreterFrame
@@ -127,6 +128,15 @@ _PyFrame_Initialize(
 
     for (int i = null_locals_from; i < code->co_nlocalsplus; i++) {
         frame->localsplus[i] = NULL;
+    }
+
+    // TODO(sgross): should this be moved to PyFunctionObject construction?
+    // TODO(sgross): should lock dict when setting "shared"
+    if (!_PyObject_GC_IS_SHARED(frame->f_globals)) {
+        _PyObject_GC_SET_SHARED(frame->f_globals);
+    }
+    if (!_PyObject_GC_IS_SHARED(frame->f_builtins)) {
+        _PyObject_GC_SET_SHARED(frame->f_builtins);
     }
 }
 
