@@ -517,12 +517,16 @@ dummy_func(
             DEOPT_IF(!_PyLong_IsPositiveSingleDigit(sub), STORE_SUBSCR);
             Py_ssize_t index = ((PyLongObject*)sub)->ob_digit[0];
             // Ensure index < len(list)
-            DEOPT_IF(index >= PyList_GET_SIZE(list), STORE_SUBSCR);
+            DEOPT_IF(!_PyMutex_lock_fast(&list->ob_mutex), STORE_SUBSCR);
+            if (index >= PyList_GET_SIZE(list)) {
+                _PyMutex_unlock(&list->ob_mutex);
+                DEOPT_IF(true, STORE_SUBSCR);
+            }
             STAT_INC(STORE_SUBSCR, hit);
-
             PyObject *old_value = PyList_GET_ITEM(list, index);
             PyList_SET_ITEM(list, index, value);
             assert(old_value != NULL);
+            _PyMutex_unlock(&list->ob_mutex);
             Py_DECREF(old_value);
             _Py_DECREF_SPECIALIZED(sub, (destructor)PyObject_Free);
             Py_DECREF(list);
