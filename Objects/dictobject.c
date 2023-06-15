@@ -305,7 +305,7 @@ _PyDict_DebugMallocStats(FILE *out)
 
 #define DK_MASK(dk) (DK_SIZE(dk)-1)
 
-static void free_keys_object(PyDictKeysObject *keys, bool use_qsbr);
+static void free_keys_object(PyDictKeysObject *keys, bool use_delayed_free);
 
 /* lookup indices.  returns DKIX_EMPTY, DKIX_DUMMY, or ix >=0 */
 static inline Py_ssize_t
@@ -695,7 +695,7 @@ new_keys_object(uint8_t log2_size, bool unicode)
 }
 
 static void
-free_keys_object(PyDictKeysObject *keys, bool use_qsbr)
+free_keys_object(PyDictKeysObject *keys, bool use_delayed_free)
 {
     assert(keys != Py_EMPTY_KEYS && keys->dk_kind != DICT_KEYS_SPLIT);
 #ifdef Py_REF_DEBUG
@@ -717,7 +717,7 @@ free_keys_object(PyDictKeysObject *keys, bool use_qsbr)
             Py_XDECREF(entries[i].me_value);
         }
     }
-    if (use_qsbr) {
+    if (use_delayed_free) {
         _PyMem_FreeQsbr(keys);
         return;
     }
@@ -769,10 +769,15 @@ new_values(size_t size)
 }
 
 static inline void
-free_values(PyDictValues *values)
+free_values(PyDictValues *values, bool use_delayed_free)
 {
     char *mem = (char *)values - _PyDictValues_PrefixSize(values);
-    PyMem_Free(mem);
+    if (use_delayed_free) {
+        _PyMem_FreeQsbr(mem);
+    }
+    else {
+        PyMem_Free(mem);
+    }
 }
 
 /* Consumes a reference to the keys object */
@@ -803,7 +808,7 @@ new_dict(PyDictKeysObject *keys, PyDictValues *values, Py_ssize_t used, int free
                 free_keys_object(keys, false);
             }
             if (free_values_on_failure) {
-                free_values(values);
+                free_values(values, false);
             }
             return NULL;
         }
@@ -1725,6 +1730,14 @@ dictresize(PyDictObject *mp, uint8_t log2_newsize, int unicode)
         unicode = 0;
     }
 
+    if (!_Py_ThreadLocal((PyObject *)mp) && !_PyObject_GC_IS_SHARED(mp)) {
+        // If a non-owning thread resizes the dict, it must ensure that the dict
+        // is marked as shared so that the freed keys/values use the delayed freeing
+        // code path, because the owning thread may still be using the keys/values without
+        // holding the lock.
+        _PyObject_GC_SET_SHARED(mp);
+    }
+
     /* NOTE: Current odict checks mp->ma_keys to detect resize happen.
      * So we can't reuse oldkeys even if oldkeys->dk_size == newsize.
      * TODO: Try reusing oldkeys when reimplement odict.
@@ -1772,7 +1785,7 @@ dictresize(PyDictObject *mp, uint8_t log2_newsize, int unicode)
             build_indices_unicode(newkeys, newentries, numentries);
         }
         mp->ma_values = NULL;
-        free_values(oldvalues);
+        free_values(oldvalues, _PyObject_GC_IS_SHARED(mp));
     }
     else {  // oldkeys is combined.
         if (oldkeys->dk_kind == DICT_KEYS_GENERAL) {
@@ -2414,7 +2427,7 @@ _PyDict_DelItemIf(PyObject *op, PyObject *key,
 
 
 static void
-_dict_clear(PyDictObject *mp, bool use_qsbr)
+_dict_clear(PyDictObject *mp, bool use_delayed_free)
 {
     PyDictKeysObject *oldkeys;
     PyDictValues *oldvalues;
@@ -2436,10 +2449,10 @@ _dict_clear(PyDictObject *mp, bool use_qsbr)
         n = oldkeys->dk_nentries;
         for (i = 0; i < n; i++)
             Py_CLEAR(oldvalues->values[i]);
-        free_values(oldvalues);
+        free_values(oldvalues, use_delayed_free);
     }
     else {
-       free_keys_object(oldkeys, use_qsbr);
+       free_keys_object(oldkeys, use_delayed_free);
     }
     ASSERT_CONSISTENT(mp);
 }
@@ -2720,7 +2733,7 @@ dict_dealloc(PyDictObject *mp)
         for (i = 0, n = nentries; i < n; i++) {
             Py_XDECREF(values->values[i]);
         }
-        free_values(values);
+        free_values(values, false);
     }
     else if (keys != Py_EMPTY_KEYS) {
         free_keys_object(keys, false);
@@ -3197,7 +3210,7 @@ dict_merge_dict(PyDictObject *a, PyDictObject *b, int override)
                 free_keys_object(oldkeys, _PyObject_GC_IS_SHARED(mp));
             }
             if (mp->ma_values != NULL) {
-                free_values(mp->ma_values);
+                free_values(mp->ma_values, _PyObject_GC_IS_SHARED(mp));
                 mp->ma_values = NULL;
             }
 
@@ -3398,7 +3411,7 @@ PyDict_Copy(PyObject *o)
             return PyErr_NoMemory();
         split_copy = PyObject_GC_New(PyDictObject, &PyDict_Type);
         if (split_copy == NULL) {
-            free_values(newvalues);
+            free_values(newvalues, false);
             return NULL;
         }
         size_t prefix_size = _PyDictValues_PrefixSize(newvalues);
@@ -6020,7 +6033,7 @@ _PyObject_FreeInstanceAttributes(PyObject *self)
     for (Py_ssize_t i = 0; i < keys->dk_nentries; i++) {
         Py_XDECREF(values->values[i]);
     }
-    free_values(values);
+    free_values(values, false);
 }
 
 int
@@ -6061,7 +6074,7 @@ _PyObject_ClearManagedDict(PyObject *obj)
             Py_CLEAR(values->values[i]);
         }
         dorv_ptr->dict = NULL;
-        free_values(values);
+        free_values(values, false);
     }
     else {
         PyObject *dict = dorv_ptr->dict;
