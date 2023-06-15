@@ -853,6 +853,7 @@ clone_combined_dict_keys(PyDictObject *orig)
     assert(PyDict_Check(orig));
     assert(Py_TYPE(orig)->tp_iter == (getiterfunc)dict_iter);
     assert(orig->ma_values == NULL);
+    assert(_PyMutex_is_locked(&((PyObject *)orig)->ob_mutex));
 
     size_t keys_size = _PyDict_KeysSize(orig->ma_keys);
     PyDictKeysObject *keys = PyMem_Malloc(keys_size);
@@ -3184,7 +3185,6 @@ dict_merge_dict(PyDictObject *a, PyDictObject *b, int override)
         /* a.update(a) or a.update({}); nothing to do */
         return 0;
 
-    Py_BEGIN_CRITICAL_SECTION2(a, b);
     if (mp->ma_used == 0) {
         /* Since the target dict is empty, PyDict_GetItem()
             * always returns NULL.  Setting override to 1
@@ -3281,7 +3281,6 @@ dict_merge_dict(PyDictObject *a, PyDictObject *b, int override)
     }
     ASSERT_CONSISTENT(a);
 exit:
-    Py_END_CRITICAL_SECTION2;
     return ret;
 }
 
@@ -3301,7 +3300,11 @@ dict_merge(PyObject *a, PyObject *b, int override)
     }
 
     if (PyDict_Check(b) && (Py_TYPE(b)->tp_iter == (getiterfunc)dict_iter)) {
-        return dict_merge_dict((PyDictObject*)a, (PyDictObject *)b, override);
+        int res;
+        Py_BEGIN_CRITICAL_SECTION2(a, b);
+        res = dict_merge_dict((PyDictObject*)a, (PyDictObject *)b, override);
+        Py_END_CRITICAL_SECTION2;
+        return res;
     }
 
     /* Do it the generic, slower way */
@@ -3386,6 +3389,57 @@ dict_copy(PyDictObject *mp, PyObject *Py_UNUSED(ignored))
     return PyDict_Copy((PyObject*)mp);
 }
 
+static PyObject *
+dict_copy_splittable(PyDictObject *mp)
+{
+    PyDictObject *split_copy;
+    size_t size = shared_keys_usable_size(mp->ma_keys);
+    PyDictValues *newvalues = new_values(size);
+    if (newvalues == NULL)
+        return PyErr_NoMemory();
+    split_copy = PyObject_GC_New(PyDictObject, &PyDict_Type);
+    if (split_copy == NULL) {
+        free_values(newvalues, false);
+        return NULL;
+    }
+    size_t prefix_size = _PyDictValues_PrefixSize(newvalues);
+    memcpy(((char *)newvalues)-prefix_size, ((char *)mp->ma_values)-prefix_size, prefix_size-1);
+    split_copy->ma_values = newvalues;
+    split_copy->ma_keys = mp->ma_keys;
+    split_copy->ma_used = mp->ma_used;
+    split_copy->ma_version_tag = _PyDict_NextVersion(_PyThreadState_GET());
+    assert(mp->ma_keys != Py_EMPTY_KEYS);
+    for (size_t i = 0; i < size; i++) {
+        PyObject *value = mp->ma_values->values[i];
+        split_copy->ma_values->values[i] = Py_XNewRef(value);
+    }
+    if (_PyObject_GC_IS_TRACKED(mp))
+        _PyObject_GC_TRACK(split_copy);
+    return (PyObject *)split_copy;
+}
+
+static PyObject *
+dict_copy_fast(PyDictObject *mp)
+{
+    PyDictKeysObject *keys = clone_combined_dict_keys(mp);
+    if (keys == NULL) {
+        return NULL;
+    }
+    PyDictObject *new = (PyDictObject *)new_dict(keys, NULL, 0, 0);
+    if (new == NULL) {
+        /* In case of an error, `new_dict()` takes care of
+            cleaning up `keys`. */
+        return NULL;
+    }
+    new->ma_used = mp->ma_used;
+    ASSERT_CONSISTENT(new);
+    if (_PyObject_GC_IS_TRACKED(mp)) {
+        /* Maintain tracking. */
+        _PyObject_GC_TRACK(new);
+    }
+    return (PyObject *)new;
+}
+
 PyObject *
 PyDict_Copy(PyObject *o)
 {
@@ -3403,79 +3457,48 @@ PyDict_Copy(PyObject *o)
         return PyDict_New();
     }
 
+    bool use_slow_copy = false;
+
+    Py_BEGIN_CRITICAL_SECTION(mp);
     if (_PyDict_HasSplitTable(mp)) {
-        PyDictObject *split_copy;
-        size_t size = shared_keys_usable_size(mp->ma_keys);
-        PyDictValues *newvalues = new_values(size);
-        if (newvalues == NULL)
-            return PyErr_NoMemory();
-        split_copy = PyObject_GC_New(PyDictObject, &PyDict_Type);
-        if (split_copy == NULL) {
-            free_values(newvalues, false);
-            return NULL;
-        }
-        size_t prefix_size = _PyDictValues_PrefixSize(newvalues);
-        memcpy(((char *)newvalues)-prefix_size, ((char *)mp->ma_values)-prefix_size, prefix_size-1);
-        split_copy->ma_values = newvalues;
-        split_copy->ma_keys = mp->ma_keys;
-        split_copy->ma_used = mp->ma_used;
-        split_copy->ma_version_tag = _PyDict_NextVersion(_PyThreadState_GET());
-        assert(mp->ma_keys != Py_EMPTY_KEYS);
-        for (size_t i = 0; i < size; i++) {
-            PyObject *value = mp->ma_values->values[i];
-            split_copy->ma_values->values[i] = Py_XNewRef(value);
-        }
-        if (_PyObject_GC_IS_TRACKED(mp))
-            _PyObject_GC_TRACK(split_copy);
-        return (PyObject *)split_copy;
+        copy = dict_copy_splittable(mp);
     }
-
-    if (Py_TYPE(mp)->tp_iter == (getiterfunc)dict_iter &&
-            mp->ma_values == NULL &&
-            (mp->ma_used >= (mp->ma_keys->dk_nentries * 2) / 3))
+    else if (Py_TYPE(mp)->tp_iter == (getiterfunc)dict_iter)
     {
-        /* Use fast-copy if:
+        // Handle dicts that don't override tp_iter:
+        if (mp->ma_used >= (mp->ma_keys->dk_nentries * 2) / 3) {
+            /* Do fast-copy only if it has at most 1/3 non-used keys.
+               The condition is important to guard against a pathological
+               case when a large dict is almost emptied with multiple del/pop
+               operations and copied after that.  In cases like this, we defer to
+               PyDict_Merge based operations below, which produce compacted copies.
+            */
+            copy = dict_copy_fast(mp);
+        }
+        else {
+            copy = PyDict_New();
+            if (copy != NULL) {
+                if (dict_merge_dict((PyDictObject *)copy, mp, 1) != 0) {
+                    Py_DECREF(copy);
+                    copy = NULL;
+                }
+            }
+        }
+    }
+    else {
+        use_slow_copy = true;
+    }
+    Py_END_CRITICAL_SECTION;
 
-           (1) type(mp) doesn't override tp_iter; and
-
-           (2) 'mp' is not a split-dict; and
-
-           (3) if 'mp' is non-compact ('del' operation does not resize dicts),
-               do fast-copy only if it has at most 1/3 non-used keys.
-
-           The last condition (3) is important to guard against a pathological
-           case when a large dict is almost emptied with multiple del/pop
-           operations and copied after that.  In cases like this, we defer to
-           PyDict_Merge, which produces a compacted copy.
-        */
-        PyDictKeysObject *keys = clone_combined_dict_keys(mp);
-        if (keys == NULL) {
+    if (use_slow_copy) {
+        copy = PyDict_New();
+        if (dict_merge(copy, o, 1) != 0) {
+            Py_DECREF(copy);
             return NULL;
         }
-        PyDictObject *new = (PyDictObject *)new_dict(keys, NULL, 0, 0);
-        if (new == NULL) {
-            /* In case of an error, `new_dict()` takes care of
-               cleaning up `keys`. */
-            return NULL;
-        }
-
-        new->ma_used = mp->ma_used;
-        ASSERT_CONSISTENT(new);
-        if (_PyObject_GC_IS_TRACKED(mp)) {
-            /* Maintain tracking. */
-            _PyObject_GC_TRACK(new);
-        }
-
-        return (PyObject *)new;
     }
 
-    copy = PyDict_New();
-    if (copy == NULL)
-        return NULL;
-    if (dict_merge(copy, o, 1) == 0)
-        return copy;
-    Py_DECREF(copy);
-    return NULL;
+    return copy;
 }
 
 Py_ssize_t
