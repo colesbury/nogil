@@ -1,0 +1,5 @@
+#!/bin/bash
+set -o pipefail
+NJOBS=${NJOBS:-40}
+
+parallel --halt now,fail=1 -N0 record_until_fail $@ ::: `seq -s ' ' 1 $NJOBS`

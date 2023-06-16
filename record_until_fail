@@ -1,0 +1,15 @@
+#!/bin/bash
+set -o pipefail
+#export PYTHONGIL=0
+
+while true; do
+  export _RR_TRACE_DIR=$(mktemp -d) 
+  #$@ 2>&1 | tee "$_RR_TRACE_DIR/out.log"
+  rr record -h $@ 2>&1 | tee "$_RR_TRACE_DIR/out.log"
+  if [ $? -ne 0 ]; then
+    echo "$_RR_TRACE_DIR"
+    echo "rr replay $_RR_TRACE_DIR/latest-trace"
+    exit 1
+  fi
+  rm -rf "$_RR_TRACE_DIR"
+done
