@@ -4077,7 +4077,7 @@ PyType_GetModuleByDef(PyTypeObject *type, PyModuleDef *def)
 
 
 /* Internal API to look for a name through the MRO, bypassing the method cache.
-   This returns a borrowed reference, and might set an exception.
+   This returns a new reference, and might set an exception.
    'error' is set to: -1: error with exception; 1: error without exception; 0: ok */
 static PyObject *
 find_name_in_mro(PyTypeObject *type, PyObject *name, int *error)
@@ -4118,7 +4118,7 @@ find_name_in_mro(PyTypeObject *type, PyObject *name, int *error)
         PyObject *base = PyTuple_GET_ITEM(mro, i);
         PyObject *dict = _PyType_CAST(base)->tp_dict;
         assert(dict && PyDict_Check(dict));
-        res = _PyDict_GetItem_KnownHash(dict, name, hash);
+        res = _PyDict_FetchItem_KnownHash(dict, name, hash);
         if (res != NULL) {
             break;
         }
@@ -4156,6 +4156,11 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
     int error;
     PyObject *res;
 
+    // TODO(sgross): find_name_in_mro can end up calling arbitrary Python code
+    // during dict lookup, including code that modifies the MRO, which means
+    // we can end up caching a stale result. That's not specific to the GIL/nogil;
+    // it can happen in single-threaded programs too.
+
     Py_BEGIN_CRITICAL_SECTION_MUTEX(&_PyRuntime.mro_mutex);
     res = find_name_in_mro(type, name, &error);
     /* Only put NULL results into cache if there was no error. */
@@ -4178,7 +4183,6 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
     assert(!PyErr_Occurred());
 
     if (MCACHE_CACHEABLE_NAME(name)) {
-        // TODO(sgross): want consistency with find_name_in_mros
         if (assign_version_tag(type)) {
             _Py_mro_cache_insert(&type->tp_mro_cache, name, res);
         }
@@ -4186,6 +4190,7 @@ _PyType_LookupSlow(PyTypeObject *type, PyObject *name) {
     }
 exit:
     Py_END_CRITICAL_SECTION;
+    Py_XDECREF(res);
     return res;
 }
 
@@ -9020,6 +9025,7 @@ update_one_slot(PyTypeObject *type, pytype_slotdef *p)
                 type->tp_flags &= ~Py_TPFLAGS_HAVE_VECTORCALL;
             }
         }
+        Py_DECREF(descr);
     } while ((++p)->offset == offset);
     if (specific && !use_generic)
         *ptr = specific;

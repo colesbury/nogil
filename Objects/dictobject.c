@@ -2085,6 +2085,21 @@ _PyDict_GetItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
     return value;
 }
 
+/* Same as _PyDict_GetItem_KnownHash but returns a new reference
+*/
+PyObject *
+_PyDict_FetchItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
+{
+    Py_ssize_t ix; (void)ix;
+    PyDictObject *mp = (PyDictObject *)op;
+    PyObject *value;
+
+    assert(PyDict_Check(op));
+    ix = _Py_dict_fetch(mp, key, hash, &value);
+    assert(ix >= 0 || value == NULL);
+    return value;
+}
+
 /* Variant of PyDict_GetItem() that doesn't suppress exceptions.
    This returns NULL *with* an exception set if an exception occurred.
    It returns NULL *without* an exception set if the key wasn't present.
