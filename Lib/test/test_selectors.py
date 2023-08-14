@@ -198,10 +198,10 @@ class BaseSelectorTestCase:
             self.addCleanup(s.close)
             rd, wr = self.make_socketpair()
             s.register(rd, selectors.EVENT_READ)
-            self.assertEqual(len(s._map), 1)
+            self.assertEqual(len(s.get_map()), 1)
             with self.assertRaises(ZeroDivisionError):
                 s.modify(rd, selectors.EVENT_WRITE)
-            self.assertEqual(len(s._map), 0)
+            self.assertEqual(len(s.get_map()), 0)
 
     def test_close(self):
         s = self.SELECTOR()

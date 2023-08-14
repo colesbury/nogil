@@ -210,8 +210,7 @@ class _BaseSelectorImpl(BaseSelector):
     def __init__(self):
         # this maps file descriptors to keys
         self._fd_to_key = {}
-        # read-only mapping returned by get_map()
-        self._map = _SelectorMapping(self)
+        self._closed = False
 
     def _fileobj_lookup(self, fileobj):
         """Return a file descriptor from a file object.
@@ -268,10 +267,13 @@ class _BaseSelectorImpl(BaseSelector):
 
     def close(self):
         self._fd_to_key.clear()
-        self._map = None
+        self._closed = True
 
     def get_map(self):
-        return self._map
+        # read-only mapping returned by get_map()
+        if self._closed:
+            return None
+        return _SelectorMapping(self)
 
     def _key_from_fd(self, fd):
         """Return the key associated to a given file descriptor.
