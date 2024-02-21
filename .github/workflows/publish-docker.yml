@@ -7,10 +7,18 @@ on:
 
 jobs:
   push_to_registry:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: "nogil/python:latest"
+            dockerfile: "docker/Dockerfile"
+          - tag: "nogil/python-arm64:latest"
+            dockerfile: "docker/arm64/Dockerfile"
+
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
     steps:
-
       - name: Check out the repo
         uses: actions/checkout@v3
 
@@ -24,18 +32,9 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           build-args: |
             commit=${{ github.sha }}
           push: true
-          tags: nogil/python:latest
+          tags: ${{ matrix.tag }}
 
-      - name: Build and push Docker image for ARM64 devices
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          file: docker/DockerfileARM64
-          build-args: |
-            commit=${{ github.sha }}
-          push: true
-          tags: nogil/python-arm64:latest
