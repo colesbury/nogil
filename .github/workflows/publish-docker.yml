@@ -38,4 +38,4 @@ jobs:
           build-args: |
             commit=${{ github.sha }}
           push: true
-          tags: nogil-arm64/python:latest
+          tags: nogil/python-arm64:latest
