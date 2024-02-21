@@ -29,3 +29,13 @@ jobs:
             commit=${{ github.sha }}
           push: true
           tags: nogil/python:latest
+
+      - name: Build and push Docker image for ARM64 devices
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: docker/DockerfileARM64
+          build-args: |
+            commit=${{ github.sha }}
+          push: true
+          tags: nogil-arm64/python:latest
