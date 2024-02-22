@@ -29,7 +29,8 @@ You can make the nogil installation the default Python installation with:
 
 ## Docker
 
-A pre-built Docker image [nogil/python](https://hub.docker.com/r/nogil/python) is available on Docker Hub. For CUDA support, use [nogil/python-cuda](https://hub.docker.com/r/nogil/python-cuda).  For arm64 devices, use [nogil/python-arm64](https://hub.docker.com/r/nogil/python-arm64)
+A pre-built Docker image [nogil/python](https://hub.docker.com/r/nogil/python) is available on Docker Hub. For CUDA support, use [nogil/python-cuda](https://hub.docker.com/r/nogil/python-cuda).  
+For arm64 devices, use [nogil/python-arm64](https://hub.docker.com/r/nogil/python-arm64)
 
 For example:
 
